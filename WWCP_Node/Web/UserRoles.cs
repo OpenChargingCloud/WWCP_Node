@@ -23,11 +23,11 @@ using System.Diagnostics.CodeAnalysis;
 
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
-namespace cloud.charging.open.protocols.WWCP.node.Configuration
+namespace cloud.charging.open.protocols.WWCP.Node.Web
 {
 
     /// <summary>
-    /// What somebody signed in to this vehicle is allowed to do.
+    /// What somebody signed in to this node is allowed to do.
     /// </summary>
     /// <remarks>
     /// Flags rather than a list, because a permission is asked about one at a
@@ -44,28 +44,29 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         None                   = 0,
 
         /// <summary>
-        /// See how this vehicle is configured.
+        /// See how this node is configured.
         /// </summary>
         ReadConfiguration      = 1,
 
         /// <summary>
-        /// Change how this vehicle reaches the network: its name resolution
-        /// and where it reads the time.
+        /// Change how this node reaches the network: its name resolution and
+        /// where it reads the time.
         /// </summary>
         /// <remarks>
         /// Separate from the charging settings below because it is reversible
-        /// and it complains: a wrong name server makes the vehicle say so, and
+        /// and it complains: a wrong name server makes the node say so, and
         /// the next change puts it right.
         /// </remarks>
         ChangeNetworkSettings  = 2,
 
         /// <summary>
-        /// Make this vehicle ask a name server, a time server or the link
-        /// below the charging cable something, to find out whether it can.
+        /// Make this node ask a name server or a time server something - or,
+        /// for a vehicle, the link below the charging cable - to find out
+        /// whether it can.
         /// </summary>
         /// <remarks>
         /// Its own permission and not part of reading: a diagnostic sends
-        /// traffic from this vehicle to a host somebody names - or, in the
+        /// traffic from this node to a host somebody names - or, in the
         /// case of SDP, to every host on the link at once - which is more than
         /// it sounds like to hand to everybody who may look at a page.
         /// </remarks>
@@ -94,15 +95,15 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         RunSessions            = 16,
 
         /// <summary>
-        /// Put certificates on this vehicle and take them off, switch them on
+        /// Put certificates on this node and take them off, switch them on
         /// and off, and say which of them a session uses.
         /// </summary>
         /// <remarks>
         /// Both halves of the certificate store, because both are decisions
-        /// about trust. The credentials are the whole of who this vehicle is
+        /// about trust. The credentials are the whole of who this node is
         /// and who pays for what it takes; the roots are the whole of whose
         /// word it takes for a station, a contract and an OEM - and somebody
-        /// who can add a root can make this vehicle believe a station nobody
+        /// who can add a root can make this node believe a station nobody
         /// else would. That is why this is the one permission not even the
         /// owner gets by default.
         /// </remarks>
@@ -116,7 +117,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A closed set, and deliberately so: a role this vehicle has never heard
+    /// A closed set, and deliberately so: a role this node has never heard
     /// of is a role it cannot enforce. So a group whose name is not one of
     /// these grants nothing, rather than quietly granting something - or, far
     /// worse, being taken for a known one because it looks similar.
@@ -124,7 +125,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
     /// <para>
     /// Each role is a user group in the HTTPExt API, under the same name, and
     /// membership of that group is what carries the permissions below. The
-    /// permissions stay here because they are this vehicle's own vocabulary:
+    /// permissions stay here because they are this node's own vocabulary:
     /// the HTTPExt API knows users, groups and organizations, and has no
     /// opinion about what "may start a charging session" means. So it answers
     /// who somebody is and this answers what that lets them do.
@@ -150,7 +151,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         #region Data
 
         /// <summary>
-        /// May look at this vehicle, and do nothing to it.
+        /// May look at this node, and do nothing to it.
         /// </summary>
         public static readonly UserRole  Viewer       = new ("viewer",
                                                              Permissions.ReadConfiguration);
@@ -184,7 +185,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
                                                              Permissions.RunSessions);
 
         /// <summary>
-        /// Everything this vehicle can be told, by whoever is trusted with all
+        /// Everything this node can be told, by whoever is trusted with all
         /// of it at once.
         /// </summary>
         public static readonly UserRole  SystemAdmin  = new ("systemadmin",
@@ -196,7 +197,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
                                                              Permissions.ManageCredentials);
 
         /// <summary>
-        /// Every role this vehicle knows.
+        /// Every role this node knows.
         /// </summary>
         public static readonly IReadOnlyList<UserRole>  All = [ Viewer, Driver, Service, SystemAdmin ];
 
@@ -216,7 +217,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
             Role   = All.FirstOrDefault(role => String.Equals(role.Name, Text?.Trim(), StringComparison.OrdinalIgnoreCase));
 
             Error  = Role is null
-                         ? $"\"{Text}\" is not a role this vehicle knows. Known roles: {String.Join(", ", All.Select(role => role.Name))}."
+                         ? $"\"{Text}\" is not a role this node knows. Known roles: {String.Join(", ", All.Select(role => role.Name))}."
                          : null;
 
             return Role is not null;
@@ -268,7 +269,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         /// being refused.
         /// </summary>
         /// <remarks>
-        /// What the browser is told is a copy of what the vehicle enforces, and
+        /// What the browser is told is a copy of what the node enforces, and
         /// not the enforcement: every request is checked again on arrival. A
         /// greyed-out button is a courtesy, not a lock.
         /// </remarks>

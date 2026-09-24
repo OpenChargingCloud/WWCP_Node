@@ -22,11 +22,11 @@ using System.Text;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.logging
+namespace cloud.charging.open.protocols.WWCP.Node.Logging
 {
 
     /// <summary>
-    /// Everything the libraries below this vehicle write with Illias' DebugX,
+    /// Everything the libraries below this node write with Illias' DebugX,
     /// into the event log - and from there onto the web interface.
     /// </summary>
     /// <remarks>
@@ -38,7 +38,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
     /// <b>Only in a debug build.</b> <c>Debug.WriteLine</c> carries
     /// <c>[Conditional("DEBUG")]</c>, so in a release build of those libraries
     /// the calls are not compiled in at all and nothing arrives here. What a
-    /// release build shows on the Logs page is what this vehicle logs itself.
+    /// release build shows on the Logs page is what this node logs itself.
     ///
     /// The tags are guessed from the text, by the table in
     /// <see cref="TagsFor"/> - a short, deliberate list of the protocol names
@@ -53,7 +53,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
 
         /// <summary>
         /// The tag every bridged line carries, so that the web interface can
-        /// tell what the vehicle said itself from what it overheard.
+        /// tell what the node said itself from what it overheard.
         /// </summary>
         public const String TraceTag = "trace";
 

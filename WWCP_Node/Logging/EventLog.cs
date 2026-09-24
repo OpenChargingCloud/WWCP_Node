@@ -23,18 +23,18 @@ using org.GraphDefined.Vanaheimr.Illias;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.logging
+namespace cloud.charging.open.protocols.WWCP.Node.Logging
 {
 
     /// <summary>
-    /// Everything that happens inside this vehicle, in one place: the
+    /// Everything that happens inside this node, in one place: the
     /// last few thousand entries in memory, and every new one handed on at once
     /// to whoever is listening - the console, and the Server-Sent Events stream
     /// the web interface hangs on.
     /// </summary>
     /// <remarks>
     /// One log rather than one per protocol, because the question somebody
-    /// actually has in front of a vehicle is "what happened just now",
+    /// actually has in front of a node is "what happened just now",
     /// and the answer is an SDP response next to the HTTP request that caused
     /// it next to the ISO 15118 session it is about. What keeps that readable
     /// is the tags: every entry says what it is about, and the web interface
@@ -76,7 +76,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
         /// </summary>
         /// <remarks>
         /// Handed in rather than reached for: a log whose times come from
-        /// somewhere else than the rest of the vehicle is a log that cannot be
+        /// somewhere else than the rest of the node is a log that cannot be
         /// held against anything - and a test that cannot move the clock can
         /// only ever watch the log say "now".
         /// </remarks>
@@ -90,7 +90,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
         /// Settable for the reason the console log's WriteBlock is: once a
         /// command line is being typed on the same console, whatever is written
         /// there has to go around that line, and only whoever draws the line
-        /// knows how. The vehicle puts the same block here as on its console
+        /// knows how. The node puts the same block here as on its console
         /// log, so that a complaint lands neither in the middle of an entry nor
         /// past a command somebody is typing.
         /// </remarks>
@@ -262,7 +262,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
         /// <summary>Ordinary, but worth finding again later.</summary>
         public LogEntry Notice  (String Message, params String[] Tags) => Log(LogLevel.Notice,   Message, Tags);
 
-        /// <summary>Something is not as it should be, but the vehicle carries on.</summary>
+        /// <summary>Something is not as it should be, but the node carries on.</summary>
         public LogEntry Warning (String Message, params String[] Tags) => Log(LogLevel.Warning,  Message, Tags);
 
         /// <summary>Something did not work.</summary>

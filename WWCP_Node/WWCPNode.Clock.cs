@@ -17,22 +17,22 @@
 
 #region Usings
 
-using cloud.charging.open.protocols.WWCP.node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using Newtonsoft.Json.Linq;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node
+namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
-    /// What time this vehicle thinks it is, and what that is worth.
+    /// What time this node thinks it is, and what that is worth.
     /// </summary>
     /// <remarks>
-    /// Two different questions, and a vehicle has to keep them apart.
+    /// Two different questions, and a node has to keep them apart.
     /// The time it shows is its own system clock. Whether that clock is any
     /// good is a separate matter, answered by asking a server that knows - and
-    /// **this vehicle does not set its clock from the answer**. It measures the
+    /// **this node does not set its clock from the answer**. It measures the
     /// difference and reports it.
     ///
     /// That is deliberate. Stepping the clock of a machine that is metering
@@ -45,21 +45,21 @@ namespace cloud.charging.open.protocols.WWCP.node
     /// **"Legal time" is never guessed.** Nothing here can tell from a hostname
     /// whether a server disseminates a country's legal time - that is a fact
     /// about an institution, not about DNS. So the operator says so, in
-    /// <c>nts.legalTimeAuthority</c>, and this vehicle then only repeats that
+    /// <c>nts.legalTimeAuthority</c>, and this node then only repeats that
     /// claim while it can stand behind it: the claim exists, the clock was
     /// actually checked against that server, the check is recent, and the
     /// difference it found was small. Any one of those missing and the display
     /// says the time is unverified instead - which is a true statement about a
-    /// vehicle that has not checked, and the whole point of not printing the
+    /// node that has not checked, and the whole point of not printing the
     /// word "legal" over it.
     /// </remarks>
-    public abstract partial class AWWCPNode : IAsyncDisposable
+    public partial class WWCPNode : IAsyncDisposable
     {
 
         #region Properties
 
         /// <summary>
-        /// How often this vehicle checks its clock.
+        /// How often this node checks its clock.
         /// </summary>
         public TimeSpan        TimeCheckEvery
             => ntsSettings?.CheckEvery ?? NTSConfiguration.DefaultCheckEvery;
@@ -72,7 +72,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             => ntsSettings?.LegalTimeAuthority;
 
         /// <summary>
-        /// How far this vehicle's clock may be off and still count.
+        /// How far this node's clock may be off and still count.
         /// </summary>
         public TimeSpan        LegalTimeTolerance
             => ntsSettings?.LegalTimeTolerance ?? NTSConfiguration.DefaultLegalTolerance;
@@ -89,10 +89,10 @@ namespace cloud.charging.open.protocols.WWCP.node
         #region (private) StartCheckingTheClock()
 
         /// <summary>
-        /// Begin checking this vehicle's clock against its time server.
+        /// Begin checking this node's clock against its time server.
         /// </summary>
         /// <remarks>
-        /// Through the vehicle's own <see cref="TimeProvider"/> rather than a
+        /// Through the node's own <see cref="TimeProvider"/> rather than a
         /// bare timer, so that a test which moves the clock moves this too.
         ///
         /// The first check is one minute in rather than at once: everything
@@ -108,7 +108,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             if (!NTSEnabled)
             {
-                Log.Info("The clock of this vehicle is not being checked: NTS is switched off.", "nts", "clock");
+                Log.Info("The clock of this node is not being checked: NTS is switched off.", "nts", "clock");
                 return;
             }
 
@@ -131,8 +131,8 @@ namespace cloud.charging.open.protocols.WWCP.node
             var asking = CheckedAgainst();
 
             Log.Info(
-                $"The clock of this vehicle will be checked against {String.Join(", ", asking)} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
-                (asking.Length > 1 ? $", at least {NTSTimeSources.MinServers} of which must answer" : "") +
+                $"The clock of this node will be checked against {String.Join(", ", asking)} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
+                (asking.Length > 1 ? $", at least {timeSources.MinServers} of which must answer" : "") +
                 (LegalTimeAuthority is not null ? $", which the operator says is {LegalTimeAuthority}." : "."),
                 "nts", "clock"
             );
@@ -163,14 +163,14 @@ namespace cloud.charging.open.protocols.WWCP.node
 
                 if (result.Value<Boolean>("ok") != true)
                     Log.Warning(
-                        $"The clock of this vehicle could not be checked: {result.Value<String>("error") ?? "no answer"}.",
+                        $"The clock of this node could not be checked: {result.Value<String>("error") ?? "no answer"}.",
                         "nts", "clock"
                     );
 
             }
             catch (Exception e)
             {
-                Log.Warning($"The clock of this vehicle could not be checked: {e.Message}", "nts", "clock");
+                Log.Warning($"The clock of this node could not be checked: {e.Message}", "nts", "clock");
             }
 
         }
@@ -191,7 +191,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// </remarks>
         private String[] CheckedAgainst()
 
-            => [.. NTSTimeSources.Bands().SelectMany(band => band).Select(source => source.Hostname.Trimmed)];
+            => [.. timeSources.Bands().SelectMany(band => band).Select(source => source.Hostname.Trimmed)];
 
         #endregion
 
@@ -229,7 +229,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
                        new JProperty("now",             now.ToString("o")),
 
-                       // Said out loud: the number above is this vehicle's own
+                       // Said out loud: the number above is this node's own
                        // clock, and the check below did not set it.
                        new JProperty("source",          "system"),
 
@@ -240,9 +240,9 @@ namespace cloud.charging.open.protocols.WWCP.node
                        // asked the whole group since there were groups.
                        new JProperty("nts",             new JObject(
                            new JProperty("enabled",       NTSEnabled),
-                           new JProperty("group",         NTSEnabled ? NTSTimeSources.Name : null),
+                           new JProperty("group",         NTSEnabled ? timeSources.Name : null),
                            new JProperty("servers",       NTSEnabled ? new JArray(CheckedAgainst()) : null),
-                           new JProperty("minServers",    NTSEnabled ? NTSTimeSources.MinServers : null),
+                           new JProperty("minServers",    NTSEnabled ? timeSources.MinServers : null),
                            new JProperty("lastServer",    lastTimeCheckServer),
                            new JProperty("checkedAt",     checkedAt?.ToString("o")),
                            new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),

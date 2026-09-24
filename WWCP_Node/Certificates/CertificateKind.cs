@@ -15,19 +15,19 @@
  * limitations under the License.
  */
 
-namespace cloud.charging.open.protocols.WWCP.node
+namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 {
 
     /// <summary>
-    /// What a certificate in this vehicle's store is <i>for</i>.
+    /// What a certificate in a node's store is <i>for</i>.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Seven kinds, in two groups that behave differently in every respect that
     /// matters. A <b>trust anchor</b> is a public certificate that says which
-    /// chains this vehicle believes; there may be any number of them active at
+    /// chains the node believes; there may be any number of them active at
     /// once, and none of them is ever chosen for a session. A <b>credential</b>
-    /// is something this vehicle presents or verifies with, carries a private
+    /// is something the node presents or verifies with, carries a private
     /// key in every case but one, and is chosen - exactly one per role - when a
     /// session starts.
     /// </para>
@@ -55,7 +55,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// A <b>V2G root</b>: what a station's certificate has to chain to.
         /// </summary>
         /// <remarks>
-        /// The one this vehicle has always had, under the older name
+        /// The one the store has always had, under the older name
         /// "trust roots". It is checked at the TLS handshake, against the
         /// certificate the station presents.
         /// </remarks>
@@ -67,12 +67,12 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// </summary>
         /// <remarks>
         /// Checked twice, and the second time is the one that earns its keep.
-        /// Once against the contract certificate this vehicle carries, when it
+        /// Once against the contract certificate the node carries, when it
         /// is loaded - a contract nobody vouches for is worth knowing about
         /// before the session rather than after it. And once against the
         /// contract certificate an ISO 15118-20 station <i>issues</i> during
         /// CertificateInstallation, which arrives over the wire from a party
-        /// this vehicle has no other reason to believe.
+        /// the node has no other reason to believe.
         /// </remarks>
         MORoot,
 
@@ -81,7 +81,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// chain to.
         /// </summary>
         /// <remarks>
-        /// Checked against the OEM provisioning certificate this vehicle
+        /// Checked against the OEM provisioning certificate the node
         /// carries. A vehicle validating its own birth certificate sounds
         /// circular and is not: the OEM certificate is the identity a station
         /// is asked to issue a contract against, so a vehicle that cannot say
@@ -145,7 +145,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
         /// <summary>
         /// Whether this kind is a root somebody chains to, rather than
-        /// something this vehicle presents.
+        /// something the node presents.
         /// </summary>
         public static Boolean IsTrustAnchor(this CertificateKind Kind)
 
@@ -165,7 +165,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// Roots must <i>not</i> carry one - a trust anchor with a private key
         /// is somebody's CA key in the wrong place - and the tariff
         /// verification key does not need one. Everything else is an identity
-        /// this vehicle proves, and cannot prove without the key.
+        /// the node proves, and cannot prove without the key.
         /// </remarks>
         public static Boolean NeedsPrivateKey(this CertificateKind Kind)
 
@@ -183,7 +183,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// </summary>
         /// <remarks>
         /// The roots sit together under one directory because they are one
-        /// thought - "what this vehicle believes" - and because a store
+        /// thought - "what this node believes" - and because a store
         /// somebody looks at with a file manager should show that at a glance.
         /// </remarks>
         public static String Directory(this CertificateKind Kind)
@@ -208,7 +208,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// </summary>
         /// <remarks>
         /// <para>
-        /// PEM for a trust anchor, PKCS#12 for everything this vehicle
+        /// PEM for a trust anchor, PKCS#12 for everything the node
         /// presents or verifies with. Not a preference but what the readers on
         /// the other side already accept: <c>TrustRoots.Load</c> scans a
         /// directory for PEM and DER and deliberately ignores PKCS#12, because
@@ -300,7 +300,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
         /// <summary>
         /// Where this kind comes in the order everything is shown and written
-        /// in: what this vehicle believes first, what it presents second.
+        /// in: what the node believes first, what it presents second.
         /// </summary>
         /// <remarks>
         /// Spelled out rather than taken from the enum's own numbering, so that
@@ -325,7 +325,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         #region All
 
         /// <summary>
-        /// Every kind this vehicle knows, in the order a page shows them:
+        /// Every kind the store knows, in the order a page shows them:
         /// what it believes first, what it presents second.
         /// </summary>
         public static readonly IReadOnlyList<CertificateKind> All = [

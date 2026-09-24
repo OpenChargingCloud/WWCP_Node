@@ -23,7 +23,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node
+namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
@@ -31,7 +31,7 @@ namespace cloud.charging.open.protocols.WWCP.node
     /// </summary>
     /// <remarks>
     /// Until this existed, the whole of what somebody starting a second copy
-    /// of the vehicle got was thirteen frames of stack trace under the
+    /// of the node got was thirteen frames of stack trace under the
     /// operating system's own words for it - on a German Windows, "Normaler-
     /// weise darf jede Socketadresse (Protokoll, Netzwerkadresse oder
     /// Anschluss) nur jeweils einmal verwendet werden", under eleven lines of
@@ -39,7 +39,7 @@ namespace cloud.charging.open.protocols.WWCP.node
     ///
     /// The reason is carried as the socket error's name rather than as the
     /// operating system's message: the name is the same everywhere, and a
-    /// vehicle standing in Germany should not answer in German to somebody
+    /// node standing in Germany should not answer in German to somebody
     /// reading the rest of its output in English.
     /// </remarks>
     public sealed class PortUnavailableException : Exception
@@ -95,7 +95,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                    // taken - which looks nothing like a port in use and is the
                    // harder of the two to work out from a stack trace.
                    SocketError.AccessDenied
-                       => "the operating system would not let this vehicle have it",
+                       => "the operating system would not let this node have it",
 
                    SocketError.AddressNotAvailable
                        => "the address it was to listen on is not one this machine has",

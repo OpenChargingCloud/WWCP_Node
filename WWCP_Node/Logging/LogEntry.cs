@@ -21,7 +21,7 @@ using Newtonsoft.Json.Linq;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.logging
+namespace cloud.charging.open.protocols.WWCP.Node.Logging
 {
 
     #region LogLevel
@@ -52,7 +52,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
         Notice,
 
         /// <summary>
-        /// Something is not as it should be, but the vehicle carries on.
+        /// Something is not as it should be, but the node carries on.
         /// </summary>
         Warning,
 
@@ -72,7 +72,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
 
 
     /// <summary>
-    /// One thing that happened inside this vehicle: when, how loudly,
+    /// One thing that happened inside this node: when, how loudly,
     /// what it was about, and what it was.
     /// </summary>
     /// <param name="Id">A number that only ever grows, so a browser can tell what it has already seen.</param>

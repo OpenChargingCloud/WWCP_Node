@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-namespace cloud.charging.open.protocols.WWCP.node.logging
+namespace cloud.charging.open.protocols.WWCP.Node.Logging
 {
 
     /// <summary>
@@ -25,14 +25,14 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
     /// The console shows what is happening to whoever is watching, and the web
     /// interface keeps the last two thousand entries for whoever asks. Both are
     /// gone when the process is: a console that was not being read kept
-    /// nothing, and the ring buffer empties with the vehicle. Everything that
+    /// nothing, and the ring buffer empties with the node. Everything that
     /// wants answering afterwards - what a station replied at four in the
     /// morning, what the clock did last week, which discovery preceded the
     /// session that failed - needs a third place, and this is it.
     ///
     /// One file per day, named for the date, appended to and flushed after
     /// every entry. Flushing every time costs a system call per entry and buys
-    /// the property that matters here: a vehicle that is killed, or that
+    /// the property that matters here: a node that is killed, or that
     /// crashes, has its last lines on disk rather than in a buffer. The volume
     /// this writes - a busy charging session is a few thousand lines - makes
     /// that trade an easy one.
@@ -41,7 +41,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
     /// evidence of the run somebody is asking about would be worse than one
     /// that needs a directory emptied now and then.
     ///
-    /// A file that cannot be written does not take the vehicle down, and does
+    /// A file that cannot be written does not take the node down, and does
     /// not bury the console under one complaint per entry either. It is said
     /// once on stderr, every following entry is tried again, and the first one
     /// that makes it is preceded in the file by a line saying how many are
@@ -83,6 +83,12 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
         public String    Directory      { get; }
 
         /// <summary>
+        /// What each file is called before its date: "ev", for
+        /// "ev-2026-09-24.log".
+        /// </summary>
+        public String    FilePrefix     { get; }
+
+        /// <summary>
         /// Entries below this level are not written. Debug by default, which is
         /// everything: the console is where a level is chosen for readability,
         /// and a file nobody is reading has no such problem.
@@ -104,14 +110,20 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
         /// </summary>
         /// <param name="Log">The event log to follow.</param>
         /// <param name="Directory">Where the files go. Made if it is not there.</param>
+        /// <param name="FilePrefix">What each file is called before its date; "node" unless the node says otherwise.</param>
         /// <param name="MinimumLevel">Entries below this level are not written.</param>
         public FileLog(EventLog  Log,
                        String    Directory,
+                       String    FilePrefix     = "node",
                        LogLevel  MinimumLevel   = LogLevel.Debug)
         {
 
+            if (String.IsNullOrWhiteSpace(FilePrefix))
+                throw new ArgumentException("A log file has to be called something before its date!", nameof(FilePrefix));
+
             this.log           = Log;
             this.Directory     = Path.GetFullPath(Directory);
+            this.FilePrefix    = FilePrefix;
             this.MinimumLevel  = MinimumLevel;
 
             System.IO.Directory.CreateDirectory(this.Directory);
@@ -147,7 +159,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
                         Close();
 
                         openFor      = day;
-                        CurrentFile  = Path.Combine(Directory, $"ev-{day:yyyy-MM-dd}.log");
+                        CurrentFile  = Path.Combine(Directory, $"{FilePrefix}-{day:yyyy-MM-dd}.log");
                         writer       = new StreamWriter(CurrentFile, append: true);
 
                     }

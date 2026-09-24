@@ -28,27 +28,27 @@ using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.Configuration
+namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
-    /// The "nts" section of the configuration file: where this vehicle
+    /// The "nts" section of the configuration file: where this node
     /// reads the time, and how it proves that the answer came from there.
     /// </summary>
     /// <remarks>
     /// As in the DNS section, null means "the file does not say": what is
-    /// missing keeps whatever the vehicle was given at construction.
+    /// missing keeps whatever the node was given at construction.
     /// </remarks>
-    /// <param name="Enabled">Whether this vehicle asks a time server at all.</param>
+    /// <param name="Enabled">Whether this node asks a time server at all.</param>
     /// <param name="Hostname">The NTS server.</param>
     /// <param name="NTSKEPort">Where its key exchange listens; 4460 unless said otherwise.</param>
     /// <param name="NTPPort">Where its NTP service listens; 123 unless said otherwise.</param>
     /// <param name="Timeout">How long one exchange may take.</param>
-    /// <param name="CheckEvery">How often this vehicle checks its clock against that server.</param>
-    /// <param name="LegalTimeAuthority">Who stands behind that server's time, e.g. "PTB" - the operator saying so, because this vehicle cannot find out by itself.</param>
-    /// <param name="LegalTimeTolerance">How far this vehicle's own clock may be from it and still count.</param>
+    /// <param name="CheckEvery">How often this node checks its clock against that server.</param>
+    /// <param name="LegalTimeAuthority">Who stands behind that server's time, e.g. "PTB" - the operator saying so, because this node cannot find out by itself.</param>
+    /// <param name="LegalTimeTolerance">How far this node's own clock may be from it and still count.</param>
     /// <param name="LegalTimeMaxAge">How old the last check may be and still count.</param>
-    /// <param name="Servers">Every time server of this vehicle, or none to ask only the one named by Hostname.</param>
+    /// <param name="Servers">Every time server of this node, or none to ask only the one named by Hostname.</param>
     /// <param name="MinServers">How many of them must answer before their time counts.</param>
     /// <param name="MaxDeviation">How far their answers may be apart before the disagreement is written down.</param>
     public sealed record NTSConfiguration(Boolean?                                 Enabled               = null,
@@ -68,18 +68,18 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         #region Data
 
         /// <summary>
-        /// How often this vehicle checks its clock against its time server,
+        /// How often this node checks its clock against its time server,
         /// when nobody says otherwise.
         /// </summary>
         /// <remarks>
         /// Often enough that a clock drifting at the rate a cheap oscillator
         /// drifts is caught long before it matters, and rarely enough that a
-        /// public time server does not notice this vehicle at all.
+        /// public time server does not notice this node at all.
         /// </remarks>
         public static readonly TimeSpan  DefaultCheckEvery        = TimeSpan.FromMinutes(15);
 
         /// <summary>
-        /// How far this vehicle's clock may be from the time it was checked
+        /// How far this node's clock may be from the time it was checked
         /// against and still be called legal time, when nobody says otherwise.
         /// </summary>
         public static readonly TimeSpan  DefaultLegalTolerance    = TimeSpan.FromSeconds(1);
@@ -101,7 +101,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         public const String  SectionName          = "nts";
 
         /// <summary>
-        /// The time server this vehicle asks when nothing says otherwise.
+        /// The time server this node asks when nothing says otherwise.
         /// </summary>
         /// <remarks>
         /// The Physikalisch-Technische Bundesanstalt, which is one of the few
@@ -110,7 +110,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         public const String  DefaultHostname      = "ptbtime1.ptb.de";
 
         /// <summary>
-        /// The time servers this vehicle asks when its configuration names none.
+        /// The time servers this node asks when its configuration names none.
         /// </summary>
         /// <remarks>
         /// All four of the PTB's, as one band: they are peers, not a first
@@ -118,7 +118,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         /// something about them that is not true.
         ///
         /// Four rather than one because one host being rebooted should not
-        /// leave this vehicle without a clock, and because two servers that agree
+        /// leave this node without a clock, and because two servers that agree
         /// catch what one server cannot: a server that is wrong rather than
         /// absent.
         ///
@@ -278,7 +278,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         #region (static) DefaultGroup()
 
         /// <summary>
-        /// The group a vehicle asks when nothing has said otherwise.
+        /// The group a node asks when nothing has said otherwise.
         /// </summary>
         public static TimeSourceGroup DefaultGroup()
 
@@ -291,12 +291,12 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         #region ToGroup(FallbackHostname)
 
         /// <summary>
-        /// The time servers of this vehicle as a group that can be asked.
+        /// The time servers of this node as a group that can be asked.
         /// </summary>
         /// <remarks>
         /// Called "legal" after the white paper's well-known group, because this
         /// is the clock that billing and certificate validity hang off. A
-        /// vehicle asking a second group for load balancing would name that one
+        /// node asking a second group for load balancing would name that one
         /// "local"; there is no such group yet and inventing one now would be
         /// naming something nobody asks for.
         ///
@@ -384,7 +384,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         #region ToJSON()
 
         /// <summary>
-        /// The section as it is written to the file; what this vehicle was not
+        /// The section as it is written to the file; what this node was not
         /// told about is not written.
         /// </summary>
         public JObject ToJSON()

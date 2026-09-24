@@ -23,12 +23,12 @@ using Newtonsoft.Json.Linq;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.Configuration
+namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
     /// The "certificates" section of the configuration file: where this
-    /// vehicle's certificate store is.
+    /// node's certificate store is.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -65,7 +65,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         /// Relative on purpose, and measured from the file that names it rather
         /// than from the working directory - see <see cref="EV"/>'s constructor.
         /// A bare name measured from wherever the process was started would put
-        /// this vehicle's private keys beside the executable for a published
+        /// this node's private keys beside the executable for a published
         /// build, which is where the next "dotnet clean" takes them.
         /// </remarks>
         public const String  DefaultDirectory = "certificates";

@@ -29,13 +29,15 @@ using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
+
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node
+namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
-    /// Making this vehicle try something, to find out whether it can:
+    /// Making this node try something, to find out whether it can:
     /// resolving a name, and asking its time server what time it is.
     /// </summary>
     /// <remarks>
@@ -50,7 +52,7 @@ namespace cloud.charging.open.protocols.WWCP.node
     /// somebody else pressed, which is the right way round for a machine that
     /// several people look after.
     /// </remarks>
-    public abstract partial class AWWCPNode : IAsyncDisposable
+    public partial class WWCPNode : IAsyncDisposable
     {
 
         #region Data
@@ -131,7 +133,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// <param name="CancellationToken">A cancellation token.</param>
         /// <param name="Server">
         /// Which of the configured name servers to ask, by its place in the
-        /// list - or null for all of them, the way this vehicle resolves
+        /// list - or null for all of them, the way this node resolves
         /// anything else.
         /// </param>
         public async Task<JObject> ResolveAsync(String                                Name,
@@ -156,7 +158,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             if (!DNSEnabled)
             {
                 Log.Warning($"DNS test for '{name}' was not run: name resolution is switched off.", "dns", "test");
-                return Failed(name, asked, "Name resolution is switched off on this vehicle.");
+                return Failed(name, asked, "Name resolution is switched off on this node.");
             }
 
             #region One server, or all of them
@@ -167,7 +169,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             {
 
                 if (which < 0 || which >= configuredDNSServers.Count)
-                    return Failed(name, asked, $"This vehicle has no name server number {which + 1}.");
+                    return Failed(name, asked, $"This node has no name server number {which + 1}.");
 
                 only = configuredDNSServers[which];
 
@@ -201,8 +203,8 @@ namespace cloud.charging.open.protocols.WWCP.node
                 // A client of its own when one server is meant, and without a
                 // cache: an answer out of the cache says nothing about whether
                 // that server would have given it, which is the whole question
-                // being asked. Everything else is taken from the vehicle's own
-                // client, so what is being tested is this vehicle's settings
+                // being asked. Everything else is taken from the node's own
+                // client, so what is being tested is this node's settings
                 // and not a fresh set of defaults.
                 var asking   = only is null
                                    ? dnsClient
@@ -361,11 +363,11 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// one authenticated NTP request, with every step in the log.
         /// </summary>
         /// <remarks>
-        /// The clock of this vehicle is not set from the answer, and that is
+        /// The clock of this node is not set from the answer, and that is
         /// deliberate: this says whether the time source can be reached and
         /// what it thinks of the local clock, which is what somebody pressing a
         /// button called "Sync now" in a web interface actually wants to know.
-        /// Stepping the clock of a running vehicle is a different
+        /// Stepping the clock of a running node is a different
         /// thing, with meter readings and certificates hanging off it, and it
         /// is not something a button does by surprise.
         /// </remarks>
@@ -382,7 +384,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// however new the server's certificate is. The root also comes with its
         /// SHA-256 fingerprint, which is what a pin is compared with.
         ///
-        /// The chain is the one this vehicle built, not the one the server sent -
+        /// The chain is the one this node built, not the one the server sent -
         /// see NTSKE_TLSInfo.ValidatedChain. Where none was built, the server's
         /// certificates are shown as they came.
         ///
@@ -581,7 +583,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// very commonly names addresses, so this is the ordinary case rather
         /// than the awkward one.
         ///
-        /// The clock of this vehicle is not stepped by any of it, the same as
+        /// The clock of this node is not stepped by any of it, the same as
         /// "Sync now".
         /// </remarks>
         /// <param name="Host">
@@ -618,7 +620,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             if (!NTSEnabled)
             {
-                Step("error", "Time synchronisation is switched off on this vehicle, so nothing was asked.");
+                Step("error", "Time synchronisation is switched off on this node, so nothing was asked.");
                 return Done(Host ?? "", false);
             }
 
@@ -658,7 +660,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // The name as people read it, for every sentence below - the steps
             // and the log alike. Without the root's dot: "ptbtime1.ptb.de." is
             // the name exactly, and in the middle of a line it reads like a
-            // typing mistake, which is why everything else this vehicle prints
+            // typing mistake, which is why everything else this node prints
             // leaves it out.
             var name  = host.Trimmed;
 
@@ -667,7 +669,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // its own row, and a server with a port of its own was asked on
             // the usual one and reported as not answering.
             var entry      = directedAt is null
-                                 ? NTSTimeSources.Sources.FirstOrDefault(source => source.Hostname.Equals(host))
+                                 ? timeSources.Sources.FirstOrDefault(source => source.Hostname.Equals(host))
                                  : null;
 
             var ntsKEPort  = entry?.NTSKEPort ?? configured.NTSKE_Port;
@@ -844,13 +846,13 @@ namespace cloud.charging.open.protocols.WWCP.node
                 var offset = query.Response.ClockOffset;
 
                 // Invariant, so that a decimal point stays a point: these
-                // sentences are English, and a vehicle in a German locale
+                // sentences are English, and a node in a German locale
                 // otherwise wrote "+148,0 ms" in the middle of one.
                 Step("notice", offset.HasValue
                                    ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                                   "This vehicle's clock is {0:+0.0;-0.0;0} ms off what {1} says.",
+                                                   "This node's clock is {0:+0.0;-0.0;0} ms off what {1} says.",
                                                    offset.Value.TotalMilliseconds, name)
-                                   : $"{name} answered, but said nothing this vehicle could take an offset from.");
+                                   : $"{name} answered, but said nothing this node could take an offset from.");
 
                 #endregion
 
@@ -874,7 +876,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         #endregion
 
         /// <summary>
-        /// Ask this vehicle's group of time servers what the time is.
+        /// Ask this node's group of time servers what the time is.
         /// </summary>
         /// <remarks>
         /// The group and not the single client, because a clock that a charge
@@ -893,11 +895,11 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             if (!NTSEnabled)
             {
-                Log.Warning("Time synchronisation was not run: NTS is switched off on this vehicle.", "nts", "test");
-                return Failed("NTS is switched off on this vehicle.");
+                Log.Warning("Time synchronisation was not run: NTS is switched off on this node.", "nts", "test");
+                return Failed("NTS is switched off on this node.");
             }
 
-            var group      = NTSTimeSources;
+            var group      = timeSources;
             var asked      = group.Bands().SelectMany(band => band).Select(source => source.Hostname.ToString()).ToArray();
             var asking     = asked.Select(hostname => hostname.TrimEnd('.')).ToArray();
             var stopwatch  = Stopwatch.StartNew();
@@ -1001,7 +1003,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
                 var json = new JObject(
                                new JProperty("ok",      false),
-                               new JProperty("server",  NTSTimeSources.Name),
+                               new JProperty("server",  timeSources.Name),
                                new JProperty("at",      TimeProvider.GetUtcNow().ToString("o")),
                                new JProperty("error",   Error)
                            );

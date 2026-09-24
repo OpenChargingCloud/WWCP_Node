@@ -24,15 +24,15 @@ using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
-using cloud.charging.open.protocols.WWCP.node.logging;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node
+namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 {
 
     /// <summary>
-    /// Every certificate this vehicle has been given: the roots it believes and
+    /// Every certificate this node has been given: the roots it believes and
     /// the credentials it presents, on disk beside its accounts, and switchable
     /// one by one.
     /// </summary>
@@ -49,7 +49,7 @@ namespace cloud.charging.open.protocols.WWCP.node
     /// <b>Both directions are supported, and that is the point.</b> Certificates
     /// arrive by import, which copies the file in; and certificates that are
     /// already in the directory - put there by hand, restored from a backup,
-    /// carried over from another vehicle - are picked up at every
+    /// carried over from another node - are picked up at every
     /// <see cref="Reload"/> and adopted. A file somebody dropped in is taken as
     /// meant, switched on, and named in the log, because a store that silently
     /// ignored it would be a store whose directory listing lies.
@@ -60,14 +60,14 @@ namespace cloud.charging.open.protocols.WWCP.node
     /// under and written back without one, so that any number of certificates
     /// per role work without any number of passwords to carry. What guards them
     /// is the file system: the store directory is created for its owner alone.
-    /// Anybody who can read it can take this vehicle's identity and its
+    /// Anybody who can read it can take this node's identity and its
     /// contract, so it belongs on a machine whose users are all trusted with
     /// exactly that - which <see cref="WarnAboutStoredKeys"/> says once at every
     /// start.
     /// </para>
     /// <para>
     /// Everything that changes the store takes <see cref="storeLock"/> and
-    /// writes the index before returning, so a vehicle that is killed between
+    /// writes the index before returning, so a node that is killed between
     /// two requests comes back with what it last confirmed rather than with
     /// half of it.
     /// </para>
@@ -294,7 +294,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             if (withKeys > 0)
                 log.Warning($"Certificates: {withKeys} private key(s) are stored unencrypted in '{Directory}'. " +
-                             "Anybody who can read that directory can take this vehicle's identity and its contract.",
+                             "Anybody who can read that directory can take this node's identity and its contract.",
                             "certificates");
 
         }
@@ -461,7 +461,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                            "certificates");
 
                 // Said at the import as well as at a start, because the start
-                // that matters happened before this key existed: a vehicle that
+                // that matters happened before this key existed: a node that
                 // only warned at construction would never mention the first
                 // private key anybody put on it.
                 if (Entry.HasPrivateKey)
@@ -685,7 +685,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             => [.. Entries.Where(entry => entry.Kind == Kind)];
 
         /// <summary>
-        /// Everything of one kind this vehicle would use right now: switched
+        /// Everything of one kind this node would use right now: switched
         /// on, and inside its own validity.
         /// </summary>
         public IReadOnlyList<CertificateEntry> UsableByKind(CertificateKind Kind)
@@ -872,7 +872,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                 collection.ImportFromPem(asText);
 
                 if (collection.Count == 0)
-                    throw new ArgumentException("That file looks like PEM, and holds no certificate this vehicle can read.");
+                    throw new ArgumentException("That file looks like PEM, and holds no certificate this node can read.");
 
                 // A PEM that carries its key as well is one file for a whole
                 // credential, and that is how most tools hand one over.
@@ -920,7 +920,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                 // a worse answer than none.
                 if (!LooksLikeDer(Content))
                     throw new ArgumentException(
-                              "That file is not a certificate this vehicle can read (PEM, DER or PKCS#12).");
+                              "That file is not a certificate this node can read (PEM, DER or PKCS#12).");
 
                 throw new ArgumentException(
                           Password is null
@@ -935,7 +935,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             if (TryReadDer(Content, collection))
                 return collection;
 
-            throw new ArgumentException("That file is not a certificate this vehicle can read (PEM, DER or PKCS#12).");
+            throw new ArgumentException("That file is not a certificate this node can read (PEM, DER or PKCS#12).");
 
         }
 
@@ -1034,13 +1034,13 @@ namespace cloud.charging.open.protocols.WWCP.node
                 }
                 catch (CryptographicException exception)
                 {
-                    // A key this vehicle cannot open at all: wrong password, or
+                    // A key this node cannot open at all: wrong password, or
                     // a kind of key it does not carry. Worth saying once rather
                     // than once per certificate in the file.
                     throw new ArgumentException(
                               encrypted
                                   ? $"That file's private key could not be opened - wrong password? ({exception.Message})"
-                                  : $"That file's private key is of a kind this vehicle cannot read. ({exception.Message})");
+                                  : $"That file's private key is of a kind this node cannot read. ({exception.Message})");
                 }
 
                 // Round-tripped through PKCS#12 so that the key is exportable:
@@ -1331,7 +1331,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
                     if (!CertificateEntry.TryParse(token, out var entry, out var error))
                     {
-                        log.Warning($"Certificates: the index has an entry this vehicle could not read - {error}",
+                        log.Warning($"Certificates: the index has an entry this node could not read - {error}",
                                     "certificates");
                         continue;
                     }
@@ -1374,7 +1374,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                                    ))
                            );
 
-                // Written beside and moved over, so that a vehicle killed mid-write
+                // Written beside and moved over, so that a node killed mid-write
                 // comes back to the index it had rather than to half of a new one.
                 var temporary = path + ".new";
 

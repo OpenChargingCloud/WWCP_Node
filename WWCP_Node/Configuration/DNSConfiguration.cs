@@ -26,22 +26,22 @@ using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.Configuration
+namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
-    /// The "dns" section of the configuration file: how this vehicle
+    /// The "dns" section of the configuration file: how this node
     /// resolves names.
     /// </summary>
     /// <remarks>
     /// Every field is optional, and null means "the file does not say" rather
-    /// than "the file says nothing": what is missing keeps whatever the vehicle
-    /// was given at construction, and a vehicle given nothing keeps the system
+    /// than "the file says nothing": what is missing keeps whatever the node
+    /// was given at construction, and a node given nothing keeps the system
     /// default. That is what makes a half-written file a legitimate thing to
     /// have - somebody who only cares about the name servers should not have to
     /// write down the retry count to say so.
     /// </remarks>
-    /// <param name="Enabled">Whether this vehicle resolves names at all.</param>
+    /// <param name="Enabled">Whether this node resolves names at all.</param>
     /// <param name="Servers">The name servers to ask; an empty list is not the same as none given.</param>
     /// <param name="QueryTimeout">How long one query may take.</param>
     /// <param name="RecursionDesired">Whether the RD bit is set; null leaves it to the server.</param>
@@ -69,9 +69,9 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         public const String  SectionName          = "dns";
 
         /// <summary>
-        /// The most name servers one vehicle may be given. Not a rule of DNS -
+        /// The most name servers one node may be given. Not a rule of DNS -
         /// a query goes to all of them at once, and a hundred of them would be
-        /// a hundred packets for every name this vehicle ever looks up.
+        /// a hundred packets for every name this node ever looks up.
         /// </summary>
         public const Int32   MaxServers           = 16;
 
@@ -273,7 +273,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         #region ToJSON()
 
         /// <summary>
-        /// The section as it is written to the file; what this vehicle was not
+        /// The section as it is written to the file; what this node was not
         /// told about is not written, so that the file keeps saying "the system
         /// decides" rather than freezing today's system default.
         /// </summary>

@@ -27,11 +27,11 @@ using org.GraphDefined.Vanaheimr.Norn.Monitoring;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.Configuration
+namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
-    /// One time server of this vehicle, as the configuration file names it.
+    /// One time server of this node, as the configuration file names it.
     /// </summary>
     /// <param name="Hostname">Where the server is.</param>
     /// <param name="Priority">Which servers are asked first: lower is earlier, and servers sharing a value are asked together.</param>
@@ -142,7 +142,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         /// </summary>
         /// <remarks>
         /// A bare host name where nothing else was said, so that a file written
-        /// by this vehicle reads the way somebody would have written it.
+        /// by this node reads the way somebody would have written it.
         /// </remarks>
         public JToken ToJSON()
         {

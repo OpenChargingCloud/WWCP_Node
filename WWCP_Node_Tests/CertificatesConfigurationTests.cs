@@ -21,11 +21,11 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
-using cloud.charging.open.protocols.WWCP.node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.Tests
+namespace cloud.charging.open.protocols.WWCP.Node.Tests
 {
 
     /// <summary>

@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-namespace cloud.charging.open.protocols.WWCP.node.logging
+namespace cloud.charging.open.protocols.WWCP.Node.Logging
 {
 
     /// <summary>
     /// The event log on the console, for whoever started the process.
     /// </summary>
     /// <remarks>
-    /// The same entries the web interface shows, so that a vehicle without a
+    /// The same entries the web interface shows, so that a node without a
     /// browser in front of it is not silent - and so that the two never
     /// disagree about what happened.
     /// </remarks>
@@ -84,7 +84,7 @@ namespace cloud.charging.open.protocols.WWCP.node.logging
             this.Colours       = Colours ?? !Console.IsOutputRedirected;
 
             // The console is one device and the log is written from every thread
-            // the vehicle has; without this the colour of one entry would end up
+            // the node has; without this the colour of one entry would end up
             // on the text of another.
             this.WriteBlock    = write => { lock (padlock) { write(); } };
 

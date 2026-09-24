@@ -25,14 +25,14 @@ using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.Configuration
+namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
     /// Reading optional fields out of a configuration section.
     /// </summary>
     /// <remarks>
-    /// Three rules, and they are the same for every field this vehicle reads
+    /// Three rules, and they are the same for every field this node reads
     /// from a file or from the web interface:
     ///
     /// Absent is not an error, and comes back as null - the caller then leaves

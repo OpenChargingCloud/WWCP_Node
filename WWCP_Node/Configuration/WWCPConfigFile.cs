@@ -24,7 +24,7 @@ using Newtonsoft.Json.Linq;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node.Configuration
+namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
@@ -39,7 +39,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
     ///
     /// One file for the node and for the kind of node it is, and this class
     /// knows neither: it reads and writes sections, and what a section means
-    /// is the business of whoever asked for it. That is what lets a vehicle
+    /// is the business of whoever asked for it. That is what lets a node
     /// keep its battery in the same file its name servers are in.
     ///
     /// Nothing in here is secret, so it is an ordinary file that anybody who
@@ -126,7 +126,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         /// of it means.
         /// </summary>
         /// <remarks>
-        /// This is what makes a partial save safe: a vehicle that only
+        /// This is what makes a partial save safe: a node that only
         /// understands three sections still writes back the fourth one it found
         /// there, instead of quietly deleting the configuration of something it
         /// has not heard of yet.
@@ -140,7 +140,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
 
             if (!File.Exists(Path))
             {
-                // No file is not a failure, it is a vehicle nobody has
+                // No file is not a failure, it is a node nobody has
                 // configured yet - so an empty document, and no error.
                 Document = [];
                 return true;
@@ -185,7 +185,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         ///
         /// Written through a temporary file and then moved into place, so that
         /// a process which dies mid-write leaves the old configuration behind
-        /// rather than half of the new one. A vehicle that cannot read
+        /// rather than half of the new one. A node that cannot read
         /// its own configuration does not start.
         /// </remarks>
         /// <param name="Name">The section, e.g. "dns".</param>
@@ -250,7 +250,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
         /// For finding out what a save would do to the next start before doing
         /// it. A merge can put two halves that are each fine together into a
         /// section that is not - a quorum from before and a shorter list from
-        /// now - and a file that stops the vehicle is worse than a save that
+        /// now - and a file that stops the node is worse than a save that
         /// is refused.
         /// </remarks>
         /// <param name="Name">The section, e.g. "nts".</param>
@@ -334,7 +334,7 @@ namespace cloud.charging.open.protocols.WWCP.node.Configuration
                     Document.ToString(Formatting.Indented) + Environment.NewLine
                 );
 
-                // Move, not copy: on every file system this vehicle runs on
+                // Move, not copy: on every file system this node runs on
                 // this replaces the old file in one step, so there is never a
                 // moment at which the configuration is half of each.
                 File.Move(temporary, Path, overwrite: true);

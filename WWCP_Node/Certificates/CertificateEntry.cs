@@ -25,12 +25,12 @@ using Newtonsoft.Json.Linq;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node
+namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 {
 
     /// <summary>
-    /// One certificate in this vehicle's store: what it is, what is in it, and
-    /// whether this vehicle is currently using it.
+    /// One certificate in this node's store: what it is, what is in it, and
+    /// whether this node is currently using it.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -65,7 +65,7 @@ namespace cloud.charging.open.protocols.WWCP.node
     /// <param name="KeyAlgorithm">What kind of key it carries, e.g. "ECDSA P-521".</param>
     /// <param name="HasPrivateKey">Whether the stored file carries the private key as well.</param>
     /// <param name="ChainLength">How many further certificates travel with it, e.g. its sub-CAs.</param>
-    /// <param name="IsActive">Whether this vehicle is currently using it.</param>
+    /// <param name="IsActive">Whether this node is currently using it.</param>
     /// <param name="ImportedAt">When it was put here.</param>
     public sealed record CertificateEntry(String           Id,
                                           CertificateKind  Kind,
@@ -91,7 +91,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// </summary>
         /// <remarks>
         /// Sixteen, which is 64 bits: far too many for two certificates in one
-        /// vehicle's store to collide by accident, and short enough to appear
+        /// node's store to collide by accident, and short enough to appear
         /// in a configuration file without wrapping. Import checks anyway - see
         /// <see cref="CertificateStore"/> - because "by accident" is not the
         /// only way two things collide.

@@ -32,12 +32,14 @@ using org.GraphDefined.Vanaheimr.Norn.Monitoring;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
-using cloud.charging.open.protocols.WWCP.node.logging;
-using cloud.charging.open.protocols.WWCP.node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Web;
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.node
+namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
@@ -46,20 +48,13 @@ namespace cloud.charging.open.protocols.WWCP.node
     /// a certificate store, an HTTP server with accounts in front of it and a
     /// web interface behind it. A vehicle, a station or a meter is one of
     /// these with its own sections in the same file, its own JSON API below
-    /// <see cref="WWCPHTTPRootPath"/> and its own bundle to serve.
+    /// <see cref="HTTPRootPath"/> and its own bundle to serve - and on its
+    /// own, with none of that, it is what the tests construct.
     /// </summary>
-    public abstract partial class AWWCPNode : IAsyncDisposable
+    public partial class WWCPNode : IAsyncDisposable
     {
 
         #region Data
-
-        /// <summary>
-        /// The manifest resource prefix a web interface is looked for under
-        /// when a node hands none in. This assembly carries no bundle, so a
-        /// node that has one passes its own source - see the EmbedFrontend
-        /// target of EV.csproj for how one gets into an assembly.
-        /// </summary>
-        public const String  HTTPRoot            = "cloud.charging.open.protocols.WWCP.node.HTTPRoot.";
 
         /// <summary>
         /// How the last time synchronisation went, as the web interface reads
@@ -96,8 +91,8 @@ namespace cloud.charging.open.protocols.WWCP.node
         protected           Boolean                         started;
 
         /// <summary>
-        /// Serialises changes to what this vehicle is, so that two browsers
-        /// saving at the same moment do not build half a vehicle each.
+        /// Serialises changes to what this node is, so that two browsers
+        /// saving at the same moment do not build half a node each.
         /// </summary>
         protected readonly  SemaphoreSlim                   reconfigureLock = new (1, 1);
 
@@ -123,9 +118,9 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// </summary>
         /// <remarks>
         /// Beside "/api" rather than under it, because it is not this
-        /// vehicle's API: it is Hermod's, with its own routes and its own
+        /// node's API: it is Hermod's, with its own routes and its own
         /// vocabulary, and putting it under /api/v1 would promise that this
-        /// vehicle versions it.
+        /// node versions it.
         /// </remarks>
         public static readonly  HTTPPath        ExtAPIPath                    = HTTPPath.Parse("/ext");
 
@@ -142,16 +137,10 @@ namespace cloud.charging.open.protocols.WWCP.node
 
 
         /// <summary>
-        /// The organization that account belongs to.
+        /// The TCP port a node of no particular kind listens on. A kind of
+        /// node has a port of its own, and passes it.
         /// </summary>
-        /// <remarks>
-        /// A vehicle has no organizations to speak of, and this one exists
-        /// because the HTTPExt API's sign-in refuses an account that is in
-        /// none - "You do not have access to any organization!" - however
-        /// right its password is. So there is exactly one, named after the
-        /// thing it stands for.
-        /// </remarks>
-        public const String  DefaultOrganization          = "Vehicle";
+        public static readonly  IPPort          DefaultHTTPPort               = IPPort.Parse(2593);
 
         /// <summary>
         /// The file of the bundle that is the web interface; its presence is
@@ -176,7 +165,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         protected readonly  TraceBridge?                  traceBridge;
 
         /// <summary>
-        /// When this vehicle last managed to check its clock, what it found,
+        /// When this node last managed to check its clock, what it found,
         /// and against whom.
         /// </summary>
         /// <remarks>
@@ -190,7 +179,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         private           String?                         lastTimeCheckServer;
 
         /// <summary>
-        /// The clock that makes this vehicle check its own, when NTS is on.
+        /// The clock that makes this node check its own, when NTS is on.
         /// </summary>
         private           ITimer?                         timeCheckTimer;
 
@@ -207,15 +196,10 @@ namespace cloud.charging.open.protocols.WWCP.node
         #region Properties
 
         /// <summary>
-        /// What kind of node this is, as its own log names it: "electric
-        /// vehicle".
+        /// What kind of node this is: how it names itself in its own log, and
+        /// what it calls the things it makes for itself.
         /// </summary>
-        public String                 Kind                         { get; }
-
-        /// <summary>
-        /// The tag on the log entries about the node itself: "vehicle".
-        /// </summary>
-        public String                 LogTag                       { get; }
+        public NodeKind               Kind                         { get; }
 
         /// <summary>
         /// The version of the assembly this node is.
@@ -249,31 +233,34 @@ namespace cloud.charging.open.protocols.WWCP.node
         public CertificateStore       Certificates                 { get; }
 
         /// <summary>
-        /// The clock this vehicle reads. Its own, not the one NTS reports.
+        /// The clock this node reads. Its own, not the one NTS reports.
         /// </summary>
         public TimeProvider           TimeProvider                 { get; }
 
         /// <summary>
-        /// When this vehicle was made.
+        /// When this node was made.
         /// </summary>
         public DateTimeOffset         CreatedAt                    { get; }
 
 
 
         /// <summary>
-        /// Everything that happens inside the WWCP node.
+        /// Everything that happens inside this node.
         /// </summary>
         public EventLog               Log                          { get; }
 
+        /// <summary>
+        /// The HTTP server everything of this node is registered within: its
+        /// own, or one it was handed and shares.
+        /// </summary>
+        public HTTPServer             HTTPServer                   { get; }
 
-
-
-        public HTTPPath               WWCPHTTPRootPath             { get; }
-
-        public HTTPServer             WWCPHTTPServer               { get; }
-
-
-
+        /// <summary>
+        /// Where the JSON API of this node sits: "/api" below the base path,
+        /// unless it was told otherwise. The node puts nothing there itself;
+        /// the kind of node it is does.
+        /// </summary>
+        public HTTPPath               HTTPRootPath                 { get; }
 
         /// <summary>
         /// Who may open the web interface: the accounts, the groups they are
@@ -282,38 +269,38 @@ namespace cloud.charging.open.protocols.WWCP.node
         public HTTPExtAPI             ExtAPI                       { get; }
 
         /// <summary>
-        /// Whether those accounts are this vehicle's own, or somebody else's
+        /// Whether those accounts are this node's own, or somebody else's
         /// that it was handed.
         /// </summary>
         /// <remarks>
-        /// It decides two things. What is shut down when this vehicle is: an
+        /// It decides two things. What is shut down when this node is: an
         /// HTTPExt API handed in outlives it, and disposing of somebody else's
         /// would take the sign-in away from whoever else is using it. And what
-        /// this vehicle may say about the accounts on its Configuration page -
+        /// this node may say about the accounts on its Configuration page -
         /// shared accounts are not its to describe as "the accounts of this
-        /// vehicle".
+        /// node".
         /// </remarks>
         public Boolean                OwnsExtAPI                   { get; }
 
         /// <summary>
-        /// Whether the HTTP server is this vehicle's own, or one it was handed
+        /// Whether the HTTP server is this node's own, or one it was handed
         /// and shares with somebody else.
         /// </summary>
         /// <remarks>
-        /// A shared server is started and stopped by whoever made it. A vehicle
+        /// A shared server is started and stopped by whoever made it. A node
         /// that started one it did not make would take the same socket twice
-        /// where several of these programs are on it, and a vehicle that
+        /// where several of these programs are on it, and a node that
         /// stopped one would close the web interface of every other program
         /// registered within it.
         /// </remarks>
         public Boolean                OwnsHTTPServer               { get; }
 
         /// <summary>
-        /// Everything of this vehicle - its web interface, its JSON API and,
+        /// Everything of this node - its web interface, its JSON API and,
         /// where the accounts are its own, those too - sits below this.
         /// </summary>
         /// <remarks>
-        /// The root, which is what a vehicle on a port of its own wants and
+        /// The root, which is what a node on a port of its own wants and
         /// what it always used to be. It is something else only where several
         /// of these programs share one HTTP server and are told apart by the
         /// first path segment rather than by the port.
@@ -352,7 +339,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
         /// <summary>
         /// Where the web interface comes from: the bundle embedded in this
-        /// assembly, or a directory somebody pointed this vehicle at.
+        /// assembly, or a directory somebody pointed this node at.
         /// </summary>
         public IStaticContentSource   Frontend                     { get; }
 
@@ -379,32 +366,32 @@ namespace cloud.charging.open.protocols.WWCP.node
 
 
         /// <summary>
-        /// How this vehicle resolves names.
+        /// How this node resolves names.
         /// </summary>
         public DNSClient              DNSClient                    => dnsClient;
 
         /// <summary>
-        /// Where this vehicle reads the time.
+        /// Where this node reads the time.
         /// </summary>
         public NTSClient              NTSClient                    => ntsClient;
 
         /// <summary>
-        /// The time servers of this vehicle, as a group.
+        /// The time servers of this node, as a group.
         /// </summary>
-        public TimeSourceGroup        TimeSources                  => NTSTimeSources;
+        public TimeSourceGroup        TimeSources                  => timeSources;
 
         /// <summary>
-        /// Whether this vehicle resolves names at all.
+        /// Whether this node resolves names at all.
         /// </summary>
         public Boolean                DNSEnabled                   { get; private set; } = true;
 
         /// <summary>
-        /// Whether this vehicle asks a time server at all.
+        /// Whether this node asks a time server at all.
         /// </summary>
         public Boolean                NTSEnabled                   { get; private set; } = true;
 
         /// <summary>
-        /// Every time server of this vehicle, and the rules for believing them.
+        /// Every time server of this node, and the rules for believing them.
         /// </summary>
         /// <remarks>
         /// Beside the single client rather than instead of it, because the two
@@ -413,10 +400,10 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// client answers "what is that one server doing", which is what the
         /// detailed test on the page asks and which a group would only blur.
         /// </remarks>
-        public            TimeSourceGroup                 NTSTimeSources   { get; private set; }
+        private           TimeSourceGroup                 timeSources;
 
         /// <summary>
-        /// How many of those servers this vehicle was told must answer: by the
+        /// How many of those servers this node was told must answer: by the
         /// last section that named "minServers", or the default of two.
         /// </summary>
         /// <remarks>
@@ -432,7 +419,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// What actually asks the servers of a group.
         /// </summary>
         /// <remarks>
-        /// One engine for the life of this vehicle, and that is not tidiness: it
+        /// One engine for the life of this node, and that is not tidiness: it
         /// holds the key exchange of each server between rounds, and a new
         /// engine per synchronisation would pay a TLS handshake to every server
         /// every time and throw the cookies away unspent. It refreshes an
@@ -442,14 +429,14 @@ namespace cloud.charging.open.protocols.WWCP.node
         private readonly  MeasurementEngine               timeEngine;
 
         /// <summary>
-        /// The name servers this vehicle would ask, whether or not name
+        /// The name servers this node would ask, whether or not name
         /// resolution is switched on at the moment.
         /// </summary>
         /// <remarks>
         /// Kept beside the DNS client because switching name resolution off is
         /// done by taking its servers away - which is what being switched off
         /// actually means, for everything holding that client and not only for
-        /// the parts of this vehicle that remember to ask first. Switching it
+        /// the parts of this node that remember to ask first. Switching it
         /// back on needs the list back, and this is where it waited.
         /// </remarks>
         private           IReadOnlyList<DNSServerConfig>  configuredDNSServers;
@@ -461,12 +448,12 @@ namespace cloud.charging.open.protocols.WWCP.node
 
         /// <summary>
         /// One node: its log, its configuration, its clients, its certificates
-        /// and its web interface - everything but what kind of node it is.
+        /// and its web interface. Everything a kind of node is before it is
+        /// that kind - and, told nothing, a node of no particular kind.
         /// </summary>
-        /// <param name="Kind">What the node calls itself in its own log, in lower case: "electric vehicle".</param>
-        /// <param name="LogTag">The tag on the log entries about the node itself: "vehicle".</param>
-        /// <param name="Version">The version of the assembly the node is.</param>
-        /// <param name="HTTPPort">The TCP port the web interface listens on. Its default is the kind of node's to give, not this class's.</param>
+        /// <param name="Kind">What kind of node this is; one of no particular kind by default.</param>
+        /// <param name="Version">The version of the assembly the node is; this assembly's by default.</param>
+        /// <param name="HTTPPort">The TCP port the web interface listens on; <see cref="DefaultHTTPPort"/> by default. A kind of node has a default of its own, and passes it.</param>
         /// <param name="HTTPHostname">The address the web interface listens on; 127.0.0.1 by default.</param>
         /// <param name="HTTPServer">An HTTP server to register within, or null to make one.</param>
         /// <param name="BasePath">What everything of this node sits below; the root by default. Something else only where several of these programs share one HTTP server.</param>
@@ -476,7 +463,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// <param name="ConfigFile">Where the configuration lives between starts.</param>
         /// <param name="DNSClient">How to resolve names, or null to make a client.</param>
         /// <param name="NTSClient">Where to read the time, or null to make a client.</param>
-        /// <param name="Frontend">Where the web interface comes from, or null for none.</param>
+        /// <param name="Frontend">Where the web interface comes from, or null for a node that has none.</param>
         /// <param name="CertificatesPath">The directory the certificate store lives in between starts; what the file says, or "certificates" beside it, by default.</param>
         /// <param name="Log">Where everything that happens is written, or null to make a log.</param>
         /// <param name="LogToConsole">Whether the log is also written to the console.</param>
@@ -484,43 +471,38 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// <param name="LogPath">The directory the log files are written to, or null to write none.</param>
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX is picked up.</param>
         /// <param name="TimeProvider">The clock, or null for the system one.</param>
-        public AWWCPNode(String                 Kind,
-                         String                 LogTag,
-                         String                 Version,
-                         IPPort                 HTTPPort,
-                         IIPAddress?            HTTPHostname       = null,
-                         HTTPServer?            HTTPServer         = null,
-                         HTTPPath?              BasePath           = null,
-                         HTTPPath?              HTTPRootPath       = null,
-                         HTTPExtAPI?            ExtAPI             = null,
-                         String?                AccountsPath       = null,
-                         WWCPConfigFile?        ConfigFile         = null,
-                         DNSClient?             DNSClient          = null,
-                         NTSClient?             NTSClient          = null,
-                         IStaticContentSource?  Frontend           = null,
-                         String?                CertificatesPath   = null,
-                         EventLog?              Log                = null,
-                         Boolean                LogToConsole       = true,
-                         LogLevel               ConsoleLogLevel    = LogLevel.Info,
-                         String?                LogPath            = null,
-                         Boolean                BridgeDebugLog     = true,
-                         TimeProvider?          TimeProvider       = null)
+        public WWCPNode(NodeKind?              Kind               = null,
+                        String?                Version            = null,
+                        IPPort?                HTTPPort           = null,
+                        IIPAddress?            HTTPHostname       = null,
+                        HTTPServer?            HTTPServer         = null,
+                        HTTPPath?              BasePath           = null,
+                        HTTPPath?              HTTPRootPath       = null,
+                        HTTPExtAPI?            ExtAPI             = null,
+                        String?                AccountsPath       = null,
+                        WWCPConfigFile?        ConfigFile         = null,
+                        DNSClient?             DNSClient          = null,
+                        NTSClient?             NTSClient          = null,
+                        IStaticContentSource?  Frontend           = null,
+                        String?                CertificatesPath   = null,
+                        EventLog?              Log                = null,
+                        Boolean                LogToConsole       = true,
+                        LogLevel               ConsoleLogLevel    = LogLevel.Info,
+                        String?                LogPath            = null,
+                        Boolean                BridgeDebugLog     = true,
+                        TimeProvider?          TimeProvider       = null)
 
         {
 
-            if (String.IsNullOrWhiteSpace(Kind))
-                throw new ArgumentException("A node has to say what kind of node it is!", nameof(Kind));
-
-            this.Kind     = Kind;
-            this.LogTag   = LogTag;
-            this.Version  = Version;
+            this.Kind     = Kind    ?? NodeKind.Default;
+            this.Version  = Version ?? typeof(WWCPNode).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
             #region The clock, before anything that wants to know the time
 
             // First of all, and not for tidiness: the event log below stamps
             // every entry with this, so a clock set afterwards would leave the
             // log reading the system one - and a log on a different clock than
-            // the vehicle it belongs to cannot be held against anything.
+            // the node it belongs to cannot be held against anything.
             this.TimeProvider  = TimeProvider ?? TimeProvider.System;
             this.CreatedAt     = this.TimeProvider.GetUtcNow();
 
@@ -539,7 +521,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // reading has no such problem. What is left out here cannot be
             // asked for afterwards.
             this.fileLog      = LogPath is not null
-                                    ? new FileLog(this.Log, LogPath)
+                                    ? new FileLog(this.Log, LogPath, this.Kind.LogFilePrefix)
                                     : null;
 
             // What the log says about itself - a listener that failed, a file
@@ -558,7 +540,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             // The first entry, before anything below has had a word: what is
             // starting, and which build of it.
-            this.Log.Notice($"{Char.ToUpperInvariant(Kind[0])}{Kind[1..]} v{Version} starting up.", LogTag);
+            this.Log.Notice($"{this.Kind.CapitalisedName} v{this.Version} starting up.", this.Kind.Tag);
 
             #endregion
 
@@ -603,9 +585,9 @@ namespace cloud.charging.open.protocols.WWCP.node
             this.dnsClient             = DNSClient ?? new DNSClient();
             this.configuredDNSServers  = [.. dnsClient.DNSServers];
 
-            // The clock goes to the time client too: a vehicle that reads one
+            // The clock goes to the time client too: a node that reads one
             // clock itself and disciplines another would have two, which is one
-            // more than a vehicle may have.
+            // more than a node may have.
             this.ntsClient     = NTSClient ?? new NTSClient(
                                                   DomainName.Parse(NTSConfiguration.DefaultHostname),
                                                   Timeout:       TimeSpan.FromSeconds(10),
@@ -615,18 +597,18 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             this.timeEngine    = new MeasurementEngine(
                                      new MonitoringConfig {
-                                         DroneId       = LogTag,
+                                         DroneId       = this.Kind.Tag,
                                          NTPTimeout    = TimeSpan.FromSeconds(5),
                                          NTSKETimeout  = TimeSpan.FromSeconds(10)
                                      },
                                      this.TimeProvider
                                  );
 
-            // The four this vehicle asks when nobody says otherwise - but only
+            // The four this node asks when nobody says otherwise - but only
             // when nobody handed it a client either. A caller that named its
             // own server means that server, and a group naming four others
             // beside it would be a report about somebody else's clock.
-            this.NTSTimeSources   = NTSClient is null
+            this.timeSources   = NTSClient is null
                                      ? NTSConfiguration.DefaultGroup()
                                      : new TimeSourceGroup(
                                            "legal",
@@ -697,14 +679,15 @@ namespace cloud.charging.open.protocols.WWCP.node
             #region The HTTP server, the accounts and the web interface
 
             var address          = HTTPHostname ?? IPv4Address.Localhost;
-            var port             = HTTPPort;
+            var port             = HTTPPort     ?? DefaultHTTPPort;
+            var product          = $"OpenChargingCloud {this.Kind.Product} v{this.Version}";
 
             this.OwnsHTTPServer  = HTTPServer is null;
 
-            this.WWCPHTTPServer      = HTTPServer   ?? new HTTPServer(
+            this.HTTPServer      = HTTPServer   ?? new HTTPServer(
                                                        IPAddress:       address,
                                                        TCPPort:         port,
-                                                       HTTPServerName:  $"OpenChargingCloud EV v{Version}",
+                                                       HTTPServerName:  product,
                                                        DNSClient:       dnsClient
                                                    );
 
@@ -717,7 +700,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // "/api" below the base path, which is where the JSON API of every
             // one of these programs answers unless a caller puts it elsewhere.
             // The API itself is a node of a particular kind's to add there.
-            this.WWCPHTTPRootPath  = HTTPRootPath ?? this.BasePath + DefaultAPIPath;
+            this.HTTPRootPath  = HTTPRootPath ?? this.BasePath + DefaultAPIPath;
 
             this.HTTPPort        = port;
             this.WebInterfaceURL = URL.Parse($"http://{address}:{port}{this.BasePath.ToString().TrimEnd('/')}/");
@@ -725,7 +708,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // From the server rather than from the web interface's URL: the API's
             // root path already carries the base path, and behind a URL that ends
             // in the base path it would be named twice.
-            this.APIURL          = URL.Parse($"http://{address}:{port}/{this.WWCPHTTPRootPath.ToString().Trim('/')}/");
+            this.APIURL          = URL.Parse($"http://{address}:{port}/{this.HTTPRootPath.ToString().Trim('/')}/");
 
             // 1) The HTTPExt API at "/ext". First of the three, because it is
             //    the one with a database behind it: whatever it finds wrong
@@ -740,14 +723,14 @@ namespace cloud.charging.open.protocols.WWCP.node
             this.OwnsExtAPI    = ExtAPI is null;
 
             this.ExtAPI        = ExtAPI ?? new HTTPExtAPI(
-                                     HTTPServer:             WWCPHTTPServer,
+                                     HTTPServer:             this.HTTPServer,
                                      RootPath:               this.BasePath + ExtAPIPath,
-                                     HTTPServerName:         $"OpenChargingCloud EV v{Version}",
-                                     HTTPServiceName:        $"OpenChargingCloud EV v{Version}",
-                                     APIRobotEMailAddress:   EMailAddress.Parse("OpenChargingCloud EV Robot <robot@charging.cloud>"),
+                                     HTTPServerName:         product,
+                                     HTTPServiceName:        product,
+                                     APIRobotEMailAddress:   EMailAddress.Parse($"OpenChargingCloud {this.Kind.Product} Robot <robot@charging.cloud>"),
                                      APIRobotGPGPassphrase:  "",
 
-                                     // Nothing here sends mail. A vehicle that
+                                     // Nothing here sends mail. A node that
                                      // notifies by e-mail is told so by whoever
                                      // runs it, with a submission client of
                                      // their own; until then a mailer that
@@ -766,14 +749,14 @@ namespace cloud.charging.open.protocols.WWCP.node
                                      HTTPCookiePath:         "/",
 
                                      // A secure cookie is dropped by a browser
-                                     // over plain HTTP, and a vehicle on a
+                                     // over plain HTTP, and a node on a
                                      // bench is reached over plain HTTP. Tied
                                      // to the TLS the server is actually using
-                                     // rather than switched off: on a vehicle
+                                     // rather than switched off: on a node
                                      // with a certificate this stays on.
                                      UseSecureCookies:       false,
 
-                                     // The shortest name a role of this vehicle has,
+                                     // The shortest name a role of this node has,
                                      // because that is what a group identification has
                                      // to be allowed to be. Hermod's own floor is four
                                      // characters, which every role here clears today -
@@ -799,15 +782,15 @@ namespace cloud.charging.open.protocols.WWCP.node
             // 2) The web interface at "/": the files of the bundle, and the
             //    single-page-application stub for every other page URL, so
             //    that a reload on /logs and a bookmark to it both work. The
-            //    JSON API between the two - below WWCPHTTPRootPath, and the
-            //    more specific of the two - is added by the node of a
-            //    particular kind this is, before anybody starts it.
-            this.Frontend      = Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(AWWCPNode).Assembly);
+            //    JSON API between the two - below HTTPRootPath, and the more
+            //    specific of the two - is added by the kind of node this is,
+            //    before anybody starts it.
+            this.Frontend      = Frontend ?? new NoWebInterface();
 
             if (this.Frontend.TryGet(IndexFile, out _))
             {
 
-                this.WebInterface = WWCPHTTPServer.AddHTTPAPI(this.BasePath);
+                this.WebInterface = this.HTTPServer.AddHTTPAPI(this.BasePath);
 
                 this.WebInterface.MapSinglePageApplication(
                     this.Frontend,
@@ -823,7 +806,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                         IndexTransform = html => html.
                                                      Replace("{{ServerVersion}}", $"v{Version}",         StringComparison.Ordinal).
                                                      Replace("{{BasePath}}",      BasePathText,          StringComparison.Ordinal).
-                                                     Replace("{{APIBase}}",       $"{WWCPHTTPRootPath.ToString().TrimEnd('/')}/v1", StringComparison.Ordinal).
+                                                     Replace("{{APIBase}}",       $"{this.HTTPRootPath.ToString().TrimEnd('/')}/v1", StringComparison.Ordinal).
                                                      Replace("{{ExtBase}}",       this.ExtAPI.RootPath.ToString().TrimEnd('/'), StringComparison.Ordinal)
 
                     }
@@ -849,17 +832,22 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             }
 
+            // A node that was handed nothing has no web interface, and that
+            // is what it is; one that was handed a source with no bundle in
+            // it was meant to have one, and that is a fault to say so about.
+            else if (Frontend is null)
+                this.Log.Info("No web interface: nothing was handed in to serve, so a browser gets nothing here.", "web");
+
             else
                 this.Log.Error(
                     $"No web interface to serve ({this.Frontend.Description}): the JSON API answers, the browser gets nothing. " +
-                    "Build the frontend (npm run build in Frontend/) or point the vehicle at a directory with --frontend.",
+                    "Build the bundle, or point the node at a directory that has one.",
                     "web"
                 );
 
-
             #region Every request, into the log
 
-            WWCPHTTPServer.OnHTTPRequest  += (server, request, cancellationToken) => {
+            this.HTTPServer.OnHTTPRequest  += (server, request, cancellationToken) => {
 
                 // The event stream is one request that stays open for as long
                 // as a browser has the page open; logging it would say nothing
@@ -874,7 +862,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // Only OnHTTPResponse, and not OnHTTPError beside it: Hermod raises
             // both for the same response, and one line per request is what a
             // log is for.
-            WWCPHTTPServer.OnHTTPResponse += (server, request, response, cancellationToken) => {
+            this.HTTPServer.OnHTTPResponse += (server, request, response, cancellationToken) => {
 
                 if (IsEventStream(request))
                     return Task.CompletedTask;
@@ -925,7 +913,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         /// <remarks>
         /// <para>
         /// The groups are made every start rather than only the first, because
-        /// they are this vehicle's vocabulary and not somebody's data: a group
+        /// they are this node's vocabulary and not somebody's data: a group
         /// deleted by hand would otherwise leave a role that can never be held
         /// again, and the routes asking for it would refuse everybody with no
         /// way to put it right.
@@ -950,7 +938,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             // Read what is on disk first. The HTTPExt API writes its accounts
             // as it goes but does not read them back when it is built, so a
-            // vehicle that skipped this would find no accounts at every start,
+            // node that skipped this would find no accounts at every start,
             // make a second root beside the first, and refuse the password its
             // owner already has.
             await ExtAPI.LoadDatabase();
@@ -974,23 +962,23 @@ namespace cloud.charging.open.protocols.WWCP.node
                 // looks equivalent and writes the account without one - which
                 // is an account nobody can sign in to, and nothing says so.
                 var organization  = await ExtAPI.CreateOrganizationIfNotExists(
-                                              Organization_Id.Parse(DefaultOrganization),
-                                              I18NString.Create(Languages.en, DefaultOrganization)
+                                              Organization_Id.Parse(Kind.Organization),
+                                              I18NString.Create(Languages.en, Kind.Organization)
                                           );
 
-                if (organization is not Organization vehicleOrganization)
-                    throw new InvalidOperationException("The organization of this vehicle could not be created, and an account outside one cannot sign in.");
+                if (organization is not Organization nodeOrganization)
+                    throw new InvalidOperationException("The organization of this node could not be created, and an account outside one cannot sign in.");
 
                 admin         = await ExtAPI.CreateUser(
                                           userId,
                                           I18NString.Create(Languages.en, DefaultAdminUser),
                                           SimpleEMailAddress.Parse($"{DefaultAdminUser}@localhost"),
                                           User2OrganizationEdgeLabel.IsAdmin,
-                                          vehicleOrganization,
+                                          nodeOrganization,
                                           Password:                  password,
 
                                           // Nothing is sent and nobody is told:
-                                          // a vehicle has no mail server, no
+                                          // a node has no mail server, no
                                           // second user to notify, and the one
                                           // account it makes is announced on the
                                           // console it was started from.
@@ -1003,7 +991,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                                           // require an accepted EULA and refuse a
                                           // correct password without one. There is
                                           // no agreement to show here - whoever
-                                          // started the process owns the vehicle -
+                                          // started the process owns the node -
                                           // so it is accepted at the moment the
                                           // account is made.
                                           AcceptedEULA:              TimeProvider.GetUtcNow().AddSeconds(-1),
@@ -1012,7 +1000,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                                       );
 
                 if (admin is null)
-                    throw new InvalidOperationException("The account of this vehicle could not be created, so nobody could sign in to it.");
+                    throw new InvalidOperationException("The account of this node could not be created, so nobody could sign in to it.");
 
                 GeneratedPassword = password;
 
@@ -1045,7 +1033,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                 // say why. Better to stop before the port opens.
                 if (added.Result != CommandResult.Success)
                     throw new InvalidOperationException(
-                              $"The user group '{role.GroupId}' of this vehicle could not be made: " +
+                              $"The user group '{role.GroupId}' of this node could not be made: " +
                               $"{added.Description.FirstText()} A role without its group is a role nobody can hold."
                           );
 
@@ -1070,7 +1058,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                      adminGroup  is not UserGroup group)
                 {
                     throw new InvalidOperationException(
-                              $"The account of this vehicle could not be put in the {UserRole.SystemAdmin.Name} group, " +
+                              $"The account of this node could not be put in the {UserRole.SystemAdmin.Name} group, " +
                                "so the one account it has would be allowed to do nothing at all."
                           );
                 }
@@ -1107,7 +1095,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         #region DNSConfigurationJSON()
 
         /// <summary>
-        /// How this vehicle resolves names.
+        /// How this node resolves names.
         /// </summary>
         public JObject DNSConfigurationJSON()
 
@@ -1115,7 +1103,7 @@ namespace cloud.charging.open.protocols.WWCP.node
 
                    new JProperty("enabled",           DNSEnabled),
 
-                   // The servers this vehicle would ask, which is not the same
+                   // The servers this node would ask, which is not the same
                    // as the ones the client holds: switched off, it holds none.
                    new JProperty("servers",           new JArray(
                        configuredDNSServers.Select(DNSConfiguration.ServerJSON)
@@ -1160,7 +1148,7 @@ namespace cloud.charging.open.protocols.WWCP.node
         #region TryUpdateDNSConfiguration(JSON, out Error)
 
         /// <summary>
-        /// Change how this vehicle resolves names, at once and for everything
+        /// Change how this node resolves names, at once and for everything
         /// that was handed its DNS client.
         /// </summary>
         /// <remarks>
@@ -1182,11 +1170,11 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             if (configuration.Servers is { Count: 0 })
             {
-                Error = "A vehicle that resolves no names cannot reach anything. Switch name resolution off instead of emptying the list.";
+                Error = "A node that resolves no names cannot reach anything. Switch name resolution off instead of emptying the list.";
                 return false;
             }
 
-            // Under the same lock as every other change to this vehicle:
+            // Under the same lock as every other change to this node:
             // writing a section is a read, a change and a write of one file,
             // and two browsers saving different sections at the same moment
             // would otherwise leave one of the two changes in neither.
@@ -1237,7 +1225,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             }
 
             // Always, not only when one of the two above changed: the client
-            // must end up holding exactly the servers this vehicle means it to
+            // must end up holding exactly the servers this node means it to
             // hold, and working that out from which halves changed is how the
             // two drift apart.
             dnsClient.SetDNSServers(DNSEnabled ? configuredDNSServers : []);
@@ -1298,14 +1286,14 @@ namespace cloud.charging.open.protocols.WWCP.node
         #region NTSConfigurationJSON()
 
         /// <summary>
-        /// Where this vehicle gets the time from, and how the key exchange
+        /// Where this node gets the time from, and how the key exchange
         /// behind it is doing.
         /// </summary>
         /// <remarks>
         /// The group, and nothing about the single client the detailed test
         /// starts from. This answer used to carry that client's host, its
         /// cookie pool and its last key exchange as "server", "cookies" and
-        /// "keyExchange" - which read as the vehicle's time server and the
+        /// "keyExchange" - which read as the node's time server and the
         /// cookies it synchronises with, and were neither: the group asks its
         /// servers with key exchanges of its own, one per server, and those
         /// are what each server's entry below reports.
@@ -1318,14 +1306,14 @@ namespace cloud.charging.open.protocols.WWCP.node
                        new JProperty("enabled",      NTSEnabled),
 
                        // What may be changed about the group and the test, as
-                       // it is in effect. The quorum is the one this vehicle
+                       // it is in effect. The quorum is the one this node
                        // was told; the group's own, below, can be lower when it
                        // has fewer servers switched on.
                        new JProperty("settings",     new JObject(
                            new JProperty("timeoutSeconds",        ntsClient.Timeout?.TotalSeconds),
                            new JProperty("checkEverySeconds",     TimeCheckEvery.TotalSeconds),
                            new JProperty("minServers",            ntsQuorum),
-                           new JProperty("maxDeviationSeconds",   NTSTimeSources.MaxDeviation.TotalSeconds)
+                           new JProperty("maxDeviationSeconds",   timeSources.MaxDeviation.TotalSeconds)
                        )),
 
                        // What any new client starts with, the group's and the
@@ -1338,7 +1326,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                        )),
 
                        // What the group is actually doing, which is what
-                       // synchronises this vehicle's clock: each server's key
+                       // synchronises this node's clock: each server's key
                        // exchange and the cookies left from it are what a
                        // synchronisation spends.
                        //
@@ -1348,7 +1336,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                        // because it was switched off would be deleted by the next
                        // save of anything else.
                        new JProperty("timeSources",  new JArray(
-                           NTSTimeSources.Sources.Select(source => {
+                           timeSources.Sources.Select(source => {
 
                                var held = timeEngine.KeyExchanges.TryGetValue(source.Hostname, out var state) ? state : null;
 
@@ -1367,9 +1355,9 @@ namespace cloud.charging.open.protocols.WWCP.node
                            })
                        )),
                        new JProperty("group",        new JObject(
-                           new JProperty("name",                 NTSTimeSources.Name),
-                           new JProperty("minServers",           NTSTimeSources.MinServers),
-                           new JProperty("maxDeviationSeconds",  NTSTimeSources.MaxDeviation.TotalSeconds)
+                           new JProperty("name",                 timeSources.Name),
+                           new JProperty("minServers",           timeSources.MinServers),
+                           new JProperty("maxDeviationSeconds",  timeSources.MaxDeviation.TotalSeconds)
                        )),
                        new JProperty("lastSync",     lastTimeSync),
 
@@ -1394,10 +1382,10 @@ namespace cloud.charging.open.protocols.WWCP.node
         #region TryUpdateNTSConfiguration(JSON, out Error)
 
         /// <summary>
-        /// Change where this vehicle reads the time.
+        /// Change where this node reads the time.
         /// </summary>
         /// <remarks>
-        /// Pointing the vehicle at another server replaces the client rather
+        /// Pointing the node at another server replaces the client rather
         /// than reconfiguring it: the cookies and the keys an NTS client holds
         /// were issued by the host it was made for, and carrying them to a
         /// different one would at best fail and at worst send one server the
@@ -1424,7 +1412,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                 // And the file as the next start will read it. Each half can
                 // be fine and the two together not: the quorum the file holds
                 // and a list saved now that is shorter than it would be a
-                // section the next start refuses, and a vehicle that does not
+                // section the next start refuses, and a node that does not
                 // start because of a save that was accepted.
                 if (!ConfigFile.TryPreviewSection(NTSConfiguration.SectionName, configuration.ToJSON(), out var merged, out Error))
                     return false;
@@ -1518,12 +1506,12 @@ namespace cloud.charging.open.protocols.WWCP.node
 
         /// <summary>
         /// Whether a quorum named on its own can be met by the servers this
-        /// vehicle asks.
+        /// node asks.
         /// </summary>
         /// <remarks>
         /// A section naming its servers as well had its quorum checked against
         /// them when it was read. One naming only the quorum is about the
-        /// servers in effect, which the section cannot know and this vehicle
+        /// servers in effect, which the section cannot know and this node
         /// does.
         /// </remarks>
         private Boolean TryCheckNTSQuorum(NTSConfiguration                  Configuration,
@@ -1537,11 +1525,11 @@ namespace cloud.charging.open.protocols.WWCP.node
                 Configuration.Hostname   is null)
             {
 
-                var asked = NTSTimeSources.Sources.Count(source => source.Enabled);
+                var asked = timeSources.Sources.Count(source => source.Enabled);
 
                 if (quorum > asked)
                 {
-                    Error = $"'nts.minServers' is {quorum}, which is more servers than the {asked} this vehicle asks.";
+                    Error = $"'nts.minServers' is {quorum}, which is more servers than the {asked} this node asks.";
                     return false;
                 }
 
@@ -1565,7 +1553,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // Kept whole: what this method does with the client is only half of
             // it, and the other half - how often to check, and what the
             // operator claims about the server - is read from elsewhere and
-            // much later. See AWWCPNode.Clock.cs.
+            // much later. See WWCPNode.Clock.cs.
             //
             // Laid over what was kept rather than put in its place. A save sends
             // part of the section - the switch on the page sends "enabled" and
@@ -1581,9 +1569,9 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             #region The group of time servers
 
-            var wasServers    = NTSTimeSources.Describe();
-            var wasQuorum     = NTSTimeSources.MinServers;
-            var wasDeviation  = NTSTimeSources.MaxDeviation;
+            var wasServers    = timeSources.Describe();
+            var wasQuorum     = timeSources.MinServers;
+            var wasDeviation  = timeSources.MaxDeviation;
 
             if (Configuration.MinServers.HasValue)
                 ntsQuorum = Configuration.MinServers.Value;
@@ -1601,30 +1589,30 @@ namespace cloud.charging.open.protocols.WWCP.node
             var sources       = Configuration.Servers  is not null ||
                                 Configuration.Hostname is not null
                                     ? Configuration.ToGroup(Configuration.Hostname ?? ntsClient.Hostname).Sources
-                                    : NTSTimeSources.Sources;
+                                    : timeSources.Sources;
 
             // The quorum and the deviation by the same rule, and on their own as
             // well. They used to count only beside a list or a hostname, so a
             // section saying nothing but "minServers": 3 was read, reported as
             // NTS configuration, and changed nothing; and a list without a
             // quorum was held to one, whatever had been agreed before.
-            NTSTimeSources       = new TimeSourceGroup(
-                                    NTSTimeSources.Name,
+            timeSources       = new TimeSourceGroup(
+                                    timeSources.Name,
                                     sources,
                                     NTSConfiguration.QuorumFor(ntsQuorum, sources),
-                                    Configuration.MaxDeviation ?? NTSTimeSources.MaxDeviation
+                                    Configuration.MaxDeviation ?? timeSources.MaxDeviation
                                 );
 
-            var nowServers    = NTSTimeSources.Describe();
+            var nowServers    = timeSources.Describe();
 
             if (wasServers != nowServers)
                 changed.Add($"time servers = {nowServers}");
 
-            if (wasQuorum != NTSTimeSources.MinServers)
-                changed.Add($"quorum = {NTSTimeSources.MinServers}");
+            if (wasQuorum != timeSources.MinServers)
+                changed.Add($"quorum = {timeSources.MinServers}");
 
-            if (wasDeviation != NTSTimeSources.MaxDeviation)
-                changed.Add($"agreed deviation = {NTSTimeSources.MaxDeviation.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+            if (wasDeviation != timeSources.MaxDeviation)
+                changed.Add($"agreed deviation = {timeSources.MaxDeviation.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
             #endregion
 
@@ -1647,7 +1635,7 @@ namespace cloud.charging.open.protocols.WWCP.node
                             );
 
                 // The old client's cookies went with it, so what the page shows
-                // about the last exchange belongs to a server this vehicle no
+                // about the last exchange belongs to a server this node no
                 // longer asks.
                 lastTimeSync = null;
 
@@ -1673,7 +1661,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             if (changed.Count > 0)
                 Log.Notice($"NTS configuration changed: {String.Join(", ", changed)}.", "nts", "config");
 
-            // The clock is checked on a timer set when the vehicle started, so
+            // The clock is checked on a timer set when the node started, so
             // whether and how often it is checked has to be put into that timer
             // here - otherwise the page says "in effect" about something that
             // waits for the next start. Before the start there is no timer yet,
@@ -1691,14 +1679,108 @@ namespace cloud.charging.open.protocols.WWCP.node
         #endregion
 
 
+        #region (class) NoWebInterface
+
+        /// <summary>
+        /// The web interface of a node that has none: nothing to serve, and
+        /// a description that says so.
+        /// </summary>
+        private sealed class NoWebInterface : IStaticContentSource
+        {
+
+            public String   Description
+                => "no web interface";
+
+            public Boolean  IsImmutable
+                => true;
+
+            public Boolean  TryGet(String                               RelativePath,
+                                   [NotNullWhen(true)] out StaticFile?  File)
+            {
+                File = null;
+                return false;
+            }
+
+        }
+
+        #endregion
+
+
+        #region ConfigurationJSON()
+
+        /// <summary>
+        /// What this node is, as the Configuration page of the web interface
+        /// reads it: its web server and its accounts, its log, and its time.
+        /// A kind of node adds what it is on top.
+        /// </summary>
+        /// <remarks>
+        /// Read-only: it answers "what am I running", not "change it". Nothing
+        /// here is a secret - the accounts appear as the path they live at and
+        /// the route to sign in, and never as anything about a password.
+        /// </remarks>
+        public virtual JObject ConfigurationJSON()
+
+            => new (
+
+                   new JProperty("http",       new JObject(
+                       new JProperty("serverName",     HTTPServer.HTTPServerName),
+                       new JProperty("url",            WebInterfaceURL.ToString()),
+                       new JProperty("basePath",       BasePath.ToString()),
+                       new JProperty("apiPath",        HTTPRootPath.ToString()),
+                       new JProperty("sharedServer",   !OwnsHTTPServer),
+                       new JProperty("running",        started),
+                       new JProperty("frontend",       Frontend.Description),
+                       new JProperty("webInterface",   WebInterface is not null)
+                   )),
+
+                   new JProperty("web",        new JObject(
+                       new JProperty("accountsPath",   AccountsPath),
+                       new JProperty("sharedAccounts", !OwnsExtAPI),
+                       new JProperty("signInAt",       $"{ExtAPI.RootPath.ToString().TrimEnd('/')}/login"),
+                       new JProperty("users",          ExtAPI.Users.     Count()),
+                       new JProperty("groups",         ExtAPI.UserGroups.Count()),
+                       new JProperty("cookie",         ExtAPI.SessionCookieName.ToString()),
+                       new JProperty("maxLifetime",    ExtAPI.MaxSignInSessionLifetime.ToString())
+                   )),
+
+                   new JProperty("log",        new JObject(
+                       new JProperty("capacity",       Log.Capacity),
+                       new JProperty("entries",        Log.Count),
+                       new JProperty("lastId",         Log.LastId),
+                       new JProperty("debugBridge",    traceBridge is not null),
+                       new JProperty("console",        consoleLog  is not null),
+                       new JProperty("tags",           new JArray(Log.KnownTags))
+                   )),
+
+                   // The group, which is what sets the clock: every server,
+                   // named the way the log names them when they change and the
+                   // switched-off ones included - and the last synchronisation,
+                   // the button's, the prompt's or the clock check's, when it
+                   // happened and how it went, or nothing while there has been
+                   // none.
+                   new JProperty("time",       new JObject(
+                       new JProperty("ntsEnabled",      NTSEnabled),
+                       new JProperty("timeServers",     timeSources.Describe()),
+                       new JProperty("minServers",      timeSources.MinServers),
+                       new JProperty("checkedEvery",    TimeCheckEvery.ToString()),
+                       new JProperty("lastSync",        lastTimeSync?.Value<String>("at")),
+                       new JProperty("lastSyncResult",  LastSyncSaid(lastTimeSync)),
+                       new JProperty("now",             TimeProvider.GetUtcNow().ToString("o"))
+                   ))
+
+               );
+
+        #endregion
+
+
         #region Start()
 
         /// <summary>
         /// Start listening.
         /// </summary>
         /// <remarks>
-        /// The accounts first, then the port, then the clock - and what a node
-        /// of a particular kind has to say once it is up comes from its
+        /// The accounts first, then the port, then the clock - and what a kind
+        /// of node has to say once it is up comes from its
         /// <see cref="OnStarted"/>, after the line saying that it is.
         /// </remarks>
         public async Task Start()
@@ -1716,7 +1798,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             {
                 try
                 {
-                    await WWCPHTTPServer.Start();
+                    await HTTPServer.Start();
                 }
                 catch (SocketException problem)
                 {
@@ -1728,7 +1810,10 @@ namespace cloud.charging.open.protocols.WWCP.node
 
             started = true;
 
-            Log.Notice($"The web interface is listening on {WebInterfaceURL}", "web", "http");
+            Log.Notice(WebInterface is not null
+                           ? $"The web interface is listening on {WebInterfaceURL}"
+                           : $"Listening on {WebInterfaceURL}, with no web interface to serve.",
+                       "web", "http");
 
             await OnStarted();
 
@@ -1765,7 +1850,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             if (!started)
                 return;
 
-            Log.Notice($"The {Kind} is shutting down.", LogTag);
+            Log.Notice($"The {Kind.Name} is shutting down.", Kind.Tag);
 
             timeCheckTimer?.Dispose();
             timeCheckTimer = null;
@@ -1775,7 +1860,7 @@ namespace cloud.charging.open.protocols.WWCP.node
             // The socket is closed only where it is this node's own: a shared
             // server is stopped by whoever made it.
             if (OwnsHTTPServer)
-                await WWCPHTTPServer.Stop();
+                await HTTPServer.Stop();
 
             started = false;
 
