@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  # Manual runs from the Actions tab ("Run workflow"), same as nightly.yml.
+  workflow_dispatch:
+
+concurrency:
+  # Pull requests: one run per branch, newest wins. Pushes: one run per commit,
+  # and nothing cancels anything — a commit with no verdict is a hole nobody
+  # comes back to fill. Keying the group on the SHA rather than only turning
+  # cancel-in-progress off is what makes that hold for more than two pushes.
+  # The same arrangement as Hermod and the other repositories of this stack.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # One leg per platform a node is run on: Windows, where it is developed, and
+  # Debian 13, where it is deployed — the vehicle's and the station's test
+  # environments install exactly that. GitHub has no Debian runner image, so
+  # the second leg is an Ubuntu runner carrying a debian:13 container.
+  #
+  # fail-fast is off on purpose: "red on exactly one platform" is the most
+  # valuable thing a two-leg matrix produces, so one leg must not cancel the
+  # other. The log file tests are the ones to watch for that — a directory
+  # standing where the day's file should be fails the same way on both, but
+  # that is something this matrix proves rather than assumes.
+  # ---------------------------------------------------------------------------
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            leg: windows-latest
+          - os: ubuntu-latest
+            container: debian:13
+            leg: debian-13-container
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+
+      # Before the checkouts, not after them: Hermod carries FontAwesome icon
+      # files whose paths exceed the classic 260 characters once nested under
+      # the runner's workspace, and a checkout that gives up halfway through
+      # with "Filename too long" leaves a half-populated tree behind.
+      - name: Allow long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
+      # Also before the checkouts: git itself. The bare debian:13 image has
+      # none, and actions/checkout without git downloads a tarball instead —
+      # which is a checkout that Directory.Build.props cannot ask anything, so
+      # every assembly of the run would be stamped "unknown". The rest is what
+      # .NET needs on a bare Debian: curl for the install script, ICU and tzdata
+      # for globalization, OpenSSL for crypto, ca-certificates for NuGet over
+      # HTTPS.
+      - name: Install prerequisites (Debian container)
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 libstdc++6 tzdata && git config --global --add safe.directory '*'
+
+      # This repository cannot be built on its own. WWCP_Node.csproj references
+      # ..\..\Hermod\Hermod\Hermod.csproj, ..\..\Norn\..., ..\..\Styx\... and
+      # ..\..\Urdr\... — SIBLING directories — and Norn and Hermod reach for
+      # their own siblings the same way. There are no submodules, so all five
+      # repositories are checked out side by side to reproduce the layout those
+      # relative paths assume. The same pattern as Norn's workflow, one
+      # repository further up the stack.
+      #
+      # Note what this does not do: pin any of them. All four are built from
+      # master, so a breaking change in one of them turns this red without
+      # anything here having moved. That is the honest signal for a library
+      # that has to keep up with its dependencies; EVCLI, which pins all of
+      # them as submodules, asks the other question.
+      - uses: actions/checkout@v7
+        with:
+          path: WWCP_Node
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Styx
+          path: Styx
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Hermod
+          path: Hermod
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Norn
+          path: Norn
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Urdr
+          path: Urdr
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The test project, which takes the library and the four beside it with
+      # it: six projects, and "they still compile together at their tips" is
+      # half of what this run is for.
+      - name: Build
+        working-directory: WWCP_Node
+        run: dotnet build WWCP_Node_Tests/WWCP_Node_Tests.csproj --configuration Release
+
+      # The other half. The node itself, constructed and never started; the
+      # DNS and NTS sections of the configuration file, on their own and in
+      # effect on a node; the certificate store, with certificates minted in
+      # the test rather than committed; the log on disk, and what the log says
+      # on stderr about itself; a time server's certificate, as the NTS test
+      # describes it.
+      #
+      # No category filter. Nothing in this project queries the network - a
+      # node that is never started asks nobody anything - so there is no set
+      # to keep out of a gate.
+      - name: Test
+        timeout-minutes: 15
+        working-directory: WWCP_Node
+        run: dotnet test WWCP_Node_Tests/WWCP_Node_Tests.csproj --configuration Release --no-build --logger "console;verbosity=normal" --logger "trx;LogFileName=${{ matrix.leg }}.trx" --results-directory artifacts
+
+      # The console log answers "did it pass" and almost nothing else. TRX keeps,
+      # per test: outcome, duration, error message, stack trace, and the reason
+      # an Assert.Ignore gave — which never reaches the console at all.
+      #
+      # !cancelled() rather than success(): a red run is when these files matter
+      # most, so uploading only on green would throw the evidence away in
+      # exactly the case it is wanted.
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.leg }}
+          path: WWCP_Node/artifacts/*.trx

@@ -1,0 +1,143 @@
+name: Nightly
+
+# The counterpart to ci.yml. That workflow gates every push; this one runs the
+# same build and the same tests once a night, whether or not anybody pushed —
+# and that is the point. Nothing here is pinned: Styx, Hermod, Norn and Urdr
+# are built from master, so a breaking change in one of them is found on the
+# night it lands rather than on the day somebody next touches this repository.
+# Hermod's nightly notices Styx the same way; this one is one repository
+# further up the stack, and has four to notice.
+#
+# Two things worth knowing about scheduled workflows: they only ever run on the
+# default branch, and GitHub disables them after 60 days without any repository
+# activity. If this stops reporting, that is the first thing to check.
+on:
+  schedule:
+    # 02:47 UTC. Not on the hour, because GitHub's scheduler is busiest then
+    # and delays runs by tens of minutes — and half an hour after the libraries
+    # of this stack run theirs at 02:17, half an hour before EVCLI runs its at
+    # 03:17, so that a morning is read in the order the dependencies are
+    # stacked: if Hermod went red at 02:17, this night's red is already
+    # explained, and if this went red at 02:47, EVCLI's is.
+    - cron: '47 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Everything, against the tips. Same two legs as ci.yml — see there for why
+  # it is exactly Windows and a debian:13 container, and for the side-by-side
+  # checkout of the four repositories this one is built on.
+  # ---------------------------------------------------------------------------
+  full-suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            leg: windows-latest
+          - os: ubuntu-latest
+            container: debian:13
+            leg: debian-13-container
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+
+      - name: Allow long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
+      - name: Install prerequisites (Debian container)
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 libstdc++6 tzdata && git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v7
+        with:
+          path: WWCP_Node
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Styx
+          path: Styx
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Hermod
+          path: Hermod
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Norn
+          path: Norn
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Vanaheimr/Urdr
+          path: Urdr
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        working-directory: WWCP_Node
+        run: dotnet build WWCP_Node_Tests/WWCP_Node_Tests.csproj --configuration Release
+
+      # The same set the gate runs, and fatal for the same reason: a red here
+      # is a real regression — in this repository, or in a library it is built
+      # on and has not caught up with yet, which for a night is the same thing.
+      # Repeating the gate's tests also catches the ones that only fail
+      # sometimes, which one run per push never would.
+      - name: Test
+        timeout-minutes: 30
+        working-directory: WWCP_Node
+        run: dotnet test WWCP_Node_Tests/WWCP_Node_Tests.csproj --configuration Release --no-build --logger "console;verbosity=normal" --logger "trx;LogFileName=${{ matrix.leg }}.trx" --results-directory artifacts
+
+      # The NuGet packages of the whole graph, transitives included — the test
+      # project is the widest of the six, and the four libraries built from
+      # source beside it declare their packages inside it either way, so they
+      # need no scan of their own.
+      #
+      # One leg, because this is a property of the dependency graph and not of
+      # the operating system; printing it on both would only make a night look
+      # like it had found two of everything.
+      #
+      # Informational, and that is the part worth insisting on: an advisory
+      # published overnight is news about the world, not a regression here —
+      # the same commit that was green yesterday is affected today without a
+      # line having changed. That is also why it lives in the night and not in
+      # the gate: a gate that can go red for something no push caused stops
+      # being read as a gate.
+      - name: Known vulnerabilities (informational)
+        if: ${{ matrix.leg == 'debian-13-container' && !cancelled() }}
+        continue-on-error: true
+        working-directory: WWCP_Node
+        shell: bash
+        run: |
+          set +e
+          {
+            echo '## Known vulnerabilities (informational)'
+            echo
+            echo 'The NuGet packages of WWCP_Node and its tests, transitives included -'
+            echo 'and with them those of Styx, Hermod, Norn and Urdr, which are built'
+            echo 'from source beside it. Informational: an advisory published overnight'
+            echo 'is news, not a regression, so this step cannot turn the night red.'
+            echo
+            echo '```'
+            dotnet list WWCP_Node_Tests/WWCP_Node_Tests.csproj package --vulnerable --include-transitive 2>&1 \
+              | grep -v "has no vulnerable packages given the current sources" \
+              | tail -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.leg }}
+          path: WWCP_Node/artifacts/*.trx
