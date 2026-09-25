@@ -161,6 +161,58 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public const Double  MinDeviationSeconds  = 0.001;
         public const Double  MaxDeviationSeconds  = 3600;
 
+        /// <summary>
+        /// How far off this node's clock may be and still keep legal time, in
+        /// seconds, and how old the check behind it may be.
+        /// </summary>
+        public const Double  MinToleranceSeconds  = 0.001;
+        public const Double  MaxToleranceSeconds  = 60;
+        public const Double  MinMaxAgeSeconds     = 10;
+        public const Double  MaxMaxAgeSeconds     = 86400;
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Whether this section takes the legal time authority away, rather
+        /// than not mentioning it.
+        /// </summary>
+        /// <remarks>
+        /// Said with "legalTimeAuthority": null, or with nothing between the
+        /// quotes - which is what a page sends for an emptied field. Anywhere
+        /// else in a section a null means "the file does not say", and here it
+        /// meant that too: the authority was gone until the next start and back
+        /// after it, the file never having been told. The Modbus/TLS energy
+        /// meter found it, and had this before it was a node.
+        /// </remarks>
+        public Boolean  RemovesLegalTimeAuthority  { get; init; }
+
+        /// <summary>
+        /// The keys a save of this section takes out of the file rather than
+        /// leaving them as they are.
+        /// </summary>
+        /// <remarks>
+        /// The authority, when it is taken away. And the list of servers when a
+        /// lone hostname replaces it: this node makes a group of one of that
+        /// hostname at once, and a file keeping its list beside the hostname
+        /// would make the list again at the next start, which is not what was
+        /// saved.
+        /// </remarks>
+        public IEnumerable<String> RemovedKeys
+        {
+            get
+            {
+
+                if (RemovesLegalTimeAuthority)
+                    yield return "legalTimeAuthority";
+
+                if (Hostname is not null && Servers is null)
+                    yield return "servers";
+
+            }
+        }
+
         #endregion
 
 
@@ -183,14 +235,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !ConfigurationReader.TryReadPort   (JSON, "ntpPort",         "nts",      out var ntpPort,   out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "timeoutSeconds",  "nts", 0.1, MaxTimeoutSeconds, out var timeout, out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "checkEverySeconds", "nts", MinCheckEverySeconds, MaxCheckEverySeconds, out var checkEvery, out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeToleranceSeconds", "nts", 0.001, 60, out var tolerance, out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeMaxAgeSeconds", "nts", 10, 86400, out var maxAge, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeToleranceSeconds", "nts", MinToleranceSeconds, MaxToleranceSeconds, out var tolerance, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeMaxAgeSeconds", "nts", MinMaxAgeSeconds, MaxMaxAgeSeconds, out var maxAge, out Error) ||
                 !ConfigurationReader.TryReadString (JSON, "legalTimeAuthority", "nts", MaxAuthorityLength, out var authority, out Error) ||
                 !ConfigurationReader.TryReadByte   (JSON, "minServers",         "nts",                     out var minServers, out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "maxDeviationSeconds", "nts", MinDeviationSeconds, MaxDeviationSeconds, out var maxDeviation, out Error))
             {
                 return false;
             }
+
+            // Named, and nothing in it: taken away. See RemovesLegalTimeAuthority.
+            var removesAuthority = authority is null &&
+                                   JSON.TryGetValue("legalTimeAuthority", out var authorityToken) &&
+                                   authorityToken.Type is JTokenType.Null or JTokenType.String;
 
             #region The servers, when there is a list of them
 
@@ -267,7 +324,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 servers,
                                 minServers,
                                 maxDeviation
-                            );
+                            ) {
+                                RemovesLegalTimeAuthority = removesAuthority
+                            };
 
             return true;
 
@@ -340,7 +399,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// <remarks>
         /// What a save that sends part of the section amounts to, and what the
         /// file says once that part is merged into it. The list of servers is
-        /// one value and is replaced whole, as it is in the file.
+        /// one value and is replaced whole, as it is in the file - and dropped
+        /// when a lone hostname takes its place, as it is taken out of the file.
+        /// An authority taken away is taken away, and not kept from before.
         /// </remarks>
         /// <param name="Update">The section laid over this one.</param>
         public NTSConfiguration OverriddenBy(NTSConfiguration Update)
@@ -351,10 +412,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     Update.NTPPort             ?? NTPPort,
                     Update.Timeout             ?? Timeout,
                     Update.CheckEvery          ?? CheckEvery,
-                    Update.LegalTimeAuthority  ?? LegalTimeAuthority,
+                    Update.RemovesLegalTimeAuthority
+                        ? null
+                        : Update.LegalTimeAuthority ?? LegalTimeAuthority,
                     Update.LegalTimeTolerance  ?? LegalTimeTolerance,
                     Update.LegalTimeMaxAge     ?? LegalTimeMaxAge,
-                    Update.Servers             ?? Servers,
+                    Update.Servers             ?? (Update.Hostname is not null ? null : Servers),
                     Update.MinServers          ?? MinServers,
                     Update.MaxDeviation        ?? MaxDeviation);
 

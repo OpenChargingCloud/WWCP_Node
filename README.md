@@ -27,13 +27,14 @@ a port of their own to connect to.
 | `WWCPNode.cs` | the node: its log, its clients, its store, its accounts and its web server, made in that order |
 | `WWCPNode.Clock.cs` | what time it thinks it is, and what that is worth |
 | `WWCPNode.Diagnostics.cs` | asking a name server or a time server something, step by step, for a page to show |
+| `WWCPNode.TimeServerCertificates.cs` | which certificates of its time servers it believes: the machine's roots, its own, and the fingerprints a server is held to |
 | `NodeKind.cs` | the five names a kind of node goes by |
 | `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates` |
-| `Logging/` | one log for everything: in memory, on the console, in a file, and what the libraries below say through it |
+| `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
 | `Web/` | who may sign in, and what each role may do |
-| `WWCP_Node_Tests/` | a hundred and eight tests, each of them constructing the node rather than a vehicle, a station or a controller |
+| `WWCP_Node_Tests/` | a hundred and eighty-one tests, each of them constructing the node rather than a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -228,13 +229,44 @@ An entry of `servers` is a host name, or an object saying more than the name:
 { "hostname": "time.local", "priority": 0, "ntsKEPort": 4460, "enabled": true }
 ```
 
+A server may be held to more than every server is held to - its own
+certificate, or the root its chain ends at, each by its SHA-256 fingerprint,
+written the way a certificate authority, a browser or openssl writes one:
+
+```json
+{ "hostname": "time.local", "rootFingerprint": "4F:1C:…", "onMismatch": "record" }
+```
+
+A server showing another certificate is refused - its key exchange ends, and
+it gives no time - unless `onMismatch` says `record`, when its time is used
+all the same; either way the metrological log says which certificate it
+showed and what it is held to. The certificate is judged at every key
+exchange, of the group and of a detailed test alike, and in this order: is
+it issued for the server's name; does its chain end at a root this machine
+trusts, or at a TLS root of the node's own store, or at the root the server
+is held to where the store has that one under whatever kind; and is it what
+the server is held to. A pin narrows what is believed and never widens it:
+a certificate that matches its pin and chains to nothing is refused, and a
+server with a certificate it signed itself is believed by importing that
+certificate as a TLS root - which says the same thing, on purpose. A key
+exchange is reused for as long as its cookies last, up to half an hour, so a
+change to what a server is held to forgets the exchange it has, and the pin
+counts from the next round. The same verdict at every round is written into
+the metrological log once, and its end again. The NTS answer says, per
+server, the fingerprint of the certificate it showed last - which is what a
+pin is written down from - what it is held to, and what the node made of it.
+
 Servers sharing a priority are one band and are asked together; a lower
 priority is asked first. The four above share priority 0 because they are
 peers, and putting them in separate bands would say something about them that
 is not true. A section naming a single `hostname` and no list becomes a group
 of one, which is what every file written before there were groups says, and it
 keeps working; a group of one is held to a quorum of one, and a section asking
-two of it is refused. A quorum the servers could never reach is refused
+two of it is refused. A lone `hostname` saved from a page replaces the list,
+in effect and in the file alike - the file used to keep its list beside the
+new name, and the next start made the list again. And `legalTimeAuthority`
+sent as `null`, or as nothing between the quotes, takes the authority away,
+from the file as well, where a null otherwise means "the file does not say". A quorum the servers could never reach is refused
 wherever it arrives: at the start, before anything is asked, and from a page,
 before anything is written - and a page's save is checked as the next start
 would read it, because the quorum the file holds and a shorter list saved now
@@ -254,7 +286,9 @@ enough and close enough; without a named authority this is an ordinary clock
 that happens to be checked, and `ClockJSON()` says so in as many words: the
 time, the group it is checked against, when it was last checked and how far
 off it was then - and `legal`, with a `why` when it is not, `notClaimed` among
-them. A kind of node puts that behind a route of its own.
+them. A kind of node puts that behind a route of its own. `ClockIsSynchronised` is
+the one-letter version of it for a signed record: whether a check has found a
+time at all since the servers were last replaced.
 
 Against whom it was checked is said for a screen, and a screen speaks the
 language it is set to: so the one server of a group of one is named, as
@@ -304,7 +338,22 @@ An expired certificate may be imported - knowing it is there is the point -
 and is active and not usable: somebody switches a certificate on, and time
 switches it off.
 
-The kinds are ISO 15118's, and so the vehicle's, today. See below.
+Seven of the kinds are ISO 15118's, which a vehicle keeps. Four are TLS's in
+general, which any kind of node may keep: `tlsRoot`, what a server it connects
+to may chain to - a time server's key exchange, a backend - and which is
+believed beside the machine's roots, not instead of them; `clientRoot`, what a
+client connecting to it has to chain to; `tlsServer`, what a server it
+connects to shows, kept to be recognised - never with a private key, which
+would be that server's key in the wrong place; and `tlsIdentity`, what the
+node shows itself, with its key. A kind of node keeps those it has a use for,
+and `CertificateKindExtensions.ISO15118` and `.TLS` name the two groups.
+
+Anything in the store is found by its SHA-256 fingerprint, whatever kind it
+was kept as: `ByFingerprint` takes the whole of it and nothing shorter, in any
+of the ways a fingerprint is written. A truncated fingerprint is a handle and
+never evidence. What a trust decision rests on is written into the
+metrological log - an import, with the fingerprint; a certificate switched on
+or off; one deleted, or dropped because its file went.
 
 
 ## Who may sign in
@@ -316,7 +365,20 @@ it. Nobody can sign in to a web interface whose accounts are empty, and an
 unauthenticated setup page would be a door of its own: so at a first start
 the node makes one account, `root`, with a password made up on the spot and
 shown once, on the console, to whoever started the process. It is never
-written down anywhere; what the accounts hold is the hash.
+written down anywhere; what the accounts hold is the hash. It is 24
+characters out of 57 - no I or l, no O or 0, which read as each other on a
+console - drawn from `RandomNumberGenerator`; it used to come from
+`Random.Shared`, which is fast and not secret. A kind of node that keeps
+something about its accounts beyond the node's own - a role given another way
+before it was a node - is asked in `OnAccountsReady`, once they are read and
+the groups made, and before the port opens.
+
+Given a certificate - `ServerCertificateSelector`, and the chain beside it -
+a node serves its web interface, its API and its sign-in over TLS, names
+itself by `https` URLs and sets a secure session cookie. Without one it
+speaks plain HTTP and its cookie is not a secure one, because a browser keeps
+no secure cookie over plain HTTP and nobody could stay signed in. A server
+that is handed in brings its own TLS or none, and the node goes by it.
 
 A role is a user group under the same name, and membership is what carries
 its permissions. The roles are the kind of node's, handed in as `Roles` - a
@@ -379,6 +441,34 @@ being made is already in the log a browser will see later:
   inside a word written in lower case: found anywhere, "nts" tagged every
   line that said "accounts".
 
+**The metrological log** is the fourth, and the one that is evidence: what
+bears on the time a node stamps things with and on what it trusts, written
+entry by entry as metrological by whoever writes it - `Log.Metrological(...)`
+- rather than picked out by a tag or a level, because what is metrologically
+relevant is a question about what happened, not about how loudly it was said.
+The node writes its start and its end there, the plan of its clock check,
+every synchronisation with what each server answered, the servers disagreeing,
+every change of the NTS configuration and of what legal time rests on, a time
+server refused or believed again, and every change of the certificate store;
+a kind of node adds its own. They are ordinary entries as well, numbered in
+the log's own sequence and marked for the page.
+
+It is a `SignedLog`, below `logs/metrological/` beside the log files unless
+it is put elsewhere, and never thinned out: one JSON object per line, one
+file per day, each line carrying the hash of the line before it and an ECDSA
+P-256 signature by a key kept beside it, whose public half is written beside
+it too. `Verify` walks every file and says whether each line still matches
+its hash, follows the line before it and carries the key's signature - and
+where not, which line and why; a file that could not be written for a while
+says what it missed, in a line of the chain like any other. What signing a
+file cannot catch is a file cut off at the end, and the key taken with it:
+the head of the chain is the one value worth keeping somewhere the node
+cannot reach. The Modbus/TLS energy meter's signed log moved here, and a
+meter's metrological log carries on its chain. The numbering of the log
+carries on after a restart from the highest number the metrological log -
+or any store of every entry a kind of node hands in, `IEventLogStore` -
+holds.
+
 What the log says about itself - a listener that failed, a file that cannot
 be written - cannot go through the log, and goes to stderr. It goes through
 the same console block as the entries, so that it cannot land in the middle
@@ -399,8 +489,10 @@ as JSON, for a page that shows the steps as they happen:
 * `TestTimeServerAsync` asks one time server for the time the way the group
   would: the NTS-KE handshake, the certificate it presented and the chain
   this machine built - each certificate with both ends of its validity and
-  the days it has left, the root with its fingerprint, and a verdict in words
-  - then the NTP exchange, and how far off the node's clock is.
+  the days it has left, the server's and the root's fingerprints, a verdict
+  in words, and what the node made of it beyond the machine: a root of its
+  own, and what the server is held to - then the NTP exchange, and how far
+  off the node's clock is.
 * `SyncTimeAsync` asks the whole group, which is what the clock check does on
   its interval.
 

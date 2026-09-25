@@ -18,6 +18,7 @@
 #region Usings
 
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
@@ -108,6 +109,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public const            String          DefaultLogPath                = "logs";
 
         /// <summary>
+        /// Where the metrological log is kept below the directory of the log
+        /// files, unless another directory is given.
+        /// </summary>
+        public const            String          DefaultMetrologicalLogDirectory  = "metrological";
+
+        /// <summary>
         /// The accounts themselves, inside that directory.
         /// </summary>
         public const            String          DefaultAccountsDatabaseFile   = "users.db";
@@ -134,6 +141,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The account made at a first start.
         /// </summary>
         public const            String          DefaultAdminUser              = "root";
+
+        /// <summary>
+        /// What the password of that account is made of: letters and digits,
+        /// without those that read as each other on a console - I and l, O
+        /// and 0.
+        /// </summary>
+        /// <remarks>
+        /// 57 characters, and 24 of them: about 140 bits, drawn from
+        /// <see cref="RandomNumberGenerator"/>. It used to be drawn from
+        /// <c>Random.Shared</c>, which is fast and not secret - whoever sees
+        /// enough of what it hands out can tell what it will hand out next,
+        /// and what it handed out before.
+        /// </remarks>
+        private const           String          PasswordCharacters            = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789";
 
         /// <summary>
         /// The role that account is put in, and which every kind of node knows.
@@ -276,6 +297,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
             => fileLog?.Directory;
 
         /// <summary>
+        /// The metrological log: what bears on this node's time and on what it
+        /// trusts, signed and chained line by line, or null where it keeps none.
+        /// </summary>
+        /// <remarks>
+        /// Written by <see cref="EventLog.Metrological(LogLevel, String, String[])"/>
+        /// and nothing else - see there for what goes into it and why. Kept
+        /// beside the log files, which are for reading, and never thinned out:
+        /// it is evidence, and evidence that threw itself away would be asked
+        /// why by the first person who needed it. <see cref="SignedLog.Verify"/>
+        /// says whether it still is what was written.
+        /// </remarks>
+        public SignedLog?             MetrologicalLog              { get; }
+
+        /// <summary>
         /// The HTTP server everything of this node is registered within: its
         /// own, or one it was handed and shares.
         /// </summary>
@@ -320,6 +355,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// registered within it.
         /// </remarks>
         public Boolean                OwnsHTTPServer               { get; }
+
+        /// <summary>
+        /// Whether the web interface, the JSON API and the sign-in are served
+        /// over TLS.
+        /// </summary>
+        /// <remarks>
+        /// Whether the server has a certificate to show: the one this node was
+        /// given for a server of its own, or the one the server it was handed
+        /// was given. It decides the scheme of the URLs this node names, and
+        /// whether its session cookie is a secure one - which a browser sends
+        /// over TLS only, and which would therefore be a sign-in that never
+        /// sticks on a node reached over plain HTTP.
+        /// </remarks>
+        public Boolean                HTTPS                        { get; }
 
         /// <summary>
         /// Everything of this node - its web interface, its JSON API and,
@@ -497,6 +546,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="HTTPPort">The TCP port the web interface listens on; <see cref="DefaultHTTPPort"/> by default. A kind of node has a default of its own, and passes it.</param>
         /// <param name="HTTPHostname">The address the web interface listens on; 127.0.0.1 by default.</param>
         /// <param name="HTTPServer">An HTTP server to register within, or null to make one.</param>
+        /// <param name="ServerCertificateSelector">The certificate a server of this node's own shows, asked at every handshake; none for plain HTTP. Not for a server that is handed in, which brings its own.</param>
+        /// <param name="ServerCertificateChainSelector">The certificates sent beside it, so that a browser can build a chain to a root it trusts; none to send the certificate on its own.</param>
         /// <param name="BasePath">What everything of this node sits below; the root by default. Something else only where several of these programs share one HTTP server.</param>
         /// <param name="HTTPRootPath">Where the JSON API sits; "/api" below <paramref name="BasePath"/> by default.</param>
         /// <param name="ExtAPI">An HTTPExt API to sign in against, or null for one of this node's own. Handing one in is what makes one sign-in open several of these programs at once.</param>
@@ -512,6 +563,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="LogToConsole">Whether the log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">How much of it reaches the console.</param>
         /// <param name="LogPath">The directory the log files are written to, or null to write none.</param>
+        /// <param name="MetrologicalLogPath">The directory the metrological log is kept in; "metrological" below <paramref name="LogPath"/> by default, and none where there are no log files. Only for a log this node makes.</param>
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX is picked up.</param>
         /// <param name="TraceTags">What a line picked up that way has to contain to be tagged, needle and tag: the kind of node's own table, or null for <see cref="TraceBridge.DefaultTags"/>.</param>
         /// <param name="TimeProvider">The clock, or null for the system one.</param>
@@ -520,6 +572,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         IPPort?                                    HTTPPort           = null,
                         IIPAddress?                                HTTPHostname       = null,
                         HTTPServer?                                HTTPServer         = null,
+                        ServerCertificateSelectorDelegate?         ServerCertificateSelector       = null,
+                        ServerCertificateChainSelectorDelegate?    ServerCertificateChainSelector  = null,
                         HTTPPath?                                  BasePath           = null,
                         HTTPPath?                                  HTTPRootPath       = null,
                         HTTPExtAPI?                                ExtAPI             = null,
@@ -535,6 +589,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         Boolean                                    LogToConsole       = true,
                         LogLevel                                   ConsoleLogLevel    = LogLevel.Info,
                         String?                                    LogPath            = null,
+                        String?                                    MetrologicalLogPath  = null,
                         Boolean                                    BridgeDebugLog     = true,
                         IEnumerable<(String Needle, String Tag)>?  TraceTags          = null,
                         TimeProvider?                              TimeProvider       = null)
@@ -557,7 +612,34 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             #region The log, next - everything below it may want to say something
 
-            this.Log          = Log ?? new EventLog(TimeProvider: this.TimeProvider);
+            // The metrological log, beside the log files where there are log
+            // files: a node that writes down everything for after the fact
+            // writes down what bears on its time and its trust as evidence as
+            // well, in a chain of its own. Made before the log, which reads its
+            // numbering back from it. Only for a log of the node's own: a log
+            // handed in carries whatever stores its maker gave it.
+            if (Log is not null && MetrologicalLogPath is not null)
+                throw new ArgumentException("A metrological log is kept by the log a node makes, and a log was handed in: give that log its metrological store instead.",
+                                            nameof(MetrologicalLogPath));
+
+            var metrologicalPath  = Log is null
+                                        ? MetrologicalLogPath ?? (LogPath is not null
+                                                                      ? System.IO.Path.Combine(LogPath, DefaultMetrologicalLogDirectory)
+                                                                      : null)
+                                        : null;
+
+            this.MetrologicalLog  = metrologicalPath is not null
+                                        ? new SignedLog(
+                                              metrologicalPath,
+                                              this.Kind.LogFilePrefix,
+                                              Tags: [ this.Kind.Tag, "log" ]
+                                          )
+                                        : null;
+
+            this.Log          = Log ?? new EventLog(
+                                           TimeProvider:       this.TimeProvider,
+                                           MetrologicalStore:  this.MetrologicalLog
+                                       );
 
             this.consoleLog   = LogToConsole
                                     ? new ConsoleLog(this.Log, ConsoleLogLevel)
@@ -589,7 +671,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             // The first entry, before anything below has had a word: what is
             // starting, and which build of it.
-            this.Log.Notice($"{this.Kind.CapitalisedName} v{this.Version} starting up.", this.Kind.Tag);
+            this.Log.Metrological(LogLevel.Notice, $"{this.Kind.CapitalisedName} v{this.Version} starting up.", this.Kind.Tag);
 
             #endregion
 
@@ -647,9 +729,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // more than a node may have.
             this.ntsClient     = NTSClient ?? new NTSClient(
                                                   DomainName.Parse(NTSConfiguration.DefaultHostname),
-                                                  Timeout:       TimeSpan.FromSeconds(10),
-                                                  DNSClient:     dnsClient,
-                                                  TimeProvider:  this.TimeProvider
+                                                  RemoteCertificateValidator:  TimeServerValidator(DomainName.Parse(NTSConfiguration.DefaultHostname)),
+                                                  Timeout:                     TimeSpan.FromSeconds(10),
+                                                  DNSClient:                   dnsClient,
+                                                  TimeProvider:                this.TimeProvider
                                               );
 
             this.timeEngine    = new MeasurementEngine(
@@ -675,6 +758,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                  ntsClient.NTP_Port
                                              ) ]
                                        );
+
+            // Every server asks this node about its certificate at its key
+            // exchanges - see WWCPNode.TimeServerCertificates.cs.
+            AttachValidators(this.timeSources);
 
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
@@ -743,12 +830,30 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             this.OwnsHTTPServer  = HTTPServer is null;
 
+            // A server that was handed in is somebody else's, and so is its TLS:
+            // a certificate for it given here would be one it never shows.
+            if (HTTPServer is not null && (ServerCertificateSelector is not null || ServerCertificateChainSelector is not null))
+                throw new ArgumentException("A server that is handed in brings its own certificate, or none: give it to that server.",
+                                            nameof(ServerCertificateSelector));
+
+            if (ServerCertificateChainSelector is not null && ServerCertificateSelector is null)
+                throw new ArgumentException("The certificates sent beside a server's own are sent beside it: there has to be one.",
+                                            nameof(ServerCertificateChainSelector));
+
             this.HTTPServer      = HTTPServer   ?? new HTTPServer(
-                                                       IPAddress:       address,
-                                                       TCPPort:         port,
-                                                       HTTPServerName:  product,
-                                                       DNSClient:       dnsClient
+                                                       IPAddress:                  address,
+                                                       TCPPort:                    port,
+                                                       HTTPServerName:             product,
+                                                       ServerCertificateSelector:  ServerCertificateSelector,
+                                                       DNSClient:                  dnsClient
                                                    );
+
+            // Hermod asks this one first and falls back to the certificate on
+            // its own, so a chain is sent whenever there is one to send.
+            if (HTTPServer is null && ServerCertificateChainSelector is not null)
+                this.HTTPServer.ServerCertificateChainSelector = ServerCertificateChainSelector;
+
+            this.HTTPS           = this.HTTPServer.ServerCertificateSelector is not null;
 
             // The root unless somebody is putting several of these programs on
             // one server, where the first path segment is what tells them
@@ -762,12 +867,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
             this.HTTPRootPath  = HTTPRootPath ?? this.BasePath + DefaultAPIPath;
 
             this.HTTPPort        = port;
-            this.WebInterfaceURL = URL.Parse($"http://{address}:{port}{this.BasePath.ToString().TrimEnd('/')}/");
+            this.WebInterfaceURL = URL.Parse($"{(this.HTTPS ? "https" : "http")}://{address}:{port}{this.BasePath.ToString().TrimEnd('/')}/");
 
             // From the server rather than from the web interface's URL: the API's
             // root path already carries the base path, and behind a URL that ends
             // in the base path it would be named twice.
-            this.APIURL          = URL.Parse($"http://{address}:{port}/{this.HTTPRootPath.ToString().Trim('/')}/");
+            this.APIURL          = URL.Parse($"{(this.HTTPS ? "https" : "http")}://{address}:{port}/{this.HTTPRootPath.ToString().Trim('/')}/");
 
             // 1) The HTTPExt API at "/ext". First of the three, because it is
             //    the one with a database behind it: whatever it finds wrong
@@ -812,8 +917,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      // bench is reached over plain HTTP. Tied
                                      // to the TLS the server is actually using
                                      // rather than switched off: on a node
-                                     // with a certificate this stays on.
-                                     UseSecureCookies:       false,
+                                     // with a certificate it is on, and on one
+                                     // without it stays off.
+                                     UseSecureCookies:       this.HTTPS,
 
                                      // The shortest name a role of this node has,
                                      // because that is what a group identification has
@@ -1010,7 +1116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (firstStart)
             {
 
-                var password  = RandomExtensions.RandomString(24);
+                var password  = RandomNumberGenerator.GetString(PasswordCharacters, 24);
                 var userId    = User_Id.Parse(DefaultAdminUser);
 
                 // CreateUser rather than AddUser: the password is set from
@@ -1145,7 +1251,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             #endregion
 
+            await OnAccountsReady();
+
         }
+
+        #endregion
+
+        #region (protected virtual) OnAccountsReady()
+
+        /// <summary>
+        /// What a node of a particular kind does with its accounts once they
+        /// are read and the group of every role is made, before anybody can
+        /// sign in: nothing, unless it overrides this.
+        /// </summary>
+        /// <remarks>
+        /// For what a kind of node keeps about its accounts beyond the node's
+        /// own - a role given another way before it was a node, say, which has
+        /// to become a membership of that role's group before its owner signs in
+        /// and finds every page refusing them. Asked at every start, after the
+        /// first account is made where there was none, and before the port
+        /// opens; a start it throws out of ends there.
+        /// </remarks>
+        protected virtual Task OnAccountsReady()
+            => Task.CompletedTask;
 
         #endregion
 
@@ -1370,10 +1498,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        // was told; the group's own, below, can be lower when it
                        // has fewer servers switched on.
                        new JProperty("settings",     new JObject(
-                           new JProperty("timeoutSeconds",        ntsClient.Timeout?.TotalSeconds),
-                           new JProperty("checkEverySeconds",     TimeCheckEvery.TotalSeconds),
-                           new JProperty("minServers",            ntsQuorum),
-                           new JProperty("maxDeviationSeconds",   timeSources.MaxDeviation.TotalSeconds)
+                           new JProperty("timeoutSeconds",             ntsClient.Timeout?.TotalSeconds),
+                           new JProperty("checkEverySeconds",          TimeCheckEvery.TotalSeconds),
+                           new JProperty("minServers",                 ntsQuorum),
+                           new JProperty("maxDeviationSeconds",        timeSources.MaxDeviation.TotalSeconds),
+                           // What legal time rests on, which a page edits
+                           // beside the servers: who the operator says stands
+                           // behind them, and how close and how recent a check
+                           // has to be.
+                           new JProperty("legalTimeAuthority",         LegalTimeAuthority),
+                           new JProperty("legalTimeToleranceSeconds",  LegalTimeTolerance.TotalSeconds),
+                           new JProperty("legalTimeMaxAgeSeconds",     LegalTimeMaxAge.TotalSeconds)
                        )),
 
                        // What any new client starts with, the group's and the
@@ -1409,7 +1544,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           new JProperty("cookies",        held?.RemainingCookies),
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
                                           new JProperty("aeadAlgorithm",  held?.NTSKEResponse?.AEADAlgorithm.ToString()),
-                                          new JProperty("rootCA",         RootCAJSON(held?.NTSKEResponse?.TLSInfo))
+                                          new JProperty("rootCA",         RootCAJSON(held?.NTSKEResponse?.TLSInfo)),
+                                          // The certificate the last key exchange
+                                          // showed, which is what a pin is written
+                                          // down from; what the server is held to;
+                                          // and what this node made of it.
+                                          new JProperty("certificate",    held?.NTSKEResponse?.TLSInfo?.ServerCertificate is System.Security.Cryptography.X509Certificates.X509Certificate2 shown
+                                                                              ? CertificateEntry.ThumbprintOf(shown)
+                                                                              : null),
+                                          new JProperty("heldTo",         PinsOf(source.Hostname) is { IsPinned: true } pinned
+                                                                              ? new JObject(
+                                                                                    new JProperty("certificate",  pinned.CertificateFingerprint),
+                                                                                    new JProperty("root",         pinned.RootFingerprint),
+                                                                                    new JProperty("onMismatch",   pinned.OnMismatch.AsText())
+                                                                                )
+                                                                              : null),
+                                          new JProperty("judgement",      LastJudgementOf(source.Hostname)?.ToJSON())
                                       );
 
                            })
@@ -1427,6 +1577,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("maxCheckEvery",      NTSConfiguration.MaxCheckEverySeconds),
                            new JProperty("minDeviation",       NTSConfiguration.MinDeviationSeconds),
                            new JProperty("maxDeviation",       NTSConfiguration.MaxDeviationSeconds),
+                           new JProperty("minTolerance",       NTSConfiguration.MinToleranceSeconds),
+                           new JProperty("maxTolerance",       NTSConfiguration.MaxToleranceSeconds),
+                           new JProperty("minMaxAge",          NTSConfiguration.MinMaxAgeSeconds),
+                           new JProperty("maxMaxAge",          NTSConfiguration.MaxMaxAgeSeconds),
+                           new JProperty("maxAuthorityLength", NTSConfiguration.MaxAuthorityLength),
                            new JProperty("defaultNTSKEPort",   NTSClient.DefaultNTSKE_Port.ToUInt16()),
                            new JProperty("defaultNTPPort",     NTSClient.DefaultNTP_Port.  ToUInt16())
                        )),
@@ -1474,7 +1629,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // and a list saved now that is shorter than it would be a
                 // section the next start refuses, and a node that does not
                 // start because of a save that was accepted.
-                if (!ConfigFile.TryPreviewSection(NTSConfiguration.SectionName, configuration.ToJSON(), out var merged, out Error))
+                if (!ConfigFile.TryPreviewSection(NTSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out var merged, out Error))
                     return false;
 
                 if (!NTSConfiguration.TryParse(merged, out _, out var mergedError))
@@ -1483,7 +1638,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return false;
                 }
 
-                if (!ConfigFile.TryMergeSection(NTSConfiguration.SectionName, configuration.ToJSON(), out Error))
+                if (!ConfigFile.TryMergeSection(NTSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out Error))
                     return false;
 
                 ApplyNTSConfiguration(configuration);
@@ -1622,6 +1777,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // next start read them from the file again.
             var wasCheckingEvery  = TimeCheckEvery;
             var wasEnabled        = NTSEnabled;
+            var wasPins           = Pins();
+            var wasAuthority      = LegalTimeAuthority;
+            var wasTolerance      = LegalTimeTolerance;
+            var wasMaxAge         = LegalTimeMaxAge;
 
             ntsSettings = ntsSettings?.OverriddenBy(Configuration) ?? Configuration;
 
@@ -1663,10 +1822,38 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                     Configuration.MaxDeviation ?? timeSources.MaxDeviation
                                 );
 
+            AttachValidators(timeSources);
+
             var nowServers    = timeSources.Describe();
 
             if (wasServers != nowServers)
                 changed.Add($"time servers = {nowServers}");
+
+            // What a server is held to is not in its description, which is
+            // Norn's and knows no pins - so it is compared here. A server whose
+            // pins changed lets go of its key exchange: the certificate is only
+            // looked at when one is made, and a server held to a fingerprint
+            // from now on must not go on being asked for up to half an hour on
+            // the strength of a handshake nobody held it to anything in.
+            var nowPins       = Pins();
+
+            foreach (var server in wasPins.Keys.Union(nowPins.Keys).ToArray())
+            {
+
+                var was = wasPins.TryGetValue(server, out var before) ? before : default((String?, String?, PinMismatch)?);
+                var now = nowPins.TryGetValue(server, out var after)  ? after  : default((String?, String?, PinMismatch)?);
+
+                if (was == now)
+                    continue;
+
+                timeEngine.ForgetKeyExchange(server);
+                judgements.TryRemove(server, out _);
+
+                changed.Add(PinsOf(server) is { IsPinned: true } pinned
+                                ? $"{server.Trimmed} held to {pinned.PinsText}"
+                                : $"{server.Trimmed} held to no fingerprint");
+
+            }
 
             if (wasQuorum != timeSources.MinServers)
                 changed.Add($"quorum = {timeSources.MinServers}");
@@ -1687,17 +1874,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 ntsClient = new NTSClient(
                                 hostname,
-                                NTSKE_Port:    ntsKE,
-                                NTP_Port:      ntp,
-                                Timeout:       Configuration.Timeout ?? ntsClient.Timeout,
-                                DNSClient:     dnsClient,
-                                TimeProvider:  TimeProvider
+                                NTSKE_Port:                  ntsKE,
+                                NTP_Port:                    ntp,
+                                RemoteCertificateValidator:  TimeServerValidator(hostname),
+                                Timeout:                     Configuration.Timeout ?? ntsClient.Timeout,
+                                DNSClient:                   dnsClient,
+                                TimeProvider:                TimeProvider
                             );
 
                 // The old client's cookies went with it, so what the page shows
                 // about the last exchange belongs to a server this node no
-                // longer asks.
-                lastTimeSync = null;
+                // longer asks - and so does what the last check found, which
+                // legal time would otherwise go on resting on, as the meter's
+                // did before it was a node.
+                lastTimeSync           = null;
+                lastTimeCheck          = null;
+                lastTimeCheckOffset    = null;
+                lastTimeCheckServer    = null;
+                lastTimeCheckAsked     = null;
+                lastTimeCheckAnswered  = null;
 
                 // Without the root's dot, as every other sentence names a
                 // server; what goes into the file keeps it.
@@ -1720,8 +1915,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (TimeCheckEvery != wasCheckingEvery)
                 changed.Add($"clock checked every {TimeCheckEvery.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
+            // What legal time rests on - who stands behind it, and how close and
+            // how recent a check has to be for it to hold - is written down like
+            // a change of the servers.
+            if (LegalTimeAuthority != wasAuthority)
+                changed.Add(LegalTimeAuthority is null
+                                ? "no legal time authority"
+                                : $"legal time authority = {LegalTimeAuthority}");
+
+            if (LegalTimeTolerance != wasTolerance)
+                changed.Add($"legal time tolerance = {LegalTimeTolerance.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+
+            if (LegalTimeMaxAge != wasMaxAge)
+                changed.Add($"legal time max age = {LegalTimeMaxAge.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+
             if (changed.Count > 0)
-                Log.Notice($"NTS configuration changed: {String.Join(", ", changed)}.", "nts", "config");
+                Log.Metrological(LogLevel.Notice, $"NTS configuration changed: {String.Join(", ", changed)}.", "nts", "config");
 
             // The clock is checked on a timer set when the node started, so
             // whether and how often it is checked has to be put into that timer
@@ -1790,6 +1999,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("basePath",       BasePath.ToString()),
                        new JProperty("apiPath",        HTTPRootPath.ToString()),
                        new JProperty("sharedServer",   !OwnsHTTPServer),
+                       new JProperty("https",          HTTPS),
                        new JProperty("running",        started),
                        new JProperty("frontend",       Frontend.Description),
                        new JProperty("webInterface",   WebInterface is not null)
@@ -1812,6 +2022,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("debugBridge",    traceBridge is not null),
                        new JProperty("console",        consoleLog  is not null),
                        new JProperty("files",          LogPath),
+                       new JProperty("metrological",   MetrologicalLog is null
+                                                           ? null
+                                                           : new JObject(
+                                                                 new JProperty("path",   MetrologicalLog.Path),
+                                                                 new JProperty("keyId",  MetrologicalLog.Signer.KeyId),
+                                                                 new JProperty("head",   MetrologicalLog.Head)
+                                                             )),
                        new JProperty("tags",           new JArray(Log.KnownTags))
                    )),
 
@@ -1957,7 +2174,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!started)
                 return;
 
-            Log.Notice($"The {Kind.Name} is shutting down.", Kind.Tag);
+            Log.Metrological(LogLevel.Notice, $"The {Kind.Name} is shutting down.", Kind.Tag);
 
             timeCheckTimer?.Dispose();
             timeCheckTimer = null;
@@ -2045,6 +2262,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             traceBridge?.   Dispose();
             consoleLog?.    Dispose();
             fileLog?.       Dispose();
+            MetrologicalLog?.Dispose();
 
             reconfigureLock.Dispose();
 

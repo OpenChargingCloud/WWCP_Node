@@ -265,6 +265,143 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.LegalTimeAuthority,  Is.EqualTo("PTB"),                      "the authority was forgotten");
             });
 
+            // And the other way round, as the meter's page does: saving the
+            // legal time's settings leaves the interval as it was.
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "legalTimeToleranceSeconds": 0.5 }"""), out error),  Is.True,  error);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(node.TimeCheckEvery,      Is.EqualTo(TimeSpan.FromSeconds(600)),  "the interval went back to its default");
+                Assert.That(node.LegalTimeAuthority,  Is.EqualTo("PTB"),                      "the authority was forgotten");
+                Assert.That(node.LegalTimeTolerance,  Is.EqualTo(TimeSpan.FromSeconds(0.5)));
+            });
+
+        }
+
+        #endregion
+
+        #region ALoneHostnameReplacesTheListHereAndInTheFile()
+
+        /// <summary>
+        /// A save naming a lone hostname and no list makes the group that one
+        /// server - now, and at the next start.
+        /// </summary>
+        /// <remarks>
+        /// The file kept its list beside the hostname, and the next start made
+        /// the list again: a node ran with one server until it was restarted
+        /// and with three after it, nobody having changed anything in between.
+        /// The Modbus/TLS energy meter found it, from its NTS page's form, and
+        /// had this before it was a node.
+        /// </remarks>
+        [Test]
+        public async Task ALoneHostnameReplacesTheListHereAndInTheFile()
+        {
+
+            await using (var node = Node("""{ "nts": { "servers": [ "a.example", "b.example", "c.example" ] } }"""))
+            {
+
+                Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "hostname": "d.example" }"""), out var error),  Is.True,  error);
+
+                Assert.That(node.TimeSources.Sources.Select(source => source.Hostname.Trimmed),  Is.EqualTo(new[] { "d.example" }));
+
+            }
+
+            Assert.That(JObject.Parse(File.ReadAllText(ConfigurationPath))["nts"]?["servers"],  Is.Null,
+                        "the file still has its list beside the hostname");
+
+            await using var restarted = Node();
+
+            Assert.That(restarted.TimeSources.Sources.Select(source => source.Hostname.Trimmed),  Is.EqualTo(new[] { "d.example" }),
+                        "the next start made the list again");
+
+        }
+
+        #endregion
+
+        #region AnAuthorityTakenAwayStaysAway()
+
+        /// <summary>
+        /// The legal time's authority is taken away by sending it as null - or
+        /// as nothing between the quotes, which is what a page sends for an
+        /// emptied field - and it stays away, here and in the file.
+        /// </summary>
+        /// <remarks>
+        /// A null in a section otherwise means "the file does not say", and the
+        /// file kept what it said: the authority was gone until the next start,
+        /// and back after it, with nobody having put it back.
+        /// </remarks>
+        [Test]
+        [TestCase("null")]
+        [TestCase("\"\"")]
+        public async Task AnAuthorityTakenAwayStaysAway(String TakenAwayAs)
+        {
+
+            await using (var node = Node("""{ "nts": { "checkEverySeconds": 600, "legalTimeAuthority": "PTB" } }"""))
+            {
+
+                var before = node.Log.LastId;
+
+                Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse($$"""{ "legalTimeAuthority": {{TakenAwayAs}} }"""), out var error),  Is.True,  error);
+
+                var said = node.Log.Recent(100, before, null).ToArray();
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(node.LegalTimeAuthority,  Is.Null,                                "still vouched for");
+                    Assert.That(node.TimeCheckEvery,      Is.EqualTo(TimeSpan.FromSeconds(600)),  "the rest went with it");
+                    Assert.That(said.Where(entry => entry.Metrological).Select(entry => entry.Message),
+                                Has.Some.Contains("no legal time authority"),
+                                "a change to who stands behind the time is not in the metrological log");
+                });
+
+            }
+
+            Assert.That(File.ReadAllText(ConfigurationPath),  Does.Not.Contain("legalTimeAuthority"),
+                        "the file still names the authority, and the next start brings it back");
+
+            await using var restarted = Node();
+
+            Assert.That(restarted.LegalTimeAuthority,  Is.Null,  "the authority came back at the next start");
+
+        }
+
+        #endregion
+
+        #region WhatLegalTimeRestsOnIsShownAndItsChangesWrittenDown()
+
+        /// <summary>
+        /// The NTS answer carries what legal time rests on and the limits a page
+        /// checks it against, and a change to either bound is written into the
+        /// metrological log.
+        /// </summary>
+        [Test]
+        public async Task WhatLegalTimeRestsOnIsShownAndItsChangesWrittenDown()
+        {
+
+            await using var node = Node("""{ "nts": { "legalTimeAuthority": "PTB", "legalTimeToleranceSeconds": 0.25 } }""");
+
+            var json     = node.NTSConfigurationJSON();
+            var settings = json["settings"] as JObject;
+            var limits   = json["limits"]   as JObject;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(settings?.Value<String>("legalTimeAuthority"),         Is.EqualTo("PTB"));
+                Assert.That(settings?.Value<Double>("legalTimeToleranceSeconds"),  Is.EqualTo(0.25));
+                Assert.That(settings?.Value<Double>("legalTimeMaxAgeSeconds"),     Is.EqualTo(NTSConfiguration.DefaultLegalMaxAge.TotalSeconds));
+                Assert.That(limits?.  Value<Double>("minTolerance"),               Is.EqualTo(NTSConfiguration.MinToleranceSeconds));
+                Assert.That(limits?.  Value<Double>("maxMaxAge"),                  Is.EqualTo(NTSConfiguration.MaxMaxAgeSeconds));
+                Assert.That(limits?.  Value<Int32> ("maxAuthorityLength"),         Is.EqualTo(NTSConfiguration.MaxAuthorityLength));
+            });
+
+            var before = node.Log.LastId;
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "legalTimeToleranceSeconds": 0.5, "legalTimeMaxAgeSeconds": 600 }"""), out var error),  Is.True,  error);
+
+            var said = node.Log.Recent(100, before, null).Where(entry => entry.Metrological).Select(entry => entry.Message).ToArray();
+
+            Assert.That(said,  Has.Some.Contains("legal time tolerance = 0.5 s").And.Contains("legal time max age = 600 s"),  String.Join(" | ", said));
+
         }
 
         #endregion

@@ -112,10 +112,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// kind of node it belongs to says otherwise.
         /// </summary>
         /// <remarks>
-        /// The kinds are ISO 15118's, and seven of them are a vehicle's to keep.
-        /// A kind of node keeps those it has a use for and no others - a
-        /// charging station, a gateway or a meter none at all - and a store
-        /// that keeps none is no directory: nothing is made, read or written.
+        /// Seven of the kinds are ISO 15118's, which a vehicle keeps, and four
+        /// are TLS's in general - see <see cref="CertificateKind"/>. A kind of
+        /// node keeps those it has a use for and no others, and a store that
+        /// keeps none is no directory: nothing is made, read or written.
         /// </remarks>
         public IReadOnlyList<CertificateKind> Kinds { get; }
 
@@ -274,8 +274,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                             if (known is null)
                             {
                                 adopted++;
-                                log.Notice($"Certificates: adopted '{relative}' - {entry.Label}, {kind.Describe()}. It is switched on.",
-                                           "certificates");
+                                log.Metrological(LogLevel.Notice,
+                                                 $"Certificates: adopted '{relative}' - {entry.Label}, {kind.Describe()}. It is switched on.",
+                                                 "certificates");
                             }
 
                         }
@@ -285,8 +286,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 }
 
                 foreach (var gone in remembered.Values.Where(entry => !found.ContainsKey(entry.Id)))
-                    log.Notice($"Certificates: '{gone.FileName}' is no longer there and was dropped from the index.",
-                               "certificates");
+                    log.Metrological(LogLevel.Notice,
+                                     $"Certificates: '{gone.FileName}' is no longer there and was dropped from the index.",
+                                     "certificates");
 
                 entries.Clear();
 
@@ -500,9 +502,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 entries.Add(Entry.Id, Entry);
                 WriteIndex();
 
-                log.Notice($"Certificates: imported {Entry.Label} as {Kind.Describe()}, " +
-                           $"{Entry.KeyAlgorithm}, valid until {Entry.NotAfter.UtcDateTime:yyyy-MM-dd}. It is switched on.",
-                           "certificates");
+                log.Metrological(LogLevel.Notice,
+                                 $"Certificates: imported {Entry.Label} as {Kind.Describe()}, " +
+                                 $"{Entry.KeyAlgorithm}, valid until {Entry.NotAfter.UtcDateTime:yyyy-MM-dd}, SHA-256 {Entry.Thumbprint}. It is switched on.",
+                                 "certificates");
 
                 // Said at the import as well as at a start, because the start
                 // that matters happened before this key existed: a node that
@@ -565,8 +568,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                     WriteIndex();
 
-                    log.Notice($"Certificates: {Entry.Label} ({Entry.Kind.AsText()}) was switched {(Active ? "on" : "off")}.",
-                               "certificates");
+                    log.Metrological(LogLevel.Notice,
+                                     $"Certificates: {Entry.Label} ({Entry.Kind.AsText()}) was switched {(Active ? "on" : "off")}.",
+                                     "certificates");
 
                 }
                 else
@@ -681,8 +685,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 entries.Remove(Id);
                 WriteIndex();
 
-                log.Notice($"Certificates: {entry.Label} ({entry.Kind.AsText()}) was deleted from the store.",
-                           "certificates");
+                log.Metrological(LogLevel.Notice,
+                                 $"Certificates: {entry.Label} ({entry.Kind.AsText()}) was deleted from the store.",
+                                 "certificates");
 
                 return true;
 
@@ -722,6 +727,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         }
 
         /// <summary>
+        /// The entry whose certificate has this SHA-256 fingerprint, of whatever
+        /// kind it is kept as, or nothing.
+        /// </summary>
+        /// <remarks>
+        /// The whole fingerprint and nothing shorter, written in any of the
+        /// ways <see cref="CertificateEntry.TryParseFingerprint"/> reads. What
+        /// a configuration holds a server to - its own certificate, or the root
+        /// its chain has to end at - is found here by what it was written down
+        /// as, rather than by a handle that means something to this store only.
+        /// </remarks>
+        /// <param name="Fingerprint">The SHA-256 fingerprint of the certificate.</param>
+        public CertificateEntry? ByFingerprint(String? Fingerprint)
+        {
+
+            if (!CertificateEntry.TryParseFingerprint(Fingerprint, out var fingerprint))
+                return null;
+
+            storeLock.Wait();
+
+            try
+            {
+                return entries.Values.FirstOrDefault(entry => String.Equals(entry.Thumbprint, fingerprint, StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                storeLock.Release();
+            }
+
+        }
+
+        /// <summary>
         /// Everything of one kind, by label.
         /// </summary>
         public IReadOnlyList<CertificateEntry> ByKind(CertificateKind Kind)
@@ -735,6 +771,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public IReadOnlyList<CertificateEntry> UsableByKind(CertificateKind Kind)
 
             => [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsable)];
+
+        #endregion
+
+        #region TryLoad(Entry, out Certificate, out Error) / UsableCertificates(Kind)
+
+        /// <summary>
+        /// The certificate of one entry, read from its file.
+        /// </summary>
+        /// <remarks>
+        /// The certificate the entry is about, with its private key where the
+        /// file has one. Whoever asks owns what comes back, and disposes of it.
+        /// </remarks>
+        /// <param name="Entry">The entry.</param>
+        /// <param name="Certificate">Its certificate.</param>
+        /// <param name="Error">Why it could not be read, when it could not.</param>
+        public Boolean TryLoad(CertificateEntry                              Entry,
+                               [NotNullWhen(true)]  out X509Certificate2?  Certificate,
+                               [NotNullWhen(false)] out String?            Error)
+
+            => TryRead(FullPath(Entry), out Certificate, out _, out Error);
+
+        /// <summary>
+        /// The certificates of every entry of one kind this node would use right
+        /// now - switched on, and inside its own validity - as far as they
+        /// can be read.
+        /// </summary>
+        /// <remarks>
+        /// For the roots a chain is built against. One whose file cannot be read
+        /// any more is left out rather than failing the others: a root that is
+        /// not there anchors nothing, which is what an unreadable one does too,
+        /// and a start said so about it already.
+        /// </remarks>
+        /// <param name="Kind">The kind.</param>
+        public IReadOnlyList<X509Certificate2> UsableCertificates(CertificateKind Kind)
+        {
+
+            var certificates = new List<X509Certificate2>();
+
+            foreach (var entry in UsableByKind(Kind))
+                if (TryLoad(entry, out var certificate, out _))
+                    certificates.Add(certificate);
+
+            return certificates;
+
+        }
 
         #endregion
 
@@ -1231,6 +1312,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             {
                 Error = $"A {Kind.Describe()} has to carry its private key, and that file has none. " +
                          "It is probably a PKCS#12 that needs a password, or the public half of the pair.";
+                return false;
+            }
+
+            if (Kind == CertificateKind.TLSServer && Leaf.HasPrivateKey)
+            {
+                Error = "That file carries a private key, and a server's certificate kept here must not: " +
+                        "it is that server's key, in the wrong place. Import the certificate on its own.";
                 return false;
             }
 

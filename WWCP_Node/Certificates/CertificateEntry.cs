@@ -189,6 +189,53 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region (static) TryParseFingerprint(Text, out Fingerprint)
+
+        /// <summary>
+        /// A SHA-256 fingerprint as somebody wrote it, in the form this store
+        /// keeps it: 64 hexadecimal digits in lower case.
+        /// </summary>
+        /// <remarks>
+        /// In upper or lower case, and with colons, spaces or dashes between
+        /// the bytes or nothing at all - the ways a certificate authority, a
+        /// browser and openssl write one - and never shorter than the whole of
+        /// it: a truncated fingerprint is a handle, not evidence, and a
+        /// certificate held to one would be held to 2^64 others as well.
+        /// </remarks>
+        /// <param name="Text">The fingerprint as written.</param>
+        /// <param name="Fingerprint">The same, as the store keeps it.</param>
+        public static Boolean TryParseFingerprint(String?                           Text,
+                                                  [NotNullWhen(true)] out String?  Fingerprint)
+        {
+
+            Fingerprint = null;
+
+            if (Text is null)
+                return false;
+
+            var digits = new System.Text.StringBuilder(64);
+
+            foreach (var character in Text.Trim())
+            {
+
+                if (Uri.IsHexDigit(character))
+                    digits.Append(Char.ToLowerInvariant(character));
+
+                else if (character is not (':' or ' ' or '-'))
+                    return false;
+
+            }
+
+            if (digits.Length != 64)
+                return false;
+
+            Fingerprint = digits.ToString();
+            return true;
+
+        }
+
+        #endregion
+
         #region (static) CommonNameOf(Certificate)
 
         /// <summary>

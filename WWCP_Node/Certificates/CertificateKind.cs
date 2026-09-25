@@ -23,13 +23,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Seven kinds, in two groups that behave differently in every respect that
+    /// Eleven kinds, in two groups that behave differently in every respect that
     /// matters. A <b>trust anchor</b> is a public certificate that says which
     /// chains the node believes; there may be any number of them active at
     /// once, and none of them is ever chosen for a session. A <b>credential</b>
     /// is something the node presents or verifies with, carries a private
-    /// key in every case but one, and is chosen - exactly one per role - when a
-    /// session starts.
+    /// key in every case but two, and is chosen - exactly one per role - where
+    /// something asks for one.
+    /// </para>
+    /// <para>
+    /// Seven of them are ISO 15118's, which a vehicle keeps. The other four are
+    /// TLS's in general, which any kind of node may keep: the roots a server it
+    /// connects to may chain to - a time server's, a backend's - and the roots a
+    /// client connecting to it has to chain to; the certificate a server it
+    /// connects to presents, kept so that it can be recognised by its
+    /// fingerprint; and what the node presents itself, with its private key.
     /// </para>
     /// <para>
     /// The three roots are kept apart rather than pooled, because they answer
@@ -126,10 +134,47 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// The public key a station's signed tariff is checked against.
         /// </summary>
         /// <remarks>
-        /// The only credential with no private key: the signing half lives at
-        /// the station, and this side only ever verifies.
+        /// A credential with no private key: the signing half lives at the
+        /// station, and this side only ever verifies.
         /// </remarks>
-        TariffVerification
+        TariffVerification,
+
+        /// <summary>
+        /// A <b>TLS root</b>: what a server this node connects to may chain to -
+        /// a time server's key exchange, a backend.
+        /// </summary>
+        /// <remarks>
+        /// Believed beside the roots of the machine rather than instead of them:
+        /// a time server with a CA of its own is reached through one of these,
+        /// and one with a certificate from a public CA is reached as it always
+        /// was. A server held to a root by its fingerprint finds it here - see
+        /// <see cref="CertificateStore.ByFingerprint"/>.
+        /// </remarks>
+        TLSRoot,
+
+        /// <summary>
+        /// A <b>client root</b>: what a client connecting to this node has to
+        /// chain to.
+        /// </summary>
+        ClientRoot,
+
+        /// <summary>
+        /// A <b>server certificate</b>: what a server this node connects to
+        /// presents, kept so that it can be recognised by its fingerprint.
+        /// </summary>
+        /// <remarks>
+        /// Somebody else's certificate, and so never with a private key: that
+        /// server's key in this store would be a key in the wrong place, as a
+        /// root's would.
+        /// </remarks>
+        TLSServer,
+
+        /// <summary>
+        /// A <b>TLS identity</b>: what this node presents in TLS, with its
+        /// private key - its web interface's certificate, or the one it shows a
+        /// server that asks for one.
+        /// </summary>
+        TLSIdentity
 
     }
 
@@ -151,7 +196,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             => Kind is CertificateKind.V2GRoot
                     or CertificateKind.MORoot
-                    or CertificateKind.OEMRoot;
+                    or CertificateKind.OEMRoot
+                    or CertificateKind.TLSRoot
+                    or CertificateKind.ClientRoot;
 
         #endregion
 
@@ -162,16 +209,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// it.
         /// </summary>
         /// <remarks>
-        /// Roots must <i>not</i> carry one - a trust anchor with a private key
-        /// is somebody's CA key in the wrong place - and the tariff
-        /// verification key does not need one. Everything else is an identity
-        /// the node proves, and cannot prove without the key.
+        /// Roots must <i>not</i> carry one - see <see cref="MustNotCarryPrivateKey"/>
+        /// - and the tariff verification key does not need one. Everything else
+        /// is an identity the node proves, and cannot prove without the key.
         /// </remarks>
         public static Boolean NeedsPrivateKey(this CertificateKind Kind)
 
             => Kind is CertificateKind.Vehicle
                     or CertificateKind.Contract
-                    or CertificateKind.OEMProvisioning;
+                    or CertificateKind.OEMProvisioning
+                    or CertificateKind.TLSIdentity;
+
+        #endregion
+
+        #region MustNotCarryPrivateKey(this Kind)
+
+        /// <summary>
+        /// Whether a file of this kind is refused when it carries a private key.
+        /// </summary>
+        /// <remarks>
+        /// A root with a private key is somebody's CA key in the wrong place,
+        /// and a server's certificate with one is that server's key in the wrong
+        /// place. Both are refused rather than quietly stripped: whoever put the
+        /// key into the file has a key to worry about, and should hear so.
+        /// </remarks>
+        public static Boolean MustNotCarryPrivateKey(this CertificateKind Kind)
+
+            => Kind.IsTrustAnchor() ||
+               Kind == CertificateKind.TLSServer;
 
         #endregion
 
@@ -196,6 +261,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                    CertificateKind.Contract            => "contract",
                    CertificateKind.OEMProvisioning     => "oem",
                    CertificateKind.TariffVerification  => "tariff",
+                   CertificateKind.TLSRoot             => "roots/tls",
+                   CertificateKind.ClientRoot          => "roots/clients",
+                   CertificateKind.TLSServer           => "tls/servers",
+                   CertificateKind.TLSIdentity         => "tls/identity",
                    _                                   => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown certificate kind.")
                };
 
@@ -246,6 +315,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                    CertificateKind.Contract            => "contract",
                    CertificateKind.OEMProvisioning     => "oemProvisioning",
                    CertificateKind.TariffVerification  => "tariffVerification",
+                   CertificateKind.TLSRoot             => "tlsRoot",
+                   CertificateKind.ClientRoot          => "clientRoot",
+                   CertificateKind.TLSServer           => "tlsServer",
+                   CertificateKind.TLSIdentity         => "tlsIdentity",
                    _                                   => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown certificate kind.")
                };
 
@@ -291,6 +364,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                    CertificateKind.Contract            => "contract certificate - who pays",
                    CertificateKind.OEMProvisioning     => "OEM provisioning certificate - what this vehicle was born with",
                    CertificateKind.TariffVerification  => "tariff certificate - what a station's signed tariff is checked with",
+                   CertificateKind.TLSRoot             => "TLS root - what a server this node connects to may chain to: a time server, a backend",
+                   CertificateKind.ClientRoot          => "client root - what a client connecting to this node has to chain to",
+                   CertificateKind.TLSServer           => "server certificate - what a server this node connects to presents, kept to be recognised by its fingerprint",
+                   CertificateKind.TLSIdentity         => "TLS identity - what this node presents in TLS, with its private key",
                    _                                   => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown certificate kind.")
                };
 
@@ -310,13 +387,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public static Int32 SortOrder(this CertificateKind Kind)
 
             => Kind switch {
-                   CertificateKind.V2GRoot             => 0,
-                   CertificateKind.MORoot              => 1,
-                   CertificateKind.OEMRoot             => 2,
-                   CertificateKind.Vehicle             => 3,
-                   CertificateKind.Contract            => 4,
-                   CertificateKind.OEMProvisioning     => 5,
-                   CertificateKind.TariffVerification  => 6,
+                   CertificateKind.V2GRoot             =>  0,
+                   CertificateKind.MORoot              =>  1,
+                   CertificateKind.OEMRoot             =>  2,
+                   CertificateKind.TLSRoot             =>  3,
+                   CertificateKind.ClientRoot          =>  4,
+                   CertificateKind.Vehicle             => 10,
+                   CertificateKind.Contract            => 11,
+                   CertificateKind.OEMProvisioning     => 12,
+                   CertificateKind.TariffVerification  => 13,
+                   CertificateKind.TLSServer           => 14,
+                   CertificateKind.TLSIdentity         => 15,
                    _                                   => Int32.MaxValue
                };
 
@@ -332,10 +413,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             CertificateKind.V2GRoot,
             CertificateKind.MORoot,
             CertificateKind.OEMRoot,
+            CertificateKind.TLSRoot,
+            CertificateKind.ClientRoot,
+            CertificateKind.Vehicle,
+            CertificateKind.Contract,
+            CertificateKind.OEMProvisioning,
+            CertificateKind.TariffVerification,
+            CertificateKind.TLSServer,
+            CertificateKind.TLSIdentity
+        ];
+
+        /// <summary>
+        /// The kinds of ISO 15118, which a vehicle keeps: the three roots and
+        /// the four credentials.
+        /// </summary>
+        public static readonly IReadOnlyList<CertificateKind> ISO15118 = [
+            CertificateKind.V2GRoot,
+            CertificateKind.MORoot,
+            CertificateKind.OEMRoot,
             CertificateKind.Vehicle,
             CertificateKind.Contract,
             CertificateKind.OEMProvisioning,
             CertificateKind.TariffVerification
+        ];
+
+        /// <summary>
+        /// The kinds of TLS in general, which any kind of node may keep.
+        /// </summary>
+        public static readonly IReadOnlyList<CertificateKind> TLS = [
+            CertificateKind.TLSRoot,
+            CertificateKind.ClientRoot,
+            CertificateKind.TLSServer,
+            CertificateKind.TLSIdentity
         ];
 
         #endregion

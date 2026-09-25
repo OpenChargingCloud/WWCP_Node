@@ -18,6 +18,7 @@
 #region Usings
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 using Newtonsoft.Json.Linq;
 
 #endregion
@@ -83,6 +84,24 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public TimeSpan        LegalTimeMaxAge
             => ntsSettings?.LegalTimeMaxAge ?? NTSConfiguration.DefaultLegalMaxAge;
 
+        /// <summary>
+        /// Whether this node's clock has been checked against its time servers
+        /// - and found a time - since it last started asking them.
+        /// </summary>
+        /// <remarks>
+        /// What a signed reading needs to know, and less than
+        /// <see cref="ClockJSON"/>'s "legal": a record says how far its
+        /// timestamp can be trusted with one letter, and the honest letter is
+        /// "S" only when something outside this node has confirmed the time.
+        /// Claiming a synchronised clock it does not have would be lying about
+        /// the one field of a record that cannot be checked afterwards. Taken
+        /// back when the servers are replaced by another one: what the last
+        /// check found belongs to servers this node no longer asks. The
+        /// Modbus/TLS energy meter had this before it was a node.
+        /// </remarks>
+        public Boolean         ClockIsSynchronised
+            => lastTimeCheck.HasValue;
+
         #endregion
 
 
@@ -108,7 +127,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!NTSEnabled)
             {
-                Log.Info($"The clock of this {Kind.Name} is not being checked: NTS is switched off.", "nts", "clock");
+                Log.Metrological(LogLevel.Info, $"The clock of this {Kind.Name} is not being checked: NTS is switched off.", "nts", "clock");
                 return;
             }
 
@@ -130,7 +149,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // somebody reads to find out.
             var asking = CheckedAgainst();
 
-            Log.Info(
+            Log.Metrological(
+                LogLevel.Info,
                 $"The clock of this {Kind.Name} will be checked against {String.Join(", ", asking)} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
                 (asking.Length > 1 ? $", at least {timeSources.MinServers} of which must answer" : "") +
                 (LegalTimeAuthority is not null ? $", which the operator says is {LegalTimeAuthority}." : "."),

@@ -229,12 +229,36 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public Boolean TryMergeSection(String                            Name,
                                        JObject                           Values,
                                        [NotNullWhen(false)] out String?  Error)
+
+            => TryMergeSection(Name, Values, [], out Error);
+
+        #endregion
+
+        #region TryMergeSection(Name, Values, Removed, out Error)
+
+        /// <summary>
+        /// Write the given fields into one section and take the given keys out
+        /// of it, leaving everything else alone.
+        /// </summary>
+        /// <remarks>
+        /// Taking a key out is not the same as writing a null into it: a null is
+        /// what a merge leaves alone, and what a section reads as "the file does
+        /// not say".
+        /// </remarks>
+        /// <param name="Name">The section, e.g. "nts".</param>
+        /// <param name="Values">The fields to write into it.</param>
+        /// <param name="Removed">The keys to take out of it.</param>
+        /// <param name="Error">What went wrong, when something did.</param>
+        public Boolean TryMergeSection(String                            Name,
+                                       JObject                           Values,
+                                       IEnumerable<String>               Removed,
+                                       [NotNullWhen(false)] out String?  Error)
         {
 
             if (!TryLoadDocument(out var document, out Error))
                 return false;
 
-            return TryWrite(Merged(document, Name, Values), out Error);
+            return TryWrite(Merged(document, Name, Values, Removed), out Error);
 
         }
 
@@ -243,8 +267,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #region TryPreviewSection(Name, Values, out Section, out Error)
 
         /// <summary>
-        /// The section as <see cref="TryMergeSection"/> would leave it, without
-        /// writing anything.
+        /// The section as <see cref="TryMergeSection(String, JObject, out String)"/>
+        /// would leave it, without writing anything.
         /// </summary>
         /// <remarks>
         /// For finding out what a save would do to the next start before doing
@@ -261,6 +285,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                          JObject                           Values,
                                          [NotNullWhen(true)]  out JObject?  Section,
                                          [NotNullWhen(false)] out String?   Error)
+
+            => TryPreviewSection(Name, Values, [], out Section, out Error);
+
+        #endregion
+
+        #region TryPreviewSection(Name, Values, Removed, out Section, out Error)
+
+        /// <summary>
+        /// The section as <see cref="TryMergeSection(String, JObject, IEnumerable{String}, out String)"/>
+        /// would leave it, without writing anything.
+        /// </summary>
+        /// <param name="Name">The section, e.g. "nts".</param>
+        /// <param name="Values">The fields that would be written into it.</param>
+        /// <param name="Removed">The keys that would be taken out of it.</param>
+        /// <param name="Section">The section as it would then read.</param>
+        /// <param name="Error">What went wrong, when something did.</param>
+        public Boolean TryPreviewSection(String                            Name,
+                                         JObject                           Values,
+                                         IEnumerable<String>               Removed,
+                                         [NotNullWhen(true)]  out JObject?  Section,
+                                         [NotNullWhen(false)] out String?   Error)
         {
 
             Section = null;
@@ -268,7 +313,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!TryLoadDocument(out var document, out Error))
                 return false;
 
-            Section = Merged(document, Name, Values)[Name] as JObject ?? [];
+            Section = Merged(document, Name, Values, Removed)[Name] as JObject ?? [];
 
             return true;
 
@@ -276,15 +321,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
-        #region (private static) Merged(Document, Name, Values)
+        #region (private static) Merged(Document, Name, Values, Removed)
 
         /// <summary>
-        /// The document with the given fields merged into one of its sections,
-        /// by the rules <see cref="TryMergeSection"/> describes.
+        /// The document with the given fields merged into one of its sections
+        /// and the given keys taken out of it, by the rules
+        /// <see cref="TryMergeSection(String, JObject, IEnumerable{String}, out String)"/>
+        /// describes.
         /// </summary>
-        private static JObject Merged(JObject  Document,
-                                      String   Name,
-                                      JObject  Values)
+        private static JObject Merged(JObject              Document,
+                                      String               Name,
+                                      JObject              Values,
+                                      IEnumerable<String>  Removed)
         {
 
             if (Document[Name] is JObject section)
@@ -301,6 +349,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             else
                 Document[Name] = Values.DeepClone();
+
+            if (Document[Name] is JObject merged)
+                foreach (var key in Removed)
+                    merged.Remove(key);
 
             return Document;
 

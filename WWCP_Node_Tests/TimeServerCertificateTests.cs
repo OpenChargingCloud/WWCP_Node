@@ -135,12 +135,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(steps.Select(step => step.Text), Is.EqualTo(new[] {
                 "TLS 1.3, TLS_AES_128_GCM_SHA256, ALPN ntske/1.",
                 "Server certificate: CN=time.example, for time.example; RSA 2048-bit, sha256RSA; valid 2026-09-13 12:00:00 to 2026-12-11 12:00:00 UTC, 79 day(s) left.",
+                $"Its SHA-256 fingerprint: {CertificateEntry.ThumbprintOf(server)}.",
                 "Root CA: CN=Test Root; RSA 2048-bit, sha256RSA; valid 2025-09-23 12:00:00 to 2029-06-19 12:00:00 UTC, 1000 day(s) left.",
                 $"The root's SHA-256 fingerprint: {CertificateEntry.ThumbprintOf(root)}.",
                 "Validated: the chain ends at a root this machine trusts, nothing in it is revoked (asked online), and 'time.example' is one of the server certificate's names."
             }));
 
-            Assert.That(steps.Select(step => step.Level), Is.EqualTo(new[] { "info", "info", "info", "info", "notice" }));
+            Assert.That(steps.Select(step => step.Level), Is.EqualTo(new[] { "info", "info", "info", "info", "info", "notice" }));
 
         }
 
@@ -260,7 +261,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(steps[1].Text,  Does.StartWith("Server certificate: CN=time.example, for time.example, issued by CN=Unknown Root;"));
-                Assert.That(steps,          Has.None.Matches<(String Level, String Text)>(step => step.Text.Contains("fingerprint")));
+                // The server's own fingerprint, which a certificate pin is
+                // written down from - and no root's, because there is no root.
+                Assert.That(steps[2],       Is.EqualTo(("info", $"Its SHA-256 fingerprint: {CertificateEntry.ThumbprintOf(server)}.")));
+                Assert.That(steps,          Has.None.Matches<(String Level, String Text)>(step => step.Text.Contains("root's SHA-256 fingerprint")));
                 Assert.That(steps[^1],      Is.EqualTo(("error", "Not validated: no chain up to a root could be built.")));
             });
 

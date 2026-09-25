@@ -34,12 +34,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
     /// <param name="Tags">What it is about: "15118", "sdp", "http", ... - lower case, without the level.</param>
     /// <param name="Message">One line, as somebody would read it.</param>
     /// <param name="Data">Whatever else belongs to it, or null.</param>
+    /// <param name="Metrological">Whether it belongs in the metrological log as well - see <see cref="EventLog.Metrological(LogLevel, String, String[])"/>.</param>
     public sealed record LogEntry(UInt64                 Id,
                                   DateTimeOffset         Timestamp,
                                   LogLevel               Level,
                                   IReadOnlyList<String>  Tags,
                                   String                 Message,
-                                  JObject?               Data   = null)
+                                  JObject?               Data           = null,
+                                  Boolean                Metrological   = false)
     {
 
         #region Properties
@@ -102,6 +104,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
             if (Data is not null)
                 json.Add("data", Data);
+
+            // Only where it is so: an entry that is not metrological reads
+            // exactly as every entry did before there was a metrological log -
+            // to a browser, and in every file an entry is written to.
+            if (Metrological)
+                json.Add("metrological", true);
 
             return json;
 

@@ -30,6 +30,7 @@ using org.GraphDefined.Vanaheimr.Norn.NTS;
 using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 #endregion
 
@@ -437,9 +438,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                   $"; {validity}."
                               ));
 
-                // What a pin is compared with - for the certificate the chain
-                // ends at, which is the server's own when it signed itself.
-                if (last && selfSigned)
+                // What a pin is compared with: the server's own certificate,
+                // and the certificate the chain ends at - one line where they
+                // are the same, because the server signed its own.
+                if (position == 0 || (last && selfSigned))
                     yield return ("info", $"{(position == 0 ? "Its" : "The root's")} SHA-256 fingerprint: {CertificateEntry.ThumbprintOf(certificate)}.");
 
             }
@@ -746,11 +748,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              ? configured
                              : new NTSClient(
                                    host,
-                                   NTSKE_Port:    ntsKEPort,
-                                   NTP_Port:      ntpPort,
-                                   Timeout:       configured.Timeout,
-                                   DNSClient:     dnsClient,
-                                   TimeProvider:  TimeProvider
+                                   NTSKE_Port:                  ntsKEPort,
+                                   NTP_Port:                    ntpPort,
+                                   RemoteCertificateValidator:  TimeServerValidator(host),
+                                   Timeout:                     configured.Timeout,
+                                   DNSClient:                   dnsClient,
+                                   TimeProvider:                TimeProvider
                                );
 
             try
@@ -760,6 +763,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 Step("info", "Key exchange over TLS ...");
 
+                var judgedFrom  = TimeProvider.GetUtcNow();
                 var keyExchange = await asking.GetNTSKERecords(CancellationToken: CancellationToken);
 
                 if (keyExchange.Response?.TimingInfo is NTSKE_TimingInfo timing)
@@ -786,6 +790,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (keyExchange.TLSInfo is NTSKE_TLSInfo tlsInfo)
                     foreach (var (level, text) in TLSSteps(tlsInfo, TimeProvider.GetUtcNow()))
                         Step(level, text);
+
+                // And what this node made of it, beyond what the machine did: a
+                // root of its own, and what the server is held to. From this
+                // key exchange only - a judgement from before it would be about
+                // another handshake.
+                if (asking.RemoteCertificateValidator is not null &&
+                    LastJudgementOf(asking.Hostname) is TimeServerJudgement judgement &&
+                    judgement.At >= judgedFrom)
+                {
+                    foreach (var (level, text) in judgement.Steps)
+                        Step(level, text);
+                }
 
                 if (!keyExchange.Success || keyExchange.Response is null)
                 {
@@ -941,16 +957,24 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!verdict.IsUsable)
                 {
 
-                    Log.Error($"NTS: group '{group.Name}' produced no time after {stopwatch.ElapsedMilliseconds} ms: {verdict}.", "nts", "test");
+                    var failure = Failed(
+                                      verdict.Outcome == TimeSyncOutcome.NothingAnswered
+                                          ? "No time server answered."
+                                          : $"Only {verdict.Answered} of {verdict.Required} time server(s) answered.",
+                                      new JProperty("runtime_ms",  stopwatch.ElapsedMilliseconds),
+                                      new JProperty("group",       groupJSON),
+                                      new JProperty("servers",     servers)
+                                  );
 
-                    return Remember(Failed(
-                               verdict.Outcome == TimeSyncOutcome.NothingAnswered
-                                   ? "No time server answered."
-                                   : $"Only {verdict.Answered} of {verdict.Required} time server(s) answered.",
-                               new JProperty("runtime_ms",  stopwatch.ElapsedMilliseconds),
-                               new JProperty("group",       groupJSON),
-                               new JProperty("servers",     servers)
-                           ));
+                    // Into the metrological log with what each server said: a
+                    // clock that could not be checked is a fact about the time
+                    // this node stamps everything with, and why is part of it.
+                    Log.Metrological(LogLevel.Error,
+                                     $"NTS: group '{group.Name}' produced no time after {stopwatch.ElapsedMilliseconds} ms: {verdict}.",
+                                     (JObject) failure.DeepClone(),
+                                     "nts", "test");
+
+                    return Remember(failure);
 
                 }
 
@@ -979,25 +1003,33 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // log book, and the time is still a time. Both lines read the
                 // same under every culture - see DeviationWarning.
                 if (verdict.DeviationExceeded)
-                    Log.Warning(DeviationWarning(group.Name, verdict.Spread!.Value, group.MaxDeviation), "nts", "test");
+                    Log.Metrological(LogLevel.Warning, DeviationWarning(group.Name, verdict.Spread!.Value, group.MaxDeviation), "nts", "test");
 
-                Log.Notice(AnsweredLine(group.Name, stopwatch.ElapsedMilliseconds, verdict), "nts", "test");
+                var answer = new JObject(
+                                 new JProperty("ok",          true),
+                                 new JProperty("server",      $"{group.Name}: {String.Join(", ", asking)}"),
+                                 new JProperty("at",          TimeProvider.GetUtcNow().ToString("o")),
+                                 new JProperty("runtime_ms",  stopwatch.ElapsedMilliseconds),
+                                 new JProperty("offset_ms",   verdict.Offset?.TotalMilliseconds),
+                                 new JProperty("group",       groupJSON),
+                                 new JProperty("servers",     servers)
+                             );
 
-                return Remember(new JObject(
-                           new JProperty("ok",          true),
-                           new JProperty("server",      $"{group.Name}: {String.Join(", ", asking)}"),
-                           new JProperty("at",          TimeProvider.GetUtcNow().ToString("o")),
-                           new JProperty("runtime_ms",  stopwatch.ElapsedMilliseconds),
-                           new JProperty("offset_ms",   verdict.Offset?.TotalMilliseconds),
-                           new JProperty("group",       groupJSON),
-                           new JProperty("servers",     servers)
-                       ));
+                // With what each server said, which is what a log book records:
+                // what was asked and what each one answered, and not only the
+                // conclusion.
+                Log.Metrological(LogLevel.Notice,
+                                 AnsweredLine(group.Name, stopwatch.ElapsedMilliseconds, verdict),
+                                 (JObject) answer.DeepClone(),
+                                 "nts", "test");
+
+                return Remember(answer);
 
             }
             catch (Exception e)
             {
                 stopwatch.Stop();
-                Log.Error($"NTS: asking group '{group.Name}' failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
+                Log.Metrological(LogLevel.Error, $"NTS: asking group '{group.Name}' failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
                 return Remember(Failed(e.Message));
             }
 

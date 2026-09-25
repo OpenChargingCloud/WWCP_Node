@@ -60,6 +60,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         private readonly SortedSet<String> tags    = new(StringComparer.Ordinal);
         private readonly Lock              padlock = new();
 
+        private readonly IEventLogStore?   store;
+        private readonly IEventLogStore?   metrologicalStore;
+
+        /// <summary>
+        /// Whether the store, or the metrological store, threw the last time
+        /// it was handed an entry - so that one that keeps throwing is
+        /// complained about once, and again only after it has worked in between.
+        /// </summary>
+        private Boolean storeFailing;
+        private Boolean metrologicalStoreFailing;
+
         private UInt64 lastId;
 
         #endregion
@@ -95,6 +106,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         /// past a command somebody is typing.
         /// </remarks>
         public Action<Action>  ComplaintBlock  { get; set; } = write => write();
+
+        /// <summary>
+        /// Where every entry of this log is kept beyond the process, or null
+        /// when they are kept in memory only.
+        /// </summary>
+        public IEventLogStore?  Store
+            => store;
+
+        /// <summary>
+        /// Where the metrological entries of this log are kept, or null when
+        /// there is no metrological log - see <see cref="Metrological(LogLevel, String, String[])"/>.
+        /// </summary>
+        public IEventLogStore?  MetrologicalStore
+            => metrologicalStore;
 
         /// <summary>
         /// The number of the newest entry; 0 when nothing has been logged yet.
@@ -154,15 +179,59 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         /// </summary>
         /// <param name="Capacity">How many entries are kept in memory.</param>
         /// <param name="TimeProvider">Where the timestamp of an entry comes from; the system clock by default.</param>
-        public EventLog(Int32          Capacity       = DefaultCapacity,
-                        TimeProvider?  TimeProvider   = null)
+        /// <param name="Store">Where every entry is kept beyond the process, or null to keep them in memory only.</param>
+        /// <param name="MetrologicalStore">Where the metrological entries are kept, or null for no metrological log.</param>
+        public EventLog(Int32            Capacity            = DefaultCapacity,
+                        TimeProvider?    TimeProvider        = null,
+                        IEventLogStore?  Store               = null,
+                        IEventLogStore?  MetrologicalStore   = null)
         {
 
             if (Capacity < 1)
                 throw new ArgumentOutOfRangeException(nameof(Capacity), "An event log must be able to keep at least one entry!");
 
-            this.Capacity      = Capacity;
-            this.TimeProvider  = TimeProvider ?? System.TimeProvider.System;
+            if (Store is not null && ReferenceEquals(Store, MetrologicalStore))
+                throw new ArgumentException("One store cannot keep every entry and the metrological ones as well: it would be handed every metrological entry twice.", nameof(MetrologicalStore));
+
+            this.Capacity           = Capacity;
+            this.TimeProvider       = TimeProvider ?? System.TimeProvider.System;
+            this.store              = Store;
+            this.metrologicalStore  = MetrologicalStore;
+
+            #region What was written down before this start
+
+            var everything    = store?.            Load(Capacity);
+            var metrological  = metrologicalStore?.Load(Capacity);
+
+            // The entries of the store that has all of them, where there is
+            // one, and those of the metrological log where it is the only one -
+            // so that a node with nothing but a metrological log still opens its
+            // page on what mattered before the restart, rather than on nothing.
+            foreach (var entry in (everything ?? metrological)?.Entries ?? [])
+            {
+
+                entries.Enqueue(entry);
+
+                foreach (var tag in entry.Tags)
+                    tags.Add(tag);
+
+            }
+
+            while (entries.Count > Capacity)
+                entries.Dequeue();
+
+            // Where the numbering carries on from: the higher of the two, since
+            // both were numbered by this log and a number either of them holds
+            // must not be handed out again. A log that began again at 1 would
+            // hand a browser entries it had already seen - and worse, two
+            // different events would share a number in a file. What no store
+            // kept is not known: the numbers of the ordinary entries written
+            // after the last metrological one are handed out again, as every
+            // number was before there were stores, and a store of every entry
+            // is what prevents that.
+            lastId = Math.Max(everything?.LastId ?? 0, metrological?.LastId ?? 0);
+
+            #endregion
 
         }
 
@@ -198,9 +267,74 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
                             String           Message,
                             JObject?         Data,
                             params String[]  Tags)
+
+            => Write(Level, Message, Data, false, Tags);
+
+        #endregion
+
+        #region Metrological(Level, Message, params Tags)
+
+        /// <summary>
+        /// Write one entry that belongs in the metrological log: into this log
+        /// like any other, and into the metrological log beside it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Said entry by entry, by whoever writes it, and not decided by a tag
+        /// or a level: what is metrologically relevant is a question about what
+        /// happened rather than about how loudly it was described. A clock found
+        /// to be 800 ms off is; the request for the page that shows it is not,
+        /// whatever level either of them was logged at.
+        /// </para>
+        /// <para>
+        /// Numbered in this log's own sequence, so that one event carries one
+        /// number in both, and the metrological log is the part of this one
+        /// that matters for what the node measures and how far its record of it
+        /// can be believed. Without a metrological log it is an ordinary entry,
+        /// marked for the page as one that would have gone there.
+        /// </para>
+        /// </remarks>
+        /// <param name="Level">How much attention it wants.</param>
+        /// <param name="Message">One line, as somebody would read it.</param>
+        /// <param name="Tags">What it is about: "nts", "certificates", ...</param>
+        public LogEntry Metrological(LogLevel         Level,
+                                     String           Message,
+                                     params String[]  Tags)
+
+            => Write(Level, Message, null, true, Tags);
+
+        #endregion
+
+        #region Metrological(Level, Message, Data, params Tags)
+
+        /// <summary>
+        /// Write one entry that belongs in the metrological log, with the whole
+        /// of what it is about attached - see <see cref="Metrological(LogLevel, String, String[])"/>.
+        /// </summary>
+        /// <param name="Level">How much attention it wants.</param>
+        /// <param name="Message">One line, as somebody would read it.</param>
+        /// <param name="Data">Whatever else belongs to it, or null.</param>
+        /// <param name="Tags">What it is about: "nts", "certificates", ...</param>
+        public LogEntry Metrological(LogLevel         Level,
+                                     String           Message,
+                                     JObject?         Data,
+                                     params String[]  Tags)
+
+            => Write(Level, Message, Data, true, Tags);
+
+        #endregion
+
+        #region (private) Write(Level, Message, Data, Metrological, Tags)
+
+        private LogEntry Write(LogLevel  Level,
+                               String    Message,
+                               JObject?  Data,
+                               Boolean   Metrological,
+                               String[]  Tags)
         {
 
-            var entry = default(LogEntry);
+            var entry     = default(LogEntry);
+            var failures  = default(List<String>);
 
             lock (padlock)
             {
@@ -211,7 +345,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
                             Level,
                             Normalize(Tags),
                             Message?.Trim() ?? "",
-                            Data
+                            Data,
+                            Metrological
                         );
 
                 entries.Enqueue(entry);
@@ -222,7 +357,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
                 foreach (var tag in entry.Tags)
                     tags.Add(tag);
 
+                // Inside the lock, and that is the point: a store has to end up
+                // in the order of the numbers, or reading it back would put the
+                // entries in an order nothing ever happened in - and a store
+                // whose every line points back at the one before it would point
+                // at the wrong one.
+                Keep(store,                   entry, "store",              ref storeFailing,              ref failures);
+
+                if (Metrological)
+                    Keep(metrologicalStore,   entry, "metrological store", ref metrologicalStoreFailing,  ref failures);
+
             }
+
+            // Outside the lock, like the listeners below - see Complain.
+            foreach (var failure in failures ?? [])
+                Complain(failure);
 
             // Outside the lock: a listener writing to the console or handing
             // the entry to a browser must not hold up whoever is logging - and
@@ -246,6 +395,47 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
             }
 
             return entry;
+
+        }
+
+        #endregion
+
+        #region (private static) Keep(Store, Entry, Name, ref Failing, ref Failures)
+
+        /// <summary>
+        /// Hand one entry to a store, and remember - rather than throw - what
+        /// went wrong.
+        /// </summary>
+        /// <remarks>
+        /// A store is asked not to throw, and one that does must not take the
+        /// entry down with it, nor whoever was logging. Said once while it keeps
+        /// failing, as a log file that cannot be written is: a store broken for
+        /// an hour must not bury the console under one line per entry.
+        /// </remarks>
+        private static void Keep(IEventLogStore?    Store,
+                                 LogEntry           Entry,
+                                 String             Name,
+                                 ref Boolean        Failing,
+                                 ref List<String>?  Failures)
+        {
+
+            if (Store is null)
+                return;
+
+            try
+            {
+                Store.Append(Entry);
+                Failing = false;
+            }
+            catch (Exception e)
+            {
+
+                if (!Failing)
+                    (Failures ??= []).Add($"The event log's {Name} failed, and is tried again with every entry: {e.Message}");
+
+                Failing = true;
+
+            }
 
         }
 
