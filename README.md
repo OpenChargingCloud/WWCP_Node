@@ -1,5 +1,8 @@
 # WWCP Node
 
+[![CI](https://github.com/OpenChargingCloud/WWCP_Node/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenChargingCloud/WWCP_Node/actions/workflows/ci.yml)
+[![Nightly](https://github.com/OpenChargingCloud/WWCP_Node/actions/workflows/nightly.yml/badge.svg)](https://github.com/OpenChargingCloud/WWCP_Node/actions/workflows/nightly.yml)
+
 What every one of these programs is before it is anything in particular: a
 log, a configuration file, name resolution and the time, a certificate store,
 accounts, and an HTTP server with a web interface behind it.
