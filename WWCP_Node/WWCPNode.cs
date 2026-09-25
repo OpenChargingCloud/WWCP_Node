@@ -899,7 +899,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             else
                 this.Log.Error(
                     $"No web interface to serve ({this.Frontend.Description}): the JSON API answers, the browser gets nothing. " +
-                    $"Build the bundle, or point the {Kind.Name} at a directory that has one.",
+                    $"Build the bundle, or point the {this.Kind.Name} at a directory that has one.",
                     "web"
                 );
 

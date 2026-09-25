@@ -25,8 +25,10 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 #endregion
 
@@ -94,13 +96,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (helper) Node(Kind)
+        #region (helper) Node(Kind, Frontend = null)
 
         /// <summary>
         /// A node of the given kind, with name resolution and the time client
-        /// switched off.
+        /// switched off, and the web interface it was handed, if any.
         /// </summary>
-        private WWCPNode Node(NodeKind? Kind)
+        private WWCPNode Node(NodeKind?              Kind,
+                              IStaticContentSource?  Frontend   = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
@@ -117,6 +120,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                        HTTPPort:          IPPort.Parse((UInt16) port),
                        AccountsPath:      Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
+                       Frontend:          Frontend,
                        CertificatesPath:  Path.Combine(directory, "certificates"),
                        LogToConsole:      false,
                        BridgeDebugLog:    false
@@ -180,6 +184,36 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var resolved = await node.ResolveAsync("example.org");
 
             Assert.That(resolved.Value<String>("error"),  Is.EqualTo("Name resolution is switched off on this WWCP node."));
+
+        }
+
+        #endregion
+
+        #region AWebInterfaceWithNoBundleIsSaidOfANodeOfNoParticularKindToo()
+
+        /// <summary>
+        /// A node of no particular kind that is handed a web interface with no
+        /// bundle in it says so in its log, as a vehicle or a station does.
+        /// </summary>
+        /// <remarks>
+        /// That sentence is written in the constructor, where "Kind" is the
+        /// parameter and not the property - and the parameter is null for a
+        /// node of no particular kind. Read from there, the sentence that was
+        /// to say what is missing ended the node with a NullReferenceException
+        /// before it had a log to say anything in.
+        /// </remarks>
+        [Test]
+        public async Task AWebInterfaceWithNoBundleIsSaidOfANodeOfNoParticularKindToo()
+        {
+
+            var empty = Path.Combine(directory, "frontend");
+
+            Directory.CreateDirectory(empty);
+
+            await using var node = Node(null, new FileSystemContentSource(empty));
+
+            Assert.That(node.Log.Recent(100).Where(entry => entry.Level == LogLevel.Error).Select(entry => entry.Message),
+                        Has.Some.EndsWith("Build the bundle, or point the WWCP node at a directory that has one."));
 
         }
 
