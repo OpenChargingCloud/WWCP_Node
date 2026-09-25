@@ -17,6 +17,8 @@
 
 #region Usings
 
+using Newtonsoft.Json.Linq;
+
 using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
@@ -395,6 +397,57 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             }
 
             Assert.That(lines.FirstOrDefault(), Does.Contain("[node] WWCP node v").And.Contain("starting up."));
+
+        }
+
+        #endregion
+
+        #region ANodeSaysWhereItsLogFilesGo()
+
+        /// <summary>
+        /// Where the files go is said on the log card of the Configuration
+        /// page - and that there are none, by a node that writes none.
+        /// </summary>
+        /// <remarks>
+        /// A charging station said so on its own card before there was a node
+        /// below it, and a local controller did too: every kind of node that
+        /// writes files has somebody who then has to find them.
+        /// </remarks>
+        [Test]
+        public async Task ANodeSaysWhereItsLogFilesGo()
+        {
+
+            var logs  = Path.Combine(directory, "logs");
+
+            await using (var writing = new WWCPNode(
+                                           AccountsPath:      Path.Combine(directory, "accounts"),
+                                           ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
+                                           CertificatesPath:  Path.Combine(directory, "certificates"),
+                                           LogToConsole:      false,
+                                           LogPath:           logs,
+                                           BridgeDebugLog:    false
+                                       ))
+            {
+                Assert.Multiple(() => {
+                    Assert.That(writing.LogPath,                                             Is.EqualTo(Path.GetFullPath(logs)));
+                    Assert.That(writing.ConfigurationJSON()["log"]?.Value<String>("files"),  Is.EqualTo(Path.GetFullPath(logs)));
+                });
+            }
+
+            await using (var silent = new WWCPNode(
+                                          AccountsPath:      Path.Combine(directory, "accounts"),
+                                          ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
+                                          CertificatesPath:  Path.Combine(directory, "certificates"),
+                                          LogToConsole:      false,
+                                          BridgeDebugLog:    false
+                                      ))
+            {
+                Assert.Multiple(() => {
+                    Assert.That(silent.LogPath,                                              Is.Null);
+                    Assert.That(silent.ConfigurationJSON()["log"]?["files"]?.Type,           Is.EqualTo(JTokenType.Null),
+                                "the card leaves the files out rather than saying there are none");
+                });
+            }
 
         }
 

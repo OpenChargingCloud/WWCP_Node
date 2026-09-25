@@ -12,6 +12,9 @@ grow that for itself, and the vehicle's version is the one that ended up here.
 that adds its own sections to the same configuration file, its own JSON API
 below `/api` and its own bundle to serve. [EV](https://github.com/OpenChargingCloud/EV)
 is the first of them: one `WWCPNode` with a battery.
+[ChargingStation](https://github.com/OpenChargingCloud/ChargingStation) is the
+second: one with EVSEs, a display on a port of its own, and the roles of the
+people who run it.
 
 
 ## What is in it
@@ -22,12 +25,12 @@ is the first of them: one `WWCPNode` with a battery.
 | `WWCPNode.Clock.cs` | what time it thinks it is, and what that is worth |
 | `WWCPNode.Diagnostics.cs` | asking a name server or a time server something, step by step, for a page to show |
 | `NodeKind.cs` | the five names a kind of node goes by |
-| `PortUnavailableException.cs` | the port the web interface has to have, and cannot get - said in a sentence rather than in a stack trace |
+| `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, and what the libraries below say through it |
 | `Web/` | who may sign in, and what each role may do |
-| `WWCP_Node_Tests/` | eighty tests, each of them constructing the node rather than a vehicle |
+| `WWCP_Node_Tests/` | eighty-eight tests, each of them constructing the node rather than a vehicle or a station |
 
 
 ## A kind of node
@@ -71,7 +74,7 @@ The port is the kind's to give and to pass, not the node's to guess: a node
 that took a default of its own for a kind that forgot to pass one would
 listen somewhere nobody expects.
 
-Beyond the names, a kind of node adds to the node in four places:
+Beyond the names, a kind of node adds to the node in five places:
 
 * **Its own sections of the configuration file.** The node reads the file
   once and keeps the whole document as `ConfigurationDocument`; the kind
@@ -84,6 +87,13 @@ Beyond the names, a kind of node adds to the node in four places:
   `OnStarted()` and `OnStopping()`. The vehicle uses the second to close its
   event streams, because the server waits for every request it started and a
   request waiting for the next log entry is not woken by closing the sockets.
+* **What it listens on beside the node's own port:** `OnListening()`, asked
+  once the node's port is had and before the node calls itself started. A
+  charging station takes its display's port there - a second server, so that
+  the screen in the car park and the administration are two sockets bound to
+  two addresses. A port it cannot have is a `PortUnavailableException` that
+  names what the port was for, a `NodePort` of the kind's own; the start ends
+  with it, and the node lets go of its own port again on the way out.
 * **What it is, for the Configuration page:** `ConfigurationJSON()` is
   virtual and answers with the node's cards - `http`, `web`, `log`, `time` -
   and the kind adds its own on top.
@@ -225,6 +235,12 @@ time, the group it is checked against, when it was last checked and how far
 off it was then - and `legal`, with a `why` when it is not, `notClaimed` among
 them. A kind of node puts that behind a route of its own.
 
+Against whom it was checked is said for a screen, and a screen speaks the
+language it is set to: so the one server of a group of one is named, as
+`server`, and a group of more is counted instead - `asked` and `answered` by
+the last check - rather than named in a phrase made up here in English. A
+charging station's display puts those numbers into its own sentence.
+
 A host name written back into the file carries the root label -
 `ptbtime1.ptb.de.` - because that is the absolute form it was parsed into,
 and not a stray character. What the node prints for somebody to read drops it
@@ -280,16 +296,24 @@ the node makes one account, `root`, with a password made up on the spot and
 shown once, on the console, to whoever started the process. It is never
 written down anywhere; what the accounts hold is the hash.
 
-A role is a user group under the same name - `viewer`, `driver`, `service`,
-`systemadmin` - and membership is what carries its permissions. The groups
-are made at every start rather than only the first, because they are the
-node's vocabulary and not somebody's data: a group deleted by hand would
-otherwise leave a role nobody can ever hold again. The permissions stay here
-because the HTTPExt API knows users, groups and organizations and has no
-opinion about what "may run a session" means; it answers who somebody is, and
-this answers what that lets them do. A closed set, deliberately: a role the
-node has never heard of grants nothing, rather than quietly granting
-something.
+A role is a user group under the same name, and membership is what carries
+its permissions. The roles are the kind of node's, handed in as `Roles` - a
+vehicle's are `viewer`, `driver`, `service` and `systemadmin`, a charging
+station's `viewer`, `cpo`, `installer` and `systemadmin` - and a node handed
+none knows the vehicle's, which came here with the rest of the vehicle.
+`systemadmin` is one of them whatever the kind says: the first account goes
+there. The groups are made at every start rather than only the first,
+because they are the node's vocabulary and not somebody's data: a group
+deleted by hand would otherwise leave a role nobody can ever hold again - and
+Hermod's floor for a group's identification is lowered to the shortest role
+handed in, because it is four characters and `cpo` is three.
+
+What a role lets somebody do is the kind's to say and to enforce: the HTTPExt
+API knows users, groups and organizations and has no opinion about what "may
+run a session" or "may raise a power limit" means; it answers who somebody
+is, and the kind of node answers what that lets them do. `Web/UserRoles.cs`
+is the vehicle's answer. A closed set, deliberately: a role a node has never
+heard of grants nothing, rather than quietly granting something.
 
 Several of these programs may share one server and one sign-in. A node handed
 an `HTTPServer` registers within it and neither starts nor stops it; one
@@ -397,10 +421,13 @@ A node of any kind. On its own it has no JSON API and nothing to serve; it
 listens, signs people in, keeps a log and a clock, and waits for a kind of
 node to make something of that.
 
-And not yet as general as its name. The certificate kinds are ISO 15118's,
-and the `driver` role and its charging settings are a vehicle's - they came
-here with the rest and are right for the one kind of node there is. The
-second kind will say what of that is every node's and what is not.
+And not yet as general as its name. The certificate kinds are ISO 15118's
+and a vehicle's, and so are the permissions in `Web/UserRoles.cs` - they came
+here with the rest. The second kind, the charging station, has said what of
+it is every node's so far: the roles are the kind's, a node may listen on
+more than one port, and a clock check is counted for a screen rather than
+described to it. It has its own certificates for the back ends it dials, and
+has not asked the store for anything yet.
 
 
 ## Your participation

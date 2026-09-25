@@ -135,6 +135,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public const            String          DefaultAdminUser              = "root";
 
+        /// <summary>
+        /// The role that account is put in, and which every kind of node knows.
+        /// </summary>
+        /// <remarks>
+        /// The one role that is not the kind's to name: every one of these
+        /// programs names its administrators alike, which is what lets one set
+        /// of accounts shared between several of them have one kind of
+        /// administrator - an account in "systemadmin" is an administrator of
+        /// every one of them.
+        /// </remarks>
+        public const            String          AdminRole                     = "systemadmin";
+
 
         /// <summary>
         /// The TCP port a node of no particular kind listens on. A kind of
@@ -169,14 +181,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// and against whom.
         /// </summary>
         /// <remarks>
-        /// Three fields rather than one object because they are written from
+        /// Separate fields rather than one object because they are written from
         /// one place and read from another, and the alternative - digging them
-        /// back out of the JSON of the last check - would make the page depend
-        /// on the shape of a diagnostic.
+        /// back out of the JSON of the last check - would make a page or a
+        /// screen depend on the shape of a diagnostic.
+        ///
+        /// The server is a host name only where there is one of them. A group
+        /// of four is counted instead, in numbers, because a screen puts this
+        /// behind "checked against" in whichever language it is showing, and a
+        /// phrase assembled here would arrive in the wrong one.
         /// </remarks>
         private           DateTimeOffset?                 lastTimeCheck;
         private           TimeSpan?                       lastTimeCheckOffset;
         private           String?                         lastTimeCheckServer;
+        private           Int32?                          lastTimeCheckAsked;
+        private           Int32?                          lastTimeCheckAnswered;
 
         /// <summary>
         /// The clock that makes this node check its own, when NTS is on.
@@ -248,6 +267,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Everything that happens inside this node.
         /// </summary>
         public EventLog               Log                          { get; }
+
+        /// <summary>
+        /// The directory the log files are written to, one per day, or null
+        /// when this node writes none.
+        /// </summary>
+        public String?                LogPath
+            => fileLog?.Directory;
 
         /// <summary>
         /// The HTTP server everything of this node is registered within: its
@@ -325,6 +351,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The directory the accounts live in between starts.
         /// </summary>
         public String                 AccountsPath                 { get; }
+
+        /// <summary>
+        /// The roles this node knows, by the names of the user groups that
+        /// carry them: the roles of its kind, and <see cref="AdminRole"/>
+        /// among them whatever the kind said.
+        /// </summary>
+        /// <remarks>
+        /// Names and nothing else, because that is all the node does with a
+        /// role: it makes the group of that name at every start. What a role
+        /// lets somebody do is the kind of node's to say and to enforce - a
+        /// vehicle's driver may start a session, a charging station's installer
+        /// may raise a power limit, and neither sentence means anything to the
+        /// other kind.
+        /// </remarks>
+        public IReadOnlyList<String>  Roles                        { get; }
 
         /// <summary>
         /// The password made up at a first start and shown once, or null when
@@ -460,6 +501,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="HTTPRootPath">Where the JSON API sits; "/api" below <paramref name="BasePath"/> by default.</param>
         /// <param name="ExtAPI">An HTTPExt API to sign in against, or null for one of this node's own. Handing one in is what makes one sign-in open several of these programs at once.</param>
         /// <param name="AccountsPath">The directory the accounts live in between starts.</param>
+        /// <param name="Roles">The roles of this kind of node, by the names of the user groups that carry them; <see cref="UserRole.All"/> by default. <see cref="AdminRole"/> is one of them whatever is handed in.</param>
         /// <param name="ConfigFile">Where the configuration lives between starts.</param>
         /// <param name="DNSClient">How to resolve names, or null to make a client.</param>
         /// <param name="NTSClient">Where to read the time, or null to make a client.</param>
@@ -480,6 +522,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         HTTPPath?              HTTPRootPath       = null,
                         HTTPExtAPI?            ExtAPI             = null,
                         String?                AccountsPath       = null,
+                        IEnumerable<String>?   Roles              = null,
                         WWCPConfigFile?        ConfigFile         = null,
                         DNSClient?             DNSClient          = null,
                         NTSClient?             NTSClient          = null,
@@ -577,6 +620,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!this.AccountsPath.EndsWith(Path.DirectorySeparatorChar))
                 this.AccountsPath += Path.DirectorySeparatorChar;
+
+            // The kind's roles, and the administrators' among them whatever the
+            // kind said: the first account goes into that group, and a group
+            // that was never made would leave it able to do nothing at all.
+            // Told apart regardless of case, as the accounts tell groups apart.
+            this.Roles = [.. (Roles ?? UserRole.All.Select(role => role.Name)).
+                                 Append(AdminRole).
+                                 Distinct(StringComparer.OrdinalIgnoreCase)];
 
             #endregion
 
@@ -759,13 +810,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      // The shortest name a role of this node has,
                                      // because that is what a group identification has
                                      // to be allowed to be. Hermod's own floor is four
-                                     // characters, which every role here clears today -
-                                     // and the day one does not, the group is refused by
-                                     // a returned result rather than an exception, which
-                                     // is a refusal nobody is obliged to notice, and the
-                                     // role it carries can never be held by anybody. The
-                                     // local controller's "cpo" is three.
-                                     MinUserGroupIdLength:   (Byte) UserRole.All.Min(role => role.Name.Length),
+                                     // characters, and a charging station's "cpo" is
+                                     // three - so the group is refused, by a returned
+                                     // result rather than an exception, which is a
+                                     // refusal nobody is obliged to notice, and the
+                                     // role it carries can never be held by anybody.
+                                     MinUserGroupIdLength:   (Byte) this.Roles.Min(role => role.Length),
 
                                      LoggingPath:            AccountsPath,
                                      DatabaseFileName:       DefaultAccountsDatabaseFile,
@@ -907,8 +957,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) EnsureAccounts()
 
         /// <summary>
-        /// Make the four groups and, at a first start, the one account that is
-        /// in the last of them.
+        /// Make the group of every role this node knows and, at a first start,
+        /// the one account, which is put in <see cref="AdminRole"/>.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1004,25 +1054,27 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 GeneratedPassword = password;
 
-                Log.Notice($"No accounts were found, so '{DefaultAdminUser}' was made up and put in the {UserRole.SystemAdmin.Name} group.",
+                Log.Notice($"No accounts were found, so '{DefaultAdminUser}' was made up and put in the {AdminRole} group.",
                            "web", "auth");
 
             }
 
             #endregion
 
-            #region The four groups
+            #region The group of every role
 
-            foreach (var role in UserRole.All)
+            foreach (var role in Roles)
             {
 
-                if (ExtAPI.TryGetUserGroup(role.GroupId, out _))
+                var groupId = UserGroup_Id.Parse(role);
+
+                if (ExtAPI.TryGetUserGroup(groupId, out _))
                     continue;
 
                 var added = await ExtAPI.AddUserGroup(
                                       new UserGroup(
-                                          role.GroupId,
-                                          I18NString.Create(Languages.en, role.Name)
+                                          groupId,
+                                          I18NString.Create(Languages.en, role)
                                       )
                                   );
 
@@ -1033,7 +1085,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // say why. Better to stop before the port opens.
                 if (added.Result != CommandResult.Success)
                     throw new InvalidOperationException(
-                              $"The user group '{role.GroupId}' of this node could not be made: " +
+                              $"The user group '{groupId}' of this node could not be made: " +
                               $"{added.Description.FirstText()} A role without its group is a role nobody can hold."
                           );
 
@@ -1052,13 +1104,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (admin is not null)
             {
 
-                if (!ExtAPI.TryGetUser     (admin.Id,                     out var storedAdmin) ||
-                    !ExtAPI.TryGetUserGroup(UserRole.SystemAdmin.GroupId, out var adminGroup)  ||
+                if (!ExtAPI.TryGetUser     (admin.Id,                         out var storedAdmin) ||
+                    !ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(AdminRole),    out var adminGroup)  ||
                      storedAdmin is not User      user ||
                      adminGroup  is not UserGroup group)
                 {
                     throw new InvalidOperationException(
-                              $"The account of this node could not be put in the {UserRole.SystemAdmin.Name} group, " +
+                              $"The account of this node could not be put in the {AdminRole} group, " +
                                "so the one account it has would be allowed to do nothing at all."
                           );
                 }
@@ -1077,7 +1129,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // different question: IsSuccess rather than Result.
                 if (!joined.IsSuccess)
                     throw new InvalidOperationException(
-                              $"The account '{DefaultAdminUser}' could not be put in the {UserRole.SystemAdmin.Name} group: " +
+                              $"The account '{DefaultAdminUser}' could not be put in the {AdminRole} group: " +
                               $"{joined.ErrorDescription?.FirstText()} It would be able to do nothing at all."
                           );
 
@@ -1749,6 +1801,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("lastId",         Log.LastId),
                        new JProperty("debugBridge",    traceBridge is not null),
                        new JProperty("console",        consoleLog  is not null),
+                       new JProperty("files",          LogPath),
                        new JProperty("tags",           new JArray(Log.KnownTags))
                    )),
 
@@ -1779,8 +1832,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Start listening.
         /// </summary>
         /// <remarks>
-        /// The accounts first, then the port, then the clock - and what a kind
-        /// of node has to say once it is up comes from its
+        /// The accounts first, then the port - the node's own, and then those
+        /// a kind of node takes in its <see cref="OnListening"/> - then the
+        /// clock. What a kind of node has to say once it is up comes from its
         /// <see cref="OnStarted"/>, after the line saying that it is.
         /// </remarks>
         public async Task Start()
@@ -1806,6 +1860,30 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
             }
 
+            try
+            {
+                await OnListening();
+            }
+            catch
+            {
+
+                // The node's own port is had by now. Nothing is left behind by
+                // a process that is about to end anyway, but a caller that
+                // catches this and carries on - a test, or a node that tries
+                // another port - should not be holding a socket it never got
+                // to use.
+                //
+                // Only where it is this node's, though: a shared server carries
+                // other programs' web interfaces too, and closing it because a
+                // port of this one could not be had would take all of them down
+                // with it.
+                if (OwnsHTTPServer)
+                    await HTTPServer.Stop();
+
+                throw;
+
+            }
+
             StartCheckingTheClock();
 
             started = true;
@@ -1818,6 +1896,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
             await OnStarted();
 
         }
+
+        #endregion
+
+        #region (protected virtual) OnListening()
+
+        /// <summary>
+        /// What a node of a particular kind listens on beside the node's own
+        /// port: nothing, unless it overrides this.
+        /// </summary>
+        /// <remarks>
+        /// Asked once the node's own port is had and before the node calls
+        /// itself started - so that all of its ports are had before its log
+        /// says that it is listening, and before its clock is checked. A port
+        /// that cannot be had is said as a <see cref="PortUnavailableException"/>
+        /// naming what it was for, which is what the start then ends with; the
+        /// node lets go of its own port again on the way out.
+        /// </remarks>
+        protected virtual Task OnListening()
+            => Task.CompletedTask;
 
         #endregion
 

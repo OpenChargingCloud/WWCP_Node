@@ -954,9 +954,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 }
 
-                lastTimeCheck        = TimeProvider.GetUtcNow();
-                lastTimeCheckOffset  = verdict.Offset;
-                lastTimeCheckServer  = $"{group.Name} ({verdict.Answered} of {asked.Length} server(s))";
+                // What the asking was actually for. The clock of this node is
+                // not stepped by it - see WWCPNode.Clock.cs - so the
+                // offset is the whole of the result: it is the difference
+                // between what this node believes and what servers that know
+                // were saying at the same moment.
+                lastTimeCheck          = TimeProvider.GetUtcNow();
+                lastTimeCheckOffset    = verdict.Offset;
+                lastTimeCheckAsked     = asked.Length;
+                lastTimeCheckAnswered  = verdict.Answered;
+
+                // A name only where naming one is the truth. Four servers
+                // answering is not "checked against ptbtime1", and picking one
+                // of them to print would be the nicer-looking lie. Nor is it
+                // "legal (2 of 4 server(s))", which is what this used to say:
+                // a screen puts it behind "checked against" in its own
+                // language, and the numbers above are what it says it with.
+                lastTimeCheckServer    = asked.Length == 1
+                                             ? asking[0]
+                                             : null;
 
                 // Written down rather than acted on, which is what the white
                 // paper asks for: the disagreement belongs in the metrological

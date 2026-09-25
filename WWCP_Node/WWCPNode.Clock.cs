@@ -211,6 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         {
 
             var now       = TimeProvider.GetUtcNow();
+            var asking    = timeSources.Bands().SelectMany(band => band).ToArray();
             var checkedAt = lastTimeCheck;
             var offset    = lastTimeCheckOffset;
             var age       = checkedAt.HasValue ? now - checkedAt.Value : (TimeSpan?) null;
@@ -234,16 +235,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("source",          "system"),
 
                        // Against whom: the group the check asks, as the log line
-                       // at the start names it. This used to be "server", with
-                       // the host of the single client that is only there for a
-                       // server's detailed test - one name for a check that has
-                       // asked the whole group since there were groups.
+                       // at the start names it, and how many of it have to
+                       // answer - nobody while NTS is switched off. This used to
+                       // be "server", with the host of the single client that is
+                       // only there for a server's detailed test - one name for
+                       // a check that has asked the whole group since there were
+                       // groups. "server" is the one server of a group of one
+                       // now, which is what a screen shows beside the time; a
+                       // group of more is counted, by the last check, in
+                       // numbers a screen can put into its own language.
                        new JProperty("nts",             new JObject(
                            new JProperty("enabled",       NTSEnabled),
                            new JProperty("group",         NTSEnabled ? timeSources.Name : null),
+                           new JProperty("server",        NTSEnabled && asking.Length == 1
+                                                              ? asking[0].Hostname.Trimmed
+                                                              : null),
                            new JProperty("servers",       NTSEnabled ? new JArray(CheckedAgainst()) : null),
                            new JProperty("minServers",    NTSEnabled ? timeSources.MinServers : null),
                            new JProperty("lastServer",    lastTimeCheckServer),
+                           new JProperty("asked",         lastTimeCheckAsked),
+                           new JProperty("answered",      lastTimeCheckAnswered),
                            new JProperty("checkedAt",     checkedAt?.ToString("o")),
                            new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),
                            new JProperty("offset_ms",     offset.HasValue ? Math.Round(offset.Value.TotalMilliseconds, 1) : null),

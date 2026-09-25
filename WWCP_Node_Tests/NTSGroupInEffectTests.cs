@@ -488,7 +488,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <remarks>
         /// It used to say "server", with the host of the single client that is
         /// only there for a server's detailed test - one name, the default, for
-        /// a check that asks whatever group the file names.
+        /// a check that asks whatever group the file names. "server" is there
+        /// again, and names the one server of a group of one only - see below.
         /// </remarks>
         [Test]
         public async Task TheClockIsCheckedAgainstTheGroupAndNotTheTestClient()
@@ -512,7 +513,55 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(nts.Value<Int32>("minServers"),    Is.EqualTo(2));
 
-                Assert.That(nts.ContainsKey("server"),         Is.False,  "the test client's host is named again");
+                Assert.That(nts["server"]?.Type,               Is.EqualTo(JTokenType.Null),  "one server named for a group of two");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AGroupOfOneIsNamedAndAGroupOfMoreIsCounted()
+
+        /// <summary>
+        /// What a screen puts behind "checked against": the one server of a
+        /// group of one by its name, and a group of more by numbers - how many
+        /// were asked and how many answered - never by one of them.
+        /// </summary>
+        /// <remarks>
+        /// Numbers rather than a phrase, because the screen says "checked
+        /// against" in whichever language it is showing, and a phrase made up
+        /// here would arrive in English. The last check used to be named as
+        /// "legal (2 of 4 server(s))", which a charging station's display
+        /// would have put behind its German "geprüft gegen" as it stood.
+        /// Nothing has been checked here yet, and that is said as well: the
+        /// counts are there and empty rather than missing.
+        /// </remarks>
+        [Test]
+        public async Task AGroupOfOneIsNamedAndAGroupOfMoreIsCounted()
+        {
+
+            JObject one, four;
+
+            await using (var node = Node("""{ "nts": { "servers": [ "a.example" ] } }"""))
+                one  = (JObject) node.ClockJSON()["nts"]!;
+
+            // The default four, which a file saying nothing leaves in place.
+            await using (var node = Node("{ }"))
+                four = (JObject) node.ClockJSON()["nts"]!;
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(one.Value<String>("server"),   Is.EqualTo("a.example"),      "the one server of a group of one, without the root's dot");
+                Assert.That(four["server"]?.Type,          Is.EqualTo(JTokenType.Null),  "one of four named as though it were the one");
+
+                foreach (var nts in new[] { one, four })
+                {
+                    Assert.That(nts["lastServer"]?.Type,   Is.EqualTo(JTokenType.Null),  "a server named before anything was checked");
+                    Assert.That(nts["asked"]?.     Type,   Is.EqualTo(JTokenType.Null),  "how many were asked is missing, or made up");
+                    Assert.That(nts["answered"]?.  Type,   Is.EqualTo(JTokenType.Null),  "how many answered is missing, or made up");
+                }
 
             });
 

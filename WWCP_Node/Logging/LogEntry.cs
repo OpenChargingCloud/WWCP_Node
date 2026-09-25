@@ -24,53 +24,6 @@ using Newtonsoft.Json.Linq;
 namespace cloud.charging.open.protocols.WWCP.Node.Logging
 {
 
-    #region LogLevel
-
-    /// <summary>
-    /// How much a log entry wants somebody's attention.
-    /// </summary>
-    /// <remarks>
-    /// One of these is always the first tag of an entry, so that the web
-    /// interface can filter by "critical" the same way it filters by "ocpp".
-    /// </remarks>
-    public enum LogLevel
-    {
-
-        /// <summary>
-        /// The detail one only wants while looking for something.
-        /// </summary>
-        Debug,
-
-        /// <summary>
-        /// What happened, in the ordinary course of things.
-        /// </summary>
-        Info,
-
-        /// <summary>
-        /// Ordinary, but worth finding again later: a start, a sign-in.
-        /// </summary>
-        Notice,
-
-        /// <summary>
-        /// Something is not as it should be, but the node carries on.
-        /// </summary>
-        Warning,
-
-        /// <summary>
-        /// Something did not work.
-        /// </summary>
-        Error,
-
-        /// <summary>
-        /// Something did not work and will not start working by itself.
-        /// </summary>
-        Critical
-
-    }
-
-    #endregion
-
-
     /// <summary>
     /// One thing that happened inside this node: when, how loudly,
     /// what it was about, and what it was.
