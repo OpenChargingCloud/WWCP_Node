@@ -40,11 +40,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
     /// the calls are not compiled in at all and nothing arrives here. What a
     /// release build shows on the Logs page is what this node logs itself.
     ///
-    /// The tags are guessed from the text, by the table in
-    /// <see cref="TagsFor"/> - a short, deliberate list of the protocol names
-    /// that matter here, and not an attempt to understand the line. A line
-    /// nothing matches is tagged "trace" alone, which is also how it can be
-    /// filtered away.
+    /// The tags are guessed from the text, by a table of needles - a short,
+    /// deliberate list of the protocol names that matter to the kind of node
+    /// this is, and not an attempt to understand the line. The table is the
+    /// kind's to hand in, because what a node overhears depends on what it
+    /// is: a vehicle hears ISO 15118 and SLAC, a local controller hears OCPP
+    /// going past it in both directions. A kind that hands in none gets
+    /// <see cref="DefaultTags"/>. A name counts where a word of its own could
+    /// begin, not inside a word written in lower case; see
+    /// <see cref="Mentions"/>. A line nothing matches is tagged "trace" alone,
+    /// which is also how it can be filtered away.
     /// </remarks>
     public sealed class TraceBridge : TraceListener
     {
@@ -58,10 +63,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         public const String TraceTag = "trace";
 
         /// <summary>
-        /// What a line has to contain for a tag to be added to it. Ordered, and
-        /// searched case-insensitively; a line may collect several.
+        /// What a line has to contain for a tag to be added to it, where the
+        /// kind of node hands in no table of its own: what a vehicle and a
+        /// charging station overhear, which came here with the rest of the
+        /// vehicle. Ordered, and searched case-insensitively; a line may
+        /// collect several.
         /// </summary>
-        private static readonly (String Needle, String Tag)[] tagTable = [
+        public static readonly IReadOnlyList<(String Needle, String Tag)> DefaultTags = [
             ("ocpp",        "ocpp"),
             ("15118",       "15118"),
             ("iso15118",    "15118"),
@@ -96,9 +104,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
             ("rejected",    LogLevel.Warning)
         ];
 
-        private readonly EventLog       log;
-        private readonly StringBuilder  pending = new();
-        private readonly Lock           padlock = new();
+        private readonly EventLog                        log;
+        private readonly (String Needle, String Tag)[]  tags;
+        private readonly StringBuilder                   pending = new();
+        private readonly Lock                            padlock = new();
 
         #endregion
 
@@ -109,24 +118,39 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         /// <see cref="Attach"/> rather than by hand, so that it is registered
         /// once.
         /// </summary>
-        private TraceBridge(EventLog Log)
+        /// <param name="Log">The event log to write into.</param>
+        /// <param name="Tags">What a line has to contain for a tag to be added to it, or null for <see cref="DefaultTags"/>.</param>
+        private TraceBridge(EventLog                                   Log,
+                            IEnumerable<(String Needle, String Tag)>?  Tags)
         {
-            this.log = Log;
+
+            this.log   = Log;
+            this.tags  = [.. Tags ?? DefaultTags];
+
+            // An empty needle is found at the start of every line, and a line
+            // would be tagged with what it names whatever it said - a mistake
+            // in the table that would otherwise only show on the Logs page.
+            if (tags.Any(entry => String.IsNullOrEmpty(entry.Needle) || String.IsNullOrWhiteSpace(entry.Tag)))
+                throw new ArgumentException("Every entry of a tag table needs a needle and a tag.", nameof(Tags));
+
         }
 
         #endregion
 
 
-        #region (static) Attach(Log)
+        #region (static) Attach(Log, Tags = null)
 
         /// <summary>
         /// Send everything written through DebugX into the given event log,
         /// from now until the returned listener is disposed.
         /// </summary>
-        public static TraceBridge Attach(EventLog Log)
+        /// <param name="Log">The event log to write into.</param>
+        /// <param name="Tags">What a line has to contain for a tag to be added to it: the kind of node's table, which replaces <see cref="DefaultTags"/> rather than adding to it, or null for that.</param>
+        public static TraceBridge Attach(EventLog                                   Log,
+                                         IEnumerable<(String Needle, String Tag)>?  Tags   = null)
         {
 
-            var bridge = new TraceBridge(Log);
+            var bridge = new TraceBridge(Log, Tags);
 
             Trace.Listeners.Add(bridge);
 
@@ -232,26 +256,59 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
         #endregion
 
-        #region (private static) TagsFor(Line) / LevelFor(Line)
+        #region (private) TagsFor(Line) / (private static) Mentions(Line, Needle) / LevelFor(Line)
 
         /// <summary>
         /// What a bridged line is about, as far as its text gives it away.
         /// </summary>
-        private static String[] TagsFor(String Line)
+        private String[] TagsFor(String Line)
         {
 
-            var tags = new List<String> { TraceTag };
+            var found = new List<String> { TraceTag };
 
-            foreach (var (needle, tag) in tagTable)
+            foreach (var (needle, tag) in tags)
             {
-                if (Line.Contains(needle, StringComparison.OrdinalIgnoreCase) &&
-                    !tags.Contains(tag))
+                if (Mentions(Line, needle) &&
+                    !found.Contains(tag))
                 {
-                    tags.Add(tag);
+                    found.Add(tag);
                 }
             }
 
-            return [.. tags];
+            return [.. found];
+
+        }
+
+        /// <summary>
+        /// Whether the line names the needle where a word of its own could
+        /// begin, rather than inside another word.
+        /// </summary>
+        /// <remarks>
+        /// Found anywhere, "nts" tagged every line that said "accounts",
+        /// "clients" or "events" as one about the time servers - the first
+        /// start's complaint about the account store among them. So a place
+        /// inside a word written in lower case does not count: the character
+        /// before it is a lower-case letter and so is its own first one.
+        /// Everything else still does - the start of the line, after a digit or
+        /// a sign, and at a capital, which is where "mDNS" and
+        /// "OCPPWebSocketServer" begin the words that matter. What follows the
+        /// name is not looked at, so that "OCPPv2.1", "https" and "certificates"
+        /// count as they did.
+        /// </remarks>
+        private static Boolean Mentions(String Line, String Needle)
+        {
+
+            for (var at = Line.IndexOf(Needle, StringComparison.OrdinalIgnoreCase);
+                 at >= 0;
+                 at = Line.IndexOf(Needle, at + 1, StringComparison.OrdinalIgnoreCase))
+            {
+
+                if (at == 0 || !Char.IsLower(Line[at - 1]) || !Char.IsLower(Line[at]))
+                    return true;
+
+            }
+
+            return false;
 
         }
 

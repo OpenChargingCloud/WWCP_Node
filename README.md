@@ -15,6 +15,9 @@ is the first of them: one `WWCPNode` with a battery.
 [ChargingStation](https://github.com/OpenChargingCloud/ChargingStation) is the
 second: one with EVSEs, a display on a port of its own, and the roles of the
 people who run it.
+[LocalController](https://github.com/OpenChargingCloud/LocalController) is the
+third: one between a CSMS above it and the charging stations below, which have
+a port of their own to connect to.
 
 
 ## What is in it
@@ -30,7 +33,7 @@ people who run it.
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, and what the libraries below say through it |
 | `Web/` | who may sign in, and what each role may do |
-| `WWCP_Node_Tests/` | eighty-eight tests, each of them constructing the node rather than a vehicle or a station |
+| `WWCP_Node_Tests/` | ninety-five tests, each of them constructing the node rather than a vehicle, a station or a controller |
 
 
 ## A kind of node
@@ -74,7 +77,7 @@ The port is the kind's to give and to pass, not the node's to guess: a node
 that took a default of its own for a kind that forgot to pass one would
 listen somewhere nobody expects.
 
-Beyond the names, a kind of node adds to the node in five places:
+Beyond the names, a kind of node adds to the node in six places:
 
 * **Its own sections of the configuration file.** The node reads the file
   once and keeps the whole document as `ConfigurationDocument`; the kind
@@ -94,6 +97,12 @@ Beyond the names, a kind of node adds to the node in five places:
   two addresses. A port it cannot have is a `PortUnavailableException` that
   names what the port was for, a `NodePort` of the kind's own; the start ends
   with it, and the node lets go of its own port again on the way out.
+* **What it overhears:** `TraceTags`, the table the debug bridge tags a line
+  by - a needle and the tag it stands for, in place of the default rather
+  than on top of it. A local controller hears OCPP going past it in both
+  directions, so its table says which side a line is about, the CSMS or a
+  station; a kind that hands in none gets `TraceBridge.DefaultTags`, what a
+  vehicle and a charging station overhear.
 * **What it is, for the Configuration page:** `ConfigurationJSON()` is
   virtual and answers with the node's cards - `http`, `web`, `log`, `time` -
   and the kind adds its own on top.
@@ -350,8 +359,12 @@ being made is already in the log a browser will see later:
   said once; every entry is tried again, and the first one that makes it
   brings the size of the gap, written into the file where the gap is.
 * **The debug bridge**: everything the libraries below write with Illias'
-  DebugX, tagged `trace`, so that what Hermod or Norn say about a connection
-  ends up in the same place as what the node says about it.
+  DebugX, tagged `trace` and with whatever the kind's table finds in it, so
+  that what Hermod or Norn say about a connection ends up in the same place
+  as what the node says about it. A name in the table counts where a word of
+  its own could begin - at the start, after a sign, at a capital - and not
+  inside a word written in lower case: found anywhere, "nts" tagged every
+  line that said "accounts".
 
 What the log says about itself - a listener that failed, a file that cannot
 be written - cannot go through the log, and goes to stderr. It goes through
@@ -427,7 +440,10 @@ here with the rest. The second kind, the charging station, has said what of
 it is every node's so far: the roles are the kind's, a node may listen on
 more than one port, and a clock check is counted for a screen rather than
 described to it. It has its own certificates for the back ends it dials, and
-has not asked the store for anything yet.
+has not asked the store for anything yet. The third, the local controller,
+has added that what is worth a tag in the debug bridge is the kind's to say,
+as its roles are - and it keeps the keys of its station port and the chains
+it accepts from stations in stores of its own too.
 
 
 ## Your participation

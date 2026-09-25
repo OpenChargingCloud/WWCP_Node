@@ -512,28 +512,30 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="ConsoleLogLevel">How much of it reaches the console.</param>
         /// <param name="LogPath">The directory the log files are written to, or null to write none.</param>
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX is picked up.</param>
+        /// <param name="TraceTags">What a line picked up that way has to contain to be tagged, needle and tag: the kind of node's own table, or null for <see cref="TraceBridge.DefaultTags"/>.</param>
         /// <param name="TimeProvider">The clock, or null for the system one.</param>
-        public WWCPNode(NodeKind?              Kind               = null,
-                        String?                Version            = null,
-                        IPPort?                HTTPPort           = null,
-                        IIPAddress?            HTTPHostname       = null,
-                        HTTPServer?            HTTPServer         = null,
-                        HTTPPath?              BasePath           = null,
-                        HTTPPath?              HTTPRootPath       = null,
-                        HTTPExtAPI?            ExtAPI             = null,
-                        String?                AccountsPath       = null,
-                        IEnumerable<String>?   Roles              = null,
-                        WWCPConfigFile?        ConfigFile         = null,
-                        DNSClient?             DNSClient          = null,
-                        NTSClient?             NTSClient          = null,
-                        IStaticContentSource?  Frontend           = null,
-                        String?                CertificatesPath   = null,
-                        EventLog?              Log                = null,
-                        Boolean                LogToConsole       = true,
-                        LogLevel               ConsoleLogLevel    = LogLevel.Info,
-                        String?                LogPath            = null,
-                        Boolean                BridgeDebugLog     = true,
-                        TimeProvider?          TimeProvider       = null)
+        public WWCPNode(NodeKind?                                  Kind               = null,
+                        String?                                    Version            = null,
+                        IPPort?                                    HTTPPort           = null,
+                        IIPAddress?                                HTTPHostname       = null,
+                        HTTPServer?                                HTTPServer         = null,
+                        HTTPPath?                                  BasePath           = null,
+                        HTTPPath?                                  HTTPRootPath       = null,
+                        HTTPExtAPI?                                ExtAPI             = null,
+                        String?                                    AccountsPath       = null,
+                        IEnumerable<String>?                       Roles              = null,
+                        WWCPConfigFile?                            ConfigFile         = null,
+                        DNSClient?                                 DNSClient          = null,
+                        NTSClient?                                 NTSClient          = null,
+                        IStaticContentSource?                      Frontend           = null,
+                        String?                                    CertificatesPath   = null,
+                        EventLog?                                  Log                = null,
+                        Boolean                                    LogToConsole       = true,
+                        LogLevel                                   ConsoleLogLevel    = LogLevel.Info,
+                        String?                                    LogPath            = null,
+                        Boolean                                    BridgeDebugLog     = true,
+                        IEnumerable<(String Needle, String Tag)>?  TraceTags          = null,
+                        TimeProvider?                              TimeProvider       = null)
 
         {
 
@@ -576,9 +578,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             // Attached before anything else is built, so that what the DNS
             // client and the HTTP server say while they are being made is
-            // already in the log a browser will see later.
+            // already in the log a browser will see later - and tagged by the
+            // kind's own table where it brought one, because which protocols
+            // are worth a tag depends on what the node overhears.
             this.traceBridge  = BridgeDebugLog
-                                    ? TraceBridge.Attach(this.Log)
+                                    ? TraceBridge.Attach(this.Log, TraceTags)
                                     : null;
 
             // The first entry, before anything below has had a word: what is
