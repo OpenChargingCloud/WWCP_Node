@@ -1695,7 +1695,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // longer asks.
                 lastTimeSync = null;
 
-                changed.Add($"server = {hostname}:{ntsKE} (NTS-KE), :{ntp} (NTP)");
+                // Without the root's dot, as every other sentence names a
+                // server; what goes into the file keeps it.
+                changed.Add($"server = {hostname.Trimmed}:{ntsKE} (NTS-KE), :{ntp} (NTP)");
 
             }
 

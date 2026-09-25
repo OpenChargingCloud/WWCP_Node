@@ -410,6 +410,45 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnotherServerIsWrittenIntoTheLogAsItIsRead()
+
+        /// <summary>
+        /// The line a change of the one server writes. What goes into the file
+        /// keeps its root dot; only the sentence drops it, as every other
+        /// sentence of the node does.
+        /// </summary>
+        /// <remarks>
+        /// "server = time.example.org.:4460 (NTS-KE)" is what it said: the one
+        /// sentence of a change that still carried the dot. The roaming hub's
+        /// tests caught it, which had it without the dot before the hub was a
+        /// node.
+        /// </remarks>
+        [Test]
+        public async Task AnotherServerIsWrittenIntoTheLogAsItIsRead()
+        {
+
+            await using var node = Node();
+
+            var before = node.Log.LastId;
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "hostname": "time.example.org" }"""), out var error),
+                        Is.True,
+                        error);
+
+            var said = node.Log.Recent(50, before, null).
+                                Select(entry => entry.Message).
+                                Where (message => message.StartsWith("NTS configuration changed", StringComparison.Ordinal)).
+                                ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(said,  Has.Some.Contains("server = time.example.org:4460 (NTS-KE), :123 (NTP)"),  String.Join(" | ", said));
+                Assert.That(said,  Has.None.Contains("time.example.org."),                                    String.Join(" | ", said));
+            });
+
+        }
+
+        #endregion
+
         #region TheOverviewNamesTheGroupAndNotTheTestClient()
 
         /// <summary>
