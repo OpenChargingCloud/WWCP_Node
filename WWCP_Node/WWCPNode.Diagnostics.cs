@@ -201,20 +201,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                // A client of its own when one server is meant, and without a
-                // cache: an answer out of the cache says nothing about whether
-                // that server would have given it, which is the whole question
-                // being asked. Everything else is taken from the node's own
-                // client, so what is being tested is this node's settings
-                // and not a fresh set of defaults.
-                var asking   = only is null
-                                   ? dnsClient
-                                   : new DNSClient(
-                                         only.IPAddress!,
-                                         only.Port,
-                                         QueryTimeout:   only.QueryTimeout ?? dnsClient.QueryTimeout,
-                                         UseQueryCache:  false
-                                     );
+                // A client of its own when one server is meant - see
+                // ClientFor() - and given back when the answer is in.
+                using var alone  = only is null
+                                       ? null
+                                       : ClientFor(only);
+
+                var asking   = alone ?? dnsClient;
 
                 var answer   = await asking.Query(
                                          serviceName,
@@ -289,6 +282,48 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    );
 
         }
+
+        #endregion
+
+        #region (private) ClientFor(Server)
+
+        /// <summary>
+        /// A client that asks the given name server and nobody else, the way
+        /// this node's own client asks it.
+        /// </summary>
+        /// <remarks>
+        /// Without a cache: an answer out of the cache says nothing about
+        /// whether that server would have given it, which is the whole
+        /// question being asked. Everything else is the node's, so what is
+        /// tested is this node's settings and not a fresh set of defaults.
+        ///
+        /// The server itself is handed over, not its address and port: made
+        /// from those two, the client asked over UDP whatever the server was
+        /// configured with, and a name server reached over TCP, TLS or HTTPS
+        /// was tested on a transport it need not even listen on. And it is
+        /// told how often to ask, which a new client does not know: left at
+        /// Hermod's own one retry, a server that does not answer was asked
+        /// twice on a node told to ask it once - measured, 6.2 seconds for a
+        /// timeout of three.
+        ///
+        /// One place, so that whatever else a node will want to say about a
+        /// server it asks on its own - how to check the certificate of one
+        /// reached over TLS or HTTPS, say - is said here.
+        /// </remarks>
+        /// <param name="Server">One of the configured name servers.</param>
+        private DNSClient ClientFor(DNSServerConfig Server)
+
+            => new ([ Server ],
+                    QueryTimeout:   Server.QueryTimeout ?? dnsClient.QueryTimeout,
+                    UseQueryCache:  false) {
+
+                   RecursionDesired  = dnsClient.RecursionDesired,
+                   DnssecOK          = dnsClient.DnssecOK,
+                   FollowCNAMEs      = dnsClient.FollowCNAMEs,
+                   MaxCNAMEFollows   = dnsClient.MaxCNAMEFollows,
+                   MaxRetries        = dnsClient.MaxRetries
+
+               };
 
         #endregion
 

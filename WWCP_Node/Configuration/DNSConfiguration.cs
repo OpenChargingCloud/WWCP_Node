@@ -49,7 +49,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="DnssecOK">Whether the DO bit is set, i.e. whether signatures are asked for.</param>
     /// <param name="FollowCNAMEs">Whether a CNAME chain is followed.</param>
     /// <param name="MaxCNAMEFollows">How far.</param>
-    /// <param name="MaxRetries">How often a server that answered SERVFAIL is asked again.</param>
+    /// <param name="MaxRetries">How often a server that did not answer, or answered SERVFAIL, is asked again.</param>
     public sealed record DNSConfiguration(Boolean?                        Enabled               = null,
                                           IReadOnlyList<DNSServerConfig>? Servers               = null,
                                           TimeSpan?                       QueryTimeout          = null,
