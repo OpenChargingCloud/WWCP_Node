@@ -158,7 +158,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!DNSEnabled)
             {
                 Log.Warning($"DNS test for '{name}' was not run: name resolution is switched off.", "dns", "test");
-                return Failed(name, asked, "Name resolution is switched off on this node.");
+                return Failed(name, asked, $"Name resolution is switched off on this {Kind.Name}.");
             }
 
             #region One server, or all of them
@@ -169,7 +169,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 if (which < 0 || which >= configuredDNSServers.Count)
-                    return Failed(name, asked, $"This node has no name server number {which + 1}.");
+                    return Failed(name, asked, $"This {Kind.Name} has no name server number {which + 1}.");
 
                 only = configuredDNSServers[which];
 
@@ -620,7 +620,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!NTSEnabled)
             {
-                Step("error", "Time synchronisation is switched off on this node, so nothing was asked.");
+                Step("error", $"Time synchronisation is switched off on this {Kind.Name}, so nothing was asked.");
                 return Done(Host ?? "", false);
             }
 
@@ -850,9 +850,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // otherwise wrote "+148,0 ms" in the middle of one.
                 Step("notice", offset.HasValue
                                    ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                                   "This node's clock is {0:+0.0;-0.0;0} ms off what {1} says.",
-                                                   offset.Value.TotalMilliseconds, name)
-                                   : $"{name} answered, but said nothing this node could take an offset from.");
+                                                   "This {2}'s clock is {0:+0.0;-0.0;0} ms off what {1} says.",
+                                                   offset.Value.TotalMilliseconds, name, Kind.Name)
+                                   : $"{name} answered, but said nothing this {Kind.Name} could take an offset from.");
 
                 #endregion
 
@@ -895,8 +895,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!NTSEnabled)
             {
-                Log.Warning("Time synchronisation was not run: NTS is switched off on this node.", "nts", "test");
-                return Failed("NTS is switched off on this node.");
+                Log.Warning($"Time synchronisation was not run: NTS is switched off on this {Kind.Name}.", "nts", "test");
+                return Failed($"NTS is switched off on this {Kind.Name}.");
             }
 
             var group      = timeSources;

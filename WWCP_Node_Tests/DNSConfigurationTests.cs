@@ -114,18 +114,57 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region TheLongFormIsWhatThePageWritesBack()
+        #region AnAddressIsANameServerOverUDP(Entry)
 
         /// <summary>
-        /// The object the README shows for a server with more to say about it
-        /// is read, and written back as it was - which is what makes it the
-        /// form the DNS page saves the list in.
+        /// An address, in either of the two forms a list takes - a string, or
+        /// an object saying nothing more - is a name server asked over UDP on
+        /// port 53.
         /// </summary>
-        [Test]
-        public void TheLongFormIsWhatThePageWritesBack()
+        [TestCase("\"9.9.9.9\"")]
+        [TestCase("""{ "address": "9.9.9.9" }""")]
+        public void AnAddressIsANameServerOverUDP(String Entry)
         {
 
-            var entry = JObject.Parse("""{ "address": "192.168.1.1", "port": 53, "transport": "UDP", "queryTimeoutSeconds": 2 }""");
+            var section = JObject.Parse($$"""{ "enabled": true, "servers": [ {{Entry}} ], "useCache": true }""");
+
+            Assert.That(DNSConfiguration.TryParse(section, out var read, out var error),  Is.True,  error);
+
+            var server = read!.Servers!.Single();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(read.Enabled,                  Is.True);
+                Assert.That(server.IPAddress?.ToString(),  Is.EqualTo("9.9.9.9"));
+                Assert.That(server.Port.ToUInt16(),        Is.EqualTo(53));
+                Assert.That(server.Transport,              Is.EqualTo(DNSTransport.UDP));
+            });
+
+        }
+
+        #endregion
+
+        #region TheLongFormIsWhatThePageWritesBack(Address, Port, Transport)
+
+        /// <summary>
+        /// The object for a server with more to say about it is read, and
+        /// written back as it was - which is what makes it the form the DNS
+        /// page saves the list in. The one the README shows, and one over TLS
+        /// on a port of its own.
+        /// </summary>
+        [TestCase("192.168.1.1", 53,  "UDP")]
+        [TestCase("9.9.9.9",     853, "TLS")]
+        public void TheLongFormIsWhatThePageWritesBack(String  Address,
+                                                       Int32   Port,
+                                                       String  Transport)
+        {
+
+            var entry = new JObject(
+                            new JProperty("address",              Address),
+                            new JProperty("port",                 Port),
+                            new JProperty("transport",            Transport),
+                            new JProperty("queryTimeoutSeconds",  2)
+                        );
 
             Assert.That(DNSConfiguration.TryParseServer(entry, out var server, out var error),  Is.True,  error);
 
@@ -133,9 +172,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() =>
             {
-                Assert.That(written.Value<String>("address"),              Is.EqualTo("192.168.1.1"));
-                Assert.That(written.Value<Int32> ("port"),                 Is.EqualTo(53));
-                Assert.That(written.Value<String>("transport"),            Is.EqualTo("UDP"));
+                Assert.That(written.Value<String>("address"),              Is.EqualTo(Address));
+                Assert.That(written.Value<Int32> ("port"),                 Is.EqualTo(Port));
+                Assert.That(written.Value<String>("transport"),            Is.EqualTo(Transport));
                 Assert.That(written.Value<Double>("queryTimeoutSeconds"),  Is.EqualTo(2));
             });
 
@@ -147,27 +186,67 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// How the log names a name server, and an address with its port: not
-        /// forms the section takes, so refused - with the entry named, and not
-        /// with an exception out of the parser, which is what all three were.
+        /// forms the section takes, so refused - as a string and as the address
+        /// of an object alike, with the entry named, and not with an exception
+        /// out of the parser, which is what all of them were.
         /// </summary>
         [TestCase("udp://213.133.98.98:53")]
         [TestCase("udp://[2a01:4f8:0:1::add:1010]:53")]
         [TestCase("213.133.98.98:53")]
+        [TestCase("[2001:db8::1]:53")]
         public void TheFormTheLogNamesAServerInIsRefusedWithASentence(String Entry)
         {
 
-            var                section  = new JObject(new JProperty("servers", new JArray(Entry)));
-            var                parsed   = true;
-            DNSConfiguration?  read     = null;
-            String?            error    = null;
+            foreach (var server in new JToken[] { Entry, new JObject(new JProperty("address", Entry)) })
+            {
 
-            Assert.That(() => parsed = DNSConfiguration.TryParse(section, out read, out error),  Throws.Nothing);
+                var                section  = new JObject(new JProperty("servers", new JArray(server)));
+                var                parsed   = true;
+                DNSConfiguration?  read     = null;
+                String?            error    = null;
+
+                Assert.That(() => parsed = DNSConfiguration.TryParse(section, out read, out error),  Throws.Nothing,  server.ToString());
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(parsed,  Is.False,  server.ToString());
+                    Assert.That(read,    Is.Null,   server.ToString());
+                    Assert.That(error,   Does.Contain("'dns.servers'").And.Contain(Entry));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region ANameWithAnAddressInItIsAName()
+
+        /// <summary>
+        /// A domain name that merely begins with an address - which is what
+        /// services like nip.io hand out - is a name server named by its name,
+        /// to be resolved like any other. It was an exception as well: the
+        /// address was found in it, and the whole of it handed to the parser
+        /// for addresses.
+        /// </summary>
+        [Test]
+        public void ANameWithAnAddressInItIsAName()
+        {
+
+            var section = JObject.Parse("""{ "servers": [ "10.0.0.1.nip.io" ] }""");
+
+            DNSConfiguration?  read   = null;
+            String?            error  = null;
+
+            Assert.That(() => DNSConfiguration.TryParse(section, out read, out error),  Throws.Nothing);
+            Assert.That(read,  Is.Not.Null,  error);
+
+            var server = read!.Servers!.Single();
 
             Assert.Multiple(() =>
             {
-                Assert.That(parsed,  Is.False);
-                Assert.That(read,    Is.Null);
-                Assert.That(error,   Does.Contain("'dns.servers'").And.Contain(Entry));
+                Assert.That(server.IPAddress,                            Is.Null);
+                Assert.That(server.DomainName?.ToString().TrimEnd('.'),  Is.EqualTo("10.0.0.1.nip.io"));
             });
 
         }

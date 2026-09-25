@@ -21,6 +21,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod;
+
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
@@ -166,7 +168,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var problem = Assert.Throws<InvalidOperationException>(() => Node("""{ "nts": { "minServers": 5 } }"""));
 
-            Assert.That(problem?.Message,  Does.Contain("minServers"));
+            Assert.That(problem?.Message,  Does.Contain("minServers").And.Contain(ConfigurationPath));
 
         }
 
@@ -628,6 +630,128 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(nts["group"]?.     Type,        Is.EqualTo(JTokenType.Null));
                 Assert.That(nts["servers"]?.   Type,        Is.EqualTo(JTokenType.Null));
                 Assert.That(nts["minServers"]?.Type,        Is.EqualTo(JTokenType.Null));
+            });
+
+        }
+
+        #endregion
+
+
+        #region ARunningNodePutsANewIntervalIntoItsClockCheckAtOnce()
+
+        /// <summary>
+        /// How often the clock is checked, and whether it is, are put into the
+        /// check of a running node at once - not at its next start.
+        /// </summary>
+        /// <remarks>
+        /// The check runs on a timer set at the start, and a save used to change
+        /// only the setting: the page said "in effect" about an interval the
+        /// timer did not have until the next start. Seen here in the line the
+        /// check writes whenever it is set. Started, and on a clock whose timers
+        /// never fire, so that the checks those lines announce are never made -
+        /// the one node in these tests that is started with its time client on.
+        /// </remarks>
+        [Test]
+        public async Task ARunningNodePutsANewIntervalIntoItsClockCheckAtOnce()
+        {
+
+            var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+            probe.Start();
+            var port  = ((System.Net.IPEndPoint) probe.LocalEndpoint).Port;
+            probe.Stop();
+
+            await using var node = new WWCPNode(
+                                       HTTPPort:          IPPort.Parse((UInt16) port),
+                                       AccountsPath:      Path.Combine(directory, "accounts"),
+                                       ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                                       CertificatesPath:  Path.Combine(directory, "certificates"),
+                                       LogToConsole:      false,
+                                       BridgeDebugLog:    false,
+                                       TimeProvider:      ClockWithoutTimers.Instance
+                                   );
+
+            await node.Start();
+
+            var before = node.Log.LastId;
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "checkEverySeconds": 600 }"""), out var error),  Is.True,  error);
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "enabled": false }"""),          out error),      Is.True,  error);
+
+            var said = node.Log.Recent(50, before, "clock").Select(entry => entry.Message).ToArray();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(said,  Has.Some.Contains("will be checked against").And.Contains("every 10 minute(s)"),  String.Join(" | ", said));
+                Assert.That(said,  Has.Some.Contains("is not being checked: NTS is switched off"),                   String.Join(" | ", said));
+            });
+
+        }
+
+        #endregion
+
+        #region AServerOfTheGroupIsTestedOnItsOwnPorts()
+
+        /// <summary>
+        /// The detailed test asks a server of the group on the ports that server
+        /// is configured with, and not on those of the single client.
+        /// </summary>
+        /// <remarks>
+        /// It used to take the single client's ports for every server, so a
+        /// server with a port of its own was asked on the usual one and reported
+        /// as not answering. Name resolution is switched off here, so that
+        /// nothing goes out: the first step names the ports before anything is
+        /// asked, and the rest fails at once.
+        /// </remarks>
+        [Test]
+        public async Task AServerOfTheGroupIsTestedOnItsOwnPorts()
+        {
+
+            await using var node = Node("""
+                                        { "dns": { "enabled": false },
+                                          "nts": { "servers": [ "a.example",
+                                                                { "hostname": "b.example", "ntsKEPort": 4461, "ntpPort": 1234 } ],
+                                                   "timeoutSeconds": 1 } }
+                                        """);
+
+            var result = await node.TestTimeServerAsync("b.example");
+
+            Assert.That(result["steps"]?[0]?.Value<String>("text"),
+                        Does.Contain("key exchange on port 4461").And.Contain("time on port 1234"));
+
+        }
+
+        #endregion
+
+        #region TheTestWritesTheNameAsItIsRead()
+
+        /// <summary>
+        /// The detailed test names the server the way everything else this
+        /// node prints does: without the root's dot.
+        /// </summary>
+        /// <remarks>
+        /// "Asking ptbtime2.ptb.de.: key exchange on port 4460" - the name is
+        /// exact with the dot, and in the middle of a sentence it reads like a
+        /// typing mistake. The steps and the log lines use the name as it is
+        /// read; the name the result carries as data is left as it is. Name
+        /// resolution is switched off, so that nothing goes out.
+        /// </remarks>
+        [Test]
+        public async Task TheTestWritesTheNameAsItIsRead()
+        {
+
+            await using var node = Node("""
+                                        { "dns": { "enabled": false },
+                                          "nts": { "servers": [ "a.example", "b.example" ], "timeoutSeconds": 1 } }
+                                        """);
+
+            var before  = node.Log.LastId;
+            var result  = await node.TestTimeServerAsync("b.example");
+            var said    = node.Log.Recent(50, before, "test").Select(entry => entry.Message).ToArray();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result["steps"]?[0]?.Value<String>("text"),  Does.StartWith("Asking b.example:"));
+                Assert.That(said,                                          Has.Some.EqualTo("NTS test: asking b.example ..."),  String.Join(" | ", said));
             });
 
         }

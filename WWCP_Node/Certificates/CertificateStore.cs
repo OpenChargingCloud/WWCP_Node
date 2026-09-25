@@ -108,6 +108,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public String Directory { get; }
 
         /// <summary>
+        /// The kinds of certificate this store keeps: all of them, unless the
+        /// kind of node it belongs to says otherwise.
+        /// </summary>
+        /// <remarks>
+        /// The kinds are ISO 15118's, and seven of them are a vehicle's to keep.
+        /// A kind of node keeps those it has a use for and no others - a
+        /// charging station, a gateway or a meter none at all - and a store
+        /// that keeps none is no directory: nothing is made, read or written.
+        /// </remarks>
+        public IReadOnlyList<CertificateKind> Kinds { get; }
+
+        /// <summary>
+        /// What the node this store belongs to is called in a sentence:
+        /// "electric vehicle".
+        /// </summary>
+        public String NodeName { get; }
+
+        /// <summary>
         /// Everything in the store, roots before credentials and each group by
         /// label.
         /// </summary>
@@ -138,16 +156,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// A store over the given directory, which is created where it does not
-        /// exist.
+        /// exist - unless the store keeps no kind of certificate at all.
         /// </summary>
         /// <param name="Directory">Where the certificates live.</param>
         /// <param name="Log">Where to say what was found, adopted and dropped.</param>
-        public CertificateStore(String    Directory,
-                                EventLog  Log)
+        /// <param name="Kinds">The kinds of certificate this store keeps; all of them by default.</param>
+        /// <param name="NodeName">What the node the store belongs to is called in a sentence; "node" by default.</param>
+        public CertificateStore(String                         Directory,
+                                EventLog                       Log,
+                                IEnumerable<CertificateKind>?  Kinds      = null,
+                                String?                        NodeName   = null)
         {
 
             this.Directory  = Path.GetFullPath(Directory);
             this.log        = Log;
+            this.Kinds      = [.. (Kinds ?? CertificateKindExtensions.All).Distinct().OrderBy(kind => kind.SortOrder())];
+            this.NodeName   = NodeName ?? "node";
 
             CreateDirectories();
 
@@ -186,11 +210,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             try
             {
 
+                // A store that keeps nothing has no directory to read and no
+                // index to write, and nothing to say at a start either: a line
+                // saying "0 certificates" at every start of a node that never
+                // keeps any is a line somebody has to learn to skip.
+                if (Kinds.Count == 0)
+                {
+                    entries.Clear();
+                    log.Debug($"Certificates: this {NodeName} keeps none.", "certificates");
+                    return;
+                }
+
                 var remembered  = ReadIndex();
                 var found       = new Dictionary<String, CertificateEntry>();
                 var adopted     = 0;
 
-                foreach (var kind in CertificateKindExtensions.All)
+                foreach (var kind in Kinds)
                 {
 
                     var directory = Path.Combine(Directory, kind.Directory().Replace('/', Path.DirectorySeparatorChar));
@@ -294,7 +329,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             if (withKeys > 0)
                 log.Warning($"Certificates: {withKeys} private key(s) are stored unencrypted in '{Directory}'. " +
-                             "Anybody who can read that directory can take this node's identity and its contract.",
+                             $"Anybody who can read that directory can take this {NodeName}'s identity and its contract.",
                             "certificates");
 
         }
@@ -343,6 +378,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             Entry  = null;
             Error  = null;
+
+            // Before anything is read or written, so that a kind this store does
+            // not keep is not half-imported, and a store that keeps nothing is
+            // not given a directory by a refused import.
+            if (!Kinds.Contains(Kind))
+            {
+                Error = $"This {NodeName} keeps no certificate of that kind: {Kind.Describe()}.";
+                return false;
+            }
 
             if (Content.Length == 0)
             {
@@ -723,7 +767,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             var parts = new List<String>();
 
-            foreach (var kind in CertificateKindExtensions.All)
+            foreach (var kind in Kinds)
             {
 
                 var all = entries.Values.Where(entry => entry.Kind == kind).ToArray();
@@ -751,16 +795,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #region (private) CreateDirectories()
 
         /// <summary>
-        /// Make the store and one directory per kind, readable by their owner
-        /// alone where the platform has anything to say about it.
+        /// Make the store and one directory per kind it keeps, readable by
+        /// their owner alone where the platform has anything to say about it -
+        /// and nothing at all for a store that keeps no kind.
         /// </summary>
         private void CreateDirectories()
         {
 
+            if (Kinds.Count == 0)
+                return;
+
             System.IO.Directory.CreateDirectory(Directory);
             Protect(Directory);
 
-            foreach (var kind in CertificateKindExtensions.All)
+            foreach (var kind in Kinds)
                 System.IO.Directory.CreateDirectory(
                     Path.Combine(Directory, kind.Directory().Replace('/', Path.DirectorySeparatorChar))
                 );
@@ -872,7 +920,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 collection.ImportFromPem(asText);
 
                 if (collection.Count == 0)
-                    throw new ArgumentException("That file looks like PEM, and holds no certificate this node can read.");
+                    throw new ArgumentException("That file looks like PEM, and holds no certificate that can be read.");
 
                 // A PEM that carries its key as well is one file for a whole
                 // credential, and that is how most tools hand one over.
@@ -920,7 +968,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 // a worse answer than none.
                 if (!LooksLikeDer(Content))
                     throw new ArgumentException(
-                              "That file is not a certificate this node can read (PEM, DER or PKCS#12).");
+                              "That file is not a certificate that can be read (PEM, DER or PKCS#12).");
 
                 throw new ArgumentException(
                           Password is null
@@ -935,7 +983,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (TryReadDer(Content, collection))
                 return collection;
 
-            throw new ArgumentException("That file is not a certificate this node can read (PEM, DER or PKCS#12).");
+            throw new ArgumentException("That file is not a certificate that can be read (PEM, DER or PKCS#12).");
 
         }
 
@@ -1040,7 +1088,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     throw new ArgumentException(
                               encrypted
                                   ? $"That file's private key could not be opened - wrong password? ({exception.Message})"
-                                  : $"That file's private key is of a kind this node cannot read. ({exception.Message})");
+                                  : $"That file's private key is of a kind that cannot be read. ({exception.Message})");
                 }
 
                 // Round-tripped through PKCS#12 so that the key is exportable:
@@ -1331,7 +1379,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                     if (!CertificateEntry.TryParse(token, out var entry, out var error))
                     {
-                        log.Warning($"Certificates: the index has an entry this node could not read - {error}",
+                        log.Warning($"Certificates: the index has an entry this {NodeName} could not read - {error}",
                                     "certificates");
                         continue;
                     }

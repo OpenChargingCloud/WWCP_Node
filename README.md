@@ -33,7 +33,7 @@ a port of their own to connect to.
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, and what the libraries below say through it |
 | `Web/` | who may sign in, and what each role may do |
-| `WWCP_Node_Tests/` | ninety-five tests, each of them constructing the node rather than a vehicle, a station or a controller |
+| `WWCP_Node_Tests/` | a hundred and eight tests, each of them constructing the node rather than a vehicle, a station or a controller |
 
 
 ## A kind of node
@@ -65,9 +65,15 @@ public class EV : WWCPNode
 
 The five names are five because they are read in five places and spelt for
 each. `Name` is read in a sentence - "The electric vehicle is shutting down."
-- and is lower case for that reason. `Tag` is the word in square brackets on
-every entry about the node itself. `Product` follows "OpenChargingCloud" in
-the `Server` header of every response. `LogFilePrefix` is what a day's log
+- and is lower case for that reason; it is what the node calls itself in
+everything it says, "the clock of this charging station" rather than "the
+clock of this node". `Tag` is the word in square brackets on every entry
+about the node itself. `Product` follows "OpenChargingCloud" in the name the
+HTTP server and the accounts go by: what the Configuration page shows as the
+server's name, and what the few answers Hermod gives by itself - the
+accounts' refusals among them - carry as their `Server` header. The node's
+own answers, the web interface and a kind's JSON API, carry none.
+`LogFilePrefix` is what a day's log
 file is called before its date. And `Organization` is the identifier of the
 one organization the accounts are in, which is written into the accounts file
 at the first start and read back at every start after it - so it is the one
@@ -77,7 +83,7 @@ The port is the kind's to give and to pass, not the node's to guess: a node
 that took a default of its own for a kind that forgot to pass one would
 listen somewhere nobody expects.
 
-Beyond the names, a kind of node adds to the node in six places:
+Beyond the names, a kind of node adds to the node in seven places:
 
 * **Its own sections of the configuration file.** The node reads the file
   once and keeps the whole document as `ConfigurationDocument`; the kind
@@ -103,6 +109,12 @@ Beyond the names, a kind of node adds to the node in six places:
   directions, so its table says which side a line is about, the CSMS or a
   station; a kind that hands in none gets `TraceBridge.DefaultTags`, what a
   vehicle and a charging station overhear.
+* **What it keeps certificates of:** `CertificateKinds`, the kinds of
+  certificate its store keeps - all seven by default, which is what a vehicle
+  keeps. A kind that hands in none has no store directory at all: a charging
+  station, a local controller or a gateway keeps the keys it dials with in
+  stores of its own, and a store beside every one of them holding a vehicle's
+  seven empty directories was a promise nobody was keeping.
 * **What it is, for the Configuration page:** `ConfigurationJSON()` is
   virtual and answers with the node's cards - `http`, `web`, `log`, `time` -
   and the kind adds its own on top.
@@ -260,9 +272,10 @@ again.
 
 Everything a node believes and everything it presents is in one store: a
 directory of files with an `index.json` beside them, addressed by a short
-handle rather than by a path. The directory is `certificates` beside the
-configuration file unless the file's `certificates` section or the
-constructor says otherwise - beside the file rather than below the working
+handle rather than by a path - for the kinds of certificate its kind of node
+keeps, and no directory at all for a kind that keeps none. The directory is
+`certificates` beside the configuration file unless the file's
+`certificates` section or the constructor says otherwise - beside the file rather than below the working
 directory, because a store that moved when somebody typed `dotnet run` from
 somewhere else would be a different store, and for a published binary the
 working directory is the one `dotnet clean` empties.
@@ -440,10 +453,12 @@ here with the rest. The second kind, the charging station, has said what of
 it is every node's so far: the roles are the kind's, a node may listen on
 more than one port, and a clock check is counted for a screen rather than
 described to it. It has its own certificates for the back ends it dials, and
-has not asked the store for anything yet. The third, the local controller,
-has added that what is worth a tag in the debug bridge is the kind's to say,
-as its roles are - and it keeps the keys of its station port and the chains
-it accepts from stations in stores of its own too.
+keeps none in the store - which is why the kinds a store keeps are the kind's
+to say too, and why a node that keeps none says it in its own name rather
+than as "this node". The third, the local controller, has added that what is
+worth a tag in the debug bridge is the kind's to say, as its roles are - and
+it keeps the keys of its station port and the chains it accepts from
+stations in stores of its own too.
 
 
 ## Your participation

@@ -217,7 +217,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             Role   = All.FirstOrDefault(role => String.Equals(role.Name, Text?.Trim(), StringComparison.OrdinalIgnoreCase));
 
             Error  = Role is null
-                         ? $"\"{Text}\" is not a role this node knows. Known roles: {String.Join(", ", All.Select(role => role.Name))}."
+                         ? $"\"{Text}\" is not a role known here. Known roles: {String.Join(", ", All.Select(role => role.Name))}."
                          : null;
 
             return Role is not null;

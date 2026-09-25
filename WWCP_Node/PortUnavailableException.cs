@@ -130,7 +130,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    // taken - which looks nothing like a port in use and is the
                    // harder of the two to work out from a stack trace.
                    SocketError.AccessDenied
-                       => "the operating system would not let this node have it",
+                       => "the operating system would not give it out",
 
                    SocketError.AddressNotAvailable
                        => "the address it was to listen on is not one this machine has",

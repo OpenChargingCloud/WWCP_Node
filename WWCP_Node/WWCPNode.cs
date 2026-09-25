@@ -507,6 +507,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="NTSClient">Where to read the time, or null to make a client.</param>
         /// <param name="Frontend">Where the web interface comes from, or null for a node that has none.</param>
         /// <param name="CertificatesPath">The directory the certificate store lives in between starts; what the file says, or "certificates" beside it, by default.</param>
+        /// <param name="CertificateKinds">The kinds of certificate the store of this kind of node keeps; all of them by default. None, and there is no store directory at all.</param>
         /// <param name="Log">Where everything that happens is written, or null to make a log.</param>
         /// <param name="LogToConsole">Whether the log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">How much of it reaches the console.</param>
@@ -529,6 +530,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         NTSClient?                                 NTSClient          = null,
                         IStaticContentSource?                      Frontend           = null,
                         String?                                    CertificatesPath   = null,
+                        IEnumerable<CertificateKind>?              CertificateKinds   = null,
                         EventLog?                                  Log                = null,
                         Boolean                                    LogToConsole       = true,
                         LogLevel                                   ConsoleLogLevel    = LogLevel.Info,
@@ -723,7 +725,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                             ?? configuration.Certificates?.Directory
                                             ?? CertificatesConfiguration.DefaultDirectory
                                     ),
-                                    this.Log
+                                    this.Log,
+                                    CertificateKinds,
+                                    this.Kind.Name
                                 );
 
             this.Certificates.Reload();
@@ -895,7 +899,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             else
                 this.Log.Error(
                     $"No web interface to serve ({this.Frontend.Description}): the JSON API answers, the browser gets nothing. " +
-                    "Build the bundle, or point the node at a directory that has one.",
+                    $"Build the bundle, or point the {Kind.Name} at a directory that has one.",
                     "web"
                 );
 
@@ -1021,7 +1025,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           );
 
                 if (organization is not Organization nodeOrganization)
-                    throw new InvalidOperationException("The organization of this node could not be created, and an account outside one cannot sign in.");
+                    throw new InvalidOperationException($"The organization of this {Kind.Name} could not be created, and an account outside one cannot sign in.");
 
                 admin         = await ExtAPI.CreateUser(
                                           userId,
@@ -1054,7 +1058,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                       );
 
                 if (admin is null)
-                    throw new InvalidOperationException("The account of this node could not be created, so nobody could sign in to it.");
+                    throw new InvalidOperationException($"The account of this {Kind.Name} could not be created, so nobody could sign in to it.");
 
                 GeneratedPassword = password;
 
@@ -1089,7 +1093,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // say why. Better to stop before the port opens.
                 if (added.Result != CommandResult.Success)
                     throw new InvalidOperationException(
-                              $"The user group '{groupId}' of this node could not be made: " +
+                              $"The user group '{groupId}' of this {Kind.Name} could not be made: " +
                               $"{added.Description.FirstText()} A role without its group is a role nobody can hold."
                           );
 
@@ -1114,7 +1118,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                      adminGroup  is not UserGroup group)
                 {
                     throw new InvalidOperationException(
-                              $"The account of this node could not be put in the {AdminRole} group, " +
+                              $"The account of this {Kind.Name} could not be put in the {AdminRole} group, " +
                                "so the one account it has would be allowed to do nothing at all."
                           );
                 }
@@ -1226,7 +1230,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (configuration.Servers is { Count: 0 })
             {
-                Error = "A node that resolves no names cannot reach anything. Switch name resolution off instead of emptying the list.";
+                Error = $"Without a name server this {Kind.Name} cannot reach anything. Switch name resolution off instead of emptying the list.";
                 return false;
             }
 
@@ -1585,7 +1589,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (quorum > asked)
                 {
-                    Error = $"'nts.minServers' is {quorum}, which is more servers than the {asked} this node asks.";
+                    Error = $"'nts.minServers' is {quorum}, which is more servers than the {asked} this {Kind.Name} asks.";
                     return false;
                 }
 

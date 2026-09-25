@@ -21,6 +21,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using NUnit.Framework;
 
@@ -754,6 +755,118 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(store.Import([], CertificateKind.V2GRoot, null, null, out _, out var error2), Is.False);
             Assert.That(error2, Does.Contain("nothing"));
+
+        }
+
+        #endregion
+
+
+        #region AStoreThatKeepsNoKindWritesNothing()
+
+        /// <summary>
+        /// A store handed no kinds of certificate is no directory at all:
+        /// nothing is made, nothing is read, nothing is said at a start, and
+        /// nothing is let in.
+        /// </summary>
+        /// <remarks>
+        /// What a kind of node gets that keeps no certificates here: a charging
+        /// station dials its back ends with keys of its own, and a gateway or a
+        /// meter has no ISO 15118 to speak of. The node made the vehicle's seven
+        /// directories for every one of them, at every start, and said so in a
+        /// line of its log.
+        /// </remarks>
+        [Test]
+        public void AStoreThatKeepsNoKindWritesNothing()
+        {
+
+            var store     = new CertificateStore(directory, log, Kinds: []);
+
+            store.Reload();
+            store.WarnAboutStoredKeys();
+
+            var imported  = store.Import(Pem(Root("Some Root")), CertificateKind.V2GRoot, null, null, out _, out var error);
+
+            Assert.Multiple(() => {
+
+                Assert.That(Directory.Exists(directory),  Is.False,  "a directory was made for a store that keeps nothing");
+                Assert.That(store.Entries,                Is.Empty);
+                Assert.That(imported,                     Is.False);
+                Assert.That(error,                        Does.Contain("V2G root"));
+
+                Assert.That(log.Recent(100).Where(entry => entry.Level >= LogLevel.Info).Select(entry => entry.Message),
+                            Is.Empty,
+                            "a store that keeps nothing had something to say about it at a start");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AStoreKeepsOnlyTheKindsItIsGiven()
+
+        /// <summary>
+        /// A store handed some kinds makes their directories and no others, and
+        /// refuses a certificate of another kind with a sentence that names it.
+        /// </summary>
+        [Test]
+        public void AStoreKeepsOnlyTheKindsItIsGiven()
+        {
+
+            var store     = new CertificateStore(directory, log, Kinds: [ CertificateKind.V2GRoot, CertificateKind.MORoot ]);
+
+            store.Reload();
+
+            var root      = Root("A Root");
+            var refused   = store.Import(Pkcs12(Leaf("A Vehicle", root)), CertificateKind.Vehicle, null, null, out _, out var error);
+            var taken     = store.Import(Pem(root),                        CertificateKind.V2GRoot, null, null, out _, out var unexpected);
+
+            Assert.Multiple(() => {
+
+                Assert.That(Directory.Exists(Path.Combine(directory, CertificateKind.V2GRoot.Directory())),  Is.True);
+                Assert.That(Directory.Exists(Path.Combine(directory, CertificateKind.MORoot. Directory())),  Is.True);
+
+                foreach (var other in CertificateKindExtensions.All.Except([ CertificateKind.V2GRoot, CertificateKind.MORoot ]))
+                    Assert.That(Directory.Exists(Path.Combine(directory, other.Directory())),  Is.False,  $"'{other.Directory()}' was made");
+
+                Assert.That(refused,  Is.False);
+                Assert.That(error,    Does.Contain("Vehicle certificate"));
+                Assert.That(taken,    Is.True,  unexpected);
+
+            });
+
+        }
+
+        #endregion
+
+        #region ANodeThatKeepsNoCertificatesMakesNoStore()
+
+        /// <summary>
+        /// A node whose kind keeps no certificates has no store beside its
+        /// configuration file, and says nothing about one when it starts -
+        /// nothing the console shows, that is: the file log has a line in
+        /// debug saying that it keeps none.
+        /// </summary>
+        [Test]
+        public async Task ANodeThatKeepsNoCertificatesMakesNoStore()
+        {
+
+            Directory.CreateDirectory(directory);
+
+            await using var node = new WWCPNode(
+                                       AccountsPath:      Path.Combine(directory, "accounts"),
+                                       ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
+                                       CertificateKinds:  [],
+                                       LogToConsole:      false,
+                                       BridgeDebugLog:    false
+                                   );
+
+            Assert.Multiple(() => {
+                Assert.That(Directory.Exists(Path.Combine(directory, CertificatesConfiguration.DefaultDirectory)),  Is.False);
+                Assert.That(node.Certificates.Entries,                                                            Is.Empty);
+                Assert.That(node.Log.Recent(100).Where (entry => entry.Level >= LogLevel.Info).
+                                                 Select(entry => entry.Message),                                 Has.None.StartsWith("Certificates:"));
+            });
 
         }
 

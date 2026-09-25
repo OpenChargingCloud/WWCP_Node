@@ -112,16 +112,19 @@ jobs:
         working-directory: WWCP_Node
         run: dotnet build WWCP_Node_Tests/WWCP_Node_Tests.csproj --configuration Release
 
-      # The other half. The node itself, constructed and never started; the
-      # DNS and NTS sections of the configuration file, on their own and in
-      # effect on a node; the certificate store, with certificates minted in
-      # the test rather than committed; the log on disk, and what the log says
-      # on stderr about itself; a time server's certificate, as the NTS test
-      # describes it.
+      # The other half. The node itself: constructed, and where it is about
+      # its accounts, its ports or its clock check, started - on a port nobody
+      # else has; the DNS and NTS sections of the configuration file, on their
+      # own and in effect on a node; the certificate store, with certificates
+      # minted in the test rather than committed; the log on disk, and what
+      # the log says on stderr about itself; a time server's certificate, as
+      # the NTS test describes it.
       #
-      # No category filter. Nothing in this project queries the network - a
-      # node that is never started asks nobody anything - so there is no set
-      # to keep out of a gate.
+      # No category filter. Nothing in this project queries the network: a
+      # node is started with its time client off, or on a clock whose timers
+      # never fire, and whatever a test asks of a name server or a time server
+      # is refused before anything goes out - so there is no set to keep out
+      # of a gate.
       - name: Test
         timeout-minutes: 15
         working-directory: WWCP_Node

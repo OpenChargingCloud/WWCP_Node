@@ -25,10 +25,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <remarks>
     /// Five names rather than one, because they are read in five places and
     /// spelt for each. <see cref="Name"/> is read in a sentence - "The
-    /// electric vehicle is shutting down." - and is lower case for that
-    /// reason. <see cref="Tag"/> is the word in square brackets on every
-    /// entry about the node itself. <see cref="Product"/> follows
-    /// "OpenChargingCloud" in the Server header of every response.
+    /// electric vehicle is shutting down.", "The clock of this charging
+    /// station will be checked ..." - and is lower case for that reason; it
+    /// is what the node calls itself in everything it says. <see cref="Tag"/>
+    /// is the word in square brackets on every entry about the node itself.
+    /// <see cref="Product"/> follows "OpenChargingCloud" in the name the HTTP
+    /// server and the accounts go by: what the Configuration page shows as
+    /// the server's name, and what the few answers Hermod gives by itself -
+    /// the accounts' refusals among them - carry as their Server header. The
+    /// node's own answers, the web interface and a kind's JSON API, carry
+    /// none.
     /// <see cref="LogFilePrefix"/> is what the day's log file is called
     /// before its date. And <see cref="Organization"/> is the identifier of
     /// the one organization the accounts are in, which is written into the

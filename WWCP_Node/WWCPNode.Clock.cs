@@ -108,7 +108,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!NTSEnabled)
             {
-                Log.Info("The clock of this node is not being checked: NTS is switched off.", "nts", "clock");
+                Log.Info($"The clock of this {Kind.Name} is not being checked: NTS is switched off.", "nts", "clock");
                 return;
             }
 
@@ -131,7 +131,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var asking = CheckedAgainst();
 
             Log.Info(
-                $"The clock of this node will be checked against {String.Join(", ", asking)} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
+                $"The clock of this {Kind.Name} will be checked against {String.Join(", ", asking)} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
                 (asking.Length > 1 ? $", at least {timeSources.MinServers} of which must answer" : "") +
                 (LegalTimeAuthority is not null ? $", which the operator says is {LegalTimeAuthority}." : "."),
                 "nts", "clock"
@@ -163,14 +163,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (result.Value<Boolean>("ok") != true)
                     Log.Warning(
-                        $"The clock of this node could not be checked: {result.Value<String>("error") ?? "no answer"}.",
+                        $"The clock of this {Kind.Name} could not be checked: {result.Value<String>("error") ?? "no answer"}.",
                         "nts", "clock"
                     );
 
             }
             catch (Exception e)
             {
-                Log.Warning($"The clock of this node could not be checked: {e.Message}", "nts", "clock");
+                Log.Warning($"The clock of this {Kind.Name} could not be checked: {e.Message}", "nts", "clock");
             }
 
         }
