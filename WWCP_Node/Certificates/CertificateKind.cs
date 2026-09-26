@@ -240,6 +240,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region HasUsages(this Kind)
+
+        /// <summary>
+        /// Whether a certificate of this kind is kept for some uses and not
+        /// others - see <see cref="CertificateUsages"/>.
+        /// </summary>
+        /// <remarks>
+        /// A TLS root vouches for servers and a server certificate is one
+        /// server's, and which servers is the question a usage answers: the
+        /// name servers, the time servers, a backend. The other kinds say by
+        /// their kind alone what they are for - a V2G root is the station's
+        /// chain and nothing else, a TLS identity is what this node shows.
+        /// </remarks>
+        public static Boolean HasUsages(this CertificateKind Kind)
+
+            => Kind is CertificateKind.TLSRoot
+                    or CertificateKind.TLSServer;
+
+        #endregion
+
         #region Directory(this Kind)
 
         /// <summary>

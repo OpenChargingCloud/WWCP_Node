@@ -148,9 +148,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Three questions, in this order, and a no to any of them ends it. Is
         /// the certificate issued for the server's name? Does its chain end at a
         /// root this machine trusts - or, where it does not, at a TLS root of
-        /// this node's own store, or at the root this server is held to where
-        /// the store has it? And is it the certificate, and the root, the
-        /// server is held to, where its configuration holds it to one?
+        /// this node's own store that is for the time servers, or at the root
+        /// this server is held to where the store has it? And is it the
+        /// certificate, and the root, the server is held to, where its
+        /// configuration holds it to one?
         /// </para>
         /// <para>
         /// What is news is written into the metrological log: a server refused,
@@ -337,8 +338,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         /// <remarks>
         /// Every server and not only the pinned ones: a TLS root of this node's
-        /// store is a root for every server it connects to, and a server whose
-        /// certificate is refused should say why somewhere. Where a server was
+        /// store for the time servers is a root for every one of them, and a
+        /// server whose certificate is refused should say why somewhere. Where a server was
         /// given a validator of its own by whoever made the group, that one
         /// stays.
         /// </remarks>
@@ -384,11 +385,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Build the certificate's chain against this node's own roots: every
-        /// TLS root of its store that is switched on and valid, and the root the
-        /// server is held to, where the store has it as whatever kind of
-        /// certificate.
+        /// TLS root of its store that is switched on, valid and for the time
+        /// servers, and the root the server is held to, where the store has it
+        /// as whatever kind of certificate.
         /// </summary>
         /// <remarks>
+        /// For the time servers, which is what a root never told what it is for
+        /// is as well: a root kept for the name servers alone vouches for no
+        /// time. The root a server is held to is believed whatever it is kept
+        /// as, because naming it in the server's configuration says the same
+        /// thing, and more narrowly.
+        ///
         /// Revocation is asked where there is somebody to ask, and what cannot be
         /// asked is not held against the certificate: a root of one's own is
         /// often a CA without a revocation list, and one that is on a list is
@@ -409,14 +416,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                foreach (var entry in Certificates.UsableByKind(CertificateKind.TLSRoot))
+                foreach (var entry in Certificates.UsableFor(CertificateKind.TLSRoot, CertificateUsages.NTS))
                     if (Certificates.TryLoad(entry, out var root, out _))
                         anchors.Add((root, entry.Label));
 
                 if (Pins?.RootFingerprint is String pinned                 &&
                     Certificates.ByFingerprint(pinned) is CertificateEntry held &&
                     held.IsUsable                                           &&
-                    held.Kind != CertificateKind.TLSRoot                    &&
+                    !(held.Kind == CertificateKind.TLSRoot && held.IsFor(CertificateUsages.NTS)) &&
                     Certificates.TryLoad(held, out var heldRoot, out _))
                 {
                     anchors.Add((heldRoot, held.Label));

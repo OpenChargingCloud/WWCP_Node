@@ -568,6 +568,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Frontend">Where the web interface comes from, or null for a node that has none.</param>
         /// <param name="CertificatesPath">The directory the certificate store lives in between starts; what the file says, or "certificates" beside it, by default.</param>
         /// <param name="CertificateKinds">The kinds of certificate the store of this kind of node keeps; all of them by default. None, and there is no store directory at all.</param>
+        /// <param name="CertificateUsages">What a TLS root or a server certificate of the store may be told it is for, beside the node's own "dns" and "nts": a backend this kind of node dials, say.</param>
         /// <param name="Log">Where everything that happens is written, or null to make a log.</param>
         /// <param name="LogToConsole">Whether the log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">How much of it reaches the console.</param>
@@ -596,6 +597,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         IStaticContentSource?                      Frontend           = null,
                         String?                                    CertificatesPath   = null,
                         IEnumerable<CertificateKind>?              CertificateKinds   = null,
+                        IEnumerable<String>?                       CertificateUsages  = null,
                         EventLog?                                  Log                = null,
                         Boolean                                    LogToConsole       = true,
                         LogLevel                                   ConsoleLogLevel    = LogLevel.Info,
@@ -847,7 +849,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                     ),
                                     this.Log,
                                     CertificateKinds,
-                                    this.Kind.Name
+                                    this.Kind.Name,
+                                    CertificateUsages
                                 );
 
             this.Certificates.Reload();

@@ -34,12 +34,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Everything here but <see cref="Label"/> and <see cref="IsActive"/> is
-    /// read out of the certificate itself and is therefore not somebody's
-    /// opinion: a store whose index disagrees with its files is a store that
-    /// has to be believed about the wrong one. Those two are the only fields
-    /// the index is the authority on, and they are the reason the index exists
-    /// rather than the directory listing being the whole truth.
+    /// Everything here but <see cref="Label"/>, <see cref="IsActive"/> and
+    /// <see cref="Usages"/> is read out of the certificate itself and is
+    /// therefore not somebody's opinion: a store whose index disagrees with
+    /// its files is a store that has to be believed about the wrong one. Those
+    /// three are the only fields the index is the authority on, and they are
+    /// the reason the index exists rather than the directory listing being the
+    /// whole truth.
     /// </para>
     /// <para>
     /// <see cref="Id"/> and <see cref="Thumbprint"/> are not the same thing and
@@ -67,6 +68,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// <param name="ChainLength">How many further certificates travel with it, e.g. its sub-CAs.</param>
     /// <param name="IsActive">Whether this node is currently using it.</param>
     /// <param name="ImportedAt">When it was put here.</param>
+    /// <param name="Usages">What it may be used for, where its kind is kept for some uses and not others; null for every use - see <see cref="CertificateUsages"/>.</param>
     public sealed record CertificateEntry(String           Id,
                                           CertificateKind  Kind,
                                           String           FileName,
@@ -81,7 +83,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                           Boolean          HasPrivateKey,
                                           Int32            ChainLength,
                                           Boolean          IsActive,
-                                          DateTimeOffset   ImportedAt)
+                                          DateTimeOffset   ImportedAt,
+                                          IReadOnlyList<String>?  Usages = null)
     {
 
         #region Data
@@ -134,18 +137,39 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #endregion
 
 
-        #region (static) From(Certificate, Kind, FileName, Label, ChainLength, IsActive, ImportedAt)
+        #region IsFor(Usage)
+
+        /// <summary>
+        /// Whether this certificate may be used for the given usage: it is of a
+        /// kind kept for some uses and not others, and this is one of its own -
+        /// or it was never told which, and is for every use.
+        /// </summary>
+        /// <remarks>
+        /// Every use for a certificate never told, because that is what every
+        /// TLS root was before there were usages, and a store written then
+        /// should mean tomorrow what it meant yesterday.
+        /// </remarks>
+        public Boolean IsFor(String Usage)
+
+            => Kind.HasUsages() &&
+               (Usages is null || Usages.Contains(Usage, StringComparer.OrdinalIgnoreCase));
+
+        #endregion
+
+
+        #region (static) From(Certificate, Kind, FileName, Label, ChainLength, IsActive, ImportedAt = null, Usages = null)
 
         /// <summary>
         /// An entry describing a certificate that has just been read.
         /// </summary>
-        public static CertificateEntry From(X509Certificate2  Certificate,
-                                            CertificateKind   Kind,
-                                            String            FileName,
-                                            String?           Label,
-                                            Int32             ChainLength,
-                                            Boolean           IsActive,
-                                            DateTimeOffset?   ImportedAt   = null)
+        public static CertificateEntry From(X509Certificate2        Certificate,
+                                            CertificateKind         Kind,
+                                            String                  FileName,
+                                            String?                 Label,
+                                            Int32                   ChainLength,
+                                            Boolean                 IsActive,
+                                            DateTimeOffset?         ImportedAt   = null,
+                                            IEnumerable<String>?    Usages       = null)
         {
 
             var thumbprint = ThumbprintOf(Certificate);
@@ -167,7 +191,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                        Certificate.HasPrivateKey,
                        ChainLength,
                        IsActive,
-                       ImportedAt ?? DateTimeOffset.UtcNow
+                       ImportedAt ?? DateTimeOffset.UtcNow,
+                       Kind.HasUsages() && Usages is not null
+                           ? [.. Usages]
+                           : null
                    );
 
         }
@@ -303,10 +330,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// what is wrong with it.
         /// </summary>
         /// <remarks>
-        /// Only <see cref="Label"/> and <see cref="IsActive"/> are actually
-        /// taken from here by <see cref="CertificateStore"/>; the rest is read
-        /// again from the file it names. It is all parsed anyway so that a
-        /// damaged index is refused as a whole rather than half-believed.
+        /// Only <see cref="Label"/>, <see cref="IsActive"/> and
+        /// <see cref="Usages"/> are actually taken from here by
+        /// <see cref="CertificateStore"/>; the rest is read again from the file
+        /// it names. It is all parsed anyway so that a damaged index is refused
+        /// as a whole rather than half-believed.
+        ///
+        /// Usages missing or null are every use, which is what an index written
+        /// before there were usages says about every certificate in it. A usage
+        /// that is not a usage name at all is a damaged entry.
         /// </remarks>
         public static Boolean TryParse(JObject                                     JSON,
                                        [NotNullWhen(true)]  out CertificateEntry?  Entry,
@@ -338,6 +370,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
+            IReadOnlyList<String>? usages = null;
+
+            if (JSON.TryGetValue("usages", out var usagesToken) && usagesToken.Type != JTokenType.Null)
+            {
+
+                if (usagesToken is not JArray usagesArray ||
+                    usagesArray.Any(usage => usage.Type != JTokenType.String ||
+                                             !CertificateUsages.IsUsageName(usage.Value<String>())))
+                {
+                    Error = $"the certificate '{id}' has 'usages' that are not a list of usages.";
+                    return false;
+                }
+
+                usages = [.. usagesArray.Select(usage => usage.Value<String>()!).Distinct()];
+
+            }
+
             Entry = new CertificateEntry(
                         id,
                         kind,
@@ -353,7 +402,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                         JSON.Value<Boolean?>("hasPrivateKey") ?? false,
                         JSON.Value<Int32?>("chainLength")     ?? 0,
                         JSON.Value<Boolean?>("active")        ?? true,
-                        Moment(JSON, "importedAt") ?? DateTimeOffset.UtcNow
+                        Moment(JSON, "importedAt") ?? DateTimeOffset.UtcNow,
+                        kind.HasUsages() ? usages : null
                     );
 
             return true;
@@ -437,6 +487,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                            new JProperty("importedAt",    ImportedAt.UtcDateTime)
                        );
 
+            // Only where the kind has usages at all, and null there for every
+            // use: a V2G root that said "usages" would be asked which, and has
+            // no answer.
+            if (Kind.HasUsages())
+                json.Add("usages", Usages is null
+                                       ? JValue.CreateNull()
+                                       : new JArray(Usages));
+
             if (WithDiagnostics)
             {
                 json.Add("expired",      IsExpired);
@@ -455,7 +513,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         public override String ToString()
 
-            => $"{Label} ({Kind.AsText()}, {Id}){(IsActive ? "" : ", inactive")}{(IsExpired ? ", expired" : "")}";
+            => $"{Label} ({Kind.AsText()}, {Id}){(Kind.HasUsages() && Usages is not null ? ", " + CertificateUsages.Describe(Usages) : "")}{(IsActive ? "" : ", inactive")}{(IsExpired ? ", expired" : "")}";
 
         #endregion
 

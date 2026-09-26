@@ -37,7 +37,7 @@ a port of their own to connect to.
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them |
-| `WWCP_Node_Tests/` | two hundred and twenty-seven tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | two hundred and thirty-eight tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -114,11 +114,14 @@ Beyond the names, a kind of node adds to the node in eight places:
   station; a kind that hands in none gets `TraceBridge.DefaultTags`, what a
   vehicle and a charging station overhear.
 * **What it keeps certificates of:** `CertificateKinds`, the kinds of
-  certificate its store keeps - all seven by default, which is what a vehicle
-  keeps. A kind that hands in none has no store directory at all: a charging
-  station, a local controller or a gateway keeps the keys it dials with in
-  stores of its own, and a store beside every one of them holding a vehicle's
-  seven empty directories was a promise nobody was keeping.
+  certificate its store keeps - all eleven by default, a vehicle's seven and
+  the four of TLS in general. A kind that hands in none has no store
+  directory at all: a charging station, a local controller or a gateway keeps
+  the keys it dials with in stores of its own, and a store beside every one
+  of them holding a vehicle's seven empty directories was a promise nobody
+  was keeping. And `CertificateUsages`, what a TLS root or a server
+  certificate may be for beside the node's `dns` and `nts` - a backend it
+  dials, say.
 * **Who may do what:** `Resources`, the names of what it adds for a role to
   read, edit or run, and `RoleDefinitions`, its roles and what each of them
   may do - see below.
@@ -355,12 +358,26 @@ would be that server's key in the wrong place; and `tlsIdentity`, what the
 node shows itself, with its key. A kind of node keeps those it has a use for,
 and `CertificateKindExtensions.ISO15118` and `.TLS` name the two groups.
 
+A TLS root and a server certificate are told as well what they are for: the
+name servers, the time servers, both, or what a kind of node adds, such as a
+backend it dials. One root may vouch for several of them, which is why a
+certificate has any number of usages rather than being kept twice - two
+entries would be two things to switch off when it is withdrawn, and the one
+forgotten would still be believed. A certificate never told is for every
+use, which is what every TLS root was before there were usages, and an index
+written then still means it. A usage the store does not know is refused where
+it is typed, because a root "for ntp" would otherwise vouch for no time server
+and nothing would say why. The time servers are anchored by the TLS roots for
+`nts`, and by the root a server is held to whatever it is kept for: naming it
+in the server's configuration says the same thing, and more narrowly.
+
 Anything in the store is found by its SHA-256 fingerprint, whatever kind it
 was kept as: `ByFingerprint` takes the whole of it and nothing shorter, in any
 of the ways a fingerprint is written. A truncated fingerprint is a handle and
 never evidence. What a trust decision rests on is written into the
-metrological log - an import, with the fingerprint; a certificate switched on
-or off; one deleted, or dropped because its file went.
+metrological log, tagged `security` - an import, with the fingerprint; a
+certificate switched on or off, or told what it is for; one deleted, or
+dropped because its file went.
 
 
 ## Who may sign in

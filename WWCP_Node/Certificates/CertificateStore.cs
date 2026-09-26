@@ -126,6 +126,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public String NodeName { get; }
 
         /// <summary>
+        /// What a certificate of a kind kept for some uses and not others may
+        /// be told it is for: the node's usages, and its kind's.
+        /// </summary>
+        /// <remarks>
+        /// A closed list per store, so that a usage somebody mistyped is
+        /// refused where it is typed rather than quietly matching nothing - a
+        /// TLS root "for ntp" would otherwise vouch for no time server, and
+        /// nothing would say why.
+        /// </remarks>
+        public IReadOnlyList<String> Usages { get; }
+
+        /// <summary>
         /// Everything in the store, roots before credentials and each group by
         /// label.
         /// </summary>
@@ -162,16 +174,36 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="Log">Where to say what was found, adopted and dropped.</param>
         /// <param name="Kinds">The kinds of certificate this store keeps; all of them by default.</param>
         /// <param name="NodeName">What the node the store belongs to is called in a sentence; "node" by default.</param>
+        /// <param name="Usages">The usages the kind of node adds to the node's own, <see cref="CertificateUsages.All"/>.</param>
         public CertificateStore(String                         Directory,
                                 EventLog                       Log,
                                 IEnumerable<CertificateKind>?  Kinds      = null,
-                                String?                        NodeName   = null)
+                                String?                        NodeName   = null,
+                                IEnumerable<String>?           Usages     = null)
         {
 
             this.Directory  = Path.GetFullPath(Directory);
             this.log        = Log;
             this.Kinds      = [.. (Kinds ?? CertificateKindExtensions.All).Distinct().OrderBy(kind => kind.SortOrder())];
             this.NodeName   = NodeName ?? "node";
+
+            var usages      = new List<String>(CertificateUsages.All);
+
+            foreach (var usage in Usages ?? [])
+            {
+
+                var name = usage?.Trim().ToLowerInvariant() ?? "";
+
+                if (!CertificateUsages.IsUsageName(name))
+                    throw new ArgumentException($"'{usage}' is not a usage name: a letter, then letters, digits, '-' or '_', at most {CertificateUsages.MaxLength} characters.",
+                                                nameof(Usages));
+
+                if (!usages.Contains(name))
+                    usages.Add(name);
+
+            }
+
+            this.Usages     = usages;
 
             CreateDirectories();
 
@@ -259,7 +291,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                             known?.Label,
                                             chainLength,
                                             known?.IsActive ?? true,
-                                            known?.ImportedAt
+                                            known?.ImportedAt,
+                                            known?.Usages
                                         );
 
                             if (found.ContainsKey(entry.Id))
@@ -275,8 +308,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                             {
                                 adopted++;
                                 log.Metrological(LogLevel.Notice,
-                                                 $"Certificates: adopted '{relative}' - {entry.Label}, {kind.Describe()}. It is switched on.",
-                                                 "certificates");
+                                                 $"Certificates: adopted '{relative}' - {entry.Label}, {kind.Describe()}. It is switched on" +
+                                                 $"{(kind.HasUsages() ? ", " + CertificateUsages.Describe(entry.Usages) : "")}.",
+                                                 "certificates", "security");
                             }
 
                         }
@@ -288,7 +322,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 foreach (var gone in remembered.Values.Where(entry => !found.ContainsKey(entry.Id)))
                     log.Metrological(LogLevel.Notice,
                                      $"Certificates: '{gone.FileName}' is no longer there and was dropped from the index.",
-                                     "certificates");
+                                     "certificates", "security");
 
                 entries.Clear();
 
@@ -342,6 +376,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #region Import(Content, Kind, Password, Label, out Entry, out Error)
 
         /// <summary>
+        /// Put a certificate into the store, copying it in - for every use,
+        /// where its kind is kept for some uses and not others.
+        /// </summary>
+        /// <param name="Content">The file as it arrived.</param>
+        /// <param name="Kind">What it is to be used for.</param>
+        /// <param name="Password">What opens it, where it is a protected PKCS#12.</param>
+        /// <param name="Label">What to call it; its common name where this is not given.</param>
+        public Boolean Import(Byte[]                                      Content,
+                              CertificateKind                             Kind,
+                              String?                                     Password,
+                              String?                                     Label,
+                              [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                              [NotNullWhen(false)] out String?            Error)
+
+            => Import(Content, Kind, Password, Label, null, out Entry, out Error);
+
+        #endregion
+
+        #region Import(Content, Kind, Password, Label, Usages, out Entry, out Error)
+
+        /// <summary>
         /// Put a certificate into the store, copying it in.
         /// </summary>
         /// <remarks>
@@ -370,10 +425,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="Kind">What it is to be used for.</param>
         /// <param name="Password">What opens it, where it is a protected PKCS#12.</param>
         /// <param name="Label">What to call it; its common name where this is not given.</param>
+        /// <param name="Usages">What it may be used for, where its kind is kept for some uses and not others; null for every use. Given for a certificate already in the store, it is that certificate's usages from now on.</param>
         public Boolean Import(Byte[]                                      Content,
                               CertificateKind                             Kind,
                               String?                                     Password,
                               String?                                     Label,
+                              IEnumerable<String>?                        Usages,
                               [NotNullWhen(true)]  out CertificateEntry?  Entry,
                               [NotNullWhen(false)] out String?            Error)
         {
@@ -389,6 +446,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 Error = $"This {NodeName} keeps no certificate of that kind: {Kind.Describe()}.";
                 return false;
             }
+
+            if (!TrySettleUsages(Kind, Usages, out var usages, out Error))
+                return false;
 
             if (Content.Length == 0)
             {
@@ -459,12 +519,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                         return false;
                     }
 
+                    var changed = false;
+
                     if (Label?.Trim() is { Length: > 0 } relabel && relabel != existing.Label)
                     {
-                        existing = existing with { Label = relabel };
+                        existing  = existing with { Label = relabel };
+                        changed   = true;
+                        log.Info($"Certificates: '{existing.FileName}' is now called '{relabel}'.", "certificates");
+                    }
+
+                    // Usages given are the usages from now on; none given leaves
+                    // the ones it has, because an import that said nothing about
+                    // them said nothing about them.
+                    if (Usages is not null && !SameUsages(existing.Usages, usages))
+                    {
+                        var were  = existing.Usages;
+                        existing  = existing with { Usages = usages };
+                        changed   = true;
+                        log.Metrological(LogLevel.Notice,
+                                         $"Certificates: {existing.Label} ({existing.Kind.AsText()}) is now {CertificateUsages.Describe(usages)}, " +
+                                         $"where it was {CertificateUsages.Describe(were)}.",
+                                         "certificates", "security");
+                    }
+
+                    if (changed)
+                    {
                         entries[id] = existing;
                         WriteIndex();
-                        log.Info($"Certificates: '{existing.FileName}' is now called '{relabel}'.", "certificates");
                     }
                     else
                         log.Info($"Certificates: {existing.Label} was already in the store; nothing changed.", "certificates");
@@ -496,7 +577,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                             fileName,
                             Label,
                             collection.Count - 1,
-                            IsActive: true
+                            IsActive:  true,
+                            Usages:    usages
                         );
 
                 entries.Add(Entry.Id, Entry);
@@ -504,8 +586,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 log.Metrological(LogLevel.Notice,
                                  $"Certificates: imported {Entry.Label} as {Kind.Describe()}, " +
-                                 $"{Entry.KeyAlgorithm}, valid until {Entry.NotAfter.UtcDateTime:yyyy-MM-dd}, SHA-256 {Entry.Thumbprint}. It is switched on.",
-                                 "certificates");
+                                 $"{Entry.KeyAlgorithm}, valid until {Entry.NotAfter.UtcDateTime:yyyy-MM-dd}, SHA-256 {Entry.Thumbprint}. It is switched on" +
+                                 $"{(Kind.HasUsages() ? ", " + CertificateUsages.Describe(usages) : "")}.",
+                                 "certificates", "security");
 
                 // Said at the import as well as at a start, because the start
                 // that matters happened before this key existed: a node that
@@ -570,7 +653,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                     log.Metrological(LogLevel.Notice,
                                      $"Certificates: {Entry.Label} ({Entry.Kind.AsText()}) was switched {(Active ? "on" : "off")}.",
-                                     "certificates");
+                                     "certificates", "security");
 
                 }
                 else
@@ -642,6 +725,73 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region SetUsages(Id, Usages, out Entry, out Error)
+
+        /// <summary>
+        /// Say what one certificate may be used for: the given usages, or every
+        /// use where none are given.
+        /// </summary>
+        /// <remarks>
+        /// A decision about trust, as switching it on is: a TLS root told it
+        /// may vouch for the time servers is one that can make this node
+        /// believe a time. So it is written into the metrological log like
+        /// every other change of the store, tagged as a matter of security.
+        /// </remarks>
+        /// <param name="Id">The certificate's handle.</param>
+        /// <param name="Usages">What it may be used for from now on; null for every use.</param>
+        /// <param name="Entry">The certificate as it is now.</param>
+        /// <param name="Error">Why not.</param>
+        public Boolean SetUsages(String                                      Id,
+                                 IEnumerable<String>?                        Usages,
+                                 [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                 [NotNullWhen(false)] out String?            Error)
+        {
+
+            Entry  = null;
+            Error  = null;
+
+            storeLock.Wait();
+
+            try
+            {
+
+                if (!entries.TryGetValue(Id, out var entry))
+                {
+                    Error = $"There is no certificate '{Id}' in this store.";
+                    return false;
+                }
+
+                if (!TrySettleUsages(entry.Kind, Usages, out var usages, out Error))
+                    return false;
+
+                if (SameUsages(entry.Usages, usages))
+                {
+                    Entry = entry;
+                    return true;
+                }
+
+                Entry        = entry with { Usages = usages };
+                entries[Id]  = Entry;
+
+                WriteIndex();
+
+                log.Metrological(LogLevel.Notice,
+                                 $"Certificates: {Entry.Label} ({Entry.Kind.AsText()}) is now {CertificateUsages.Describe(usages)}, " +
+                                 $"where it was {CertificateUsages.Describe(entry.Usages)}.",
+                                 "certificates", "security");
+
+                return true;
+
+            }
+            finally
+            {
+                storeLock.Release();
+            }
+
+        }
+
+        #endregion
+
         #region Remove(Id, out Error)
 
         /// <summary>
@@ -687,7 +837,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 log.Metrological(LogLevel.Notice,
                                  $"Certificates: {entry.Label} ({entry.Kind.AsText()}) was deleted from the store.",
-                                 "certificates");
+                                 "certificates", "security");
 
                 return true;
 
@@ -702,7 +852,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #endregion
 
 
-        #region Get(Id) / ByKind(Kind) / UsableByKind(Kind)
+        #region Get(Id) / ByKind(Kind) / UsableByKind(Kind) / UsableFor(Kind, Usage)
 
         /// <summary>
         /// One entry by its handle, or nothing.
@@ -771,6 +921,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public IReadOnlyList<CertificateEntry> UsableByKind(CertificateKind Kind)
 
             => [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsable)];
+
+        /// <summary>
+        /// Everything of one kind this node would use right now for the given
+        /// usage: switched on, inside its own validity, and for that use - or
+        /// for every use, where it was never told which.
+        /// </summary>
+        /// <param name="Kind">A kind kept for some uses and not others.</param>
+        /// <param name="Usage">The usage.</param>
+        public IReadOnlyList<CertificateEntry> UsableFor(CertificateKind  Kind,
+                                                        String           Usage)
+
+            => [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsable && entry.IsFor(Usage))];
 
         #endregion
 
@@ -872,6 +1034,72 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+
+        #region (private) TrySettleUsages(Kind, Usages, out Settled, out Error)
+
+        /// <summary>
+        /// The usages as this store keeps them - in lower case, each once, in
+        /// the order it lists them - or why they cannot be kept.
+        /// </summary>
+        /// <remarks>
+        /// None given is every use, and is what every certificate was before
+        /// there were usages. An empty list is refused rather than kept: a
+        /// certificate for no use at all is one to switch off, which says so.
+        /// </remarks>
+        private Boolean TrySettleUsages(CertificateKind                    Kind,
+                                        IEnumerable<String>?               Usages,
+                                        out IReadOnlyList<String>?         Settled,
+                                        [NotNullWhen(false)] out String?   Error)
+        {
+
+            Settled  = null;
+            Error    = null;
+
+            if (Usages is null)
+                return true;
+
+            if (!Kind.HasUsages())
+            {
+                Error = $"A {Kind.AsText()} is for what its kind says, and is not told what it is used for: " +
+                         "only a TLS root and a server certificate are kept for some uses and not others.";
+                return false;
+            }
+
+            var given = Usages.Select(usage => usage?.Trim().ToLowerInvariant() ?? "").Distinct().ToList();
+
+            if (given.Count == 0)
+            {
+                Error = "A certificate for no use at all is one to switch off. Name what it is for - or nothing, for every use.";
+                return false;
+            }
+
+            if (given.FirstOrDefault(usage => !this.Usages.Contains(usage)) is String unknown)
+            {
+                Error = $"'{unknown}' is not a usage this {NodeName} knows. Its usages are: {String.Join(", ", this.Usages)}.";
+                return false;
+            }
+
+            Settled = [.. this.Usages.Where(given.Contains)];
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) SameUsages(Some, Others)
+
+        /// <summary>
+        /// Whether two sets of usages are the same set: both every use, or the
+        /// same usages in whatever order.
+        /// </summary>
+        private static Boolean SameUsages(IReadOnlyList<String>?  Some,
+                                          IReadOnlyList<String>?  Others)
+
+            => Some is null || Others is null
+                   ? Some is null && Others is null
+                   : Some.Count == Others.Count && !Some.Except(Others, StringComparer.OrdinalIgnoreCase).Any();
+
+        #endregion
 
         #region (private) CreateDirectories()
 

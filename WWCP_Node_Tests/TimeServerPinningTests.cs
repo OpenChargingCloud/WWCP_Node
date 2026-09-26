@@ -296,6 +296,81 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ARootForTheNameServersAloneVouchesForNoTimeServer()
+
+        /// <summary>
+        /// A TLS root of the node's store vouches for the time servers where it
+        /// is for them - told so, or never told what it is for - and not where
+        /// it was kept for the name servers alone.
+        /// </summary>
+        [Test]
+        public async Task ARootForTheNameServersAloneVouchesForNoTimeServer()
+        {
+
+            await using var node = Node();
+
+            Assert.That(node.Certificates.Import(Pem(ca), CertificateKind.TLSRoot, null, "our resolvers",
+                                                 [ CertificateUsages.DNS ], out var entry, out var error),  Is.True,  error);
+
+            var (chain, errors) = Untrusted(leaf);
+
+            using (chain)
+            {
+
+                var forNameServers = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.That(node.Certificates.SetUsages(entry!.Id, [ CertificateUsages.DNS, CertificateUsages.NTS ], out _, out error),  Is.True,  error);
+
+                var forBoth        = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(forNameServers.Outcome,  Is.EqualTo("untrusted"),  "a root for the name servers vouched for a time server");
+                    Assert.That(forBoth.Accepted,        Is.True,  String.Join(" | ", forBoth.Steps.Select(step => step.Text)));
+                    Assert.That(forBoth.AnchoredBy,      Is.EqualTo("our resolvers"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region TheRootAServerIsHeldToAnchorsItWhateverItIsFor()
+
+        /// <summary>
+        /// Naming a root in a server's configuration says what a usage says, and
+        /// more narrowly: the root a server is held to anchors that server even
+        /// where the store keeps it for the name servers alone.
+        /// </summary>
+        [Test]
+        public async Task TheRootAServerIsHeldToAnchorsItWhateverItIsFor()
+        {
+
+            await using var node = Node($$"""
+                                          [ { "hostname": "time.example.org", "rootFingerprint": "{{CertificateEntry.ThumbprintOf(ca)}}" } ]
+                                          """);
+
+            Assert.That(node.Certificates.Import(Pem(ca), CertificateKind.TLSRoot, null, "our resolvers",
+                                                 [ CertificateUsages.DNS ], out _, out var error),  Is.True,  error);
+
+            var (chain, errors) = Untrusted(leaf);
+
+            using (chain)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Accepted,    Is.True,  String.Join(" | ", judgement.Steps.Select(step => step.Text)));
+                    Assert.That(judgement.AnchoredBy,  Is.EqualTo("our resolvers"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
         #region ACertificateThatIsTheOneItIsHeldToIsBelieved()
 
         /// <summary>
