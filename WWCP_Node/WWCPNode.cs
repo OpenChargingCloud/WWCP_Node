@@ -403,18 +403,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// The roles this node knows, by the names of the user groups that
-        /// carry them: the roles of its kind, and <see cref="AdminRole"/>
-        /// among them whatever the kind said.
+        /// carry them: <see cref="AdminRole"/> and the viewer, the roles of its
+        /// kind, and the ones its configuration file adds.
         /// </summary>
         /// <remarks>
-        /// Names and nothing else, because that is all the node does with a
-        /// role: it makes the group of that name at every start. What a role
-        /// lets somebody do is the kind of node's to say and to enforce - a
-        /// vehicle's driver may start a session, a charging station's installer
-        /// may raise a power limit, and neither sentence means anything to the
-        /// other kind.
+        /// The group of each of them is made at every start. What each of
+        /// them may do is in <see cref="Access"/>.
         /// </remarks>
         public IReadOnlyList<String>  Roles                        { get; }
+
+        /// <summary>
+        /// Who may do what on this node: the resources it has - its own and its
+        /// kind's - and the roles that may read, edit or run them.
+        /// </summary>
+        /// <remarks>
+        /// What a route asks before it answers: a kind of node puts its API
+        /// behind a permission, "dns:edit", and whoever holds a role that
+        /// carries it is let in. See <see cref="IsAllowed(IUser, IEnumerable{Permission})"/>.
+        /// </remarks>
+        public AccessControl          Access                       { get; }
 
         /// <summary>
         /// The password made up at a first start and shown once, or null when
@@ -552,7 +559,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="HTTPRootPath">Where the JSON API sits; "/api" below <paramref name="BasePath"/> by default.</param>
         /// <param name="ExtAPI">An HTTPExt API to sign in against, or null for one of this node's own. Handing one in is what makes one sign-in open several of these programs at once.</param>
         /// <param name="AccountsPath">The directory the accounts live in between starts.</param>
-        /// <param name="Roles">The roles of this kind of node, by the names of the user groups that carry them; <see cref="UserRole.All"/> by default. <see cref="AdminRole"/> is one of them whatever is handed in.</param>
+        /// <param name="Roles">The roles of a kind of node that enforces them itself, by the names of the user groups that carry them. The node makes their groups and knows nothing of what they may do.</param>
+        /// <param name="Resources">The resources this kind of node adds to the node's own, by the names its roles write them under.</param>
+        /// <param name="RoleDefinitions">The roles of this kind of node, each with what it may do. <see cref="AdminRole"/> and the viewer are the node's, and a kind that brings a viewer of its own replaces the node's.</param>
         /// <param name="ConfigFile">Where the configuration lives between starts.</param>
         /// <param name="DNSClient">How to resolve names, or null to make a client.</param>
         /// <param name="NTSClient">Where to read the time, or null to make a client.</param>
@@ -579,6 +588,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         HTTPExtAPI?                                ExtAPI             = null,
                         String?                                    AccountsPath       = null,
                         IEnumerable<String>?                       Roles              = null,
+                        IEnumerable<String>?                       Resources          = null,
+                        IEnumerable<Role>?                         RoleDefinitions    = null,
                         WWCPConfigFile?                            ConfigFile         = null,
                         DNSClient?                                 DNSClient          = null,
                         NTSClient?                                 NTSClient          = null,
@@ -709,13 +720,35 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!this.AccountsPath.EndsWith(Path.DirectorySeparatorChar))
                 this.AccountsPath += Path.DirectorySeparatorChar;
 
-            // The kind's roles, and the administrators' among them whatever the
-            // kind said: the first account goes into that group, and a group
-            // that was never made would leave it able to do nothing at all.
-            // Told apart regardless of case, as the accounts tell groups apart.
-            this.Roles = [.. (Roles ?? UserRole.All.Select(role => role.Name)).
-                                 Append(AdminRole).
-                                 Distinct(StringComparer.OrdinalIgnoreCase)];
+            // The node's roles, its kind's and the file's, in that order - and
+            // the administrators' among them whatever the kind or the file
+            // said: the first account goes into that group, and a group that
+            // was never made would leave it able to do nothing at all. Told
+            // apart regardless of case, as the accounts tell groups apart.
+            //
+            // A role in the file that names a resource this node does not have
+            // stops the start, like every other mistake in the file: a typo in
+            // "dns" would otherwise be a role that quietly grants nothing.
+            if (!AccessControl.TryCombine(Resources,
+                                          RoleDefinitions,
+                                          Roles,
+                                          configuration.Roles,
+                                          this.Kind.Name,
+                                          out var access,
+                                          out var accessNotes,
+                                          out var accessError))
+            {
+                throw new InvalidOperationException($"'{this.ConfigFile.Path}': {accessError} Repair or remove '{this.ConfigFile.Path}' and start again.");
+            }
+
+            this.Access  = access;
+            this.Roles   = [.. access.Roles.Select(role => role.Name)];
+
+            // Who may do what is a decision about trust, and one the file made
+            // rather than the program: said at every start, where somebody
+            // reading the log afterwards will look for it.
+            foreach (var note in accessNotes)
+                this.Log.Notice(note, "web", "auth", "security");
 
             #endregion
 
@@ -2012,7 +2045,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("users",          ExtAPI.Users.     Count()),
                        new JProperty("groups",         ExtAPI.UserGroups.Count()),
                        new JProperty("cookie",         ExtAPI.SessionCookieName.ToString()),
-                       new JProperty("maxLifetime",    ExtAPI.MaxSignInSessionLifetime.ToString())
+                       new JProperty("maxLifetime",    ExtAPI.MaxSignInSessionLifetime.ToString()),
+                       new JProperty("roles",          Access.ToJSON())
                    )),
 
                    new JProperty("log",        new JObject(

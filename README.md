@@ -34,10 +34,10 @@ a port of their own to connect to.
 | `NodeKind.cs` | the five names a kind of node goes by |
 | `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
-| `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates` |
+| `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
-| `Web/` | who may sign in, and what each role may do |
-| `WWCP_Node_Tests/` | a hundred and eighty-one tests, each of them constructing the node rather than a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
+| `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them |
+| `WWCP_Node_Tests/` | two hundred and twenty-seven tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -87,7 +87,7 @@ The port is the kind's to give and to pass, not the node's to guess: a node
 that took a default of its own for a kind that forgot to pass one would
 listen somewhere nobody expects.
 
-Beyond the names, a kind of node adds to the node in seven places:
+Beyond the names, a kind of node adds to the node in eight places:
 
 * **Its own sections of the configuration file.** The node reads the file
   once and keeps the whole document as `ConfigurationDocument`; the kind
@@ -119,6 +119,9 @@ Beyond the names, a kind of node adds to the node in seven places:
   station, a local controller or a gateway keeps the keys it dials with in
   stores of its own, and a store beside every one of them holding a vehicle's
   seven empty directories was a promise nobody was keeping.
+* **Who may do what:** `Resources`, the names of what it adds for a role to
+  read, edit or run, and `RoleDefinitions`, its roles and what each of them
+  may do - see below.
 * **What it is, for the Configuration page:** `ConfigurationJSON()` is
   virtual and answers with the node's cards - `http`, `web`, `log`, `time` -
   and the kind adds its own on top.
@@ -144,10 +147,11 @@ answer that fits on a screen.
 The file has sections, and `WWCPConfigFile` knows nothing about what they
 mean: it reads and writes sections, and what a section says is the business
 of whoever asked for it. `WWCPConfiguration` takes the sections every node
-has - `dns`, `nts`, `certificates` - and passes the others over without a
-word; the kind of node takes its own from the same document. That is what
-lets a vehicle keep its battery in the same file its name servers are in,
-and what lets a file written by a newer node still start an older one.
+has - `dns`, `nts`, `certificates`, `roles` - and passes the others over
+without a word; the kind of node takes its own from the same document. That
+is what lets a vehicle keep its battery in the same file its name servers
+are in, and what lets a file written by a newer node still start an older
+one.
 
 Every section is optional and so is every field inside it. A section that is
 absent is not a section set to nothing: it means the file has no opinion, and
@@ -384,23 +388,52 @@ no secure cookie over plain HTTP and nobody could stay signed in. A server
 that is handed in brings its own TLS or none, and the node goes by it.
 
 A role is a user group under the same name, and membership is what carries
-its permissions. The roles are the kind of node's, handed in as `Roles` - a
-vehicle's are `viewer`, `driver`, `service` and `systemadmin`, a charging
-station's `viewer`, `cpo`, `installer` and `systemadmin` - and a node handed
-none knows the vehicle's, which came here with the rest of the vehicle.
-`systemadmin` is one of them whatever the kind says: the first account goes
-there. The groups are made at every start rather than only the first,
-because they are the node's vocabulary and not somebody's data: a group
-deleted by hand would otherwise leave a role nobody can ever hold again - and
-Hermod's floor for a group's identification is lowered to the shortest role
-handed in, because it is four characters and `cpo` is three.
+what it may do: a list of permissions, each an operation on a resource and
+written `dns:edit`. The operations are three and fixed - `read`, `edit`, and
+`run` for asking a server something or running a session - so that "may
+read" means the same on every kind of node. The resources are names:
+`configuration`, `dns`, `nts` and `certificates` for what every node has,
+and whatever a kind of node adds - `vehicle`, `v2g` and `session` for a
+vehicle. `*` is every resource there is, the kind's included. The clock, the
+log and the event stream are none of them, and for anybody signed in.
 
-What a role lets somebody do is the kind's to say and to enforce: the HTTPExt
-API knows users, groups and organizations and has no opinion about what "may
-run a session" or "may raise a power limit" means; it answers who somebody
-is, and the kind of node answers what that lets them do. `Web/UserRoles.cs`
-is the vehicle's answer. A closed set, deliberately: a role a node has never
-heard of grants nothing, rather than quietly granting something.
+The roles are data, put together at every start from three places. The node
+brings two: `viewer`, who may read everything, and `systemadmin`, who may do
+everything - the first account goes there, and nobody but the node says what
+it may do, because a role that could be narrowed could leave nobody able to
+put that right. A kind of node hands in its resources and its roles as
+`Resources` and `RoleDefinitions` - a vehicle's `driver` and `service` - and
+may bring a `viewer` of its own. And the `roles` section of the configuration
+file adds roles, or says differently what one of them may do:
+
+```json
+"roles": { "support": [ "dns:read", "nts:read" ] }
+```
+
+A role there that names a resource the node does not have stops the start,
+because a typo in `dns` would otherwise be a role that quietly grants
+nothing; what the file added or changed is said in the log at every start,
+tagged `security`. A kind of node that still enforces roles of its own hands
+in their names as `Roles`, and gets their groups and nothing else - and a
+`roles` section in its file stops the start as well, because nobody would
+enforce what it says.
+
+The groups are made at every start rather than only the first, because they
+are the node's vocabulary and not somebody's data: a group deleted by hand
+would otherwise leave a role nobody can ever hold again - and Hermod's floor
+for a group's identification is lowered to the shortest role there is,
+because it is four characters and a charging station's `cpo` is three.
+
+What an account may do is asked of the node - `IsAllowed`, `RolesOf`,
+`PermissionsOf` - on every request rather than once at sign-in, so that
+taking somebody out of a group takes effect on their next request. The
+HTTPExt API knows users, groups and organizations and has no opinion about
+what "may edit the DNS settings" means; it answers who somebody is, and the
+node answers what that lets them do. `PermissionsOf` spells `*` out resource
+by resource, for a web interface that greys out what its user may not do.
+The permissions a vehicle brought here as an enumeration, in
+`Web/Permissions.cs` and `Web/UserRoles.cs`, are marked obsolete and stay
+until every kind of node that uses them has moved over.
 
 Several of these programs may share one server and one sign-in. A node handed
 an `HTTPServer` registers within it and neither starts nor stops it; one
@@ -543,8 +576,7 @@ listens, signs people in, keeps a log and a clock, and waits for a kind of
 node to make something of that.
 
 And not yet as general as its name. The certificate kinds are ISO 15118's
-and a vehicle's, and so are the permissions in `Web/UserRoles.cs` - they came
-here with the rest. The second kind, the charging station, has said what of
+and a vehicle's - they came here with the rest. The second kind, the charging station, has said what of
 it is every node's so far: the roles are the kind's, a node may listen on
 more than one port, and a clock check is counted for a screen rather than
 described to it. It has its own certificates for the back ends it dials, and

@@ -30,6 +30,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// <summary>
     /// What a set of roles adds up to.
     /// </summary>
+    [Obsolete("Roles are data now: Role, Permission and Operation, asked through WWCPNode.Access and WWCPNode.IsAllowed. This stays until every kind of node using it has moved over.")]
     public static class UserRoleExtensions
     {
 
@@ -96,6 +97,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// </remarks>
     /// <param name="Name">The role, and the name of the user group that carries it.</param>
     /// <param name="Permissions">What it grants.</param>
+    [Obsolete("Roles are data now: Role, Permission and Operation, asked through WWCPNode.Access and WWCPNode.IsAllowed. This stays until every kind of node using it has moved over.")]
     public sealed record UserRole(String       Name,
                                   Permissions  Permissions)
     {

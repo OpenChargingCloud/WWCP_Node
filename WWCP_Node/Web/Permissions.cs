@@ -32,6 +32,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// time and answered by a single test - and because the set a role grants
     /// is then a constant instead of a collection to be built and searched.
     /// </remarks>
+    [Obsolete("Roles are data now: Role, Permission and Operation, asked through WWCPNode.Access and WWCPNode.IsAllowed. This stays until every kind of node using it has moved over.")]
     [Flags]
     public enum Permissions : UInt32
     {

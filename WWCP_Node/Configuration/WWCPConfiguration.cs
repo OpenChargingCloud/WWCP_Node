@@ -49,9 +49,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="DNS">How the node resolves names.</param>
     /// <param name="NTS">Where the node reads the time.</param>
     /// <param name="Certificates">Where the certificates the node believes and presents are kept.</param>
+    /// <param name="Roles">Roles beside the ones the node and its kind bring, and what one they brought may do instead.</param>
     public sealed record WWCPConfiguration(DNSConfiguration?           DNS            = null,
                                            NTSConfiguration?           NTS            = null,
-                                           CertificatesConfiguration?  Certificates   = null)
+                                           CertificatesConfiguration?  Certificates   = null,
+                                           RolesConfiguration?         Roles          = null)
     {
 
         #region Properties
@@ -63,7 +65,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             => DNS          is null &&
                NTS          is null &&
-               Certificates is null;
+               Certificates is null &&
+               Roles        is null;
 
         #endregion
 
@@ -153,10 +156,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             #endregion
 
+            #region Roles
+
+            RolesConfiguration? roles = null;
+
+            if (JSON[RolesConfiguration.SectionName] is JToken rolesToken && rolesToken.Type != JTokenType.Null)
+            {
+
+                if (rolesToken is not JObject rolesJSON)
+                {
+                    Error = $"'{RolesConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!RolesConfiguration.TryParse(rolesJSON, out roles, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
             Configuration = new WWCPConfiguration(
                                 dns,
                                 nts,
-                                certificates
+                                certificates,
+                                roles
                             );
 
             return true;
@@ -184,6 +208,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Certificates is not null)
                 json.Add(CertificatesConfiguration.SectionName,  Certificates.ToJSON());
 
+            if (Roles is not null)
+                json.Add(RolesConfiguration.       SectionName,  Roles.       ToJSON());
+
             return json;
 
         }
@@ -201,6 +228,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                              DNS is not null ? "DNS" : null,
                              NTS is not null ? "NTS" : null,
                              Certificates?.ToString(),
+                             Roles?.ToString()
                          }.Where(section => section is not null));
 
         #endregion

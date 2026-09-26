@@ -161,21 +161,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region ANodeOfNoParticularKindKnowsTheRolesItAlwaysHas()
+        #region ANodeOfNoParticularKindKnowsTheRolesEveryNodeHas()
 
         /// <summary>
-        /// Told nothing, a node makes the groups it has always made - which are
-        /// a vehicle's, having come here with the rest of the vehicle.
+        /// Told nothing, a node makes the groups of the two roles every node
+        /// has - the viewer and the administrators - and none of a vehicle's,
+        /// which it used to make when its roles came with the rest of the
+        /// vehicle.
         /// </summary>
         [Test]
-        public async Task ANodeOfNoParticularKindKnowsTheRolesItAlwaysHas()
+        public async Task ANodeOfNoParticularKindKnowsTheRolesEveryNodeHas()
         {
 
             await using var node = await StartedNode();
 
             Assert.Multiple(() => {
-                Assert.That(node.Roles,              Is.EqualTo(UserRole.All.Select(role => role.Name)));
-                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "driver", "service", "systemadmin", "viewer" }));
+                Assert.That(node.Roles,              Is.EqualTo(new[] { Role.Viewer.Name, Role.SystemAdmin.Name }));
+                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "systemadmin", "viewer" }));
                 Assert.That(RootIsASystemAdmin(node), Is.True);
             });
 
