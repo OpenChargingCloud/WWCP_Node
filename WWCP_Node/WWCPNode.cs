@@ -709,6 +709,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!configuration.IsEmpty)
                 this.Log.Info($"Configuration from '{this.ConfigFile.Path}': {configuration}.", "config");
 
+            // What every server was last believed with, beside the file - before
+            // the clients are made, whose first connections are remembered in it.
+            this.KnownServers = new KnownServers(
+                                    Beside(this.ConfigFile.Path, KnownServers.DefaultFileName),
+                                    this.Log
+                                );
+
             #endregion
 
             #region Where the accounts live
@@ -1588,14 +1595,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           new JProperty("certificate",    held?.NTSKEResponse?.TLSInfo?.ServerCertificate is System.Security.Cryptography.X509Certificates.X509Certificate2 shown
                                                                               ? CertificateEntry.ThumbprintOf(shown)
                                                                               : null),
-                                          new JProperty("heldTo",         PinsOf(source.Hostname) is { IsPinned: true } pinned
-                                                                              ? new JObject(
-                                                                                    new JProperty("certificate",  pinned.CertificateFingerprint),
-                                                                                    new JProperty("root",         pinned.RootFingerprint),
-                                                                                    new JProperty("onMismatch",   pinned.OnMismatch.AsText())
-                                                                                )
+                                          new JProperty("heldTo",         PinsOf(source.Hostname)?.Pins is { SaysAnything: true } pins
+                                                                              ? pins.ToJSON()
                                                                               : null),
-                                          new JProperty("judgement",      LastJudgementOf(source.Hostname)?.ToJSON())
+                                          new JProperty("judgement",      LastJudgementOf(source.Hostname)?.ToJSON()),
+                                          // What it was last believed with, which
+                                          // is what a change is noticed against,
+                                          // pinned or not.
+                                          new JProperty("known",          KnownServers.Get(CertificateUsages.NTS, source.Hostname.Trimmed) is KnownServer known
+                                                                              ? new JObject(
+                                                                                    new JProperty("certificate",  known.Certificate),
+                                                                                    new JProperty("root",         known.Root),
+                                                                                    new JProperty("since",        known.Since.ToString("o"))
+                                                                                )
+                                                                              : null)
                                       );
 
                            })
@@ -1876,17 +1889,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
             foreach (var server in wasPins.Keys.Union(nowPins.Keys).ToArray())
             {
 
-                var was = wasPins.TryGetValue(server, out var before) ? before : default((String?, String?, PinMismatch)?);
-                var now = nowPins.TryGetValue(server, out var after)  ? after  : default((String?, String?, PinMismatch)?);
+                var was = wasPins.GetValueOrDefault(server);
+                var now = nowPins.GetValueOrDefault(server);
 
-                if (was == now)
+                if ((was ?? ServerPins.None).SameAs(now))
                     continue;
 
                 timeEngine.ForgetKeyExchange(server);
-                judgements.TryRemove(server, out _);
+                judgements.TryRemove((CertificateUsages.NTS, server.Trimmed.ToLowerInvariant()), out _);
 
-                changed.Add(PinsOf(server) is { IsPinned: true } pinned
-                                ? $"{server.Trimmed} held to {pinned.PinsText}"
+                changed.Add(now is { SaysAnything: true }
+                                ? $"{server.Trimmed} held to {now}"
                                 : $"{server.Trimmed} held to no fingerprint");
 
             }

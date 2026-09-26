@@ -640,13 +640,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
 
                 Assert.That(NTSServerConfiguration.TryParse(JObject.Parse("""{ "hostname": "time.example.org", "certificateFingerprint": "ab:cd" }"""), 1, out _, out error),  Is.False);
-                Assert.That(error,  Does.StartWith("'nts.servers[1]'.certificateFingerprint is not a SHA-256 fingerprint"));
+                Assert.That(error,  Does.StartWith("'nts.servers[1].certificateFingerprint' holds 'ab:cd', which is not a SHA-256 fingerprint"));
 
                 Assert.That(NTSServerConfiguration.TryParse(JObject.Parse("""{ "hostname": "time.example.org", "onMismatch": "record" }"""), 2, out _, out error),  Is.False);
                 Assert.That(error,  Does.Contain("is held to none"));
 
                 Assert.That(NTSServerConfiguration.TryParse(JObject.Parse($$"""{ "hostname": "time.example.org", "rootFingerprint": "{{fingerprint}}", "onMismatch": "ignore" }"""), 3, out _, out error),  Is.False);
-                Assert.That(error,  Does.Contain("has to be 'refuse' or 'record'"));
+                Assert.That(error,  Does.Contain("has to be 'refuse', 'record' or 'accept'"));
 
             });
 
@@ -752,6 +752,343 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.TimeSources.Sources.All(source => source.RemoteCertificateValidator is not null),  Is.True,  "a server saved later asks nobody");
 
             }
+
+        }
+
+        #endregion
+
+        #region (helper) Fingerprint(Certificate) / ServerEntry(Node) / Security(Node, Since)
+
+        private static String Fingerprint(X509Certificate2 Certificate)
+            => CertificateEntry.ThumbprintOf(Certificate);
+
+        /// <summary>
+        /// The entry of the first time server, as the configuration file says it now.
+        /// </summary>
+        private static JObject ServerEntry(WWCPNode Node)
+            => (JObject) JObject.Parse(File.ReadAllText(Node.ConfigFile.Path))["nts"]!["servers"]![0]!;
+
+        private static String[] Security(WWCPNode Node, UInt64 Since)
+
+            => [.. Node.Log.Recent(100, Since, "security").Select(entry => entry.Message)];
+
+        #endregion
+
+
+        #region AServerMayBeHeldToSeveralCertificates()
+
+        /// <summary>
+        /// Two certificates are a renewal that has been announced: the server is
+        /// held to either of them, and to nothing else.
+        /// </summary>
+        [Test]
+        public async Task AServerMayBeHeldToSeveralCertificates()
+        {
+
+            await using var node = Node($$"""[ { "hostname": "time.example.org", "certificateFingerprints": [ "{{Fingerprint(otherLeaf)}}", "{{Fingerprint(leaf)}}" ] } ]""");
+
+            using var third = Leaf(Server.Trimmed, ca);
+
+            ServerJudgement Judge(X509Certificate2 Certificate)
+            {
+                var (chain, errors) = Trusted(Certificate, ca);
+                using (chain)
+                    return node.JudgeTimeServer(Server, Certificate, chain, errors);
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(Judge(leaf).     Outcome,  Is.EqualTo("accepted"));
+                Assert.That(Judge(otherLeaf).Outcome,  Is.EqualTo("accepted"));
+                Assert.That(Judge(third).    Outcome,  Is.EqualTo("pinMismatch"));
+            });
+
+        }
+
+        #endregion
+
+        #region AServerMayBeHeldToSeveralRoots()
+
+        /// <summary>
+        /// Two roots are a CA moving to a new one, written down before it
+        /// happens.
+        /// </summary>
+        [Test]
+        public async Task AServerMayBeHeldToSeveralRoots()
+        {
+
+            await using var node = Node($$"""[ { "hostname": "time.example.org", "rootFingerprints": [ "{{Fingerprint(otherCA)}}", "{{Fingerprint(ca)}}" ] } ]""");
+
+            using var thirdCA    = CA("A Third CA");
+            using var fromOther  = Leaf(Server.Trimmed, otherCA);
+            using var fromThird  = Leaf(Server.Trimmed, thirdCA);
+
+            ServerJudgement Judge(X509Certificate2 Certificate, X509Certificate2 Root)
+            {
+                var (chain, errors) = Trusted(Certificate, Root);
+                using (chain)
+                    return node.JudgeTimeServer(Server, Certificate, chain, errors);
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(Judge(leaf,      ca).     Outcome,  Is.EqualTo("accepted"));
+                Assert.That(Judge(fromOther, otherCA).Outcome,  Is.EqualTo("accepted"));
+                Assert.That(Judge(fromThird, thirdCA).Outcome,  Is.EqualTo("pinMismatch"));
+            });
+
+        }
+
+        #endregion
+
+        #region AMismatchAcceptedIsUsedAndSaidAsAMatterOfSecurity()
+
+        /// <summary>
+        /// "accept": the server is used, and the mismatch is said, tagged as a
+        /// matter of security - for a time server in the metrological log as
+        /// well, because it bears on the time.
+        /// </summary>
+        [Test]
+        public async Task AMismatchAcceptedIsUsedAndSaidAsAMatterOfSecurity()
+        {
+
+            await using var node = Node($$"""[ { "hostname": "time.example.org", "certificateFingerprint": "{{Fingerprint(leaf)}}", "onMismatch": "accept" } ]""");
+
+            var before           = node.Log.LastId;
+            var (chain, errors)  = Trusted(otherLeaf, ca);
+
+            using (chain)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, otherLeaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Accepted,          Is.True);
+                    Assert.That(judgement.Outcome,           Is.EqualTo("tolerated"));
+                    Assert.That(Security(node, before),      Has.Some.Contains("used all the same"));
+                    Assert.That(Metrological(node, before),  Has.Some.Contains("used all the same"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region ATimeServerLearnsItsRootOnFirstUse()
+
+        /// <summary>
+        /// "trustOnFirstUse": "root" - the root the first believed certificate
+        /// chains to is written into the server's entry, and from then on the
+        /// server is held to it like to a root somebody typed.
+        /// </summary>
+        [Test]
+        public async Task ATimeServerLearnsItsRootOnFirstUse()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "trustOnFirstUse": "root" } ]""");
+
+            var before           = node.Log.LastId;
+            var (chain, errors)  = Trusted(leaf, ca);
+
+            ServerJudgement first;
+
+            using (chain)
+                first = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+            var entry = ServerEntry(node);
+
+            using var elsewhere    = Leaf(Server.Trimmed, otherCA);
+            var (other, errors2)   = Trusted(elsewhere, otherCA);
+
+            ServerJudgement second;
+
+            using (other)
+                second = node.JudgeTimeServer(Server, elsewhere, other, errors2);
+
+            Assert.Multiple(() => {
+
+                Assert.That(first.Accepted,                          Is.True);
+                Assert.That(first.Learned,                           Is.EqualTo(TrustOnFirstUse.Root));
+                Assert.That(entry.Value<String>("rootFingerprint"),  Is.EqualTo(Fingerprint(ca)),  "written down as a pin somebody typed would be");
+                Assert.That(entry.Value<String>("trustOnFirstUse"),  Is.EqualTo("root"),           "and still saying where it came from");
+                Assert.That(Metrological(node, before),              Has.Some.Contains("trusted on first use"));
+
+                Assert.That(second.Outcome,                          Is.EqualTo("pinMismatch"),    "another root afterwards is another root");
+                Assert.That(second.Learned,                          Is.EqualTo(TrustOnFirstUse.None));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ATimeServerLearnsItsCertificateOnFirstUse()
+
+        /// <summary>
+        /// "trustOnFirstUse": "certificate" - and a renewal afterwards is a
+        /// mismatch, used here because the entry says "accept", and a change,
+        /// said because it is one.
+        /// </summary>
+        [Test]
+        public async Task ATimeServerLearnsItsCertificateOnFirstUse()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "trustOnFirstUse": "certificate", "onMismatch": "accept" } ]""");
+
+            var (chain, errors)    = Trusted(leaf, ca);
+            var (renewed, errors2) = Trusted(otherLeaf, ca);
+
+            ServerJudgement first, second;
+
+            using (chain)
+                first  = node.JudgeTimeServer(Server, leaf,      chain,   errors);
+
+            using (renewed)
+                second = node.JudgeTimeServer(Server, otherLeaf, renewed, errors2);
+
+            Assert.Multiple(() => {
+                Assert.That(first.Learned,                                          Is.EqualTo(TrustOnFirstUse.Certificate));
+                Assert.That(ServerEntry(node).Value<String>("certificateFingerprint"),  Is.EqualTo(Fingerprint(leaf)));
+                Assert.That(second.Outcome,                                         Is.EqualTo("tolerated"));
+                Assert.That(second.Changed,                                         Is.True);
+                Assert.That(second.Previously!.Certificate,                         Is.EqualTo(Fingerprint(leaf)));
+            });
+
+        }
+
+        #endregion
+
+        #region NothingIsLearnedFromACertificateNobodyBelieves()
+
+        /// <summary>
+        /// Trust on first use narrows what is believed, as every pin does, and
+        /// never widens it: a certificate that chains to nothing is refused, and
+        /// nothing about it is written down to hold the server to.
+        /// </summary>
+        [Test]
+        public async Task NothingIsLearnedFromACertificateNobodyBelieves()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "trustOnFirstUse": "root" } ]""");
+
+            var (chain, errors) = Untrusted(leaf);
+
+            using (chain)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Outcome,                        Is.EqualTo("untrusted"));
+                    Assert.That(judgement.Learned,                        Is.EqualTo(TrustOnFirstUse.None));
+                    Assert.That(ServerEntry(node).ContainsKey("rootFingerprint"),  Is.False);
+                    Assert.That(node.KnownServers.Get("nts", Server.Trimmed),      Is.Null, "and what was refused is not remembered as what it was believed with");
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region AnotherCertificateThanBeforeIsSaidWithoutAnyPin()
+
+        /// <summary>
+        /// Held to nothing, a server showing another certificate than it was
+        /// believed with is said all the same - with both fingerprints - and
+        /// remembered with the new one.
+        /// </summary>
+        [Test]
+        public async Task AnotherCertificateThanBeforeIsSaidWithoutAnyPin()
+        {
+
+            await using var node = Node();
+
+            var (chain, errors)    = Trusted(leaf, ca);
+            var (renewed, errors2) = Trusted(otherLeaf, ca);
+
+            ServerJudgement first;
+
+            using (chain)
+                first = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+            var before = node.Log.LastId;
+
+            ServerJudgement second;
+
+            using (renewed)
+                second = node.JudgeTimeServer(Server, otherLeaf, renewed, errors2);
+
+            Assert.Multiple(() => {
+                Assert.That(first.FirstSeen,                                            Is.True);
+                Assert.That(second.Accepted,                                            Is.True);
+                Assert.That(second.Changed,                                             Is.True);
+                Assert.That(Security(node, before),                                     Has.Some.Contains("showed another certificate").And.Contains(Fingerprint(leaf)).And.Contains(Fingerprint(otherLeaf)));
+                Assert.That(Metrological(node, before),                                 Has.Some.Contains("showed another certificate"), "a time server's, which bears on the time");
+                Assert.That(node.KnownServers.Get("nts", Server.Trimmed)!.Certificate,  Is.EqualTo(Fingerprint(otherLeaf)));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatAServerWasBelievedWithSurvivesARestart()
+
+        [Test]
+        public async Task WhatAServerWasBelievedWithSurvivesARestart()
+        {
+
+            await using (var first = Node())
+            {
+                var (chain, errors) = Trusted(leaf, ca);
+                using (chain)
+                    first.JudgeTimeServer(Server, leaf, chain, errors);
+            }
+
+            Assert.That(File.Exists(Path.Combine(directory, KnownServers.DefaultFileName)), Is.True, "beside the configuration file");
+
+            await using var second = Node();
+
+            var (renewed, errors2) = Trusted(otherLeaf, ca);
+
+            using (renewed)
+            {
+
+                var judgement = second.JudgeTimeServer(Server, otherLeaf, renewed, errors2);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.FirstSeen,              Is.False, "the restart forgot what it was believed with");
+                    Assert.That(judgement.Changed,                Is.True);
+                    Assert.That(judgement.Previously!.Certificate, Is.EqualTo(Fingerprint(leaf)));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region TheNTSAnswerSaysEveryPinAndWhatAServerWasBelievedWith()
+
+        [Test]
+        public async Task TheNTSAnswerSaysEveryPinAndWhatAServerWasBelievedWith()
+        {
+
+            await using var node = Node($$"""[ { "hostname": "time.example.org", "certificateFingerprints": [ "{{Fingerprint(leaf)}}", "{{Fingerprint(otherLeaf)}}" ], "trustOnFirstUse": "root" } ]""");
+
+            var (chain, errors) = Trusted(leaf, ca);
+
+            using (chain)
+                node.JudgeTimeServer(Server, leaf, chain, errors);
+
+            var server = (node.NTSConfigurationJSON()["timeSources"] as JArray)!.Single();
+
+            Assert.Multiple(() => {
+                Assert.That(server["heldTo"]!.Value<String>("certificate"),         Is.EqualTo(Fingerprint(leaf)), "the first, where a page reads one");
+                Assert.That(server["heldTo"]!["certificates"]!.Values<String>(),    Is.EqualTo(new[] { Fingerprint(leaf), Fingerprint(otherLeaf) }));
+                Assert.That(server["heldTo"]!.Value<String>("root"),                Is.EqualTo(Fingerprint(ca)),   "learned on first use");
+                Assert.That(server["heldTo"]!.Value<String>("trustOnFirstUse"),     Is.EqualTo("root"));
+                Assert.That(server["known"]!.Value<String>("certificate"),          Is.EqualTo(Fingerprint(leaf)));
+            });
 
         }
 

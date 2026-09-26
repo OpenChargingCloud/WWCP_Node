@@ -831,7 +831,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // key exchange only - a judgement from before it would be about
                 // another handshake.
                 if (asking.RemoteCertificateValidator is not null &&
-                    LastJudgementOf(asking.Hostname) is TimeServerJudgement judgement &&
+                    LastJudgementOf(asking.Hostname) is ServerJudgement judgement &&
                     judgement.At >= judgedFrom)
                 {
                     foreach (var (level, text) in judgement.Steps)

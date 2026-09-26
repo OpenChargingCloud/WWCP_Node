@@ -19,29 +19,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
-    /// What a key exchange comes to whose certificate is not the one its time
-    /// server is held to.
+    /// What a connection comes to whose certificate is not the one its server
+    /// is held to.
     /// </summary>
     /// <remarks>
-    /// Either way it is written into the metrological log. The difference is
-    /// whether the time the server gives is used.
+    /// Every one of them is written into the log, tagged as a matter of
+    /// security. The difference is whether the server is used, and whether
+    /// the mismatch is evidence as well: what bears on the time a node keeps
+    /// - a time server's - is written into the metrological log whichever it
+    /// is.
     /// </remarks>
     public enum PinMismatch
     {
 
         /// <summary>
-        /// Refused: the key exchange ends, and the server is not asked for the
-        /// time. What a pin is for, and so what a pin means unless it says
-        /// otherwise.
+        /// Refused: the connection ends, and the server is not asked anything.
+        /// What a pin is for, and so what a pin means unless it says otherwise.
         /// </summary>
         Refuse,
 
         /// <summary>
-        /// Used, and written down: for watching what a server shows before
-        /// holding it to anything - a certificate about to be renewed, a root
-        /// about to change - without losing its time in the meantime.
+        /// Used, and written down as evidence as well: for watching what a
+        /// server shows before holding it to anything - a certificate about to
+        /// be renewed, a root about to change - without losing it in the
+        /// meantime, and with the mismatch in the metrological log.
         /// </summary>
-        Record
+        Record,
+
+        /// <summary>
+        /// Used, and said: the mismatch is in the log, tagged as a matter of
+        /// security, and - for anything but a time server - nowhere else.
+        /// </summary>
+        Accept
 
     }
 
@@ -53,12 +62,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     {
 
         /// <summary>
-        /// The word the configuration file uses: "refuse" or "record".
+        /// The word the configuration file uses: "refuse", "record" or
+        /// "accept".
         /// </summary>
         public static String AsText(this PinMismatch Mismatch)
 
             => Mismatch switch {
                    PinMismatch.Record  => "record",
+                   PinMismatch.Accept  => "accept",
                    _                   => "refuse"
                };
 
@@ -78,6 +89,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
                 case "record":
                     Mismatch = PinMismatch.Record;
+                    return true;
+
+                case "accept":
+                    Mismatch = PinMismatch.Accept;
                     return true;
 
                 default:

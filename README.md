@@ -37,7 +37,7 @@ a port of their own to connect to.
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them |
-| `WWCP_Node_Tests/` | two hundred and thirty-eight tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | two hundred and fifty-seven tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -239,32 +239,64 @@ An entry of `servers` is a host name, or an object saying more than the name:
 { "hostname": "time.local", "priority": 0, "ntsKEPort": 4460, "enabled": true }
 ```
 
-A server may be held to more than every server is held to - its own
-certificate, or the root its chain ends at, each by its SHA-256 fingerprint,
+A server may be held to more than every server is held to - certificates
+it may show, roots its chain may end at, each by its SHA-256 fingerprint,
 written the way a certificate authority, a browser or openssl writes one:
 
 ```json
 { "hostname": "time.local", "rootFingerprint": "4F:1C:…", "onMismatch": "record" }
 ```
 
-A server showing another certificate is refused - its key exchange ends, and
-it gives no time - unless `onMismatch` says `record`, when its time is used
-all the same; either way the metrological log says which certificate it
-showed and what it is held to. The certificate is judged at every key
-exchange, of the group and of a detailed test alike, and in this order: is
-it issued for the server's name; does its chain end at a root this machine
-trusts, or at a TLS root of the node's own store, or at the root the server
-is held to where the store has that one under whatever kind; and is it what
-the server is held to. A pin narrows what is believed and never widens it:
-a certificate that matches its pin and chains to nothing is refused, and a
-server with a certificate it signed itself is believed by importing that
-certificate as a TLS root - which says the same thing, on purpose. A key
-exchange is reused for as long as its cookies last, up to half an hour, so a
-change to what a server is held to forgets the exchange it has, and the pin
-counts from the next round. The same verdict at every round is written into
-the metrological log once, and its end again. The NTS answer says, per
-server, the fingerprint of the certificate it showed last - which is what a
-pin is written down from - what it is held to, and what the node made of it.
+One of a kind is written as above; several are a list under
+`certificateFingerprints` or `rootFingerprints`, and the server may show any
+of them - two certificates are a renewal that has been announced, two roots a
+CA moving to a new one, written down before it happens. A server showing
+another certificate is refused - its key exchange ends, and it gives no time -
+unless `onMismatch` says otherwise: `record` uses its time all the same and
+writes the mismatch into the metrological log, `accept` uses it and says so in
+the log. Every one of the three is tagged `security`, and for a time server
+the metrological log gets the mismatch whichever it is, because it bears on
+the time.
+
+`"trustOnFirstUse": "root"` - or `"certificate"` - holds a server to what it
+was first believed with: the root its chain ended at, or its certificate,
+written into its entry of the file the moment it is learned, as a pin
+somebody typed would be, and changed or taken away there like one. The root
+is usually the one to learn: a certificate is renewed every few months, and a
+pin on it turns every renewal into a mismatch. It is learned only from a
+certificate that was believed anyway - trust on first use narrows what is
+believed, and never widens it.
+
+The certificate is judged at every key exchange, of the group and of a
+detailed test alike, and in this order: is it issued for the server's name;
+does its chain end at a root this machine trusts, or at a TLS root of the
+node's own store for `nts`, or at a root the server is held to where the
+store has that one under whatever kind; and is it one the server is held to.
+A pin narrows what is believed and never widens it: a certificate that
+matches its pin and chains to nothing is refused, and a server with a
+certificate it signed itself is believed by importing that certificate as a
+TLS root - which says the same thing, on purpose. A key exchange is reused
+for as long as its cookies last, up to half an hour, so a change to what a
+server is held to forgets the exchange it has, and the pin counts from the
+next round. The same verdict at every round is written down once, and its
+end again.
+
+What a server was believed with is remembered, pinned or not, in
+`known-servers.json` beside the configuration file - fingerprints and nothing
+else, in the spirit of SSH's known_hosts - and a server believed with another
+certificate than before is said, with both fingerprints, tagged `security`
+and, for a time server, in the metrological log: a certificate renewed on
+schedule and one somebody in between presents look alike to a node that holds
+its servers to nothing, and here the second is at least a line in the log.
+What was refused is not remembered, or the genuine certificate would look
+like a change the next time.
+
+The NTS answer says, per server, the fingerprint of the certificate it showed
+last - which is what a pin is written down from - what it is held to, what
+the node made of it, and what it was last believed with. The judgement is the
+same for any server a node connects to - `JudgeServer` - and a name server
+reached over TLS or HTTPS will go through it once Hermod's DNS client hands
+its certificate over, which it does not yet.
 
 Servers sharing a priority are one band and are asked together; a lower
 priority is asked first. The four above share priority 0 because they are
@@ -521,6 +553,12 @@ meter's metrological log carries on its chain. The numbering of the log
 carries on after a restart from the highest number the metrological log -
 or any store of every entry a kind of node hands in, `IEventLogStore` -
 holds.
+
+What bears on trust is tagged `security`, in the log and in the file: a
+server's certificate refused, tolerated, recorded, learned or changed; every
+change of the certificate store; a role the configuration file adds or says
+differently. One tag and not another log, because a page and a `grep` pick it
+out either way, and what is also evidence is in the metrological log already.
 
 What the log says about itself - a listener that failed, a file that cannot
 be written - cannot go through the log, and goes to stderr. It goes through
