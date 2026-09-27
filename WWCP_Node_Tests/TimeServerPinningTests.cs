@@ -990,6 +990,159 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ARootLearnedWhileAPageWasOpenIsKeptByItsSave()
+
+        /// <summary>
+        /// A page loaded before the first key exchange and saved after it: the
+        /// other server's priority changed, and every server sent with what the
+        /// page showed it held to. The root learned in between stays - in the
+        /// file, and in effect: another root afterwards is another root, not a
+        /// second first use.
+        /// </summary>
+        [Test]
+        public async Task ARootLearnedWhileAPageWasOpenIsKeptByItsSave()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "trustOnFirstUse": "root" }, "other.example.org" ]""");
+
+            var (chain, errors) = Trusted(leaf, ca);
+
+            using (chain)
+                Assert.That(node.JudgeTimeServer(Server, leaf, chain, errors).Learned, Is.EqualTo(TrustOnFirstUse.Root));
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""
+                            { "servers": [ { "hostname": "time.example.org", "trustOnFirstUse": "root",
+                                             "pinsAsShown": { "trustOnFirstUse": "root" } },
+                                           { "hostname": "other.example.org", "priority": 5,
+                                             "pinsAsShown": { } } ] }
+                            """), out var error),
+                        Is.True,
+                        error);
+
+            var entry            = ServerEntry(node);
+
+            using var elsewhere  = Leaf(Server.Trimmed, otherCA);
+            var (other, errors2) = Trusted(elsewhere, otherCA);
+
+            ServerJudgement again;
+
+            using (other)
+                again = node.JudgeTimeServer(Server, elsewhere, other, errors2);
+
+            Assert.Multiple(() => {
+
+                Assert.That(entry.Value<String>("rootFingerprint"),  Is.EqualTo(Fingerprint(ca)),  "the root learned while the page was open");
+                Assert.That(entry.Value<String>("trustOnFirstUse"),  Is.EqualTo("root"));
+                Assert.That(node.NTSConfigurationJSON()["timeSources"]![1]!.Value<Int32>("priority"),
+                            Is.EqualTo(5),
+                            "and the change the page made");
+
+                Assert.That(again.Outcome,                           Is.EqualTo("pinMismatch"));
+                Assert.That(again.Learned,                           Is.EqualTo(TrustOnFirstUse.None));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARootAPageShowedAndTookAwayIsTakenAway()
+
+        /// <summary>
+        /// The page showed the root learned on first use, and it was taken away
+        /// there: gone, and to be learned again.
+        /// </summary>
+        [Test]
+        public async Task ARootAPageShowedAndTookAwayIsTakenAway()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "trustOnFirstUse": "root" } ]""");
+
+            var (chain, errors) = Trusted(leaf, ca);
+
+            using (chain)
+                node.JudgeTimeServer(Server, leaf, chain, errors);
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse($$"""
+                            { "servers": [ { "hostname": "time.example.org", "trustOnFirstUse": "root",
+                                             "pinsAsShown": { "rootFingerprint": "{{Fingerprint(ca)}}", "trustOnFirstUse": "root" } } ] }
+                            """), out var error),
+                        Is.True,
+                        error);
+
+            var entry = ServerEntry(node);
+
+            Assert.Multiple(() => {
+                Assert.That(entry.Value<String>("rootFingerprint"),  Is.Null);
+                Assert.That(entry.Value<String>("trustOnFirstUse"),  Is.EqualTo("root"), "to be learned again");
+                Assert.That(node.NTSConfigurationJSON()["timeSources"]![0]!["heldTo"]!.Value<String>("root"),
+                            Is.Null,
+                            "and out of effect");
+            });
+
+        }
+
+        #endregion
+
+        #region AServerRenamedOnAPageKeepsWhatItIsSentWith()
+
+        /// <summary>
+        /// Renamed on the page, a server keeps what it was held to under its old
+        /// name where the page sends it so: a name this node does not have was
+        /// held to nothing in between, and what the page sends is what counts.
+        /// </summary>
+        [Test]
+        public async Task AServerRenamedOnAPageKeepsWhatItIsSentWith()
+        {
+
+            await using var node = Node($$"""[ { "hostname": "time.example.org", "rootFingerprint": "{{Fingerprint(ca)}}" } ]""");
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse($$"""
+                            { "servers": [ { "hostname": "time2.example.org", "rootFingerprint": "{{Fingerprint(ca)}}",
+                                             "pinsAsShown": { "rootFingerprint": "{{Fingerprint(ca)}}" } } ] }
+                            """), out var error),
+                        Is.True,
+                        error);
+
+            Assert.Multiple(() => {
+                Assert.That(ServerEntry(node).Value<String>("hostname")?.TrimEnd('.'),  Is.EqualTo("time2.example.org"));
+                Assert.That(ServerEntry(node).Value<String>("rootFingerprint"),  Is.EqualTo(Fingerprint(ca)));
+            });
+
+        }
+
+        #endregion
+
+        #region AnEntryThatDoesNotSayWhatWasShownIsTakenAsItIs()
+
+        /// <summary>
+        /// Without "pinsAsShown" an entry is what its server is held to from
+        /// then on, as an entry of the file is: what writes the list without
+        /// having shown it writes what it means.
+        /// </summary>
+        [Test]
+        public async Task AnEntryThatDoesNotSayWhatWasShownIsTakenAsItIs()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "trustOnFirstUse": "root" } ]""");
+
+            var (chain, errors) = Trusted(leaf, ca);
+
+            using (chain)
+                node.JudgeTimeServer(Server, leaf, chain, errors);
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""
+                            { "servers": [ { "hostname": "time.example.org", "trustOnFirstUse": "root" } ] }
+                            """), out var error),
+                        Is.True,
+                        error);
+
+            Assert.That(ServerEntry(node).Value<String>("rootFingerprint"), Is.Null);
+
+        }
+
+        #endregion
+
         #region AnotherCertificateThanBeforeIsSaidWithoutAnyPin()
 
         /// <summary>

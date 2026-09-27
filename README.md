@@ -289,6 +289,19 @@ pin on it turns every renewal into a mismatch. It is learned only from a
 certificate that was believed anyway - trust on first use narrows what is
 believed, and never widens it.
 
+A page sends the whole list back, from what it loaded, and a server may be
+held to more by then: what is learned is written at the first key exchange
+or handshake after a save, seconds later and with the page still open. So an
+entry a page sends may say under `pinsAsShown`, in the keys the entry itself
+uses, what the page showed its server held to, and then only what was
+changed on the page is changed: a fingerprint the page did not show is kept,
+one it showed and no longer sends is taken away, and `onMismatch` and
+`trustOnFirstUse` are the page's where the page changed them. The node works
+that out under the lock trust on first use writes under, so nothing can be
+learned between the two. An entry without `pinsAsShown` is what its server is
+held to from then on, as an entry of the file is - and so is a server the
+node does not have under that name, or on that transport and port.
+
 The certificate is judged at every key exchange, of the group and of a
 detailed test alike, and in this order: is it issued for the server's name;
 does its chain end at a root this machine trusts, or at a TLS root of the

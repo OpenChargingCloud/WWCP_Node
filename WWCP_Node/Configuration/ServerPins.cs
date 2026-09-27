@@ -82,6 +82,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// </summary>
         public static readonly ServerPins  None = new ([], []);
 
+        /// <summary>
+        /// Where an entry a page sends back says what the page showed its
+        /// server held to - see <see cref="TryAfterAPageSaved"/>.
+        /// </summary>
+        public const String  AsShownKey     = "pinsAsShown";
+
         #endregion
 
         #region Properties
@@ -178,6 +184,84 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (static) TryAfterAPageSaved(Now, Shown, Sent, Path, out Pins, out Error)
+
+        /// <summary>
+        /// What a server is held to once a page saved its entry: what it is held
+        /// to now, with what was changed on the page - a fingerprint added there
+        /// added, one taken away there taken away, and what a mismatch comes to
+        /// and what is learned on first use the page's where the page changed
+        /// them, and as they are now where it did not.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A page sends a whole list back, from what it loaded, and a server may
+        /// be held to more by then: trust on first use writes into the file at
+        /// the first key exchange or handshake after a save, seconds later and
+        /// with the page still open. Taken as it was sent, the page's next save
+        /// of anything took that away again, and the next connection learned
+        /// from whatever it met. Measured so on a local controller, for a time
+        /// server and a name server alike: the root learned while the page was
+        /// open was gone from the file and from effect, and the log said no more
+        /// than that the server was held to no fingerprint.
+        /// </para>
+        /// <para>
+        /// Worked out here, where what the server is held to now is known under
+        /// the lock trust on first use writes under, and not by the page, which
+        /// could only load again and would still be behind by the time it saved.
+        /// Only a page that says what it showed is taken this way; an entry that
+        /// does not say it is what its server is held to from then on, as an
+        /// entry of the file is.
+        /// </para>
+        /// </remarks>
+        /// <param name="Now">What the server is held to now; null for nothing.</param>
+        /// <param name="Shown">What the page showed it held to; null for nothing.</param>
+        /// <param name="Sent">What the page sends it held to; null for nothing.</param>
+        /// <param name="Path">Where the entry is, to say which one is wrong: "nts.servers[2]".</param>
+        public static Boolean TryAfterAPageSaved(ServerPins?                       Now,
+                                                 ServerPins?                       Shown,
+                                                 ServerPins?                       Sent,
+                                                 String                            Path,
+                                                 out ServerPins?                   Pins,
+                                                 [NotNullWhen(false)] out String?  Error)
+        {
+
+            var now    = Now   ?? None;
+            var shown  = Shown ?? None;
+            var sent   = Sent  ?? None;
+
+            var pins   = new ServerPins(
+                             Changed(now.Certificates, shown.Certificates, sent.Certificates),
+                             Changed(now.Roots,        shown.Roots,        sent.Roots),
+                             sent.OnMismatch      != shown.OnMismatch      ? sent.OnMismatch      : now.OnMismatch,
+                             sent.TrustOnFirstUse != shown.TrustOnFirstUse ? sent.TrustOnFirstUse : now.TrustOnFirstUse
+                         );
+
+            Pins   = null;
+            Error  = null;
+
+            // More than the file takes is refused rather than cut down: which
+            // of them to let go of is not a question this can answer.
+            foreach (var (kind, count) in new[] { ("certificates", pins.Certificates.Count), ("roots", pins.Roots.Count) })
+            {
+                if (count > MaxPins)
+                {
+                    Error = $"'{Path}' would be held to {count} {kind}, and at most {MaxPins} are taken: those sent, and those it is held to now which the page did not show. Load the page again to see them.";
+                    return false;
+                }
+            }
+
+            // Nothing left, and what a mismatch comes to goes with it: the file
+            // refuses it on a server held to nothing.
+            if (pins.SaysAnything)
+                Pins = pins;
+
+            return true;
+
+        }
+
+        #endregion
+
 
         #region (static) TryParse(JSON, Path, out Pins, out Error)
 
@@ -259,6 +343,62 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (static) TryParseAsShown(Section, SectionName, out AsShown, out Error)
+
+        /// <summary>
+        /// What a page showed each server of the list it sends held to, by the
+        /// server's place in the list: for every entry that says so under
+        /// "pinsAsShown", in the keys the entry itself uses - null where the
+        /// page showed it held to nothing. An entry that does not say so is not
+        /// in it, and neither is one that says null, which counts as absent.
+        /// </summary>
+        /// <param name="Section">The section as a page sends it, with its "servers".</param>
+        /// <param name="SectionName">Its name - "nts" or "dns" - to say which entry is wrong.</param>
+        public static Boolean TryParseAsShown(JObject                                        Section,
+                                              String                                         SectionName,
+                                              out IReadOnlyDictionary<Int32, ServerPins?>    AsShown,
+                                              [NotNullWhen(false)] out String?               Error)
+        {
+
+            var asShown  = new Dictionary<Int32, ServerPins?>();
+
+            AsShown      = asShown;
+            Error        = null;
+
+            if (Section["servers"] is not JArray servers)
+                return true;
+
+            for (var index = 0; index < servers.Count; index++)
+            {
+
+                if (servers[index] is not JObject entry ||
+                    entry[AsShownKey] is not JToken token ||
+                    token.Type == JTokenType.Null)
+                {
+                    continue;
+                }
+
+                var where = $"{SectionName}.servers[{index}].{AsShownKey}";
+
+                if (token is not JObject shown)
+                {
+                    Error = $"'{where}' must be an object: what the page showed the server held to, in the keys the entry says it with.";
+                    return false;
+                }
+
+                if (!TryParse(shown, where, out var pins, out Error))
+                    return false;
+
+                asShown[index] = pins;
+
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
         #region WriteInto(JSON)
 
         /// <summary>
@@ -304,6 +444,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+
+        #region (private static) Changed(Now, Shown, Sent)
+
+        /// <summary>
+        /// The fingerprints of one kind a server is held to now, less those a
+        /// page showed and no longer sends, and with those it sends and did not
+        /// show - in the order they are held to now, the new ones after them.
+        /// </summary>
+        private static IReadOnlyList<String> Changed(IReadOnlyList<String>  Now,
+                                                     IReadOnlyList<String>  Shown,
+                                                     IReadOnlyList<String>  Sent)
+        {
+
+            var takenAway  = Shown.Where(fingerprint => !Sent. Contains(fingerprint, StringComparer.OrdinalIgnoreCase)).ToArray();
+            var added      = Sent. Where(fingerprint => !Shown.Contains(fingerprint, StringComparer.OrdinalIgnoreCase)).ToArray();
+
+            return [
+                .. Now.  Where(fingerprint => !takenAway.Contains(fingerprint, StringComparer.OrdinalIgnoreCase)),
+                .. added.Where(fingerprint => !Now.      Contains(fingerprint, StringComparer.OrdinalIgnoreCase))
+            ];
+
+        }
+
+        #endregion
 
         #region (private static) TryFingerprints(One, Several, Where, out Fingerprints, out Error)
 

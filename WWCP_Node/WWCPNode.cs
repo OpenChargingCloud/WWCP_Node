@@ -1428,14 +1428,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                  [NotNullWhen(false)] out String?  Error)
         {
 
-            if (!DNSConfiguration.TryParse(JSON, out var configuration, out Error))
+            if (!DNSConfiguration.TryParse(JSON, out var sent, out Error))
                 return false;
 
-            if (configuration.Servers is { Count: 0 })
+            if (sent.Servers is { Count: 0 })
             {
                 Error = $"Without a name server this {Kind.Name} cannot reach anything. Switch name resolution off instead of emptying the list.";
                 return false;
             }
+
+            // What the page showed each server held to, where it says - see
+            // ServerPins.TryAfterAPageSaved.
+            if (!ServerPins.TryParseAsShown(JSON, DNSConfiguration.SectionName, out var asShown, out Error))
+                return false;
 
             // Under the same lock as every other change to this node:
             // writing a section is a read, a change and a write of one file,
@@ -1445,6 +1450,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+
+                // The one that trust on first use writes under, too: what a
+                // server is held to now cannot change before the file is written.
+                if (!TryPinsAfterAPageSaved(sent, asShown, out var configuration, out Error))
+                    return false;
 
                 if (!ConfigFile.TryMergeSection(DNSConfiguration.SectionName, configuration.ToJSON(), out Error))
                     return false;
@@ -1723,13 +1733,23 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                  [NotNullWhen(false)] out String?  Error)
         {
 
-            if (!NTSConfiguration.TryParse(JSON, out var configuration, out Error))
+            if (!NTSConfiguration.TryParse(JSON, out var sent, out Error))
+                return false;
+
+            // What the page showed each server held to, where it says - see
+            // ServerPins.TryAfterAPageSaved.
+            if (!ServerPins.TryParseAsShown(JSON, NTSConfiguration.SectionName, out var asShown, out Error))
                 return false;
 
             reconfigureLock.Wait();
 
             try
             {
+
+                // First, and inside the lock: what a server is held to now is
+                // what trust on first use writes under it.
+                if (!TryPinsAfterAPageSaved(sent, asShown, out var configuration, out Error))
+                    return false;
 
                 // Before the file, so that what is refused is not written down
                 // either - and inside the lock, because the servers a quorum on

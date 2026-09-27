@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 
@@ -151,6 +152,65 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        ? TLSValidationResult.Success()
                        : TLSValidationResult.Failed(judgement.Steps.LastOrDefault(step => step.Level == "error").Text
                                                         ?? $"The certificate of the name server {NameOf(Server)} was refused.");
+
+        }
+
+        #endregion
+
+        #region (private) TryPinsAfterAPageSaved(Update, AsShown, out Saved, out Error)
+
+        /// <summary>
+        /// The name servers a page sends, each held to what it is held to now
+        /// with what was changed on the page - where the page says what it
+        /// showed, and this node has that server; see
+        /// <see cref="ServerPins.TryAfterAPageSaved"/>.
+        /// </summary>
+        /// <remarks>
+        /// Asked under the reconfiguration lock, which is the one trust on first
+        /// use writes under. The same server is the same transport to the same
+        /// address and port: one switched to another transport on the page is
+        /// another server, held to what the page sends.
+        /// </remarks>
+        /// <param name="Update">The section as the page sent it.</param>
+        /// <param name="AsShown">What the page showed each server held to, by its place in the list.</param>
+        private Boolean TryPinsAfterAPageSaved(DNSConfiguration                           Update,
+                                               IReadOnlyDictionary<Int32, ServerPins?>    AsShown,
+                                               out DNSConfiguration                       Saved,
+                                               [NotNullWhen(false)] out String?           Error)
+        {
+
+            Saved  = Update;
+            Error  = null;
+
+            if (Update.Servers is null || AsShown.Count == 0)
+                return true;
+
+            var pins = new Dictionary<DNSServerConfig, ServerPins>(Update.Pins ?? new Dictionary<DNSServerConfig, ServerPins>());
+
+            for (var index = 0; index < Update.Servers.Count; index++)
+            {
+
+                var server = Update.Servers[index];
+
+                if (!AsShown.TryGetValue(index, out var shown) ||
+                    !configuredDNSServers.Contains(server))
+                {
+                    continue;
+                }
+
+                if (!ServerPins.TryAfterAPageSaved(PinsOf(server), shown, Update.Pins?.GetValueOrDefault(server), $"{DNSConfiguration.SectionName}.servers[{index}]", out var held, out Error))
+                    return false;
+
+                if (held is null)
+                    pins.Remove(server);
+                else
+                    pins[server] = held;
+
+            }
+
+            Saved = Update with { Pins = pins };
+
+            return true;
 
         }
 

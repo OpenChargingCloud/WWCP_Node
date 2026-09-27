@@ -317,6 +317,85 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ACertificateLearnedWhileAPageWasOpenIsKeptByItsSave()
+
+        /// <summary>
+        /// A page loaded before the first handshake and saved after it - a
+        /// setting changed, and the server sent with what the page showed it
+        /// held to: the certificate learned in between stays, in the file and
+        /// in effect.
+        /// </summary>
+        [Test]
+        public async Task ACertificateLearnedWhileAPageWasOpenIsKeptByItsSave()
+        {
+
+            await using var node = Node(""", "trustOnFirstUse": "certificate" """);
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, null,
+                                                 [ CertificateUsages.DNS ], out _, out var error),  Is.True,  error);
+
+            var (_, learning) = await Ask(node);
+
+            Assert.That(learning.Value<String>("learned"), Is.EqualTo("certificate"), "learned after the page was loaded");
+
+            Assert.That(node.TryUpdateDNSConfiguration(JObject.Parse($$"""
+                            { "servers": [ { "address": "127.0.0.1", "port": {{port.ToUInt16()}}, "transport": "TLS",
+                                             "trustOnFirstUse": "certificate",
+                                             "pinsAsShown": { "trustOnFirstUse": "certificate" } } ],
+                              "followCNAMEs": false }
+                            """), out error),
+                        Is.True,
+                        error);
+
+            var entry                 = (JObject) JObject.Parse(File.ReadAllText(node.ConfigFile.Path))["dns"]!["servers"]![0]!;
+            var (answers, judgement)  = await Ask(node);
+
+            Assert.Multiple(() => {
+
+                Assert.That(entry.Value<String>("certificateFingerprint"),  Is.EqualTo(Fingerprint(certificate)), "in the file");
+                Assert.That(node.PinsOf(new DNSServerConfig(IPv4Address.Localhost, port, DNSTransport.TLS))?.Certificates,
+                            Is.EqualTo(new[] { Fingerprint(certificate) }),
+                            "in effect");
+                Assert.That(node.DNSConfigurationJSON()["settings"]!.Value<Boolean>("followCNAMEs"),  Is.False, "and the change the page made");
+
+                Assert.That(answers,                                        Has.Some.Contains("127.0.0.42"));
+                Assert.That(judgement.Value<String>("learned"),             Is.Null.Or.EqualTo("none"), "nothing to learn a second time");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ANameServerMovedToAnotherPortOnAPageKeepsWhatItIsSentWith()
+
+        /// <summary>
+        /// Another port is another server: held to what the page sends it with,
+        /// and not to what the one on the old port was held to in between.
+        /// </summary>
+        [Test]
+        public async Task ANameServerMovedToAnotherPortOnAPageKeepsWhatItIsSentWith()
+        {
+
+            await using var node = Node($$""", "certificateFingerprint": "{{Fingerprint(certificate)}}" """);
+
+            var elsewhere = (UInt16) (port.ToUInt16() == 65535 ? 65534 : port.ToUInt16() + 1);
+
+            Assert.That(node.TryUpdateDNSConfiguration(JObject.Parse($$"""
+                            { "servers": [ { "address": "127.0.0.1", "port": {{elsewhere}}, "transport": "TLS",
+                                             "certificateFingerprint": "{{Fingerprint(certificate)}}",
+                                             "pinsAsShown": { "certificateFingerprint": "{{Fingerprint(certificate)}}" } } ] }
+                            """), out var error),
+                        Is.True,
+                        error);
+
+            Assert.That(node.PinsOf(new DNSServerConfig(IPv4Address.Localhost, IPPort.Parse(elsewhere), DNSTransport.TLS))?.Certificates,
+                        Is.EqualTo(new[] { Fingerprint(certificate) }));
+
+        }
+
+        #endregion
+
         #region AChangeToWhatANameServerIsHeldToIsSaidAndCountsAtOnce()
 
         /// <summary>

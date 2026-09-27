@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 
@@ -170,6 +171,62 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     pins.TryAdd(server.Hostname, held);
 
             return pins;
+
+        }
+
+        #endregion
+
+        #region (private) TryPinsAfterAPageSaved(Update, AsShown, out Saved, out Error)
+
+        /// <summary>
+        /// The time servers a page sends, each held to what it is held to now
+        /// with what was changed on the page - where the page says what it
+        /// showed, and this node has a server of that name; see
+        /// <see cref="ServerPins.TryAfterAPageSaved"/>.
+        /// </summary>
+        /// <remarks>
+        /// Asked under the reconfiguration lock, which is the one trust on first
+        /// use writes under: what a server is held to now cannot change between
+        /// this and the file being written.
+        /// </remarks>
+        /// <param name="Update">The section as the page sent it.</param>
+        /// <param name="AsShown">What the page showed each server held to, by its place in the list.</param>
+        private Boolean TryPinsAfterAPageSaved(NTSConfiguration                           Update,
+                                               IReadOnlyDictionary<Int32, ServerPins?>    AsShown,
+                                               out NTSConfiguration                       Saved,
+                                               [NotNullWhen(false)] out String?           Error)
+        {
+
+            Saved  = Update;
+            Error  = null;
+
+            if (Update.Servers is null || AsShown.Count == 0)
+                return true;
+
+            var servers = Update.Servers.ToList();
+
+            for (var index = 0; index < servers.Count; index++)
+            {
+
+                // A server of another name than any this node has - new, or
+                // renamed on the page - is held to what the page sends: there is
+                // nothing it could have been held to in between.
+                if (!AsShown.TryGetValue(index, out var shown) ||
+                    PinsOf(servers[index].Hostname) is not NTSServerConfiguration now)
+                {
+                    continue;
+                }
+
+                if (!ServerPins.TryAfterAPageSaved(now.Pins, shown, servers[index].Pins, $"{NTSConfiguration.SectionName}.servers[{index}]", out var pins, out Error))
+                    return false;
+
+                servers[index] = servers[index] with { Pins = pins };
+
+            }
+
+            Saved = Update with { Servers = servers };
+
+            return true;
 
         }
 

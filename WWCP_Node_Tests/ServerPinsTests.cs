@@ -191,6 +191,242 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+
+        #region (helper) AfterAPageSaved(Now, Shown, Sent)
+
+        /// <summary>
+        /// What a server is held to once a page saved its entry, each of the
+        /// three written as an entry says it.
+        /// </summary>
+        private static ServerPins? AfterAPageSaved(String Now, String Shown, String Sent)
+        {
+
+            Assert.That(ServerPins.TryAfterAPageSaved(Parsed(Now), Parsed(Shown), Parsed(Sent), "nts.servers[0]", out var pins, out var error),
+                        Is.True,
+                        error);
+
+            return pins;
+
+        }
+
+        #endregion
+
+        #region WhatAServerLearnedWhileThePageWasOpenIsKept()
+
+        /// <summary>
+        /// The page showed a server that was still to learn its root, the server
+        /// learned it before the page saved, and the page sends what it showed.
+        /// </summary>
+        [Test]
+        public void WhatAServerLearnedWhileThePageWasOpenIsKept()
+        {
+
+            var pins = AfterAPageSaved(Now:   $$"""{ "rootFingerprint": "{{R}}", "trustOnFirstUse": "root" }""",
+                                       Shown:   """{ "trustOnFirstUse": "root" }""",
+                                       Sent:    """{ "trustOnFirstUse": "root" }""");
+
+            Assert.That(pins?.SameAs(Parsed($$"""{ "rootFingerprint": "{{R}}", "trustOnFirstUse": "root" }""")),
+                        Is.True,
+                        pins?.ToString());
+
+        }
+
+        #endregion
+
+        #region WhatThePageTookAwayIsTakenAway()
+
+        /// <summary>
+        /// The page showed the root the server had learned, and it was taken
+        /// away there - to have it learned again.
+        /// </summary>
+        [Test]
+        public void WhatThePageTookAwayIsTakenAway()
+        {
+
+            var pins = AfterAPageSaved(Now:   $$"""{ "rootFingerprint": "{{R}}", "trustOnFirstUse": "root" }""",
+                                       Shown: $$"""{ "rootFingerprint": "{{R}}", "trustOnFirstUse": "root" }""",
+                                       Sent:    """{ "trustOnFirstUse": "root" }""");
+
+            Assert.Multiple(() => {
+                Assert.That(pins?.Roots,            Is.Empty);
+                Assert.That(pins?.TrustOnFirstUse,  Is.EqualTo(TrustOnFirstUse.Root));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatThePageAddedIsAddedToWhatItDidNotShow()
+
+        [Test]
+        public void WhatThePageAddedIsAddedToWhatItDidNotShow()
+        {
+
+            var pins = AfterAPageSaved(Now:   $$"""{ "rootFingerprint": "{{R}}", "trustOnFirstUse": "root" }""",
+                                       Shown:   """{ "trustOnFirstUse": "root" }""",
+                                       Sent:  $$"""{ "certificateFingerprint": "{{A}}", "trustOnFirstUse": "root" }""");
+
+            Assert.Multiple(() => {
+                Assert.That(pins?.Certificates,  Is.EqualTo(new[] { A }), "added on the page");
+                Assert.That(pins?.Roots,         Is.EqualTo(new[] { R }), "learned while the page was open");
+            });
+
+        }
+
+        #endregion
+
+        #region WhatSomebodyElseChangedStaysWhereThePageChangedNothing()
+
+        /// <summary>
+        /// Somebody else held the server to another root in between, and to
+        /// what a mismatch comes to; the page, which showed the old root, only
+        /// added a certificate.
+        /// </summary>
+        [Test]
+        public void WhatSomebodyElseChangedStaysWhereThePageChangedNothing()
+        {
+
+            var pins = AfterAPageSaved(Now:   $$"""{ "rootFingerprint": "{{B}}", "onMismatch": "accept" }""",
+                                       Shown: $$"""{ "rootFingerprint": "{{A}}" }""",
+                                       Sent:  $$"""{ "rootFingerprint": "{{A}}", "certificateFingerprint": "{{C}}" }""");
+
+            Assert.Multiple(() => {
+                Assert.That(pins?.Roots,         Is.EqualTo(new[] { B }));
+                Assert.That(pins?.Certificates,  Is.EqualTo(new[] { C }));
+                Assert.That(pins?.OnMismatch,    Is.EqualTo(PinMismatch.Accept));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatAMismatchComesToAndWhatIsLearnedAreThePagesWhereItChangedThem()
+
+        [Test]
+        public void WhatAMismatchComesToAndWhatIsLearnedAreThePagesWhereItChangedThem()
+        {
+
+            var pins = AfterAPageSaved(Now:   $$"""{ "rootFingerprint": "{{R}}", "trustOnFirstUse": "root" }""",
+                                       Shown:   """{ "trustOnFirstUse": "root" }""",
+                                       Sent:    """{ "trustOnFirstUse": "certificate", "onMismatch": "record" }""");
+
+            Assert.Multiple(() => {
+                Assert.That(pins?.TrustOnFirstUse,  Is.EqualTo(TrustOnFirstUse.Certificate));
+                Assert.That(pins?.OnMismatch,       Is.EqualTo(PinMismatch.Record));
+                Assert.That(pins?.Roots,            Is.EqualTo(new[] { R }), "what the page did not show is not what it changed");
+            });
+
+        }
+
+        #endregion
+
+        #region NothingLeftIsNothing()
+
+        [Test]
+        public void NothingLeftIsNothing()
+        {
+
+            Assert.That(AfterAPageSaved(Now:   $$"""{ "rootFingerprint": "{{R}}", "onMismatch": "accept" }""",
+                                        Shown: $$"""{ "rootFingerprint": "{{R}}", "onMismatch": "accept" }""",
+                                        Sent:    """{ }"""),
+                        Is.Null,
+                        "and what a mismatch comes to goes with the last pin, which the file refuses on a server held to nothing");
+
+        }
+
+        #endregion
+
+        #region WhatAMismatchComesToGoesWithTheLastPinWhoeverSaidIt()
+
+        /// <summary>
+        /// Somebody else said "accept" in between, and the page, which showed a
+        /// refusal, took the last pin away: what is left is nothing, and not an
+        /// "accept" on a server held to nothing, which the file refuses at the
+        /// next start.
+        /// </summary>
+        [Test]
+        public void WhatAMismatchComesToGoesWithTheLastPinWhoeverSaidIt()
+        {
+
+            Assert.That(AfterAPageSaved(Now:   $$"""{ "rootFingerprint": "{{R}}", "onMismatch": "accept" }""",
+                                        Shown: $$"""{ "rootFingerprint": "{{R}}" }""",
+                                        Sent:    """{ }"""),
+                        Is.Null);
+
+        }
+
+        #endregion
+
+        #region MoreThanSixteenAfterASaveAreRefused()
+
+        /// <summary>
+        /// Sixteen roots sent, and one learned that the page did not show: more
+        /// than the file takes, and not cut down to fit.
+        /// </summary>
+        [Test]
+        public void MoreThanSixteenAfterASaveAreRefused()
+        {
+
+            var sixteen = new JArray(Enumerable.Range(1, ServerPins.MaxPins).Select(i => i.ToString("x64")));
+
+            Assert.That(ServerPins.TryAfterAPageSaved(Parsed($$"""{ "rootFingerprint": "{{R}}" }"""),
+                                                      null,
+                                                      Parsed(new JObject(new JProperty("rootFingerprints", sixteen)).ToString()),
+                                                      "nts.servers[0]",
+                                                      out _,
+                                                      out var error),
+                        Is.False);
+
+            Assert.That(error, Does.Contain($"{ServerPins.MaxPins + 1} roots").And.Contain("Load the page again"));
+
+        }
+
+        #endregion
+
+        #region WhatThePageShowedIsReadByTheServersPlace()
+
+        [Test]
+        public void WhatThePageShowedIsReadByTheServersPlace()
+        {
+
+            var section = JObject.Parse($$"""
+                              { "servers": [
+                                  { "hostname": "a.example", "pinsAsShown": { "rootFingerprint": "{{R}}" } },
+                                  "b.example",
+                                  { "hostname": "c.example", "pinsAsShown": { } },
+                                  { "hostname": "d.example", "pinsAsShown": null },
+                                  { "hostname": "e.example" }
+                              ] }
+                              """);
+
+            Assert.That(ServerPins.TryParseAsShown(section, "nts", out var asShown, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(asShown.Keys,       Is.EquivalentTo(new[] { 0, 2 }), "a bare name, null and nothing are not what a page showed");
+                Assert.That(asShown[0]?.Roots,  Is.EqualTo(new[] { R }));
+                Assert.That(asShown[2],         Is.Null, "shown held to nothing");
+            });
+
+        }
+
+        #endregion
+
+        #region WhatThePageShowedIsCheckedAsAnEntryIs(JSON, Expected)
+
+        [TestCase("""{ "servers": [ { "hostname": "a.example", "pinsAsShown": "root" } ] }""",
+                  "'nts.servers[0].pinsAsShown' must be an object")]
+        [TestCase("""{ "servers": [ { "hostname": "a.example", "pinsAsShown": { "rootFingerprint": "xyz" } } ] }""",
+                  "'nts.servers[0].pinsAsShown.rootFingerprint' holds 'xyz'")]
+        public void WhatThePageShowedIsCheckedAsAnEntryIs(String JSON, String Expected)
+        {
+
+            Assert.That(ServerPins.TryParseAsShown(JObject.Parse(JSON), "nts", out _, out var error), Is.False);
+            Assert.That(error, Does.Contain(Expected));
+
+        }
+
+        #endregion
+
     }
 
 }
