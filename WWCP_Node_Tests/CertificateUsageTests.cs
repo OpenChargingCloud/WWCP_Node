@@ -386,7 +386,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void ATLSIdentityIsShownOnTheListenersItIsFor()
         {
 
-            var store = new CertificateStore(directory, log, Usages: [ "modbus", "web" ]);
+            var store = new CertificateStore(directory, log, Listeners: [ "Modbus", "web" ]);
 
             using var modbusKey    = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             using var everyKey     = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -413,6 +413,54 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(forModbus.ToJSON()["usages"]?.Values<String>(),                             Is.EqualTo(new[] { "modbus" }));
                 Assert.That(forEvery.ToJSON()["usages"]?.Type,                                           Is.EqualTo(JTokenType.Null));
+
+                Assert.That(store.UsagesFor(CertificateKind.TLSIdentity),                                Is.EqualTo(new[] { "modbus", "web" }));
+                Assert.That(store.UsagesFor(CertificateKind.TLSRoot),                                    Is.EqualTo(new[] { "dns", "nts" }));
+                Assert.That(store.UsagesFor(CertificateKind.ClientRoot),                                 Is.Empty);
+
+            });
+
+        }
+
+        #endregion
+
+        #region AListenerIsNoUsageAndAUsageNoListener()
+
+        /// <summary>
+        /// The servers a node connects to and the listeners it has are two lists:
+        /// an identity "for dns" and a root "for web" are refused rather than
+        /// kept to mean nothing - and a node that names no listeners has
+        /// identities that are told nothing at all.
+        /// </summary>
+        [Test]
+        public void AListenerIsNoUsageAndAUsageNoListener()
+        {
+
+            var withListeners  = new CertificateStore(directory, log, Listeners: [ "modbus", "web" ]);
+
+            using var key      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var identity = new CertificateRequest("CN=meter-001", key, HashAlgorithmName.SHA256).
+                                     CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
+            using var root     = Root("Some Root");
+
+            var identityForDNS = withListeners.Import(identity.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ CertificateUsages.DNS ], out _, out var notAListener);
+            var rootForWeb     = withListeners.Import(Pem(root),                                  CertificateKind.TLSRoot,     null, null, [ "web" ],                 out _, out var notAUsage);
+
+            var withoutThem    = new CertificateStore(Path.Combine(directory, "other"), log);
+            var toldAnyway     = withoutThem.Import(identity.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ "modbus" ], out _, out var noneNamed);
+
+            Assert.Multiple(() => {
+
+                Assert.That(identityForDNS,                                        Is.False);
+                Assert.That(notAListener,                                          Does.Contain("'dns' is not a listener of this node").And.Contain("modbus, web"));
+
+                Assert.That(rootForWeb,                                            Is.False);
+                Assert.That(notAUsage,                                             Does.Contain("'web' is not a usage this node knows").And.Contain("dns, nts"));
+
+                Assert.That(toldAnyway,                                            Is.False);
+                Assert.That(noneNamed,                                             Does.Contain("names none"));
+                Assert.That(withoutThem.HasUsages(CertificateKind.TLSIdentity),    Is.False, "a page offers it nothing to tick");
+                Assert.That(withListeners.HasUsages(CertificateKind.TLSIdentity),  Is.True);
 
             });
 

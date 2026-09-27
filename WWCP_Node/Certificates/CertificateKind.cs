@@ -186,7 +186,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <remarks>
         /// Kept for some uses and not others: a node with more than one listener
         /// - a meter's Modbus/TLS port and its web interface - says which each
-        /// identity is shown on, by the usages its kind adds.
+        /// identity is shown on, by the listeners its kind names
+        /// (<see cref="CertificateStore.Listeners"/>).
         /// </remarks>
         TLSIdentity
 
@@ -257,8 +258,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #region HasUsages(this Kind)
 
         /// <summary>
-        /// Whether a certificate of this kind is kept for some uses and not
-        /// others - see <see cref="CertificateUsages"/>.
+        /// Whether a certificate of this kind may be kept for some uses and not
+        /// others at all - see <see cref="CertificateUsages"/>. Which uses, a
+        /// store says: <see cref="CertificateStore.UsagesFor"/>, where a TLS
+        /// identity has none unless its kind of node names listeners.
         /// </summary>
         /// <remarks>
         /// A TLS root vouches for servers and a server certificate is one

@@ -126,8 +126,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public String NodeName { get; }
 
         /// <summary>
-        /// What a certificate of a kind kept for some uses and not others may
-        /// be told it is for: the node's usages, and its kind's.
+        /// What a TLS root or a server certificate may be told it is for: the
+        /// node's usages, and its kind's - the servers this node connects to.
         /// </summary>
         /// <remarks>
         /// A closed list per store, so that a usage somebody mistyped is
@@ -136,6 +136,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// nothing would say why.
         /// </remarks>
         public IReadOnlyList<String> Usages { get; }
+
+        /// <summary>
+        /// What a TLS identity may be told it is shown on: the listeners its
+        /// kind of node names - a meter's "modbus" and "web" - and none by
+        /// default, which leaves every identity for every listener.
+        /// </summary>
+        /// <remarks>
+        /// A list of its own rather than more names among the usages: a server
+        /// this node connects to and a listener of its own are different
+        /// questions, and one list would let an identity be "for dns" and a
+        /// root "for web", both of which mean nothing.
+        /// </remarks>
+        public IReadOnlyList<String> Listeners { get; }
 
         /// <summary>
         /// Everything in the store, roots before credentials and each group by
@@ -175,11 +188,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="Kinds">The kinds of certificate this store keeps; all of them by default.</param>
         /// <param name="NodeName">What the node the store belongs to is called in a sentence; "node" by default.</param>
         /// <param name="Usages">The usages the kind of node adds to the node's own, <see cref="CertificateUsages.All"/>.</param>
+        /// <param name="Listeners">The listeners of the kind of node a TLS identity may be told it is shown on; none by default.</param>
         public CertificateStore(String                         Directory,
                                 EventLog                       Log,
                                 IEnumerable<CertificateKind>?  Kinds      = null,
                                 String?                        NodeName   = null,
-                                IEnumerable<String>?           Usages     = null)
+                                IEnumerable<String>?           Usages     = null,
+                                IEnumerable<String>?           Listeners  = null)
         {
 
             this.Directory  = Path.GetFullPath(Directory);
@@ -204,10 +219,75 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             }
 
             this.Usages     = usages;
+            this.Listeners  = NamesOf(Listeners, nameof(Listeners));
 
             CreateDirectories();
 
         }
+
+        #endregion
+
+
+        #region (private static) NamesOf(Names, Parameter)
+
+        /// <summary>
+        /// Names as a store keeps them - in lower case, each once, in the order
+        /// given - or an exception for one that is no name.
+        /// </summary>
+        private static IReadOnlyList<String> NamesOf(IEnumerable<String>?  Names,
+                                                     String                Parameter)
+        {
+
+            var names = new List<String>();
+
+            foreach (var given in Names ?? [])
+            {
+
+                var name = given?.Trim().ToLowerInvariant() ?? "";
+
+                if (!CertificateUsages.IsUsageName(name))
+                    throw new ArgumentException($"'{given}' is not a name: a letter, then letters, digits, '-' or '_', at most {CertificateUsages.MaxLength} characters.",
+                                                Parameter);
+
+                if (!names.Contains(name))
+                    names.Add(name);
+
+            }
+
+            return names;
+
+        }
+
+        #endregion
+
+        #region UsagesFor(Kind) / HasUsages(Kind)
+
+        /// <summary>
+        /// What a certificate of this kind may be told it is for in this store:
+        /// the usages for a TLS root or a server certificate, the listeners for
+        /// a TLS identity, and nothing for the other kinds.
+        /// </summary>
+        /// <remarks>
+        /// What a page offers where a certificate is imported or changed, so
+        /// that it offers only what the store would take.
+        /// </remarks>
+        public IReadOnlyList<String> UsagesFor(CertificateKind Kind)
+
+            => Kind switch {
+                   CertificateKind.TLSRoot      => Usages,
+                   CertificateKind.TLSServer    => Usages,
+                   CertificateKind.TLSIdentity  => Listeners,
+                   _                            => []
+               };
+
+        /// <summary>
+        /// Whether a certificate of this kind may be told what it is for in this
+        /// store - which a TLS identity may only where the kind of node names
+        /// listeners.
+        /// </summary>
+        public Boolean HasUsages(CertificateKind Kind)
+
+            => UsagesFor(Kind).Count > 0;
 
         #endregion
 
@@ -1058,11 +1138,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (Usages is null)
                 return true;
 
-            if (!Kind.HasUsages())
+            var allowed    = UsagesFor(Kind);
+            var isIdentity = Kind == CertificateKind.TLSIdentity;
+
+            if (allowed.Count == 0)
             {
-                Error = $"A {Kind.AsText()} is for what its kind says, and is not told what it is used for: " +
-                         "only a TLS root and a server certificate are kept for some uses and not others, " +
-                         "and a TLS identity is shown on some listeners and not others.";
+                Error = isIdentity
+                            ? $"A {Kind.AsText()} is shown on every listener of this {NodeName}, which names none an identity " +
+                               "could be told of: only a TLS root and a server certificate are kept for some uses and not " +
+                               "others, and a TLS identity is shown on the listeners a kind of node names."
+                            : $"A {Kind.AsText()} is for what its kind says, and is not told what it is used for: " +
+                               "only a TLS root and a server certificate are kept for some uses and not others, " +
+                               "and a TLS identity is shown on some listeners and not others.";
                 return false;
             }
 
@@ -1070,17 +1157,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             if (given.Count == 0)
             {
-                Error = "A certificate for no use at all is one to switch off. Name what it is for - or nothing, for every use.";
+                Error = isIdentity
+                            ? "An identity shown on no listener at all is one to switch off. Name where it is shown - or nothing, for every listener."
+                            : "A certificate for no use at all is one to switch off. Name what it is for - or nothing, for every use.";
                 return false;
             }
 
-            if (given.FirstOrDefault(usage => !this.Usages.Contains(usage)) is String unknown)
+            if (given.FirstOrDefault(usage => !allowed.Contains(usage)) is String unknown)
             {
-                Error = $"'{unknown}' is not a usage this {NodeName} knows. Its usages are: {String.Join(", ", this.Usages)}.";
+                Error = isIdentity
+                            ? $"'{unknown}' is not a listener of this {NodeName}. Its listeners are: {String.Join(", ", allowed)}."
+                            : $"'{unknown}' is not a usage this {NodeName} knows. Its usages are: {String.Join(", ", allowed)}.";
                 return false;
             }
 
-            Settled = [.. this.Usages.Where(given.Contains)];
+            Settled = [.. allowed.Where(given.Contains)];
             return true;
 
         }
