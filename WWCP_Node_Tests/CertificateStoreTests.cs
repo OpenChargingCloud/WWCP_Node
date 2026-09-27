@@ -839,6 +839,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region TheWarningAboutKeysSaysWhatThereIsToTake()
+
+        /// <summary>
+        /// The warning at a start says what a stored key gives away: the node's
+        /// identity - and a contract only where the store keeps contracts, as a
+        /// vehicle's does.
+        /// </summary>
+        /// <remarks>
+        /// A gateway keeps the four kinds of TLS, a TLS identity with its key
+        /// among them, and was told at every start that anybody reading its
+        /// store could take "its identity and its contract" - a contract it has
+        /// no kind for.
+        /// </remarks>
+        [Test]
+        public void TheWarningAboutKeysSaysWhatThereIsToTake()
+        {
+
+            using var root  = Root("A Root");
+
+            var vehicles    = new CertificateStore(Path.Combine(directory, "vehicle"), log, NodeName: "electric vehicle");
+            var gateways    = new CertificateStore(Path.Combine(directory, "gateway"), log, CertificateKindExtensions.TLS, "gateway");
+
+            Assert.That(vehicles.Import(Pkcs12(Leaf("A Vehicle", root)), CertificateKind.Vehicle,     null, null, out _, out var vehicleError), Is.True, vehicleError);
+            Assert.That(gateways.Import(Pkcs12(Leaf("A Gateway", root)), CertificateKind.TLSIdentity, null, null, out _, out var gatewayError), Is.True, gatewayError);
+
+            vehicles.WarnAboutStoredKeys();
+            gateways.WarnAboutStoredKeys();
+
+            // The warnings of the start, and not the ones of the imports, which
+            // say of one key that anybody can use it.
+            var warnings    = log.Recent(100).
+                                  Where (entry => entry.Level == LogLevel.Warning && entry.Message.Contains("can take this")).
+                                  Select(entry => entry.Message).
+                                  ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(warnings,  Has.Length.EqualTo(2));
+                Assert.That(warnings,  Has.One.EndsWith("can take this electric vehicle's identity and its contract."));
+                Assert.That(warnings,  Has.One.EndsWith("can take this gateway's identity."));
+            });
+
+        }
+
+        #endregion
+
         #region ANodeThatKeepsNoCertificatesMakesNoStore()
 
         /// <summary>

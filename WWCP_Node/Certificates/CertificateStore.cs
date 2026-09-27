@@ -60,10 +60,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// under and written back without one, so that any number of certificates
     /// per role work without any number of passwords to carry. What guards them
     /// is the file system: the store directory is created for its owner alone.
-    /// Anybody who can read it can take this node's identity and its
-    /// contract, so it belongs on a machine whose users are all trusted with
-    /// exactly that - which <see cref="WarnAboutStoredKeys"/> says once at every
-    /// start.
+    /// Anybody who can read it can take this node's identity - and a
+    /// vehicle's contract - so it belongs on a machine whose users are all
+    /// trusted with exactly that, which <see cref="WarnAboutStoredKeys"/> says
+    /// once at every start.
     /// </para>
     /// <para>
     /// Everything that changes the store takes <see cref="storeLock"/> and
@@ -437,6 +437,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// a note, because the fact does not stop being true and the person
         /// reading the console today is not necessarily the one who set the
         /// store up.
+        ///
+        /// What there is to take is said by the kinds this store keeps: the
+        /// node's identity in every store that keeps a key, and a contract
+        /// only in one that keeps contracts - a vehicle's. A gateway keeping
+        /// its TLS identity here was warned about a contract it has no kind
+        /// for, in the one line of the start that is meant to be believed.
         /// </remarks>
         public void WarnAboutStoredKeys()
         {
@@ -445,7 +451,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             if (withKeys > 0)
                 log.Warning($"Certificates: {withKeys} private key(s) are stored unencrypted in '{Directory}'. " +
-                             $"Anybody who can read that directory can take this {NodeName}'s identity and its contract.",
+                            $"Anybody who can read that directory can take this {NodeName}'s identity" +
+                            (Kinds.Contains(CertificateKind.Contract) ? " and its contract." : "."),
                             "certificates");
 
         }
