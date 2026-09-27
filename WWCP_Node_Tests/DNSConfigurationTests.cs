@@ -283,6 +283,61 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ANameServersOwnTimeoutChangedIsInEffectAtOnce()
+
+        /// <summary>
+        /// A name server's own timeout changed from a page: in the file, in the
+        /// answer to the save, and in the client that asks it - and said in the
+        /// log.
+        /// </summary>
+        /// <remarks>
+        /// Two configurations of one server are equal without their timeouts,
+        /// so the node took the list for unchanged: the file had the new one,
+        /// the page was answered with the old one, and the client went on
+        /// waiting as long as before until the next start.
+        /// </remarks>
+        [Test]
+        public async Task ANameServersOwnTimeoutChangedIsInEffectAtOnce()
+        {
+
+            File.WriteAllText(ConfigurationPath, """
+                                                 { "nts": { "enabled": false },
+                                                   "dns": { "servers": [ { "address": "127.0.0.1", "port": 5353, "transport": "UDP", "queryTimeoutSeconds": 1 } ] } }
+                                                 """);
+
+            await using var node = new WWCPNode(
+                                       AccountsPath:      Path.Combine(directory, "accounts"),
+                                       ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                                       CertificatesPath:  Path.Combine(directory, "certificates"),
+                                       LogToConsole:      false
+                                   );
+
+            var before = node.Log.LastId;
+
+            Assert.That(node.TryUpdateDNSConfiguration(JObject.Parse("""
+                            { "servers": [ { "address": "127.0.0.1", "port": 5353, "transport": "UDP", "queryTimeoutSeconds": 2 } ] }
+                            """), out var error),
+                        Is.True,
+                        error);
+
+            var inFile = JObject.Parse(File.ReadAllText(ConfigurationPath))["dns"]!["servers"]![0]!;
+
+            Assert.Multiple(() => {
+
+                Assert.That(inFile.Value<Double>("queryTimeoutSeconds"),                                           Is.EqualTo(2), "in the file");
+                Assert.That(node.DNSConfigurationJSON()["servers"]![0]!.Value<Double>("queryTimeoutSeconds"),       Is.EqualTo(2), "in the answer");
+                Assert.That(node.DNSClient.DNSServers.Single().QueryTimeout,                                       Is.EqualTo(TimeSpan.FromSeconds(2)), "in the client");
+
+                Assert.That(node.Log.Recent(100, before, null).Select(entry => entry.Message),
+                            Has.Some.Contains("timeout: 2 sec."),
+                            "and in the log");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

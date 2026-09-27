@@ -1484,8 +1484,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var changed = new List<String>();
 
+            // Compared with their timeouts. Two configurations of one server are
+            // the same server without them, so that it is one key of a set
+            // whatever it is waited for - and a timeout changed on a page was
+            // written into the file and kept out of effect until the next start,
+            // the page showing the old one in the answer to its own save.
             if (Configuration.Servers is not null &&
-                !configuredDNSServers.SequenceEqual(Configuration.Servers))
+                !configuredDNSServers.Select(server => (server, server.QueryTimeout)).
+                                      SequenceEqual(Configuration.Servers.Select(server => (server, server.QueryTimeout))))
             {
                 configuredDNSServers = Configuration.Servers;
                 changed.Add($"servers = {String.Join(", ", configuredDNSServers)}");
