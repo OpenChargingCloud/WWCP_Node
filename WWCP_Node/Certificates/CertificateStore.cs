@@ -1061,7 +1061,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (!Kind.HasUsages())
             {
                 Error = $"A {Kind.AsText()} is for what its kind says, and is not told what it is used for: " +
-                         "only a TLS root and a server certificate are kept for some uses and not others.";
+                         "only a TLS root and a server certificate are kept for some uses and not others, " +
+                         "and a TLS identity is shown on some listeners and not others.";
                 return false;
             }
 
@@ -1523,6 +1524,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// wrong place, which is refused rather than quietly stripped.
         /// </para>
         /// <para>
+        /// A client root is the exception to the second: the listener that asks
+        /// for it judges a client against the CA that issued it, and the CA that
+        /// issues a node's clients and nothing else is the anchor that says who
+        /// may connect - the root above it would let in the devices too. So a
+        /// client root may be an issuing CA, and has to be a CA, which a
+        /// self-signed root is by being one.
+        /// </para>
+        /// <para>
         /// The OEM curve is a warning at import and not a refusal, because
         /// ISO 15118-2 has no such requirement and a P-256 OEM certificate is
         /// perfectly real - it just cannot finish -20's contract provisioning.
@@ -1560,7 +1569,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     return false;
                 }
 
-                if (!String.Equals(Leaf.Subject, Leaf.Issuer, StringComparison.Ordinal))
+                var selfSigned = String.Equals(Leaf.Subject, Leaf.Issuer, StringComparison.Ordinal);
+
+                if (Kind == CertificateKind.ClientRoot)
+                {
+
+                    if (!selfSigned && !IsCA(Leaf))
+                    {
+                        Error = $"'{CertificateEntry.CommonNameOf(Leaf)}' is not a CA certificate. A client root is " +
+                                 "the CA that signs the clients - a root, or the issuing CA below one - and not a client.";
+                        return false;
+                    }
+
+                }
+
+                else if (!selfSigned)
                 {
                     Error = $"'{CertificateEntry.CommonNameOf(Leaf)}' is signed by somebody else and is therefore " +
                              "a sub-CA rather than a root. Only a self-signed certificate can be a trust anchor; " +
@@ -1573,6 +1596,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             return true;
 
         }
+
+        #endregion
+
+        #region (private static) IsCA(Certificate)
+
+        /// <summary>
+        /// Whether the certificate says it is a CA, in its basic constraints.
+        /// </summary>
+        private static Boolean IsCA(X509Certificate2 Certificate)
+
+            => Certificate.Extensions.OfType<X509BasicConstraintsExtension>().
+                                      FirstOrDefault()?.CertificateAuthority == true;
 
         #endregion
 

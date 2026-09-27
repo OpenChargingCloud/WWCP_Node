@@ -106,6 +106,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         }
 
+        /// <summary>
+        /// A CA below the given root - one that issues certificates, and is not
+        /// self-signed.
+        /// </summary>
+        private static X509Certificate2 IssuingCA(String            Name,
+                                                  X509Certificate2  Root)
+        {
+
+            var key     = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request = new CertificateRequest($"CN={Name}", key, HashAlgorithmName.SHA256);
+
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, true, 0, true));
+
+            return request.Create(Root, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(180), Guid.NewGuid().ToByteArray()).
+                           CopyWithPrivateKey(key);
+
+        }
+
         private static Byte[] Pem(X509Certificate2 Certificate)
 
             => System.Text.Encoding.ASCII.GetBytes(Certificate.ExportCertificatePem());
@@ -163,6 +181,46 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(store.Import(Pem(Leaf("Sub CA", root)), CertificateKind.TLSRoot, null, null, out _, out var error),  Is.False);
             Assert.That(error,  Does.Contain("sub-CA"));
+
+        }
+
+        #endregion
+
+        #region AnIssuingCAIsAClientRoot()
+
+        /// <summary>
+        /// The CA that issues a node's clients may be its client root although
+        /// somebody else signed it - the root above it would let in whatever
+        /// else it signed - and a client itself may not.
+        /// </summary>
+        [Test]
+        public void AnIssuingCAIsAClientRoot()
+        {
+
+            var store = Store();
+
+            using var root     = Root("Some Root CA");
+            using var issuing  = IssuingCA("Some Issuing Clients CA", root);
+            using var client   = Leaf("a client", issuing);
+
+            Assert.That(store.Import(Pem(issuing), CertificateKind.ClientRoot, null, null, out var entry, out var error), Is.True, error);
+
+            var clientTaken   = store.Import(Pem(client),  CertificateKind.ClientRoot, null, null, out _, out var notACA);
+            var rootTaken     = store.Import(Pem(issuing), CertificateKind.TLSRoot,    null, null, out _, out var notARoot);
+
+            Assert.Multiple(() => {
+
+                Assert.That(entry!.Kind,     Is.EqualTo(CertificateKind.ClientRoot));
+                Assert.That(entry.Subject,   Does.Contain("Some Issuing Clients CA"));
+                Assert.That(entry.IsUsable,  Is.True);
+
+                Assert.That(clientTaken,     Is.False);
+                Assert.That(notACA,          Does.Contain("is not a CA certificate"));
+
+                Assert.That(rootTaken,       Is.False);
+                Assert.That(notARoot,        Does.Contain("sub-CA"), "anywhere else it is still a sub-CA");
+
+            });
 
         }
 

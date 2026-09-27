@@ -154,8 +154,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// A <b>client root</b>: what a client connecting to this node has to
-        /// chain to.
+        /// chain to - a root, or the issuing CA below one that signs the
+        /// clients and nothing else.
         /// </summary>
+        /// <remarks>
+        /// The one trust anchor that may be signed by somebody else. What a
+        /// client is judged by is the listener that asks for it, and the CA that
+        /// issues a node's clients is the anchor that says who may connect: the
+        /// root above it would let in whatever else it signed as well - the
+        /// devices, say. What it may not be is a certificate that is no CA at
+        /// all.
+        /// </remarks>
         ClientRoot,
 
         /// <summary>
@@ -174,6 +183,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// private key - its web interface's certificate, or the one it shows a
         /// server that asks for one.
         /// </summary>
+        /// <remarks>
+        /// Kept for some uses and not others: a node with more than one listener
+        /// - a meter's Modbus/TLS port and its web interface - says which each
+        /// identity is shown on, by the usages its kind adds.
+        /// </remarks>
         TLSIdentity
 
     }
@@ -249,14 +263,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <remarks>
         /// A TLS root vouches for servers and a server certificate is one
         /// server's, and which servers is the question a usage answers: the
-        /// name servers, the time servers, a backend. The other kinds say by
-        /// their kind alone what they are for - a V2G root is the station's
-        /// chain and nothing else, a TLS identity is what this node shows.
+        /// name servers, the time servers, a backend. A TLS identity is what
+        /// this node shows, and where is the question: a node with two
+        /// listeners shows each its own. The other kinds say by their kind alone
+        /// what they are for - a V2G root is the station's chain and nothing
+        /// else.
         /// </remarks>
         public static Boolean HasUsages(this CertificateKind Kind)
 
             => Kind is CertificateKind.TLSRoot
-                    or CertificateKind.TLSServer;
+                    or CertificateKind.TLSServer
+                    or CertificateKind.TLSIdentity;
 
         #endregion
 
@@ -385,7 +402,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                    CertificateKind.OEMProvisioning     => "OEM provisioning certificate - what this vehicle was born with",
                    CertificateKind.TariffVerification  => "tariff certificate - what a station's signed tariff is checked with",
                    CertificateKind.TLSRoot             => "TLS root - what a server this node connects to may chain to: a time server, a backend",
-                   CertificateKind.ClientRoot          => "client root - what a client connecting to this node has to chain to",
+                   CertificateKind.ClientRoot          => "client root - what a client connecting to this node has to chain to: a root, or the CA that issues the clients",
                    CertificateKind.TLSServer           => "server certificate - what a server this node connects to presents, kept to be recognised by its fingerprint",
                    CertificateKind.TLSIdentity         => "TLS identity - what this node presents in TLS, with its private key",
                    _                                   => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown certificate kind.")

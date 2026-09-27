@@ -375,6 +375,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ATLSIdentityIsShownOnTheListenersItIsFor()
+
+        /// <summary>
+        /// What a node shows is a usage too, for a node with more than one
+        /// listener: a meter's Modbus/TLS port and its web interface each show
+        /// their own, and an identity never told is shown on every one.
+        /// </summary>
+        [Test]
+        public void ATLSIdentityIsShownOnTheListenersItIsFor()
+        {
+
+            var store = new CertificateStore(directory, log, Usages: [ "modbus", "web" ]);
+
+            using var modbusKey    = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var everyKey     = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var modbusOnly   = new CertificateRequest("CN=meter-001 Modbus/TLS", modbusKey, HashAlgorithmName.SHA256).
+                                         CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
+            using var everywhere   = new CertificateRequest("CN=meter-001",            everyKey,  HashAlgorithmName.SHA256).
+                                         CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
+
+            Assert.That(store.Import(modbusOnly.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ "modbus" ],
+                                     out var forModbus, out var error),
+                        Is.True, error);
+
+            Assert.That(store.Import(everywhere.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, null,
+                                     out var forEvery, out error),
+                        Is.True, error);
+
+            Assert.Multiple(() => {
+
+                Assert.That(forModbus!.Usages,                                                           Is.EqualTo(new[] { "modbus" }));
+                Assert.That(forEvery!.Usages,                                                            Is.Null, "never told is every listener");
+
+                Assert.That(store.UsableFor(CertificateKind.TLSIdentity, "modbus").Select(entry => entry.Id), Is.EquivalentTo(new[] { forModbus.Id, forEvery.Id }));
+                Assert.That(store.UsableFor(CertificateKind.TLSIdentity, "web").   Select(entry => entry.Id), Is.EqualTo(new[] { forEvery.Id }));
+
+                Assert.That(forModbus.ToJSON()["usages"]?.Values<String>(),                             Is.EqualTo(new[] { "modbus" }));
+                Assert.That(forEvery.ToJSON()["usages"]?.Type,                                           Is.EqualTo(JTokenType.Null));
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

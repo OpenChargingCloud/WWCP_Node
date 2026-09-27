@@ -121,7 +121,7 @@ Beyond the names, a kind of node adds to the node in eight places:
   of them holding a vehicle's seven empty directories was a promise nobody
   was keeping. And `CertificateUsages`, what a TLS root or a server
   certificate may be for beside the node's `dns` and `nts` - a backend it
-  dials, say.
+  dials, say - and which of its listeners a TLS identity is shown on.
 * **Who may do what:** `Resources`, the names of what it adds for a role to
   read, edit or run, and `RoleDefinitions`, its roles and what each of them
   may do - see below.
@@ -405,7 +405,10 @@ Seven of the kinds are ISO 15118's, which a vehicle keeps. Four are TLS's in
 general, which any kind of node may keep: `tlsRoot`, what a server it connects
 to may chain to - a time server's key exchange, a backend - and which is
 believed beside the machine's roots, not instead of them; `clientRoot`, what a
-client connecting to it has to chain to; `tlsServer`, what a server it
+client connecting to it has to chain to - a root, or the issuing CA below one
+that signs the clients and nothing else, since the root would let in whatever
+else it signed, and the one trust anchor that may therefore be signed by
+somebody else, as long as it is a CA; `tlsServer`, what a server it
 connects to shows, kept to be recognised - never with a private key, which
 would be that server's key in the wrong place; and `tlsIdentity`, what the
 node shows itself, with its key. A kind of node keeps those it has a use for,
@@ -423,6 +426,12 @@ it is typed, because a root "for ntp" would otherwise vouch for no time server
 and nothing would say why. The time servers are anchored by the TLS roots for
 `nts`, and by the root a server is held to whatever it is kept for: naming it
 in the server's configuration says the same thing, and more narrowly.
+
+A TLS identity is told the same way where it is shown. A node with more than
+one listener - a meter's Modbus/TLS port and its web interface - adds a usage
+for each and presents on each the identities for it, and one never told is
+for every listener. The node itself presents none of them: which one a
+listener shows, and when it changes, is its kind's to say.
 
 Anything in the store is found by its SHA-256 fingerprint, whatever kind it
 was kept as: `ByFingerprint` takes the whole of it and nothing shorter, in any
