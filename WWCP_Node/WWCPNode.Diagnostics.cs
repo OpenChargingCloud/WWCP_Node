@@ -196,7 +196,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 "dns", "test"
             );
 
-            var stopwatch = Stopwatch.StartNew();
+            var stopwatch   = Stopwatch.StartNew();
+
+            // What was made of the certificates of the servers asked over TLS or
+            // HTTPS during this test - and of those alone: a judgement from
+            // before it would be about another handshake.
+            var judgedFrom  = TimeProvider.GetUtcNow();
+
+            JArray CertificatesJudged()
+
+                => new (judgements.Values.
+                                   Where  (judgement => judgement.Service == CertificateUsages.DNS && judgement.At >= judgedFrom).
+                                   OrderBy(judgement => judgement.At).
+                                   Select (judgement => {
+                                       var json = judgement.ToJSON();
+                                       json.Add("steps", new JArray(judgement.Steps.Select(step => new JObject(
+                                                                                               new JProperty("level", step.Level),
+                                                                                               new JProperty("text",  step.Text)
+                                                                                           ))));
+                                       return json;
+                                   }));
 
             try
             {
@@ -254,7 +273,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                ))
                            )),
 
-                           new JProperty("more",          Math.Max(0, answer.Answers.Count() - records.Length))
+                           new JProperty("more",          Math.Max(0, answer.Answers.Count() - records.Length)),
+
+                           new JProperty("certificates",  CertificatesJudged())
 
                        );
 
@@ -266,7 +287,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 Log.Error($"DNS test for '{serviceName}' failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "dns", "test");
 
-                return Failed(serviceName.ToString(), asked, e.Message);
+                // A refused certificate is the most likely reason a server over
+                // TLS answered nothing, and the one most worth seeing.
+                var failed = Failed(serviceName.ToString(), asked, e.Message);
+                failed.Add("certificates", CertificatesJudged());
+
+                return failed;
 
             }
 
@@ -317,11 +343,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     QueryTimeout:   Server.QueryTimeout ?? dnsClient.QueryTimeout,
                     UseQueryCache:  false) {
 
-                   RecursionDesired  = dnsClient.RecursionDesired,
-                   DnssecOK          = dnsClient.DnssecOK,
-                   FollowCNAMEs      = dnsClient.FollowCNAMEs,
-                   MaxCNAMEFollows   = dnsClient.MaxCNAMEFollows,
-                   MaxRetries        = dnsClient.MaxRetries
+                   RecursionDesired            = dnsClient.RecursionDesired,
+                   DnssecOK                    = dnsClient.DnssecOK,
+                   FollowCNAMEs                = dnsClient.FollowCNAMEs,
+                   MaxCNAMEFollows             = dnsClient.MaxCNAMEFollows,
+                   MaxRetries                  = dnsClient.MaxRetries,
+
+                   // Held to what the node's own client holds it to: a server
+                   // tested on its own is judged as it is when it is asked for
+                   // anything else.
+                   RemoteCertificateValidator  = dnsClient.RemoteCertificateValidator
 
                };
 

@@ -37,7 +37,7 @@ a port of their own to connect to.
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them |
-| `WWCP_Node_Tests/` | two hundred and fifty-seven tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | two hundred and sixty-four tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -215,6 +215,27 @@ with. Switching name resolution off is done by taking the client's servers
 away, which is what being switched off actually means for everything holding
 that client - and the list waits beside it for being switched back on.
 
+A name server reached over TLS or HTTPS shows a certificate, and is judged by
+it at every handshake the way a time server is at its key exchange - see
+below: issued for the address it is dialled at, chaining to a root this
+machine trusts or to a TLS root of the node's store for `dns`, and, where its
+entry says so, one it is held to:
+
+```json
+{ "address": "1.1.1.1", "transport": "TLS", "trustOnFirstUse": "root" }
+```
+
+The same keys as a time server's - `certificateFingerprint(s)`,
+`rootFingerprint(s)`, `onMismatch`, `trustOnFirstUse` - and on an entry asked
+over UDP, TCP or plain HTTP they are refused, because such a server shows no
+certificate to hold it to. A name server does not bear on the time, so what is
+news about one is tagged `security` and goes into the metrological log only
+where its entry says `record`. Its connection is kept open between queries, so
+a change to what it is held to closes the one it has, and the pin counts from
+the next query. The DNS answer says per server what it is held to, what the
+node made of its certificate last and what it was last believed with, and a
+test of the name servers says what was made of every certificate it met.
+
 The `nts` block above is what a node asks when the file says nothing at all:
 the PTB's four, of which two have to answer. Every key of the section, and
 what it is when absent:
@@ -295,8 +316,8 @@ The NTS answer says, per server, the fingerprint of the certificate it showed
 last - which is what a pin is written down from - what it is held to, what
 the node made of it, and what it was last believed with. The judgement is the
 same for any server a node connects to - `JudgeServer` - and a name server
-reached over TLS or HTTPS will go through it once Hermod's DNS client hands
-its certificate over, which it does not yet.
+reached over TLS or HTTPS goes through it too, handed over by Hermod's DNS
+client: see above.
 
 Servers sharing a priority are one band and are asked together; a lower
 priority is asked first. The four above share priority 0 because they are

@@ -50,6 +50,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="FollowCNAMEs">Whether a CNAME chain is followed.</param>
     /// <param name="MaxCNAMEFollows">How far.</param>
     /// <param name="MaxRetries">How often a server that did not answer, or answered SERVFAIL, is asked again.</param>
+    /// <param name="Pins">What each of the servers reached over TLS or HTTPS is held to, beside what every one is held to - see <see cref="ServerPins"/>; only where the list of servers says so.</param>
     public sealed record DNSConfiguration(Boolean?                        Enabled               = null,
                                           IReadOnlyList<DNSServerConfig>? Servers               = null,
                                           TimeSpan?                       QueryTimeout          = null,
@@ -58,7 +59,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           Boolean?                        DnssecOK              = null,
                                           Boolean?                        FollowCNAMEs          = null,
                                           Byte?                           MaxCNAMEFollows       = null,
-                                          Byte?                           MaxRetries            = null)
+                                          Byte?                           MaxRetries            = null,
+                                          IReadOnlyDictionary<DNSServerConfig, ServerPins>?  Pins  = null)
     {
 
         #region Data
@@ -98,7 +100,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             #region The name servers
 
-            IReadOnlyList<DNSServerConfig>? servers = null;
+            IReadOnlyList<DNSServerConfig>?                    servers  = null;
+            Dictionary<DNSServerConfig, ServerPins>?          pins     = null;
 
             if (JSON["servers"] is JToken serversToken && serversToken.Type != JTokenType.Null)
             {
@@ -117,13 +120,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
                 var parsed = new List<DNSServerConfig>();
 
-                foreach (var token in serverArray)
+                pins       = [];
+
+                for (var index = 0; index < serverArray.Count; index++)
                 {
 
-                    if (!TryParseServer(token, out var server, out Error))
+                    if (!TryParseServer(serverArray[index], index, out var server, out var held, out Error))
                         return false;
 
                     parsed.Add(server);
+
+                    if (held is not null)
+                        pins[server] = held;
 
                 }
 
@@ -154,7 +162,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 dnssecOK,
                                 followCNAMEs,
                                 maxCNAMEFollows,
-                                maxRetries
+                                maxRetries,
+                                pins
                             );
 
             return true;
@@ -254,6 +263,66 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (static) TryParseServer(JSON, Index, out Server, out Pins, out Error)
+
+        /// <summary>
+        /// One name server, and what it is held to beside what every one is held
+        /// to - see <see cref="ServerPins"/>.
+        /// </summary>
+        /// <remarks>
+        /// Only a server reached over TLS or HTTPS shows a certificate, so only
+        /// such a server can be held to one: a pin on a server asked over UDP
+        /// would be a pin nobody ever compares, on a server its author believes
+        /// to be held to something. That is refused, with the entry named.
+        /// </remarks>
+        /// <param name="JSON">The entry of the server.</param>
+        /// <param name="Index">Its place in the list, to say which one is wrong.</param>
+        public static Boolean TryParseServer(JToken                                   JSON,
+                                             Int32                                    Index,
+                                             [NotNullWhen(true)]  out DNSServerConfig? Server,
+                                             out ServerPins?                           Pins,
+                                             [NotNullWhen(false)] out String?           Error)
+        {
+
+            Pins = null;
+
+            if (!TryParseServer(JSON, out Server, out Error))
+                return false;
+
+            if (JSON is not JObject json)
+                return true;
+
+            if (!ServerPins.TryParse(json, $"dns.servers[{Index}]", out Pins, out Error))
+                return false;
+
+            if (Pins is not null && !IsEncrypted(Server.Transport))
+            {
+                Error  = $"'dns.servers[{Index}]' is held to a certificate and asked over {Server.Transport}, which shows none: only a name server reached over TLS or HTTPS can be held to one.";
+                Pins   = null;
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) IsEncrypted(Transport)
+
+        /// <summary>
+        /// Whether a name server asked over this transport shows a certificate.
+        /// </summary>
+        public static Boolean IsEncrypted(DNSTransport Transport)
+
+            => Transport is DNSTransport.TLS
+                         or DNSTransport.HTTPS
+                         or DNSTransport.HTTPS_Binary
+                         or DNSTransport.HTTPS_JSON
+                         or DNSTransport.HTTPS_GET;
+
+        #endregion
+
         #region (static) ServerJSON(Server)
 
         /// <summary>
@@ -267,6 +336,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                    new JProperty("transport",             Server.Transport.ToString()),
                    new JProperty("queryTimeoutSeconds",   Server.QueryTimeout?.TotalSeconds)
                );
+
+        /// <summary>
+        /// One name server as the file keeps it, with what it is held to - in
+        /// the keys the file writes it under, so that a page sending the entry
+        /// back sends the pins back with it.
+        /// </summary>
+        public static JObject ServerJSON(DNSServerConfig  Server,
+                                         ServerPins?      Pins)
+        {
+
+            var json = ServerJSON(Server);
+
+            Pins?.WriteInto(json);
+
+            return json;
+
+        }
 
         #endregion
 
@@ -283,7 +369,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             var json = new JObject();
 
             if (Enabled.            HasValue)  json.Add("enabled",              Enabled.            Value);
-            if (Servers is not null)           json.Add("servers",              new JArray(Servers.Select(ServerJSON)));
+            if (Servers is not null)           json.Add("servers",              new JArray(Servers.Select(server => ServerJSON(server, Pins?.GetValueOrDefault(server)))));
             if (QueryTimeout.       HasValue)  json.Add("queryTimeoutSeconds",  QueryTimeout.       Value.TotalSeconds);
             if (RecursionDesired.   HasValue)  json.Add("recursionDesired",     RecursionDesired.   Value);
             if (UseCache.           HasValue)  json.Add("useCache",             UseCache.           Value);

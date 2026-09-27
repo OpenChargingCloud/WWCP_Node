@@ -766,6 +766,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
             this.dnsClient             = DNSClient ?? new DNSClient();
             this.configuredDNSServers  = [.. dnsClient.DNSServers];
 
+            // Every name server reached over TLS or HTTPS asks this node about
+            // its certificate at its handshakes - see
+            // WWCPNode.NameServerCertificates.cs. Where whoever handed the
+            // client in gave it a check of its own, that one stays.
+            this.dnsClient.RemoteCertificateValidator ??= NameServerValidator;
+
             // The clock goes to the time client too: a node that reads one
             // clock itself and disciplines another would have two, which is one
             // more than a node may have.
@@ -1336,8 +1342,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                    // The servers this node would ask, which is not the same
                    // as the ones the client holds: switched off, it holds none.
+                   //
+                   // Each with what it is held to in the keys the file writes
+                   // it under, so that a page sending the list back sends the
+                   // pins back with it - and, for reading, the same again as the
+                   // NTS answer has it, what the node made of its certificate
+                   // last, and what it was last believed with.
                    new JProperty("servers",           new JArray(
-                       configuredDNSServers.Select(DNSConfiguration.ServerJSON)
+                       configuredDNSServers.Select(server => {
+
+                           var pins  = PinsOf(server);
+                           var json  = DNSConfiguration.ServerJSON(server, pins);
+
+                           json.Add("heldTo",     pins is { SaysAnything: true } ? pins.ToJSON() : null);
+                           json.Add("judgement",  LastJudgementOf(server)?.ToJSON());
+                           json.Add("known",      KnownServers.Get(CertificateUsages.DNS, NameOf(server)) is KnownServer known
+                                                      ? new JObject(
+                                                            new JProperty("certificate",  known.Certificate),
+                                                            new JProperty("root",         known.Root),
+                                                            new JProperty("since",        known.Since.ToString("o"))
+                                                        )
+                                                      : null);
+
+                           return json;
+
+                       })
                    )),
 
                    new JProperty("settings",          new JObject(
@@ -1460,6 +1489,38 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // hold, and working that out from which halves changed is how the
             // two drift apart.
             dnsClient.SetDNSServers(DNSEnabled ? configuredDNSServers : []);
+
+            // What each server is held to comes with the list, and only with it.
+            // A server whose pins changed lets go of its connection: the
+            // certificate is only looked at when one is made, and a server held
+            // to a fingerprint from now on must not go on being asked over a
+            // connection nobody held it to anything in.
+            if (Configuration.Servers is not null)
+            {
+
+                var wasPins  = dnsPins;
+                var nowPins  = Configuration.Pins ?? new Dictionary<DNSServerConfig, ServerPins>();
+
+                dnsPins      = nowPins;
+
+                foreach (var server in wasPins.Keys.Union(nowPins.Keys).ToArray())
+                {
+
+                    var now = nowPins.GetValueOrDefault(server);
+
+                    if ((wasPins.GetValueOrDefault(server) ?? ServerPins.None).SameAs(now))
+                        continue;
+
+                    dnsClient.CloseConnection(server);
+                    judgements.TryRemove((CertificateUsages.DNS, NameOf(server).ToLowerInvariant()), out _);
+
+                    changed.Add(now is { SaysAnything: true }
+                                    ? $"{NameOf(server)} held to {now}"
+                                    : $"{NameOf(server)} held to no fingerprint");
+
+                }
+
+            }
 
             if (Configuration.QueryTimeout.HasValue && dnsClient.QueryTimeout != Configuration.QueryTimeout.Value)
             {
