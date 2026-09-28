@@ -913,6 +913,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ATestAsksNobodyOnceNTSIsSwitchedOffWhileTheNodeRuns()
+
+        /// <summary>
+        /// Switched off while the node runs, time synchronisation is as off as
+        /// one the file switched off: a test of a server asks nobody, and says
+        /// why, as its one step.
+        /// </summary>
+        /// <remarks>
+        /// On at the start, with name resolution switched off, so that nothing
+        /// would go out even before it is switched off.
+        /// </remarks>
+        [Test]
+        public async Task ATestAsksNobodyOnceNTSIsSwitchedOffWhileTheNodeRuns()
+        {
+
+            await using var node = Node("""
+                                        { "dns": { "enabled": false },
+                                          "nts": { "servers": [ "a.example", "b.example" ], "timeoutSeconds": 1 } }
+                                        """);
+
+            Assert.That(node.NTSEnabled, Is.True, "the test's own premise");
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "enabled": false }"""), out var error), Is.True, error);
+
+            var result  = await node.TestTimeServerAsync("b.example");
+            var steps   = result["steps"] as JArray;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.Value<Boolean>("ok"),       Is.False);
+                Assert.That(steps?.Count,                      Is.EqualTo(1),  "one step, and nothing asked after it");
+                Assert.That(steps?[0]?.Value<String>("text"),  Is.EqualTo($"Time synchronisation is switched off on this {node.Kind.Name}, so nothing was asked."));
+            });
+
+        }
+
+        #endregion
+
 
         #region TheDefaultFourAreWhatANodeStartsWith()
 
@@ -1145,7 +1182,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region AnAddressIsAskedWithTheCookiesOfTheSingleClientsExchange()
+        #region AnAddressIsAskedWithTheCookiesOfTheSingleClientsExchange(Typed)
 
         /// <summary>
         /// An address is a server to be asked, not something to refuse - and it
@@ -1158,6 +1195,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// issued for a name; the exchange therefore stays with the single
         /// client's host, and the time request is directed at the address.
         ///
+        /// Asked both as a key exchange names it and as a URL writes it, in
+        /// brackets - whichever of the two is handed in.
+        ///
         /// Time synchronisation is on here, and name resolution is off, so that
         /// the first step - which says what is going to be asked - is written,
         /// and the key exchange after it fails at its lookup without anything
@@ -1165,13 +1205,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// servers, of which there are none. Where the request would go is
         /// Norn's decision and is tested there.
         /// </remarks>
-        [Test]
-        public async Task AnAddressIsAskedWithTheCookiesOfTheSingleClientsExchange()
+        [TestCase("2a01:3f7:2:44::9")]
+        [TestCase("[2a01:3f7:2:44::9]")]
+        public async Task AnAddressIsAskedWithTheCookiesOfTheSingleClientsExchange(String Typed)
         {
 
             await using var node = Node("""{ "dns": { "enabled": false }, "nts": { "timeoutSeconds": 1 } }""");
 
-            var result = await node.TestTimeServerAsync("[2a01:3f7:2:44::9]");
+            var result = await node.TestTimeServerAsync(Typed);
 
             Assert.Multiple(() => {
                 Assert.That(result.Value<String>("host"),                 Is.EqualTo("2a01:3f7:2:44::9"));

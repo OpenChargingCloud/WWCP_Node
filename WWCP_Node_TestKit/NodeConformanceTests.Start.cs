@@ -135,14 +135,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <summary>
         /// "udp://213.133.98.98:53" is how the log writes a name server, and no
         /// form the file takes: a node whose file says so stops at its
-        /// construction, with a sentence that names the entry - rather than
-        /// with an ArgumentException, as some kinds of node did, or not at all.
+        /// construction, with a sentence that names the entry and the file to
+        /// repair - rather than with an ArgumentException, as some kinds of
+        /// node did, or not at all.
         /// </summary>
+        /// <remarks>
+        /// The file is the kind's own, wherever its NewNode puts it: as far
+        /// below the new directory as the running node's file is below this
+        /// fixture's.
+        /// </remarks>
         [Test]
         public async Task AFileThatNamesANameServerTheWayTheLogDoesStopsTheNode()
         {
 
             var elsewhere = Path.Combine(Directory, "another");
+            var file      = Path.Combine(elsewhere, Path.GetRelativePath(Directory, Node.ConfigFile.Path));
 
             System.IO.Directory.CreateDirectory(elsewhere);
 
@@ -162,8 +169,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 await made.DisposeAsync();
 
             Assert.Multiple(() => {
-                Assert.That(thrown,           Is.InstanceOf<InvalidOperationException>(),  $"the {Node.Kind.Name} was made anyway, or stopped otherwise: {thrown}");
+                Assert.That(thrown,           Is.TypeOf<InvalidOperationException>(),      $"the {Node.Kind.Name} was made anyway, or stopped otherwise: {thrown}");
                 Assert.That(thrown?.Message,  Does.Contain("'dns.servers'").And.Contain("udp://213.133.98.98:53"));
+                Assert.That(thrown?.Message,  Does.Contain(file),                             "the sentence does not say which file to repair");
             });
 
         }

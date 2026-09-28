@@ -38,7 +38,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     /// A role is a list of permissions, each an operation on a resource, on
     /// every node - so the file can add one no kind of node ever heard of: a
     /// support desk that may look at the name resolution and nothing else,
-    /// and one that may change it as well. The gateway and the charging
+    /// one that may change it as well, and one that may look at the time
+    /// source and nothing else. The gateway and the charging
     /// station each asked this of their own; it is the node that reads the
     /// file, so it is asked of every kind here.
     /// </remarks>
@@ -53,8 +54,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         protected static JObject RolesTheFileAdds
 
             => new (
-                   new JProperty("support",  new JArray("dns:read")),
-                   new JProperty("dnsdesk",  new JArray("dns:read", "dns:edit"))
+                   new JProperty("support",   new JArray("dns:read")),
+                   new JProperty("dnsdesk",   new JArray("dns:read", "dns:edit")),
+                   new JProperty("timedesk",  new JArray("nts:read"))
                );
 
         #endregion
@@ -72,9 +74,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Assert.Multiple(() => {
 
-                Assert.That(Node.Roles,  Does.Contain("support").And.Contain("dnsdesk"));
+                Assert.That(Node.Roles,  Does.Contain("support").And.Contain("dnsdesk").And.Contain("timedesk"));
 
-                foreach (var role in new[] { "support", "dnsdesk" })
+                foreach (var role in new[] { "support", "dnsdesk", "timedesk" })
                     Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(role), out _),
                                 Is.True,
                                 $"The {Node.Kind.Name} made no group for the role '{role}'.");
@@ -89,29 +91,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         /// <summary>
         /// Somebody in a role the file added may do what the file says it may
-        /// - read the name resolution - and nothing else: not read the time
-        /// source, not change what it may read. And it is told so, as a copy
-        /// of what the node enforces.
+        /// - read the name resolution, or read the time source - and nothing
+        /// else: not read the other, not change what it may read. And it is
+        /// told so, as a copy of what the node enforces.
         /// </summary>
+        /// <remarks>
+        /// Two roles on two resources, each the other's mirror: with the
+        /// name resolution alone, a time source that could only be read with
+        /// the right to change it looked the same as one that was read as it
+        /// should be - the administrator may do both, and the support desk
+        /// neither.
+        /// </remarks>
         [Test, WithNode(NodeSetup.RolesFromTheFile)]
         public async Task ARoleTheFileAddsMayDoWhatItSaysAndNothingElse()
         {
 
-            await AccountIn("supporter", "support", "Supporting-Only-1");
+            await AccountIn("supporter",   "support",   "Supporting-Only-1");
+            await AccountIn("timekeeper",  "timedesk",  "Keeping-Time-Only-1");
 
-            using var http  = await SignedInAs("supporter", "Supporting-Only-1");
+            using var supporter   = await SignedInAs("supporter",   "Supporting-Only-1");
+            using var timekeeper  = await SignedInAs("timekeeper",  "Keeping-Time-Only-1");
 
-            var dns         = await http.GetAsync("api/v1/configuration/dns");
-            var nts         = await http.GetAsync("api/v1/configuration/nts");
-            var change      = await http.PutAsync("api/v1/configuration/dns", JSONBody());
-            var me          = await GetJSON(http, "api/v1/auth/me");
+            var dns     = await supporter. GetAsync("api/v1/configuration/dns");
+            var nts     = await supporter. GetAsync("api/v1/configuration/nts");
+            var change  = await supporter. PutAsync("api/v1/configuration/dns", JSONBody());
+            var me      = await GetJSON(supporter,  "api/v1/auth/me");
+
+            var time    = await timekeeper.GetAsync("api/v1/configuration/nts");
+            var names   = await timekeeper.GetAsync("api/v1/configuration/dns");
+            var reset   = await timekeeper.PutAsync("api/v1/configuration/nts", JSONBody());
+            var itself  = await GetJSON(timekeeper, "api/v1/auth/me");
 
             Assert.Multiple(() => {
+
                 Assert.That(dns.   StatusCode,                         Is.EqualTo(HttpStatusCode.OK),         "reading the name servers is what the role is for");
                 Assert.That(nts.   StatusCode,                         Is.EqualTo(HttpStatusCode.Forbidden),  "the time source is none of its business");
                 Assert.That(change.StatusCode,                         Is.EqualTo(HttpStatusCode.Forbidden),  "reading is not changing");
                 Assert.That(me["roles"]?.      Values<String>(),       Is.EqualTo(new[] { "support" }));
                 Assert.That(me["permissions"]?.Values<String>(),       Is.EqualTo(new[] { "dns:read" }));
+
+                Assert.That(time.  StatusCode,                         Is.EqualTo(HttpStatusCode.OK),         "reading the time source is what the other role is for");
+                Assert.That(names. StatusCode,                         Is.EqualTo(HttpStatusCode.Forbidden),  "and the name servers none of its business");
+                Assert.That(reset. StatusCode,                         Is.EqualTo(HttpStatusCode.Forbidden),  "reading the time source is not changing it");
+                Assert.That(itself["roles"]?.      Values<String>(),   Is.EqualTo(new[] { "timedesk" }));
+                Assert.That(itself["permissions"]?.Values<String>(),   Is.EqualTo(new[] { "nts:read" }));
+
             });
 
         }
@@ -141,6 +165,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(said,     Does.StartWith("This needs the ").And.EndWith(" role."));
                 Assert.That(said,     Does.Contain("dnsdesk"),      "the role the file gave the permission is not among the ones to ask for");
                 Assert.That(said,     Does.Not.Contain("support"),  "the role the file did not give it is");
+                Assert.That(said,     Does.Not.Contain("timedesk"), "a role the file gave another resource is");
             });
 
         }
@@ -162,6 +187,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             Assert.Multiple(() => {
                 Assert.That(said,  Has.Some.EqualTo("The configuration file adds the role 'support', which may do dns:read."),  String.Join(" | ", said));
                 Assert.That(said,  Has.Some.StartsWith("The configuration file adds the role 'dnsdesk', which may do "),       String.Join(" | ", said));
+                Assert.That(said,  Has.Some.EqualTo("The configuration file adds the role 'timedesk', which may do nts:read."), String.Join(" | ", said));
             });
 
         }
