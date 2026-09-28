@@ -343,6 +343,68 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AStreamEndsWhenItsAccountMayNoLongerReadTheLog()
+
+        /// <summary>
+        /// An account taken out of the group that let it read the log is sent
+        /// no further line of it, although it is still signed in - and a new
+        /// stream is refused with a 403, which the Logs page takes as final.
+        /// </summary>
+        /// <remarks>
+        /// The EMSP asked this of its operator; here it is asked of a second
+        /// administrator, taken out of the group every kind of node has. Every
+        /// other request of such an account is refused from the moment it is
+        /// out of the group; a stream that went on would be the one that was
+        /// not.
+        ///
+        /// Only of a kind whose log needs a permission to be read: by default
+        /// every account that is signed in may read it, because a page that
+        /// cannot hear the stream cannot show anything happening - and an
+        /// account in no group at all is still signed in. Where the log is
+        /// read by everybody signed in, there is nothing for the stream to end
+        /// over, and the test says so rather than passing.
+        /// </remarks>
+        [Test]
+        public async Task AStreamEndsWhenItsAccountMayNoLongerReadTheLog()
+        {
+
+            ShortHeartbeat();
+
+            var account       = await AccountIn("deputy", WWCPNode.AdminRole, "Deputy-For-Now-1");
+
+            using var http    = await SignedInAs("deputy", "Deputy-For-Now-1");
+            using var stream  = await EventStream.OpenAndSettle(Node, http);
+
+            Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(WWCPNode.AdminRole), out var group) && group is UserGroup,
+                        Is.True);
+
+            Assert.That((await Node.ExtAPI.RemoveUserFromUserGroup((User) account, (UserGroup) group!)).IsSuccess,
+                        Is.True,
+                        "the account could not be taken out of the group");
+
+            using var snapshot = await http.GetAsync("api/v1/logs?limit=1");
+
+            Assume.That(snapshot.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden),
+                        $"A {Node.Kind.Name} lets every account that is signed in read its log, so there is nothing for its stream to end over.");
+
+            var afterwards    = "Logged after the account was taken out " + Guid.NewGuid().ToString("N")[..8];
+            Node.Log.Info(afterwards, "test");
+
+            var ended         = await stream.EndsWithin(TimeSpan.FromSeconds(5));
+
+            using var again   = await http.GetAsync("api/v1/events", HttpCompletionOption.ResponseHeadersRead);
+
+            Assert.Multiple(() => {
+                Assert.That(ended,                     Is.True,        "the stream went on after its account had lost the log");
+                Assert.That(stream.Count(afterwards),  Is.EqualTo(0),  "a line logged after the account had lost the log was sent to it");
+                Assert.That(again.StatusCode,          Is.EqualTo(HttpStatusCode.Forbidden),
+                            "a new stream is refused to an account that is still signed in");
+            });
+
+        }
+
+        #endregion
+
         #region AClosedBrowserIsLetGoOfAtTheNextHeartbeat()
 
         /// <summary>

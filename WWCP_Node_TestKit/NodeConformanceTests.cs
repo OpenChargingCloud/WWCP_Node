@@ -70,7 +70,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// server gets past the switch, and nothing leaves the machine even if
         /// the first check of the clock came due during it.
         /// </summary>
-        TimeClientOn
+        TimeClientOn,
+
+        /// <summary>
+        /// Two roles the file adds, which no kind of node brings: "support",
+        /// which may read the name resolution and nothing else, and "dnsdesk",
+        /// which may change it as well - see
+        /// <see cref="NodeConformanceTests.RolesTheFileAdds"/>.
+        /// </summary>
+        RolesFromTheFile
 
     }
 
@@ -299,6 +307,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                                )),
                                                new JProperty("maxRetries",  0)
                                            );
+                    break;
+
+                case NodeSetup.RolesFromTheFile:
+
+                    configuration["roles"] = RolesTheFileAdds.DeepClone();
                     break;
 
                 case NodeSetup.TimeClientOn:

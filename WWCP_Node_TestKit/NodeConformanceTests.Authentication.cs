@@ -61,6 +61,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AChangeWithoutASessionIsRefusedBeforeItIsRead(Method, Path)
+
+        /// <summary>
+        /// A change sent by a browser that is not signed in is refused as that,
+        /// before its body is looked at: a body that is not even JSON is a 401
+        /// and not a 400, so that a stranger learns nothing of what the node
+        /// would have made of it.
+        /// </summary>
+        /// <remarks>
+        /// The roaming hub asked it of its store's upload; every change every
+        /// node takes is asked here.
+        /// </remarks>
+        [TestCase("POST",   "api/v1/certificates")]
+        [TestCase("PATCH",  "api/v1/certificates/anything")]
+        [TestCase("PUT",    "api/v1/configuration/dns")]
+        [TestCase("PUT",    "api/v1/configuration/nts")]
+        public async Task AChangeWithoutASessionIsRefusedBeforeItIsRead(String  Method,
+                                                                       String  Path)
+        {
+
+            using var http      = Anonymous();
+
+            using var request   = new HttpRequestMessage(new HttpMethod(Method), Path) {
+                                      Content = new StringContent("{ this is not JSON", System.Text.Encoding.UTF8, "application/json")
+                                  };
+
+            using var response  = await http.SendAsync(request);
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized),
+                        "the body was read before anybody asked who sent it");
+
+        }
+
+        #endregion
+
         #region EveryMethodBelowTheAPIIsAnsweredWithAJSON404(Method)
 
         /// <summary>

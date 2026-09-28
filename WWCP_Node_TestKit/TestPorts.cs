@@ -29,13 +29,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     /// Ports for a test: one to listen on, and one where a name server would
     /// be that never answers.
     /// </summary>
+    /// <remarks>
+    /// Every port handed out here, and every one a <see cref="ClosedPort"/>
+    /// holds, is remembered for the rest of the test run, and none is handed
+    /// out twice. The operating system does hand one out twice: asked for any
+    /// free port, Linux picks one at random from some fourteen thousand, and a
+    /// test run that asks a thousand times is given the same one again and
+    /// again - now and then two that are needed at once. A charging station's
+    /// setup was stopped by it, told that its display and its web interface
+    /// would both listen on 127.0.0.1:36729.
+    /// </remarks>
     public static class TestPorts
     {
+
+        #region Data
+
+        /// <summary>
+        /// How often the operating system is asked for a port before this
+        /// gives up on it.
+        /// </summary>
+        public const Int32 MaxAttempts = 100;
+
+        /// <summary>
+        /// Every port this test run has been handed, one way or another.
+        /// </summary>
+        private static readonly HashSet<UInt16>  claimed  = [];
+
+        private static readonly Lock             padlock  = new();
+
+        #endregion
+
 
         #region Free()
 
         /// <summary>
-        /// A TCP port nobody was listening on a moment ago.
+        /// A TCP port nobody was listening on a moment ago, and that nobody
+        /// else in this test run has been handed.
         /// </summary>
         /// <remarks>
         /// Asked of the operating system rather than counted up from a
@@ -44,22 +73,113 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// told to parallelise. There is a gap between letting the port go and
         /// binding it again, which nothing here can close; what this buys is
         /// that the gap is milliseconds wide instead of the whole test run.
+        /// A port that nothing here can hold for the whole test is one a
+        /// <see cref="ClosedPort"/> gives.
         /// </remarks>
+        /// <exception cref="InvalidOperationException">The operating system offered nothing but ports this test run already has.</exception>
         public static UInt16 Free()
         {
 
-            var listener = new TcpListener(IPAddress.Loopback, 0);
+            var listener = Take(Offer:   () => {
+                                             var probe = new TcpListener(IPAddress.Loopback, 0);
+                                             probe.Start();
+                                             return probe;
+                                         },
+                                PortOf:  probe => (UInt16) ((IPEndPoint) probe.LocalEndpoint).Port,
+                                LetGo:   probe => probe.Stop());
 
-            listener.Start();
+            var port = (UInt16) ((IPEndPoint) listener.LocalEndpoint).Port;
+
+            listener.Stop();
+
+            return port;
+
+        }
+
+        #endregion
+
+        #region TryClaim(Port)
+
+        /// <summary>
+        /// Claim a port for the rest of this test run: false, where it was
+        /// handed out or claimed already.
+        /// </summary>
+        /// <remarks>
+        /// For a helper that binds a port of its own and holds it, so that
+        /// <see cref="Free"/> does not hand the same number to somebody else
+        /// once the helper has let go of it - and so that the helper learns
+        /// when the operating system gave it a port that <see cref="Free"/>
+        /// has just handed out, to somebody who has not bound it yet.
+        /// </remarks>
+        public static Boolean TryClaim(UInt16 Port)
+        {
+            lock (padlock)
+                return claimed.Add(Port);
+        }
+
+        #endregion
+
+
+        #region (internal) Take(Offer)
+
+        /// <summary>
+        /// The first port an offer makes that this test run has not been
+        /// handed yet.
+        /// </summary>
+        internal static UInt16 Take(Func<UInt16> Offer)
+
+            => Take(Offer,
+                    PortOf:  port => port,
+                    LetGo:   null);
+
+        #endregion
+
+        #region (internal) Take(Offer, PortOf, LetGo)
+
+        /// <summary>
+        /// The first thing an offer makes whose port this test run has not been
+        /// handed yet - a listener, a socket, a number - claimed as it is taken.
+        /// </summary>
+        /// <remarks>
+        /// What is turned down is held until something is taken, and only then
+        /// let go of: let go of at once, it would be the very port the operating
+        /// system offers next.
+        /// </remarks>
+        /// <param name="Offer">Something with a port, a new one at each call.</param>
+        /// <param name="PortOf">Its port.</param>
+        /// <param name="LetGo">What to do with one that is turned down, once something has been taken.</param>
+        /// <exception cref="InvalidOperationException">The offer made nothing but ports this test run already has, <see cref="MaxAttempts"/> times.</exception>
+        internal static T Take<T>(Func<T>          Offer,
+                                  Func<T, UInt16>  PortOf,
+                                  Action<T>?       LetGo)
+        {
+
+            var turnedDown = new List<T>();
 
             try
             {
-                return (UInt16) ((IPEndPoint) listener.LocalEndpoint).Port;
+
+                for (var attempt = 0; attempt < MaxAttempts; attempt++)
+                {
+
+                    var offered = Offer();
+
+                    if (TryClaim(PortOf(offered)))
+                        return offered;
+
+                    turnedDown.Add(offered);
+
+                }
+
             }
             finally
             {
-                listener.Stop();
+                if (LetGo is not null)
+                    foreach (var offered in turnedDown)
+                        LetGo(offered);
             }
+
+            throw new InvalidOperationException($"{MaxAttempts} ports were offered, and this test run had been handed every one of them already.");
 
         }
 

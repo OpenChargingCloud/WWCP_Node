@@ -1,0 +1,368 @@
+/*
+ * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
+ * This file is part of WWCP_Node <https://github.com/OpenChargingCloud/WWCP_Node>
+ *
+ * Licensed under the Affero GPL license, Version 3.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.gnu.org/licenses/agpl.html
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#region Usings
+
+using Newtonsoft.Json.Linq;
+
+using NUnit.Framework;
+
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+
+#endregion
+
+namespace cloud.charging.open.protocols.WWCP.Node.Tests
+{
+
+    /// <summary>
+    /// The sections of the configuration file every node has, read one at a
+    /// time.
+    /// </summary>
+    /// <remarks>
+    /// Three rules run through all of them, and most of these tests are one of
+    /// the three: absent is not an error and comes back as null, so the caller
+    /// keeps whatever it had; present but of the wrong kind is an error and
+    /// never a silent null; and an explicit JSON null counts as absent, so a
+    /// page may send a whole object with the fields it does not touch left
+    /// empty.
+    /// </remarks>
+    public class ConfigurationSectionTests
+    {
+
+        #region AnAbsentDNSFieldIsNull()
+
+        /// <summary>
+        /// DNS: an absent field leaves what the node had.
+        /// </summary>
+        [Test]
+        public void AnAbsentDNSFieldIsNull()
+        {
+
+            Assert.That(DNSConfiguration.TryParse([], out var dns, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(dns!.Enabled,       Is.Null);
+                Assert.That(dns.Servers,        Is.Null);
+                Assert.That(dns.QueryTimeout,   Is.Null);
+                Assert.That(dns.UseCache,       Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region ADNSFieldOfTheWrongKindIsRefused()
+
+        /// <summary>
+        /// DNS: a field of the wrong kind is an error, which names the field.
+        /// </summary>
+        [Test]
+        public void ADNSFieldOfTheWrongKindIsRefused()
+        {
+
+            Assert.Multiple(() => {
+
+                Assert.That(DNSConfiguration.TryParse(new JObject(new JProperty("useCache", "yes")),
+                                                      out _, out var text), Is.False);
+                Assert.That(text, Does.Contain("dns.useCache"));
+
+                Assert.That(DNSConfiguration.TryParse(new JObject(new JProperty("maxRetries", "many")),
+                                                      out _, out var number), Is.False);
+                Assert.That(number, Does.Contain("dns.maxRetries"));
+
+                Assert.That(DNSConfiguration.TryParse(new JObject(new JProperty("servers", "8.8.8.8")),
+                                                      out _, out var list), Is.False);
+                Assert.That(list, Does.Contain("dns.servers"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AnExplicitNullDNSFieldCountsAsAbsent()
+
+        /// <summary>
+        /// DNS: an explicit null is the same as absent.
+        /// </summary>
+        [Test]
+        public void AnExplicitNullDNSFieldCountsAsAbsent()
+        {
+
+            var json = new JObject(
+                           new JProperty("useCache", JValue.CreateNull()),
+                           new JProperty("enabled",  true)
+                       );
+
+            Assert.That(DNSConfiguration.TryParse(json, out var dns, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(dns!.UseCache, Is.Null);
+                Assert.That(dns.Enabled,   Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region ANameServerMayBeATextOrAnObject()
+
+        /// <summary>
+        /// DNS: a name server is an address, or an object that says more.
+        /// </summary>
+        [Test]
+        public void ANameServerMayBeATextOrAnObject()
+        {
+
+            var json = new JObject(
+                           new JProperty("servers", new JArray(
+                               "8.8.8.8",
+                               new JObject(
+                                   new JProperty("address",   "9.9.9.9"),
+                                   new JProperty("port",      853),
+                                   new JProperty("transport", "TLS")
+                               )
+                           ))
+                       );
+
+            Assert.That(DNSConfiguration.TryParse(json, out var dns, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(dns!.Servers,                      Has.Count.EqualTo(2));
+                Assert.That(dns.Servers![0].IPAddress?.ToString(), Is.EqualTo("8.8.8.8"));
+                Assert.That(dns.Servers[1].Port.ToUInt16(),     Is.EqualTo(853));
+            });
+
+        }
+
+        #endregion
+
+        #region SomethingThatIsNeitherAnAddressNorANameIsRefused()
+
+        /// <summary>
+        /// DNS: what is not a name server at all.
+        /// </summary>
+        [Test]
+        public void SomethingThatIsNeitherAnAddressNorANameIsRefused()
+        {
+
+            var json = new JObject(new JProperty("servers", new JArray("not a host name!")));
+
+            Assert.That(DNSConfiguration.TryParse(json, out _, out var error), Is.False);
+            Assert.That(error, Does.Contain("dns.servers"));
+
+        }
+
+        #endregion
+
+        #region MoreNameServersThanANodeMayHaveAreRefused()
+
+        /// <summary>
+        /// Not a rule of DNS: a query goes to all of them at once, and a
+        /// hundred would be a hundred packets for every name looked up.
+        /// </summary>
+        [Test]
+        public void MoreNameServersThanANodeMayHaveAreRefused()
+        {
+
+            var tooMany = new JArray(Enumerable.Range(1, DNSConfiguration.MaxServers + 1).
+                                                Select(i => (JToken) $"10.0.0.{i}"));
+
+            Assert.That(DNSConfiguration.TryParse(new JObject(new JProperty("servers", tooMany)),
+                                                  out _, out var error), Is.False);
+
+            Assert.That(error, Does.Contain($"{DNSConfiguration.MaxServers}"));
+
+        }
+
+        #endregion
+
+        #region ADNSSectionWritesOnlyWhatItWasTold()
+
+        /// <summary>
+        /// So the file keeps saying "the system decides" rather than freezing
+        /// today's system default.
+        /// </summary>
+        [Test]
+        public void ADNSSectionWritesOnlyWhatItWasTold()
+        {
+
+            var written = new DNSConfiguration(UseCache: true).ToJSON();
+
+            Assert.Multiple(() => {
+                Assert.That(written.Value<Boolean>("useCache"), Is.True);
+                Assert.That(written["enabled"],                 Is.Null);
+                Assert.That(written["maxRetries"],              Is.Null);
+                Assert.That(written.Properties().Count(),       Is.EqualTo(1));
+            });
+
+        }
+
+        #endregion
+
+
+        #region ATimeServerThatIsNotAHostNameIsRefused()
+
+        /// <summary>
+        /// NTS: a host name that is not one.
+        /// </summary>
+        [Test]
+        public void ATimeServerThatIsNotAHostNameIsRefused()
+        {
+
+            Assert.That(NTSConfiguration.TryParse(new JObject(new JProperty("hostname", "not a host name!")),
+                                                  out _, out var error), Is.False);
+
+            Assert.That(error, Does.Contain("nts.hostname"));
+
+        }
+
+        #endregion
+
+        #region ATimeServerPortOutsideItsRangeIsRefused()
+
+        /// <summary>
+        /// NTS: a port that is not one.
+        /// </summary>
+        [Test]
+        public void ATimeServerPortOutsideItsRangeIsRefused()
+        {
+
+            Assert.Multiple(() => {
+
+                Assert.That(NTSConfiguration.TryParse(new JObject(new JProperty("ntpPort", 0)),
+                                                      out _, out var zero), Is.False,
+                            "Port 0 means 'any free port' to a listener and nothing at all to a client.");
+                Assert.That(zero, Does.Contain("nts.ntpPort"));
+
+                Assert.That(NTSConfiguration.TryParse(new JObject(new JProperty("ntsKEPort", 70000)),
+                                                      out _, out var high), Is.False);
+                Assert.That(high, Does.Contain("nts.ntsKEPort"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheLegalTimeSpansAreReadAsSeconds()
+
+        /// <summary>
+        /// NTS: the spans that decide what "legal" needs.
+        /// </summary>
+        [Test]
+        public void TheLegalTimeSpansAreReadAsSeconds()
+        {
+
+            var json = new JObject(
+                           new JProperty("checkEverySeconds",          600),
+                           new JProperty("legalTimeToleranceSeconds",  0.25),
+                           new JProperty("legalTimeMaxAgeSeconds",     1800),
+                           new JProperty("legalTimeAuthority",         "PTB")
+                       );
+
+            Assert.That(NTSConfiguration.TryParse(json, out var nts, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(nts!.CheckEvery,          Is.EqualTo(TimeSpan.FromMinutes(10)));
+                Assert.That(nts.LegalTimeTolerance,   Is.EqualTo(TimeSpan.FromMilliseconds(250)));
+                Assert.That(nts.LegalTimeMaxAge,      Is.EqualTo(TimeSpan.FromMinutes(30)));
+                Assert.That(nts.LegalTimeAuthority,   Is.EqualTo("PTB"));
+            });
+
+        }
+
+        #endregion
+
+        #region ASpanOutsideItsRangeIsRefused()
+
+        /// <summary>
+        /// NTS: a span outside what a span may be.
+        /// </summary>
+        [Test]
+        public void ASpanOutsideItsRangeIsRefused()
+        {
+
+            Assert.Multiple(() => {
+
+                Assert.That(NTSConfiguration.TryParse(new JObject(new JProperty("timeoutSeconds", 0)),
+                                                      out _, out var tooSmall), Is.False);
+                Assert.That(tooSmall, Does.Contain("nts.timeoutSeconds"));
+
+                Assert.That(NTSConfiguration.TryParse(new JObject(new JProperty("timeoutSeconds", NTSConfiguration.MaxTimeoutSeconds + 1)),
+                                                      out _, out var tooBig), Is.False);
+                Assert.That(tooBig, Does.Contain("nts.timeoutSeconds"));
+
+            });
+
+        }
+
+        #endregion
+
+
+        #region ADocumentReportsWhichSectionsSpoke()
+
+        /// <summary>
+        /// The whole document, read as a node reads it: the sections every
+        /// node has, with a kind's own section beside them passed over without
+        /// a word.
+        /// </summary>
+        [Test]
+        public void ADocumentReportsWhichSectionsSpoke()
+        {
+
+            var json = new JObject(
+                           new JProperty("dns",  new JObject(new JProperty("enabled", true))),
+                           new JProperty("ocpp", new JObject(new JProperty("nodeId",  "lc007")))
+                       );
+
+            Assert.That(WWCPConfiguration.TryParse(json, out var node, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(node!.DNS,        Is.Not.Null);
+                Assert.That(node.NTS,         Is.Null);
+                Assert.That(node.IsEmpty,     Is.False);
+                Assert.That(node.ToString(),  Is.EqualTo("DNS"));
+            });
+
+        }
+
+        #endregion
+
+        #region AnEmptyDocumentSaysNothingIsConfigured()
+
+        /// <summary>
+        /// An empty document says so.
+        /// </summary>
+        [Test]
+        public void AnEmptyDocumentSaysNothingIsConfigured()
+        {
+
+            Assert.That(WWCPConfiguration.TryParse([], out var configuration, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(configuration!.IsEmpty,    Is.True);
+                Assert.That(configuration.ToString(),  Is.EqualTo("nothing configured"));
+            });
+
+        }
+
+        #endregion
+
+    }
+
+}

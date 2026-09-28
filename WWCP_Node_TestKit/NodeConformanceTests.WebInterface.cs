@@ -143,6 +143,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// Browsers ask for /favicon.ico whatever the page says, and a bundle
         /// built by webpack carries an SVG.
         /// </summary>
+        /// <remarks>
+        /// And the redirect says that it has no body. It did not: without a
+        /// length, a client on a connection that is kept alive cannot tell the
+        /// end of the answer, and waited for a body until the server gave the
+        /// connection up - thirty seconds, every time this test ran. Asked
+        /// with the headers alone, so that the length is the one the node
+        /// sent, not the one of what the client read.
+        /// </remarks>
         [Test]
         public async Task FaviconIcoIsPointedAtTheSVG()
         {
@@ -152,11 +160,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             using var handler  = new HttpClientHandler { AllowAutoRedirect = false };
             using var http     = new HttpClient(handler) { BaseAddress = new Uri(BaseURL) };
 
-            var response       = await http.GetAsync("favicon.ico");
+            using var response = await http.GetAsync("favicon.ico", HttpCompletionOption.ResponseHeadersRead);
 
             Assert.Multiple(() => {
                 Assert.That(response.StatusCode,                    Is.EqualTo(HttpStatusCode.TemporaryRedirect));
                 Assert.That(response.Headers.Location?.ToString(),  Does.EndWith("/favicon.svg"));
+                Assert.That(response.Content.Headers.ContentLength, Is.EqualTo(0),
+                            "the redirect does not say that it has no body, so a client on a kept-alive connection waits for one");
             });
 
         }

@@ -21,6 +21,8 @@ using System.Diagnostics;
 
 using NUnit.Framework;
 
+using cloud.charging.open.protocols.WWCP.Node.Logging;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.TestKit
@@ -120,6 +122,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region (private) HoldTheStopUntilItsLineIsRead(Streams)
+
+        /// <summary>
+        /// Hold the stop at its first line - "The ... is shutting down." -
+        /// until every one of the given streams has been sent it; and say,
+        /// once it has stopped, whether they all were.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// That line is written into the log before the node ends its streams,
+        /// and so into every stream that is open: it wakes each parked handler,
+        /// which writes it and parks again. Written while the socket is still
+        /// open, that is all it does. But it used to rescue a node that left its
+        /// streams open, now and then: where the line came after the server had
+        /// closed the socket, its write failed, which ended the stream, and the
+        /// stop got through. The roaming hub caught such a node in seven runs
+        /// out of eight.
+        /// </para>
+        /// <para>
+        /// Held here until every stream has the line, it always finds its
+        /// socket open, and a stream the node does not end itself is parked
+        /// again for good - so such a node hangs every time. The listener runs
+        /// on the thread that logs the line, which is the one stopping the
+        /// node, and outside the log's lock.
+        /// </para>
+        /// </remarks>
+        private Func<Boolean> HoldTheStopUntilItsLineIsRead(params EventStream[] Streams)
+        {
+
+            var line  = $"The {Node.Kind.Name} is shutting down.";
+            var read  = false;
+
+            void Hold(LogEntry Entry)
+            {
+                if (Entry.Message == line)
+                    read = Streams.All(stream => stream.ReadUntil(line).GetAwaiter().GetResult());
+            }
+
+            Node.Log.OnLogged += Hold;
+
+            return () => read;
+
+        }
+
+        #endregion
+
         #region (private) TimeTheStop(Node)
 
         /// <summary>
@@ -203,12 +251,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             using var stream = await EventStream.OpenAndSettle(Node, http);
 
             // And now left alone, which is what a browser sitting on the Logs
-            // page is when the node is told to stop.
+            // page is when the node is told to stop - except for the stop's own
+            // line, which it is sent before anything else happens.
+            var lineRead     = HoldTheStopUntilItsLineIsRead(stream);
+
             var elapsed      = await TimeTheStop(Node);
 
-            Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                        $"A {Node.Kind.Name} with one open event stream took {elapsed.TotalSeconds:F1} s to stop. " +
-                        "The streams are not being ended before the server is.");
+            Assert.Multiple(() => {
+
+                Assert.That(lineRead(), Is.True,
+                            "The stream was not sent the line the stop begins with, so this cannot tell a stop that ends the streams from one that line rescues.");
+
+                Assert.That(elapsed, Is.LessThan(MustStopWithin),
+                            $"A {Node.Kind.Name} with one open event stream took {elapsed.TotalSeconds:F1} s to stop. " +
+                            "The streams are not being ended before the server is.");
+
+            });
 
         }
 
@@ -241,10 +299,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                     streams. Add(await EventStream.OpenAndSettle(Node, browser));
                 }
 
-                var elapsed = await TimeTheStop(Node);
+                var lineRead = HoldTheStopUntilItsLineIsRead([.. streams]);
 
-                Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                            $"A {Node.Kind.Name} with {streams.Count} open event streams took {elapsed.TotalSeconds:F1} s to stop.");
+                var elapsed  = await TimeTheStop(Node);
+
+                Assert.Multiple(() => {
+
+                    Assert.That(lineRead(), Is.True,
+                                "Not every stream was sent the line the stop begins with, so this cannot tell a stop that ends the streams from one that line rescues.");
+
+                    Assert.That(elapsed, Is.LessThan(MustStopWithin),
+                                $"A {Node.Kind.Name} with {streams.Count} open event streams took {elapsed.TotalSeconds:F1} s to stop.");
+
+                });
 
             }
             finally

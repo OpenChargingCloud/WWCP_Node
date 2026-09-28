@@ -117,6 +117,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region TheVerdictTheLineEndsWithHasAPointToo()
+
+        /// <summary>
+        /// The line of a group whose servers disagree ends with a verdict that
+        /// says so, and that verdict keeps its point as well.
+        /// </summary>
+        /// <remarks>
+        /// Two servers 2.2 ms apart, in a group that agreed on a millisecond.
+        /// The verdict is Norn's; what is asked here is the line this node
+        /// writes with it.
+        /// </remarks>
+        [Test]
+        public void TheVerdictTheLineEndsWithHasAPointToo()
+        {
+
+            var verdict = TimeSyncVerdict.From(
+                              [ Answer("a.example", 1.0), Answer("b.example", 3.2) ],
+                              MinServers:    2,
+                              MaxDeviation:  TimeSpan.FromMilliseconds(1)
+                          );
+
+            Assert.Multiple(() => {
+
+                Assert.That(verdict.DeviationExceeded,  Is.True,  "the test's own premise");
+
+                Assert.That(WWCPNode.AnsweredLine("legal", 766, verdict),
+                            Is.EqualTo("NTS: group 'legal' answered in 766 ms - " +
+                                       "+2.1 ms from 2 server(s), spread 2.2 ms - beyond the agreed deviation."));
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

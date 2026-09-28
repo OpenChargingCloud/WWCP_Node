@@ -39,7 +39,7 @@ a port of their own to connect to.
 | `WWCPNode.Certificates.cs` | what the node says about its store, and what a kind of node adds to it or needs a certificate for |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | three hundred and eighty-three tests, none of which constructs a vehicle, a station or a controller - the conformance suite among them, asked of a node of no particular kind, and four over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | four hundred and ninety-one tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -718,11 +718,21 @@ and a turn of the sign-in's rate limit for every line of the log.
 What every node answers alike is tested once, in `WWCP_Node_TestKit`, and
 run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
-event stream, stopping with browsers watching, the certificate store and the
-web interface - eighty-nine tests that the suites of the local controller,
+event stream, stopping with browsers watching, the certificate store, the
+web interface, roles the configuration file adds and what a kind starts
+with - one hundred and four tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.
+
+What the node's own code does without a web interface in front of it - the
+log, the console, the clock, the configuration file and its sections, the
+start, a time server's test - is tested once as well, in `WWCP_Node_Tests`,
+against a node of no particular kind. Those were copies too: the local
+controller's suite, the CSMS's and the e-mobility provider's each carried
+the same tests of the same log. A kind's own suite keeps what is about its
+wiring - its own sections of the file, the certificates it keeps, the name
+of its log files.
 
 A kind's suite references the kit and derives one fixture, which says how a
 node of its kind is made:
@@ -745,7 +755,14 @@ public class LocalControllerConformance : NodeConformanceTests
 - **One fixture, not one per topic**, so that a test added to the kit is run
   by every kind without any of them adding a line. A test that needs a node
   configured otherwise says so with `[WithNode(NodeSetup...)]`: a name server
-  that never answers, or servers that learn their root on first use.
+  that never answers, servers that learn their root on first use, a time
+  client that is on, or roles the file adds.
+- **Ports come from `TestPorts` and `ClosedPort`**: a free one, and one held
+  closed for as long as a test needs nothing to answer on it. `TestPorts`
+  hands out no port twice in a test run - the operating system does: Linux
+  picks one at random from some fourteen thousand, and a run that asks a
+  thousand times is given the same one again. A kind's own tests take their
+  ports from the same two, so that theirs and the kit's never meet.
 - **What a kind does not have is not failed.** A store that keeps no TLS root
   or identity, or a node built without its web interface, makes the tests of
   those inconclusive, saying why; a kind that refuses to lose an identity it
@@ -755,7 +772,11 @@ Its first run against a node of no particular kind found that such a node's
 stub said "v" where it says its version - the constructor's argument of that
 name, rather than the node's - and that the stop tests had passed against a
 node that leaves its event streams open, since a heartbeat ends them fifteen
-seconds later; they run without one now.
+seconds later; they run without one now. The roaming hub's run found that
+they still passed against such a node one time in eight: the line a stop
+begins with woke the stream, and where its write came after the socket was
+closed, it failed and ended the stream. They hold the stop at that line now,
+until every stream has been sent it.
 
 
 ## Building it

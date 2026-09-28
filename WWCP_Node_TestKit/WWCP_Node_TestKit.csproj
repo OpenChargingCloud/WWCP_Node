@@ -26,4 +26,10 @@
     <ProjectReference Include="..\WWCP_Node\WWCP_Node.csproj" />
   </ItemGroup>
 
+  <!-- For the tests of the kit itself: how a port is taken, with an offer
+       the tests make up rather than the operating system's. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="WWCP_Node_Tests" />
+  </ItemGroup>
+
 </Project>

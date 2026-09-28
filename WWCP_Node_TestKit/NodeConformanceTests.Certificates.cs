@@ -271,6 +271,64 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region ARootUploadedWithoutUsagesIsForEveryUse()
+
+        /// <summary>
+        /// A root uploaded without saying what it is for vouches for every use,
+        /// and its entry says so with null - not with an empty list, which
+        /// would be a root for nothing.
+        /// </summary>
+        [Test]
+        public async Task ARootUploadedWithoutUsagesIsForEveryUse()
+        {
+
+            Keeps(CertificateKind.TLSRoot);
+
+            using var http  = await SignedIn();
+
+            var entry       = await ARootIn(http, "Our Root For Everything");
+            var (_, read)   = await Send(http, HttpMethod.Get, $"api/v1/certificates/{entry["id"]}");
+
+            Assert.Multiple(() => {
+                Assert.That(entry.ContainsKey("usages"),  Is.True,                  "what it is for is left out rather than said");
+                Assert.That(entry["usages"]?.Type,        Is.EqualTo(JTokenType.Null));
+                Assert.That(read ["usages"]?.Type,        Is.EqualTo(JTokenType.Null), "and read back, the same");
+            });
+
+        }
+
+        #endregion
+
+        #region ACertificateThatIsNotThereIsSaidToBeNone()
+
+        /// <summary>
+        /// A handle nothing in the store has is a 404 with a sentence, read or
+        /// changed - and deleting it is one as well.
+        /// </summary>
+        [Test]
+        public async Task ACertificateThatIsNotThereIsSaidToBeNone()
+        {
+
+            using var http          = await SignedIn();
+
+            var path                = "api/v1/certificates/nothing-by-this-handle";
+
+            var (read,    saidRead)  = await Send(http, HttpMethod.Get,    path);
+            var (changed, saidPatch) = await Send(http, HttpMethod.Patch,  path, new JObject(new JProperty("active", false)));
+            var (deleted, _)         = await Send(http, HttpMethod.Delete, path);
+
+            Assert.Multiple(() => {
+                Assert.That(read,                              Is.EqualTo(HttpStatusCode.NotFound));
+                Assert.That(saidRead. Value<String>("error"),  Is.EqualTo("There is no such certificate in this store."));
+                Assert.That(changed,                           Is.EqualTo(HttpStatusCode.NotFound));
+                Assert.That(saidPatch.Value<String>("error"),  Is.EqualTo("There is no such certificate in this store."));
+                Assert.That(deleted,                           Is.EqualTo(HttpStatusCode.NotFound));
+            });
+
+        }
+
+        #endregion
+
         #region WhatARootIsForIsChangedAndTakenBackToEveryUse()
 
         [Test]
@@ -565,13 +623,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var handle         = (await ARootIn(http, "A Root Nobody Renames"))["id"]!.Value<String>()!;
             var path           = $"api/v1/certificates/{handle}";
 
-            var (notYes, _)    = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label", "Renamed By A Refusal"), new JProperty("active", "yes")));
-            var (bogus,  _)    = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label", "Renamed By A Refusal"), new JProperty("usages", new JArray("bogus"))));
+            var (notYes, saidOfYes)  = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label", "Renamed By A Refusal"), new JProperty("active", "yes")));
+            var (bogus,  _)          = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label", "Renamed By A Refusal"), new JProperty("usages", new JArray("bogus"))));
 
-            var (_, kept)      = await Send(http, HttpMethod.Get, path);
+            var (_, kept)            = await Send(http, HttpMethod.Get, path);
 
             Assert.Multiple(() => {
                 Assert.That(notYes,                          Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(saidOfYes.Value<String>("error"), Is.EqualTo("'active' has to be true or false."));
                 Assert.That(bogus,                           Is.EqualTo(HttpStatusCode.BadRequest));
                 Assert.That(kept.Value<String>("label"),     Is.EqualTo("A Root Nobody Renames"), "a refused request renamed it");
                 Assert.That(kept.Value<Boolean>("active"),   Is.True);

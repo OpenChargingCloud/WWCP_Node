@@ -22,6 +22,8 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
@@ -581,6 +583,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(said,  Has.Some.Contains("server = time.example.org:4460 (NTS-KE), :123 (NTP)"),  String.Join(" | ", said));
+                Assert.That(said,  Has.Some.Contains("time servers = time.example.org"),                      String.Join(" | ", said));
                 Assert.That(said,  Has.None.Contains("time.example.org."),                                    String.Join(" | ", said));
             });
 
@@ -619,6 +622,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(time?.Value<String>("timeServers"),  Is.EqualTo("a.example, b.example (priority 5), c.example (switched off)"));
                 Assert.That(time?.Value<Boolean>("ntsEnabled"),  Is.True);
+                Assert.That(time?.Value<Int32>("minServers"),    Is.EqualTo(2));
+                Assert.That(time?.Value<String>("checkedEvery"), Is.EqualTo("00:15:00"));
                 Assert.That(time?.ContainsKey("nts"),            Is.False,  "the test client's host is named again");
 
                 // There and empty while nothing has been synchronised, so that
@@ -767,6 +772,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(nts["group"]?.     Type,        Is.EqualTo(JTokenType.Null));
                 Assert.That(nts["servers"]?.   Type,        Is.EqualTo(JTokenType.Null));
                 Assert.That(nts["minServers"]?.Type,        Is.EqualTo(JTokenType.Null));
+                Assert.That(nts["server"]?.    Type,        Is.EqualTo(JTokenType.Null));
             });
 
         }
@@ -809,17 +815,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await node.Start();
 
-            var before = node.Log.LastId;
-
             Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "checkEverySeconds": 600 }"""), out var error),  Is.True,  error);
             Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "enabled": false }"""),          out error),      Is.True,  error);
 
-            var said = node.Log.Recent(50, before, "clock").Select(entry => entry.Message).ToArray();
+            // Counted over everything the node said, the start included: each
+            // setting of the timer says so once, and a save that set it twice
+            // would be as wrong as one that did not set it at all.
+            var said = node.Log.Recent(200).Select(entry => entry.Message).ToArray();
 
             Assert.Multiple(() =>
             {
-                Assert.That(said,  Has.Some.Contains("will be checked against").And.Contains("every 10 minute(s)"),  String.Join(" | ", said));
-                Assert.That(said,  Has.Some.Contains("is not being checked: NTS is switched off"),                   String.Join(" | ", said));
+
+                Assert.That(said.Count(line => line.Contains("will be checked against") && line.Contains("every 15 minute(s)")),  Is.EqualTo(1),
+                            "the start set the timer once: " + String.Join(" | ", said));
+
+                Assert.That(said.Count(line => line.Contains("will be checked against") && line.Contains("every 10 minute(s)")),  Is.EqualTo(1),
+                            "the new interval reached the timer once: " + String.Join(" | ", said));
+
+                Assert.That(said.Count(line => line.Contains("is not being checked: NTS is switched off")),                        Is.EqualTo(1),
+                            "switching NTS off reached the timer once: " + String.Join(" | ", said));
+
             });
 
         }
@@ -853,7 +868,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var result = await node.TestTimeServerAsync("b.example");
 
             Assert.That(result["steps"]?[0]?.Value<String>("text"),
-                        Does.Contain("key exchange on port 4461").And.Contain("time on port 1234"));
+                        Is.EqualTo("Asking b.example: key exchange on port 4461, time on port 1234, 1 second(s) allowed."));
 
         }
 
@@ -869,8 +884,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// "Asking ptbtime2.ptb.de.: key exchange on port 4460" - the name is
         /// exact with the dot, and in the middle of a sentence it reads like a
         /// typing mistake. The steps and the log lines use the name as it is
-        /// read; the name the result carries as data is left as it is. Name
-        /// resolution is switched off, so that nothing goes out.
+        /// read, typed with the dot or without; the name the result carries as
+        /// data is left as it is. Asked here with the dot, which is the case
+        /// there is something to take off in. Name resolution is switched off,
+        /// so that nothing goes out.
         /// </remarks>
         [Test]
         public async Task TheTestWritesTheNameAsItIsRead()
@@ -882,13 +899,332 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                         """);
 
             var before  = node.Log.LastId;
-            var result  = await node.TestTimeServerAsync("b.example");
+            var result  = await node.TestTimeServerAsync("b.example.");
             var said    = node.Log.Recent(50, before, "test").Select(entry => entry.Message).ToArray();
 
             Assert.Multiple(() =>
             {
                 Assert.That(result["steps"]?[0]?.Value<String>("text"),  Does.StartWith("Asking b.example:"));
                 Assert.That(said,                                          Has.Some.EqualTo("NTS test: asking b.example ..."),  String.Join(" | ", said));
+                Assert.That(result.Value<String>("host"),                  Is.EqualTo("b.example."),  "the data keeps the name exactly");
+            });
+
+        }
+
+        #endregion
+
+
+        #region TheDefaultFourAreWhatANodeStartsWith()
+
+        /// <summary>
+        /// A node nobody has configured checks its clock against the four PTB
+        /// servers, asked together as peers, two of which have to answer - and
+        /// the first of them is the single client's, which the detailed test
+        /// starts from.
+        /// </summary>
+        [Test]
+        public async Task TheDefaultFourAreWhatANodeStartsWith()
+        {
+
+            await using var node = Node();
+
+            Assert.Multiple(() => {
+                Assert.That(node.TimeSources.Bands(),                 Has.Count.EqualTo(1),  "peers, asked together");
+                Assert.That(node.TimeSources.Bands()[0],              Has.Count.EqualTo(4));
+                Assert.That(node.TimeSources.Bands()[0][0].Hostname,  Is.EqualTo(node.NTSClient.Hostname));
+                Assert.That(node.TimeSources.MinServers,              Is.EqualTo(2));
+            });
+
+        }
+
+        #endregion
+
+        #region ASectionThatOnlySwitchesNTSLeavesTheServersAlone()
+
+        /// <summary>
+        /// "enabled": false is about whether the clock is checked, not about
+        /// against whom: the servers stay the default four, and switched on
+        /// again they are the ones asked.
+        /// </summary>
+        [Test]
+        public async Task ASectionThatOnlySwitchesNTSLeavesTheServersAlone()
+        {
+
+            await using var node = Node("""{ "nts": { "enabled": false } }""");
+
+            Assert.Multiple(() => {
+                Assert.That(node.NTSEnabled,                  Is.False);
+                Assert.That(node.TimeSources.Bands()[0],      Has.Count.EqualTo(4));
+                Assert.That(node.TimeSources.MinServers,      Is.EqualTo(2));
+            });
+
+        }
+
+        #endregion
+
+        #region ANodeHandedAClientAsksThatServerAlone()
+
+        /// <summary>
+        /// A node handed a time client, and no file that says otherwise, checks
+        /// its clock against that client's server alone - a group of one, held
+        /// to one.
+        /// </summary>
+        [Test]
+        public async Task ANodeHandedAClientAsksThatServerAlone()
+        {
+
+            await using var node = new WWCPNode(
+                                       AccountsPath:      Path.Combine(directory, "accounts"),
+                                       ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                                       CertificatesPath:  Path.Combine(directory, "certificates"),
+                                       NTSClient:         new NTSClient(DomainName.Parse("time.example.org")),
+                                       LogToConsole:      false,
+                                       BridgeDebugLog:    false
+                                   );
+
+            Assert.Multiple(() => {
+                Assert.That(node.TimeSources.Bands(),                 Has.Count.EqualTo(1));
+                Assert.That(node.TimeSources.Bands()[0],              Has.Count.EqualTo(1));
+                Assert.That(node.TimeSources.Bands()[0][0].Hostname,  Is.EqualTo(DomainName.Parse("time.example.org")));
+                Assert.That(node.TimeSources.MinServers,              Is.EqualTo(1));
+            });
+
+        }
+
+        #endregion
+
+        #region AClockCheckedAgainstOneServerNamesIt()
+
+        /// <summary>
+        /// A lone "hostname" is a group of one, and the clock names its server
+        /// the way a list of one does - without the root's dot.
+        /// </summary>
+        [Test]
+        public async Task AClockCheckedAgainstOneServerNamesIt()
+        {
+
+            await using var node = Node("""{ "nts": { "hostname": "a.example" } }""");
+
+            Assert.That(node.ClockJSON()["nts"]?.Value<String>("server"),  Is.EqualTo("a.example"));
+
+        }
+
+        #endregion
+
+        #region TheClockLineNamesTheServersAsTheyAreRead()
+
+        /// <summary>
+        /// The line a start writes about the check names the servers the way
+        /// the file names them: without the dot the root of every name has,
+        /// and with how often and how many of them.
+        /// </summary>
+        /// <remarks>
+        /// Started, on a clock whose timers never fire, so that the check the
+        /// line announces is never made.
+        /// </remarks>
+        [Test]
+        public async Task TheClockLineNamesTheServersAsTheyAreRead()
+        {
+
+            await using var node = TestNodes.New(directory, Clock: ClockWithoutTimers.Instance);
+
+            await node.Start();
+
+            var line = node.Log.Recent(200).
+                                Select(entry => entry.Message).
+                                FirstOrDefault(message => message.Contains("will be checked against"));
+
+            Assert.That(line,  Is.EqualTo($"The clock of this {node.Kind.Name} will be checked against " +
+                                          "ptbtime1.ptb.de, ptbtime2.ptb.de, ptbtime3.ptb.de, ptbtime4.ptb.de " +
+                                          "every 15 minute(s), at least 2 of which must answer."));
+
+        }
+
+        #endregion
+
+        #region SwitchingNTSOffAndOnLeavesTheGroupAlone()
+
+        /// <summary>
+        /// A save that only says whether the clock is checked leaves a group
+        /// the file named as it was - its servers and its quorum.
+        /// </summary>
+        [Test]
+        public async Task SwitchingNTSOffAndOnLeavesTheGroupAlone()
+        {
+
+            await using var node = Node("""
+                                        { "nts": { "enabled": false,
+                                                   "servers": [ "a.example", "b.example", "c.example" ],
+                                                   "minServers": 3 } }
+                                        """);
+
+            Assert.That(node.TryUpdateNTSConfiguration(new JObject(new JProperty("enabled", false)), out var error),  Is.True,  error);
+
+            Assert.Multiple(() => {
+                Assert.That(node.TimeSources.Bands()[0].Select(source => source.Hostname.ToString()),
+                            Is.EqualTo(new[] { "a.example.", "b.example.", "c.example." }));
+                Assert.That(node.TimeSources.MinServers,  Is.EqualTo(3));
+            });
+
+        }
+
+        #endregion
+
+        #region AChangeOfServersIsWrittenDownAsTheyAreRead()
+
+        /// <summary>
+        /// A new list of servers is written into the log the way it is read,
+        /// without the root's dot - and into the file exactly, dot and all.
+        /// </summary>
+        [Test]
+        public async Task AChangeOfServersIsWrittenDownAsTheyAreRead()
+        {
+
+            await using var node = Node("""{ "nts": { "enabled": false } }""");
+
+            Assert.That(node.TryUpdateNTSConfiguration(new JObject(new JProperty("servers", new JArray("a.example", "b.example"))), out var error),
+                        Is.True,
+                        error);
+
+            var line   = node.Log.Recent(100).Select(entry => entry.Message).
+                                              LastOrDefault(message => message.StartsWith("NTS configuration changed", StringComparison.Ordinal));
+
+            var onDisk = JObject.Parse(File.ReadAllText(node.ConfigFile.Path));
+
+            Assert.Multiple(() => {
+                Assert.That(line,                                            Does.Contain("time servers = a.example, b.example"));
+                Assert.That(line,                                            Does.Not.Contain("a.example."));
+                Assert.That(onDisk["nts"]?["servers"]?[0]?.Value<String>(),  Is.EqualTo("a.example."));
+            });
+
+        }
+
+        #endregion
+
+        #region TheClockNamesTheServersAsTheyAreRead()
+
+        /// <summary>
+        /// The clock names the default four the way the file would: without
+        /// the root's dot.
+        /// </summary>
+        [Test]
+        public async Task TheClockNamesTheServersAsTheyAreRead()
+        {
+
+            await using var node = Node();
+
+            Assert.That(node.ClockJSON()["nts"]?["servers"]?.Values<String>(),
+                        Is.EqualTo(new[] { "ptbtime1.ptb.de", "ptbtime2.ptb.de", "ptbtime3.ptb.de", "ptbtime4.ptb.de" }));
+
+        }
+
+        #endregion
+
+        #region TheOverviewNamesTheServersAndSaysWhenItWasLastSynchronised()
+
+        /// <summary>
+        /// The Configuration page's time card names the default four as they
+        /// are read, and says that nothing has been synchronised yet - there
+        /// and empty, rather than left out.
+        /// </summary>
+        [Test]
+        public async Task TheOverviewNamesTheServersAndSaysWhenItWasLastSynchronised()
+        {
+
+            await using var node = Node();
+
+            var time = node.ConfigurationJSON()["time"] as JObject;
+
+            Assert.Multiple(() => {
+                Assert.That(time?.Value<String>("timeServers"),  Is.EqualTo("ptbtime1.ptb.de, ptbtime2.ptb.de, ptbtime3.ptb.de, ptbtime4.ptb.de"));
+                Assert.That(time?["lastSync"]?.      Type,       Is.EqualTo(JTokenType.Null));
+                Assert.That(time?["lastSyncResult"]?.Type,       Is.EqualTo(JTokenType.Null));
+            });
+
+        }
+
+        #endregion
+
+        #region AnAddressIsAskedWithTheCookiesOfTheSingleClientsExchange()
+
+        /// <summary>
+        /// An address is a server to be asked, not something to refuse - and it
+        /// is asked with the cookies of a key exchange with a name.
+        /// </summary>
+        /// <remarks>
+        /// A key exchange very commonly names addresses rather than host names -
+        /// nts.netnod.se names "2a01:3f7:2:44::9" and nothing else. An address
+        /// cannot have a key exchange of its own, because the TLS certificate is
+        /// issued for a name; the exchange therefore stays with the single
+        /// client's host, and the time request is directed at the address.
+        ///
+        /// Time synchronisation is on here, and name resolution is off, so that
+        /// the first step - which says what is going to be asked - is written,
+        /// and the key exchange after it fails at its lookup without anything
+        /// going out: the single client resolves through this node's name
+        /// servers, of which there are none. Where the request would go is
+        /// Norn's decision and is tested there.
+        /// </remarks>
+        [Test]
+        public async Task AnAddressIsAskedWithTheCookiesOfTheSingleClientsExchange()
+        {
+
+            await using var node = Node("""{ "dns": { "enabled": false }, "nts": { "timeoutSeconds": 1 } }""");
+
+            var result = await node.TestTimeServerAsync("[2a01:3f7:2:44::9]");
+
+            Assert.Multiple(() => {
+                Assert.That(result.Value<String>("host"),                 Is.EqualTo("2a01:3f7:2:44::9"));
+                Assert.That(result.Value<Boolean>("ok"),                  Is.False, "nothing could be resolved, so nothing answered");
+                Assert.That(result["steps"]?[0]?.Value<String>("text"),   Is.EqualTo($"Asking 2a01:3f7:2:44::9 for the time, with cookies from a key exchange with " +
+                                                                                     $"{node.NTSClient.Hostname.Trimmed} - an address cannot have a key exchange of its " +
+                                                                                      "own, because the TLS certificate is issued for a name."));
+                Assert.That(result["steps"]?.Last?.Value<String>("text"), Does.StartWith("The key exchange failed (DNS)"),
+                            "the key exchange got past its lookup, and so off this machine");
+            });
+
+        }
+
+        #endregion
+
+        #region TheOverviewSaysHowTheLastSynchronisationWent()
+
+        /// <summary>
+        /// The Configuration page's time card says when the clock was last
+        /// synchronised and how that went - here, how it failed, in the words
+        /// the synchronisation itself used.
+        /// </summary>
+        /// <remarks>
+        /// Asked of a time server on this machine at a port nobody listens on,
+        /// with name resolution switched off: the synchronisation fails at
+        /// once, and nothing leaves the machine.
+        /// </remarks>
+        [Test]
+        public async Task TheOverviewSaysHowTheLastSynchronisationWent()
+        {
+
+            await using var node = Node(new JObject(
+                                            new JProperty("dns", new JObject(
+                                                new JProperty("enabled",  false)
+                                            )),
+                                            new JProperty("nts", new JObject(
+                                                new JProperty("enabled",  true),
+                                                new JProperty("servers",  new JArray(
+                                                    new JObject(
+                                                        new JProperty("hostname",   "127.0.0.1"),
+                                                        new JProperty("ntsKEPort",  TestKit.TestPorts.Free())
+                                                    )
+                                                ))
+                                            ))
+                                        ).ToString());
+
+            var result = await node.SyncTimeAsync();
+            var time   = node.ConfigurationJSON()["time"] as JObject;
+
+            Assert.Multiple(() => {
+                Assert.That(result.Value<Boolean>("ok"),              Is.False);
+                Assert.That(time?.Value<String>("lastSync"),          Is.EqualTo(result.Value<String>("at")));
+                Assert.That(time?.Value<String>("lastSyncResult"),    Is.EqualTo($"failed: {result.Value<String>("error")}"));
             });
 
         }
