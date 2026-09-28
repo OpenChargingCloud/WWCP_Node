@@ -23,10 +23,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The node serves none of them itself - it has no JSON API of its own -
-    /// but every kind of node that puts them behind a route of its own asks
-    /// for them under these names, so that a role written for a vehicle's DNS
-    /// settings means the same on a charging station's.
+    /// The JSON API every node has asks for them under these names - see
+    /// <see cref="NodeHTTPAPI"/> - and so does every route a kind of node
+    /// adds, so that a role written for a vehicle's DNS settings means the
+    /// same on a charging station's.
     /// </para>
     /// <para>
     /// The clock, the log and the event stream are none of them: they are for

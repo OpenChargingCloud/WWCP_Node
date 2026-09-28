@@ -12,8 +12,8 @@ in what they do and agree on everything around it - where they read the time
 from, who may sign in, what a day's log file is called. Each of them used to
 grow that for itself, and the vehicle's version is the one that ended up here.
 `WWCPNode` is that part, on its own; a kind of node is a class built on it
-that adds its own sections to the same configuration file, its own JSON API
-below `/api` and its own bundle to serve. [EV](https://github.com/OpenChargingCloud/EV)
+that adds its own sections to the same configuration file, its own routes to
+the JSON API every node has below `/api`, and its own bundle to serve. [EV](https://github.com/OpenChargingCloud/EV)
 is the first of them: one `WWCPNode` with a battery.
 [ChargingStation](https://github.com/OpenChargingCloud/ChargingStation) is the
 second: one with EVSEs, a display on a port of its own, and the roles of the
@@ -36,7 +36,8 @@ a port of their own to connect to.
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
-| `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them |
+| `WWCPNode.Certificates.cs` | what the node says about its store, and what a kind of node adds to it or needs a certificate for |
+| `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `WWCP_Node_Tests/` | two hundred and sixty-four tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
 
 
@@ -94,8 +95,9 @@ Beyond the names, a kind of node adds to the node in eight places:
   takes its sections from there rather than reading the file a second time.
   See below for why one file carries both.
 * **Its JSON API**, registered within `HTTPServer` below `HTTPRootPath` -
-  `/api` under the base path unless the constructor was told otherwise. The
-  node puts nothing there itself.
+  `/api` under the base path unless the constructor was told otherwise: a
+  class derived from `NodeHTTPAPI`, which has what every node answers, with
+  the kind's own routes on top. See "The JSON API" below.
 * **What it says once it is up, and what it ends before the server stops:**
   `OnStarted()` and `OnStopping()`. The vehicle uses the second to close its
   event streams, because the server waits for every request it started and a
@@ -640,6 +642,54 @@ different decision from measuring it, and not one a page should be able to
 make.
 
 
+## The JSON API
+
+Every node answers the same routes below `/api`, from one class,
+`NodeHTTPAPI`. A kind of node derives its own API from it and registers what
+only it has on top:
+
+| | |
+|---|---|
+| `POST v1/auth/logout`, `GET v1/auth/me` | signing out, and who is signed in with what they may do |
+| `GET v1/status` | how the node is doing; `service` is its kind's product |
+| `GET v1/clock` | what time it is here, and what that is worth |
+| `GET v1/configuration` | what the node is made of |
+| `GET`/`PUT v1/configuration/dns`, `POST …/dns/query` | name resolution, and one look-up |
+| `GET`/`PUT v1/configuration/nts`, `POST …/nts/sync`, `POST …/nts/test` | the time servers, one synchronisation, one server asked everything |
+| `GET`/`POST v1/certificates`, `POST …/reload`, `GET`/`PATCH`/`DELETE …/{id}` | the certificate store |
+| `GET v1/logs`, `GET v1/events` | the log's snapshot, and the event stream after it |
+| anything else below `/api` | a JSON 404, for every method |
+
+It used to be eight copies - the vehicle's, the charging station's, the local
+controller's and five more - and they had begun to differ: the clock at
+`v1/configuration/time` on five of them and at `v1/clock` on three, a JSON 404
+without PATCH, a `server` or a `host` that one copy refused in a sentence and
+another took as it came and threw out of as a 500, and an event stream that
+went on after its session had ended. What does differ between the kinds is
+said where the kind says it:
+
+* `ProductStatus()` - what the status says beyond every node's, such as the
+  identity a local controller has towards its CSMS.
+* `ToReadTheClock` and `ToReadTheLog` - what reading the clock, or the log and
+  its stream, needs beyond a sign-in: nothing, unless a kind has accounts the
+  log is not for.
+* The node's `CompleteCertificatesJSON(JSON)` - what the store's answer says
+  beyond every node's, such as the certificates a vehicle chose for a session.
+* The node's `WhatUses(Handle)` - what of the node uses a certificate, as the
+  sentence a DELETE of it is refused with, 409.
+* `EventStreamOf(Request, Source, Reader, MayStillRead)` and `StillLetIn` - a
+  stream of the kind's own, carried for as long as its reader would still be
+  let in.
+
+The helpers a kind's own routes use are the same ones: `TryAuthorize`,
+`TryGetUser`, `TryParseJSONObject`, `ErrorJSON`, `JSONResponse`. A stream
+opened with a password is asked about the password before every entry, as a
+new request with it is; that needs Hermod f4aa17db or newer, which believes
+Basic credentials it has verified for a while and forgets them when the
+password changes - with an older Hermod it would be 600 000 rounds of PBKDF2
+and a turn of the sign-in's rate limit for every line of the log.
+
+
 ## Building it
 
 This repository cannot be built on its own. `WWCP_Node.csproj` references
@@ -674,9 +724,9 @@ as submodules and asks the other question.
 
 ## What it is not
 
-A node of any kind. On its own it has no JSON API and nothing to serve; it
-listens, signs people in, keeps a log and a clock, and waits for a kind of
-node to make something of that.
+A node of any kind. On its own it has the JSON API every node has and
+nothing else to serve; it listens, signs people in, keeps a log and a clock,
+and waits for a kind of node to make something of that.
 
 And not yet as general as its name. The certificate kinds are ISO 15118's
 and a vehicle's - they came here with the rest. The second kind, the charging station, has said what of
