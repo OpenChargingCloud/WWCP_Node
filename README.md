@@ -670,16 +670,36 @@ said where the kind says it:
 
 * `ProductStatus()` - what the status says beyond every node's, such as the
   identity a local controller has towards its CSMS.
+* `ProductMe(User)` - what `auth/me` says beyond every node's, such as the
+  name a meter gives the role somebody holds there.
 * `ToReadTheClock` and `ToReadTheLog` - what reading the clock, or the log and
   its stream, needs beyond a sign-in: nothing, unless a kind has accounts the
   log is not for.
 * The node's `CompleteCertificatesJSON(JSON)` - what the store's answer says
   beyond every node's, such as the certificates a vehicle chose for a session.
-* The node's `WhatUses(Handle)` - what of the node uses a certificate, as the
-  sentence a DELETE of it is refused with, 409.
+* The node's `WhatUses(Handle)` - what of the node names a certificate, as
+  the sentence a DELETE of it is refused with, 409. Switching it off is
+  still allowed: that is how a vehicle's chosen credential is taken out of
+  service.
+* The node's `WhatWouldLose(Entry, ActiveAfter, UsagesAfter)` - what would
+  be left without a certificate it needs, were it switched off or told
+  other usages, as the sentence a PATCH or a DELETE is refused with, 409 -
+  asked before any of the change is made, with the usages as the store
+  would keep them. A meter's listener with nothing else to show, say.
+* The store's `OnChanged` - sent after anything in the store changed,
+  through the API or by the node's own work, and outside the store's lock:
+  what a kind derives from its store, such as the identity a listener
+  shows, is asked again at once rather than at the next turn of a timer.
 * `EventStreamOf(Request, Source, Reader, MayStillRead)` and `StillLetIn` - a
   stream of the kind's own, carried for as long as its reader would still be
   let in.
+
+Who changed something is in the log at Notice, on every kind of node: the
+name resolution, the time source, and each change of the certificate store -
+"'alice' changed the time source of this charging station." The node says
+what changed; only the request knows who. And a certificate's handle may be
+written in capitals, as a tool it was copied out of may have written it: the
+store spells handles in lower case, and so does the API before it asks.
 
 The helpers a kind's own routes use are the same ones: `TryAuthorize`,
 `TryGetUser`, `TryParseJSONObject`, `ErrorJSON`, `JSONResponse`. A stream

@@ -32,6 +32,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.Mail;
 
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.Web;
@@ -108,6 +109,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             public TestAPI?  API   { get; set; }
 
+            /// <summary>
+            /// What the test says a change would leave without its certificate,
+            /// given whether it would be on and what it would be for.
+            /// </summary>
+            public Func<Boolean, IReadOnlyList<String>?, String?>?  Loses  { get; set; }
+
+            /// <summary>
+            /// Every change the node was asked about, as it would leave the certificate.
+            /// </summary>
+            public List<(Boolean Active, IReadOnlyList<String>? Usages)>  AskedAbout  { get; } = [];
+
             protected override void CompleteCertificatesJSON(JObject JSON)
                 => JSON["chosen"] = new JObject(new JProperty("forTheTest", Used));
 
@@ -115,6 +127,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 => Used is not null && Handle.Equals(Used, StringComparison.OrdinalIgnoreCase)
                        ? "The test uses that certificate."
                        : null;
+
+            public override String? WhatWouldLose(CertificateEntry        Entry,
+                                                  Boolean                 ActiveAfter,
+                                                  IReadOnlyList<String>?  UsagesAfter)
+            {
+                AskedAbout.Add((ActiveAfter, UsagesAfter));
+                return Loses?.Invoke(ActiveAfter, UsagesAfter);
+            }
 
         }
 
@@ -135,8 +155,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 yield return new JProperty("testedAs", "a kind of node");
             }
 
+            protected override IEnumerable<JProperty> ProductMe(IUser User)
+            {
+                yield return new JProperty("roleTitle", $"Tester, as '{User.Id}'");
+            }
+
             protected override Permission? ToReadTheClock  => ClockNeeds;
             protected override Permission? ToReadTheLog    => LogNeeds;
+
+        }
+
+        #endregion
+
+        #region (helper) Imported(HTTP, Name, Usages = null)
+
+        /// <summary>
+        /// A TLS root of the given name, put into the node's store through the
+        /// API - for what is left, and nothing else - and its handle.
+        /// </summary>
+        private static async Task<String> Imported(HttpClient  HTTP,
+                                                   String      Name,
+                                                   JToken?     Usages = null)
+        {
+
+            using var key     = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request       = new System.Security.Cryptography.X509Certificates.CertificateRequest($"CN={Name}", key, HashAlgorithmName.SHA256);
+
+            request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(true, false, 0, true));
+
+            using var rootCA  = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+
+            var body          = new JObject(
+                                    new JProperty("kind",     "tlsRoot"),
+                                    new JProperty("content",  Convert.ToBase64String(Encoding.ASCII.GetBytes(rootCA.ExportCertificatePem())))
+                                );
+
+            if (Usages is not null)
+                body["usages"] = Usages;
+
+            var (created, entry) = await Send(HTTP, HttpMethod.Post, "api/v1/certificates", body);
+
+            Assert.That(created, Is.EqualTo(HttpStatusCode.Created), entry.ToString());
+
+            return entry.Value<String>("id")!;
 
         }
 
@@ -520,6 +581,201 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(said.Value<String>("error"),                   Is.EqualTo("The test uses that certificate."));
                 Assert.That(deleted,                                       Is.EqualTo(HttpStatusCode.OK), after.ToString());
                 Assert.That(after["certificates"]!["tlsRoot"]!.Children().Any(), Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region AChangeThatWouldLeaveSomethingWithoutItsCertificateIsRefusedBeforeAnyOfItIsMade()
+
+        /// <summary>
+        /// Switched off, a certificate the kind of node needs on would leave
+        /// something without it: 409 in the kind's sentence, and nothing of the
+        /// request made - not the new label that came with it either. A
+        /// deletion takes it away as much, and is refused as well; a change
+        /// that leaves it on goes through.
+        /// </summary>
+        [Test]
+        public async Task AChangeThatWouldLeaveSomethingWithoutItsCertificateIsRefusedBeforeAnyOfItIsMade()
+        {
+
+            await using var node      = await Started();
+
+            using var root     = Root(node);
+
+            var handle         = await Imported(root, "A Root The Test Needs On");
+
+            node.Loses         = (active, _) => active ? null : "The test would have no root to believe.";
+
+            var (refused,  said)     = await Send(root, HttpMethod.Patch,  $"api/v1/certificates/{handle}", new JObject(
+                                                                                                                new JProperty("label",   "Renamed On The Way Out"),
+                                                                                                                new JProperty("active",  false)
+                                                                                                            ));
+            var (_,        kept)     = await Send(root, HttpMethod.Get,    $"api/v1/certificates/{handle}");
+            var (notGone,  goneSaid) = await Send(root, HttpMethod.Delete, $"api/v1/certificates/{handle}");
+            var (renamed,  named)    = await Send(root, HttpMethod.Patch,  $"api/v1/certificates/{handle}", new JObject(
+                                                                                                                new JProperty("label",   "Renamed And On")
+                                                                                                            ));
+
+            node.Loses         = null;
+
+            var (deleted,  _)        = await Send(root, HttpMethod.Delete, $"api/v1/certificates/{handle}");
+
+            Assert.Multiple(() => {
+                Assert.That(refused,                             Is.EqualTo(HttpStatusCode.Conflict), said.ToString());
+                Assert.That(said.Value<String>("error"),         Is.EqualTo("The test would have no root to believe."));
+                Assert.That(kept.Value<String>("label"),         Is.EqualTo("A Root The Test Needs On"), "the refused request renamed it");
+                Assert.That(kept.Value<Boolean>("active"),       Is.True,                                "the refused request switched it off");
+                Assert.That(notGone,                             Is.EqualTo(HttpStatusCode.Conflict), goneSaid.ToString());
+                Assert.That(goneSaid.Value<String>("error"),     Is.EqualTo("The test would have no root to believe."));
+                Assert.That(renamed,                             Is.EqualTo(HttpStatusCode.OK), named.ToString());
+                Assert.That(named.Value<String>("label"),        Is.EqualTo("Renamed And On"));
+                Assert.That(deleted,                             Is.EqualTo(HttpStatusCode.OK));
+            });
+
+        }
+
+        #endregion
+
+        #region AChangeIsAskedAboutAsTheStoreWouldKeepItAndRefusedUsagesChangeNothing()
+
+        /// <summary>
+        /// What the node is asked about is the certificate as the store would
+        /// keep it: its usages as the store writes them, the ones it has where
+        /// the request leaves them alone, and null for every use. Usages the
+        /// store would refuse are refused before the label that came with them
+        /// is changed.
+        /// </summary>
+        [Test]
+        public async Task AChangeIsAskedAboutAsTheStoreWouldKeepItAndRefusedUsagesChangeNothing()
+        {
+
+            await using var node      = await Started();
+
+            using var root     = Root(node);
+
+            var handle         = await Imported(root, "A Root For Names", new JArray("dns"));
+
+            var (spelt,   _)        = await Send(root, HttpMethod.Patch, $"api/v1/certificates/{handle}", new JObject(new JProperty("usages", new JArray(" NTS ", "dns"))));
+            var (off,     _)        = await Send(root, HttpMethod.Patch, $"api/v1/certificates/{handle}", new JObject(new JProperty("active", false)));
+            var (every,   _)        = await Send(root, HttpMethod.Patch, $"api/v1/certificates/{handle}", new JObject(new JProperty("usages", JValue.CreateNull())));
+            var asked               = node.AskedAbout.ToArray();
+
+            var (unknown, unknownSaid) = await Send(root, HttpMethod.Patch, $"api/v1/certificates/{handle}", new JObject(
+                                                                                                                new JProperty("label",   "Renamed By A Refusal"),
+                                                                                                                new JProperty("usages",  new JArray("ntp"))
+                                                                                                            ));
+            var (_,       kept)     = await Send(root, HttpMethod.Get,   $"api/v1/certificates/{handle}");
+
+            Assert.Multiple(() => {
+                Assert.That(spelt,                              Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(off,                                Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(every,                              Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(asked,                              Has.Length.EqualTo(3));
+                Assert.That(asked[0].Active,                    Is.True);
+                Assert.That(asked[0].Usages,                    Is.EqualTo(new[] { "dns", "nts" }), "as the store keeps them");
+                Assert.That(asked[1].Active,                    Is.False);
+                Assert.That(asked[1].Usages,                    Is.EqualTo(new[] { "dns", "nts" }), "the ones it has, which the request left alone");
+                Assert.That(asked[2].Active,                    Is.False,                            "off, as the request before left it");
+                Assert.That(asked[2].Usages,                    Is.Null,                             "every use");
+                Assert.That(unknown,                            Is.EqualTo(HttpStatusCode.BadRequest), unknownSaid.ToString());
+                Assert.That(unknownSaid.Value<String>("error"), Does.Contain("'ntp'"));
+                Assert.That(kept.Value<String>("label"),        Is.EqualTo("A Root For Names"),     "the refused request renamed it");
+            });
+
+        }
+
+        #endregion
+
+        #region AHandleWrittenInCapitalsIsFound()
+
+        /// <summary>
+        /// The store spells a handle in lower case, and somebody may have
+        /// copied it out of something that writes capitals.
+        /// </summary>
+        [Test]
+        public async Task AHandleWrittenInCapitalsIsFound()
+        {
+
+            await using var node      = await Started();
+
+            using var root     = Root(node);
+
+            var handle         = await Imported(root, "A Root Asked For In Capitals");
+
+            var (found, entry) = await Send(root, HttpMethod.Get, $"api/v1/certificates/{handle.ToUpperInvariant()}");
+
+            Assert.Multiple(() => {
+                Assert.That(handle,                      Is.EqualTo(handle.ToLowerInvariant()), "a handle as the store spells it");
+                Assert.That(found,                       Is.EqualTo(HttpStatusCode.OK), entry.ToString());
+                Assert.That(entry.Value<String>("id"),   Is.EqualTo(handle));
+            });
+
+        }
+
+        #endregion
+
+        #region WhoChangedSomethingIsInTheLog()
+
+        /// <summary>
+        /// The node says what changed; who changed it only the request knows,
+        /// and says it: the name resolution, the time source, and every change
+        /// of the certificate store.
+        /// </summary>
+        [Test]
+        public async Task WhoChangedSomethingIsInTheLog()
+        {
+
+            await using var node      = await Started();
+
+            using var root     = Root(node);
+
+            var (dns,  _)      = await Send(root, HttpMethod.Put,    "api/v1/configuration/dns", new JObject());
+            var (nts,  _)      = await Send(root, HttpMethod.Put,    "api/v1/configuration/nts", new JObject());
+            var handle         = await Imported(root, "A Root Somebody Put In");
+            var (patch, _)     = await Send(root, HttpMethod.Patch,  $"api/v1/certificates/{handle}", new JObject(new JProperty("label", "A Root Somebody Renamed")));
+            var (reload, _)    = await Send(root, HttpMethod.Post,   "api/v1/certificates/reload", new JObject());
+            var (delete, _)    = await Send(root, HttpMethod.Delete, $"api/v1/certificates/{handle}");
+
+            var said           = node.Log.Recent(Int32.MaxValue).
+                                          Where (entry => entry.Tags.Contains("web")).
+                                          Select(entry => $"{entry.Level}: {entry.Message}").
+                                          ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(new[] { dns, nts, patch, reload, delete }, Is.All.EqualTo(HttpStatusCode.OK));
+                Assert.That(said, Has.One.EqualTo($"Notice: 'root' changed the name resolution of this {node.Kind.Name}."));
+                Assert.That(said, Has.One.EqualTo($"Notice: 'root' changed the time source of this {node.Kind.Name}."));
+                Assert.That(said, Has.One.EqualTo($"Notice: 'root' put 'A Root Somebody Put In' into the certificate store as a tlsRoot ({handle})."));
+                Assert.That(said, Has.One.EqualTo($"Notice: 'root' changed the certificate 'A Root Somebody Renamed' ({handle}) in the certificate store."));
+                Assert.That(said, Has.One.EqualTo( "Notice: 'root' had the certificate store read again from its directory."));
+                Assert.That(said, Has.One.EqualTo($"Notice: 'root' took the certificate 'A Root Somebody Renamed' ({handle}) out of the certificate store."));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatAKindSaysAboutWhoIsSignedInComesAfterThePermissions()
+
+        [Test]
+        public async Task WhatAKindSaysAboutWhoIsSignedInComesAfterThePermissions()
+        {
+
+            await using var node      = await Started();
+
+            using var root     = Root(node);
+
+            var (status, me)   = await Send(root, HttpMethod.Get, "api/v1/auth/me");
+
+            Assert.Multiple(() => {
+                Assert.That(status,                        Is.EqualTo(HttpStatusCode.OK), me.ToString());
+                Assert.That(me.Value<String>("username"),  Is.EqualTo("root"));
+                Assert.That(me.Value<String>("roleTitle"), Is.EqualTo("Tester, as 'root'"));
+                Assert.That(me.Properties().Select(property => property.Name),
+                            Is.EqualTo(new[] { "username", "roles", "permissions", "roleTitle" }),
+                            "what the kind adds comes after what every node says");
             });
 
         }

@@ -74,10 +74,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// Answers with the whole configuration as it now stands, so that the
         /// page does not have to ask again to find out what it got.
         /// </summary>
+        /// <remarks>
+        /// Who changed it is in the log, as it is for the time source and the
+        /// certificate store: the node says what changed, and only the request
+        /// knows who. Of a device whose readings are evidence, which name
+        /// servers it asked and who told it to is part of the evidence.
+        /// </remarks>
         private Task<HTTPResponse> PutDNSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.DNS), true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.DNS), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -85,6 +91,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             if (!Node.TryUpdateDNSConfiguration(json, out var error))
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            Log.Notice($"'{user.Id}' changed the name resolution of this {Node.Kind.Name}.", "dns", "web");
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Node.DNSConfigurationJSON())
@@ -179,7 +187,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private Task<HTTPResponse> PutNTSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.NTS), true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.NTS), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -187,6 +195,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             if (!Node.TryUpdateNTSConfiguration(json, out var error))
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            Log.Notice($"'{user.Id}' changed the time source of this {Node.Kind.Name}.", "nts", "web");
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Node.NTSConfigurationJSON())

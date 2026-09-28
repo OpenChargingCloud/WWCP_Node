@@ -119,7 +119,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private Task<HTTPResponse> PostStoreCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -172,6 +172,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
             }
 
+            Log.Notice($"'{user.Id}' put '{entry.Label}' into the certificate store as a {entry.Kind.AsText()} ({entry.Id}).",
+                       "certificates", "web");
+
             return Task.FromResult(
                        JSONResponse(
                            Request,
@@ -213,15 +216,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// it is for.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Three things in one request because they are the only three things
         /// about a stored certificate that can be changed at all - everything
         /// else about it is read out of the file and is not somebody's to edit.
         /// "usages" set to null is every use again; left out, it is left alone.
+        /// </para>
+        /// <para>
+        /// Whatever can refuse the change is asked before any of it is made:
+        /// whether "active" is true or false, whether the store would keep the
+        /// usages, and whether the node would be left without a certificate it
+        /// needs - see <see cref="WWCPNode.WhatWouldLose"/>, a 409 in the
+        /// node's own sentence. Asked one after the other, as they were made, a
+        /// request refused for its "active" had renamed the certificate first.
+        /// </para>
         /// </remarks>
         private Task<HTTPResponse> PatchStoreCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -229,10 +242,46 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             var handle = HandleOf(Request);
 
-            if (Node.Certificates.Get(handle) is null)
+            if (Node.Certificates.Get(handle) is not CertificateEntry entry)
                 return Task.FromResult(
                            ErrorJSON(Request, HTTPStatusCode.NotFound, "There is no such certificate in this store.")
                        );
+
+            Boolean? active = null;
+
+            if (json.TryGetValue("active", out var activeToken))
+            {
+
+                if (activeToken.Type != JTokenType.Boolean)
+                    return Task.FromResult(
+                               ErrorJSON(Request, HTTPStatusCode.BadRequest, "'active' has to be true or false.")
+                           );
+
+                active = activeToken.Value<Boolean>();
+
+            }
+
+            // Present, even as null, is something to set: null is every use.
+            var                     newUsages  = json.ContainsKey("usages");
+            IReadOnlyList<String>?  usages     = null;
+
+            if (newUsages)
+            {
+
+                if (!TryReadUsages(json, out var given, out var usagesError))
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesError));
+
+                if (!Node.Certificates.TrySettleUsages(entry.Kind, given, out usages, out var usagesRefused))
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesRefused));
+
+            }
+
+            if (Node.WhatWouldLose(entry,
+                                   active ?? entry.IsActive,
+                                   newUsages ? usages : entry.Usages) is String wouldLose)
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
+            }
 
             if (json.TryGetValue("label", out var label) && label.Type != JTokenType.Undefined)
             {
@@ -240,34 +289,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                     return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, relabelError));
             }
 
-            if (json.TryGetValue("active", out var active))
-            {
+            if (active is Boolean on && !Node.Certificates.SetActive(handle, on, out _, out var activeError))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, activeError));
 
-                if (active.Type != JTokenType.Boolean)
-                    return Task.FromResult(
-                               ErrorJSON(Request, HTTPStatusCode.BadRequest, "'active' has to be true or false.")
-                           );
+            if (newUsages && !Node.Certificates.SetUsages(handle, usages, out _, out var usagesNotSet))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesNotSet));
 
-                if (!Node.Certificates.SetActive(handle, active.Value<Boolean>(), out _, out var activeError))
-                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, activeError));
+            var changed = Node.Certificates.Get(handle) ?? entry;
 
-            }
-
-            // Present, even as null, is something to set: null is every use.
-            if (json.ContainsKey("usages"))
-            {
-
-                if (!TryReadUsages(json, out var usages, out var usagesError))
-                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesError));
-
-                if (!Node.Certificates.SetUsages(handle, usages, out _, out var usagesRefused))
-                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesRefused));
-
-            }
+            Log.Notice($"'{user.Id}' changed the certificate '{changed.Label}' ({changed.Id}) in the certificate store.",
+                       "certificates", "web");
 
             return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK,
-                                    Node.Certificates.Get(handle)!.ToJSON(WithDiagnostics: true))
+                       JSONResponse(Request, HTTPStatusCode.OK, changed.ToJSON(WithDiagnostics: true))
                    );
 
         }
@@ -277,14 +311,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// store and delete its file.
         /// </summary>
         /// <remarks>
-        /// Refused with 409 while something of the node still uses it, in the
-        /// node's own sentence - see <see cref="WWCPNode.WhatUses"/>: the CSMS
-        /// connection of a local controller, the session of a vehicle.
+        /// Refused with 409, in the node's own sentence, while something of
+        /// the node names it - see <see cref="WWCPNode.WhatUses"/>: the CSMS
+        /// connection of a local controller, the session of a vehicle - and
+        /// while something would be left without a certificate it needs, as
+        /// switching it off would leave it - see
+        /// <see cref="WWCPNode.WhatWouldLose"/>: a listener of a meter.
         /// </remarks>
         private Task<HTTPResponse> DeleteStoreCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             var handle = HandleOf(Request);
@@ -292,8 +329,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (Node.WhatUses(handle) is String inUse)
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, inUse));
 
+            var entry = Node.Certificates.Get(handle);
+
+            if (entry is not null &&
+                Node.WhatWouldLose(entry, false, entry.Usages) is String wouldLose)
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
+            }
+
             if (!Node.Certificates.Remove(handle, out var error))
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, error));
+
+            Log.Notice($"'{user.Id}' took the certificate '{entry?.Label}' ({handle}) out of the certificate store.",
+                       "certificates", "web");
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Node.CertificatesJSON())
@@ -319,10 +367,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private Task<HTTPResponse> PostStoreCertificateReload(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             Node.Certificates.Reload();
+
+            Log.Notice($"'{user.Id}' had the certificate store read again from its directory.",
+                       "certificates", "web");
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Node.CertificatesJSON())
@@ -370,12 +421,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         #region (protected static) HandleOf(Request)
 
         /// <summary>
-        /// The certificate handle out of the request's path.
+        /// The certificate handle out of the request's path, as the store
+        /// spells handles: in lower case.
         /// </summary>
+        /// <remarks>
+        /// Hex digits, which somebody may have copied out of a tool that writes
+        /// them in capitals - asked for that way, a certificate in the store was
+        /// not found. The meter's copy of this spelt it; the others did not.
+        /// </remarks>
         protected static String HandleOf(HTTPRequest Request)
 
             => Request.ParsedURLParameters.Length > 0
-                   ? Request.ParsedURLParameters[0].Trim()
+                   ? Request.ParsedURLParameters[0].Trim().ToLowerInvariant()
                    : "";
 
         #endregion

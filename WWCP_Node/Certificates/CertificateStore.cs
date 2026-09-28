@@ -177,6 +177,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region Events
+
+        /// <summary>
+        /// Sent after something in the store changed - a certificate put in,
+        /// switched on or off, renamed, told other usages or taken out - and
+        /// after every reload, which may have changed anything.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// For what a node derives from its store and has to ask again: which
+        /// identity a listener shows, say, and a change of it in the log when
+        /// it happened rather than at the next turn of a timer. Sent whoever
+        /// changed it - a page of the web interface, or the node's own work,
+        /// such as the certificate a signing request came back with - which a
+        /// hook in the web interface would not see.
+        /// </para>
+        /// <para>
+        /// Sent once the store's lock is released, so that a listener may ask
+        /// the store what it holds now: the lock is not one a thread may take
+        /// twice, and a listener that asked inside it would wait for itself.
+        /// A listener that throws is caught and complained about; the change
+        /// it was told of has been made either way.
+        /// </para>
+        /// </remarks>
+        public event Action? OnChanged;
+
+        #endregion
+
         #region Constructor(s)
 
         /// <summary>
@@ -317,6 +345,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public void Reload()
         {
 
+            var reloaded = false;
+
             storeLock.Wait();
 
             try
@@ -416,11 +446,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                          $" ({Summarise()}).",
                          "certificates");
 
+                reloaded = true;
+
             }
             finally
             {
                 storeLock.Release();
             }
+
+            if (reloaded)
+                Changed();
 
         }
 
@@ -578,6 +613,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
+            var storeChanged = false;
+
             storeLock.Wait();
 
             try
@@ -631,8 +668,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                     if (changed)
                     {
-                        entries[id] = existing;
+                        entries[id]   = existing;
                         WriteIndex();
+                        storeChanged  = true;
                     }
                     else
                         log.Info($"Certificates: {existing.Label} was already in the store; nothing changed.", "certificates");
@@ -670,6 +708,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 entries.Add(Entry.Id, Entry);
                 WriteIndex();
+                storeChanged = true;
 
                 log.Metrological(LogLevel.Notice,
                                  $"Certificates: imported {Entry.Label} as {Kind.Describe()}, " +
@@ -691,8 +730,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             }
             finally
             {
+
                 storeLock.Release();
                 Dispose(collection);
+
+                if (storeChanged)
+                    Changed();
+
             }
 
         }
@@ -719,6 +763,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             Entry  = null;
             Error  = null;
 
+            var storeChanged = false;
+
             storeLock.Wait();
 
             try
@@ -737,6 +783,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     entries[Id]  = Entry;
 
                     WriteIndex();
+                    storeChanged = true;
 
                     log.Metrological(LogLevel.Notice,
                                      $"Certificates: {Entry.Label} ({Entry.Kind.AsText()}) was switched {(Active ? "on" : "off")}.",
@@ -751,7 +798,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             }
             finally
             {
+
                 storeLock.Release();
+
+                if (storeChanged)
+                    Changed();
+
             }
 
         }
@@ -778,6 +830,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
+            var storeChanged = false;
+
             storeLock.Wait();
 
             try
@@ -799,13 +853,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 entries[Id]  = Entry;
 
                 WriteIndex();
+                storeChanged = Entry.Label != entry.Label;
 
                 return true;
 
             }
             finally
             {
+
                 storeLock.Release();
+
+                if (storeChanged)
+                    Changed();
+
             }
 
         }
@@ -837,6 +897,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             Entry  = null;
             Error  = null;
 
+            var storeChanged = false;
+
             storeLock.Wait();
 
             try
@@ -861,6 +923,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 entries[Id]  = Entry;
 
                 WriteIndex();
+                storeChanged = true;
 
                 log.Metrological(LogLevel.Notice,
                                  $"Certificates: {Entry.Label} ({Entry.Kind.AsText()}) is now {CertificateUsages.Describe(usages)}, " +
@@ -872,7 +935,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             }
             finally
             {
+
                 storeLock.Release();
+
+                if (storeChanged)
+                    Changed();
+
             }
 
         }
@@ -894,6 +962,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         {
 
             Error = null;
+
+            var storeChanged = false;
 
             storeLock.Wait();
 
@@ -921,6 +991,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 entries.Remove(Id);
                 WriteIndex();
+                storeChanged = true;
 
                 log.Metrological(LogLevel.Notice,
                                  $"Certificates: {entry.Label} ({entry.Kind.AsText()}) was deleted from the store.",
@@ -931,7 +1002,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             }
             finally
             {
+
                 storeLock.Release();
+
+                if (storeChanged)
+                    Changed();
+
             }
 
         }
@@ -1122,7 +1198,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #endregion
 
 
-        #region (private) TrySettleUsages(Kind, Usages, out Settled, out Error)
+        #region (private) Changed()
+
+        /// <summary>
+        /// Tell whoever follows this store that it changed - see
+        /// <see cref="OnChanged"/>. Called with the lock released only.
+        /// </summary>
+        private void Changed()
+        {
+
+            var handler = OnChanged;
+
+            if (handler is null)
+                return;
+
+            foreach (var listener in handler.GetInvocationList().Cast<Action>())
+            {
+                try
+                {
+                    listener();
+                }
+                catch (Exception exception)
+                {
+                    log.Warning($"Certificates: what follows this store failed when it changed: {exception.Message}",
+                                "certificates");
+                }
+            }
+
+        }
+
+        #endregion
+
+        #region TrySettleUsages(Kind, Usages, out Settled, out Error)
 
         /// <summary>
         /// The usages as this store keeps them - in lower case, each once, in
@@ -1132,11 +1239,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// None given is every use, and is what every certificate was before
         /// there were usages. An empty list is refused rather than kept: a
         /// certificate for no use at all is one to switch off, which says so.
+        /// Asked from outside as well, before a change is made, so that what a
+        /// node is asked about a change is what the store would keep - and so
+        /// that a change refused for its usages is refused before anything of
+        /// it is made.
         /// </remarks>
-        private Boolean TrySettleUsages(CertificateKind                    Kind,
-                                        IEnumerable<String>?               Usages,
-                                        out IReadOnlyList<String>?         Settled,
-                                        [NotNullWhen(false)] out String?   Error)
+        public Boolean TrySettleUsages(CertificateKind                    Kind,
+                                       IEnumerable<String>?               Usages,
+                                       out IReadOnlyList<String>?         Settled,
+                                       [NotNullWhen(false)] out String?   Error)
         {
 
             Settled  = null;

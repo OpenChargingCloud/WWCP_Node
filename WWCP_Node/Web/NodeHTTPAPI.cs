@@ -293,6 +293,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
+        #region (protected virtual) ProductMe(User)
+
+        /// <summary>
+        /// What this kind of node says about whoever is signed in beyond what
+        /// every node says - their name, their roles and what those let them
+        /// do - after "permissions": a meter's name for the role somebody holds
+        /// there, say, and what it is for.
+        /// </summary>
+        /// <param name="User">Who is signed in.</param>
+        protected virtual IEnumerable<JProperty> ProductMe(IUser User)
+            => [];
+
+        #endregion
+
 
         #region (private) GetStatus       (Request)
 
@@ -661,14 +675,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// of what the node enforces and not the enforcement: every request is
         /// checked again on arrival, so a browser that edits this list gains
         /// nothing but a button that answers 403.
+        ///
+        /// What a kind of node adds comes after them - see
+        /// <see cref="ProductMe"/>.
         /// </remarks>
         private JObject MeJSON(IUser User)
+        {
 
-            => new (
-                   new JProperty("username",     User.Id.ToString()),
-                   new JProperty("roles",        new JArray(Node.RolesOf(User).Select(role => role.Name))),
-                   new JProperty("permissions",  new JArray(Node.PermissionsOf(User).Select(permission => permission.ToString())))
-               );
+            var me = new JObject(
+                         new JProperty("username",     User.Id.ToString()),
+                         new JProperty("roles",        new JArray(Node.RolesOf(User).Select(role => role.Name))),
+                         new JProperty("permissions",  new JArray(Node.PermissionsOf(User).Select(permission => permission.ToString())))
+                     );
+
+            foreach (var property in ProductMe(User))
+                me.Add(property);
+
+            return me;
+
+        }
 
         #endregion
 

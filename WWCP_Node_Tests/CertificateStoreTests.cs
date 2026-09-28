@@ -917,6 +917,108 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region TheStoreSaysWhenItChangedAndNotWhenNothingDid()
+
+        /// <summary>
+        /// Every change says so once - an import, a switch, a new label, new
+        /// usages, a removal - and every reload, which may have changed
+        /// anything; what changed nothing says nothing. And the listener is
+        /// told with the lock released: it asks the store what it holds now,
+        /// which inside the lock would wait for itself for ever.
+        /// </summary>
+        [Test]
+        public async Task TheStoreSaysWhenItChangedAndNotWhenNothingDid()
+        {
+
+            var store    = new CertificateStore(directory, log);
+            var told     = new List<String>();
+
+            store.OnChanged += () => told.Add(String.Join(", ", store.Entries.Select(entry => $"{entry.Label}{(entry.IsActive ? "" : " (off)")}")));
+
+            using var root = Root("A Root That Changes");
+
+            var said = await Task.Run(() => {
+
+                var steps = new List<(String Step, Int32 Told)>();
+
+                void Step(String Name, Boolean Done)
+                {
+                    Assert.That(Done, Is.True, Name);
+                    steps.Add((Name, told.Count));
+                }
+
+                Step("import",          store.Import(Pem(root), CertificateKind.TLSRoot, null, null, out var entry, out _));
+                Step("import again",    store.Import(Pem(root), CertificateKind.TLSRoot, null, null, out _,         out _));
+                Step("switch off",      store.SetActive(entry!.Id, false, out _, out _));
+                Step("switch off again",store.SetActive(entry!.Id, false, out _, out _));
+                Step("relabel",         store.Relabel  (entry!.Id, "A Root Renamed", out _, out _));
+                Step("relabel again",   store.Relabel  (entry!.Id, "A Root Renamed", out _, out _));
+                Step("usages",          store.SetUsages(entry!.Id, [ "dns" ], out _, out _));
+                Step("usages again",    store.SetUsages(entry!.Id, [ "DNS" ], out _, out _));
+                Step("remove",          store.Remove   (entry!.Id, out _));
+                store.Reload();
+                steps.Add(("reload", told.Count));
+
+                return steps;
+
+            }).WaitAsync(TimeSpan.FromSeconds(20));
+
+            Assert.Multiple(() => {
+                Assert.That(said.Select(step => $"{step.Step}: {step.Told}"),
+                            Is.EqualTo(new[] {
+                                "import: 1",
+                                "import again: 1",
+                                "switch off: 2",
+                                "switch off again: 2",
+                                "relabel: 3",
+                                "relabel again: 3",
+                                "usages: 4",
+                                "usages again: 4",
+                                "remove: 5",
+                                "reload: 6"
+                            }));
+                Assert.That(told.Take(3),
+                            Is.EqualTo(new[] { "A Root That Changes", "A Root That Changes (off)", "A Root Renamed (off)" }),
+                            "what the listener found in the store when it was told");
+            });
+
+        }
+
+        #endregion
+
+        #region AListenerThatFailsCostsNeitherTheChangeNorTheOthers()
+
+        /// <summary>
+        /// A listener that throws is complained about, and the change it was
+        /// told of is made and said to the listeners after it all the same.
+        /// </summary>
+        [Test]
+        public void AListenerThatFailsCostsNeitherTheChangeNorTheOthers()
+        {
+
+            var store    = new CertificateStore(directory, log);
+            var told     = 0;
+
+            store.OnChanged += () => throw new InvalidOperationException("a listener that is broken");
+            store.OnChanged += () => told++;
+
+            using var root = Root("A Root Put In Past A Broken Listener");
+
+            var imported = store.Import(Pem(root), CertificateKind.TLSRoot, null, null, out var entry, out var error);
+
+            Assert.Multiple(() => {
+                Assert.That(imported,                                    Is.True, error);
+                Assert.That(store.Get(entry?.Id),                        Is.Not.Null, "the change was not made");
+                Assert.That(told,                                        Is.EqualTo(1), "the listener after the broken one was not told");
+                Assert.That(log.Recent(100).Select(logged => logged.Message),
+                            Has.Some.Contains("a listener that is broken"),
+                            "what failed was not said");
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

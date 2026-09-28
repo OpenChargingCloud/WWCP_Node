@@ -154,8 +154,43 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// meant. Nothing by default; a kind of node that chooses certificates
         /// for something says what.
         /// </remarks>
-        /// <param name="Handle">The handle the certificate is asked for by: the first 16 digits of its fingerprint, or all of them.</param>
+        /// <param name="Handle">The handle the certificate is asked for by, as the store spells it: the first 16 digits of its fingerprint, in lower case.</param>
         public virtual String? WhatUses(String Handle)
+            => null;
+
+        #endregion
+
+        #region (virtual) WhatWouldLose(Entry, ActiveAfter, UsagesAfter)
+
+        /// <summary>
+        /// What of this node would be left without a certificate it needs, were
+        /// the given one switched on or off and told the given usages, as the
+        /// sentence a refusal of that change says - or null where nothing would.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Asked before a certificate is changed or deleted, and before any of
+        /// the change is made: a listener whose only identity is switched off,
+        /// or told it is for another listener, has nothing to show at the next
+        /// handshake - which the node finds out there, and whoever clicked does
+        /// not. Nothing by default; a kind of node whose listeners or clients
+        /// need a certificate to be there says which - a meter's.
+        /// </para>
+        /// <para>
+        /// Not the question <see cref="WhatUses"/> answers. That is what names
+        /// a certificate, which switching it off leaves alone and deleting it
+        /// does not: switching off is how a vehicle's chosen credential is
+        /// taken out of service. This is what needs it to be on, which
+        /// switching it off takes away as much as deleting it does. So a
+        /// deletion asks both, and a change this one.
+        /// </para>
+        /// </remarks>
+        /// <param name="Entry">The certificate as it is now.</param>
+        /// <param name="ActiveAfter">Whether it would be switched on afterwards; false for a deletion.</param>
+        /// <param name="UsagesAfter">What it would be for afterwards, as the store keeps usages; null for every use.</param>
+        public virtual String? WhatWouldLose(CertificateEntry        Entry,
+                                             Boolean                 ActiveAfter,
+                                             IReadOnlyList<String>?  UsagesAfter)
             => null;
 
         #endregion
