@@ -401,6 +401,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(nts["timeSources"]?[0]?.Value<String>("hostname"),    Is.EqualTo(Node.NTSClient.Hostname.ToString()));
                 Assert.That(nts["group"]?.Value<String>("name"),                  Is.EqualTo("legal"));
                 Assert.That(nts["group"]?.Value<Byte>  ("minServers"),            Is.EqualTo(2));
+                Assert.That(nts["settings"]?.Value<Byte>("minServers"),           Is.EqualTo(2), "and what the page's field is filled with");
 
             });
 

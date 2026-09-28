@@ -34,15 +34,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     public abstract partial class NodeConformanceTests
     {
 
-        #region TheAPIRefusesWithoutASession()
+        #region TheAPIRefusesWithoutASession(Path)
 
-        [Test]
-        public async Task TheAPIRefusesWithoutASession()
+        /// <summary>
+        /// What the node says of itself is for somebody signed in: every one of
+        /// the reads every node has answers 401 to a browser that is not.
+        /// </summary>
+        [TestCase("api/v1/status")]
+        [TestCase("api/v1/auth/me")]
+        [TestCase("api/v1/clock")]
+        [TestCase("api/v1/configuration")]
+        [TestCase("api/v1/configuration/dns")]
+        [TestCase("api/v1/configuration/nts")]
+        [TestCase("api/v1/logs")]
+        [TestCase("api/v1/certificates")]
+        public async Task TheAPIRefusesWithoutASession(String Path)
         {
 
             using var http = Anonymous();
 
-            var response = await http.GetAsync("api/v1/status");
+            var response = await http.GetAsync(Path);
 
             Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
 
@@ -81,6 +92,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(response.StatusCode,                              Is.EqualTo(HttpStatusCode.NotFound));
                 Assert.That(response.Content.Headers.ContentType?.MediaType,  Is.EqualTo("application/json"));
                 Assert.That(json.Value<String>("error"),                      Is.EqualTo("Unknown API path"), "not the web interface's page");
+                Assert.That(json.Value<String>("path"),                       Does.EndWith("api/v1/nothing/here"), "and which path that was");
             });
 
         }

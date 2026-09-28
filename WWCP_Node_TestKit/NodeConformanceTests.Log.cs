@@ -343,6 +343,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AClosedBrowserIsLetGoOfAtTheNextHeartbeat()
+
+        /// <summary>
+        /// A browser that closes its tab says nothing; the stream finds out at
+        /// the next thing it writes, a heartbeat where nothing is logged, and
+        /// lets go of it then - its subscription too, which would otherwise be
+        /// fed every entry of the log for nobody.
+        /// </summary>
+        [Test]
+        public async Task AClosedBrowserIsLetGoOfAtTheNextHeartbeat()
+        {
+
+            ShortHeartbeat();
+
+            var source   = Node.JSONAPI!.Events;
+            var before   = source.NumberOfConnectedClients;
+
+            var http     = await SignedIn();
+            var stream   = await EventStream.OpenAndSettle(Node, http);
+            var watching = source.NumberOfConnectedClients;
+
+            stream.Dispose();
+            http.  Dispose();
+
+            var giveUp   = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+
+            while (source.NumberOfConnectedClients > before && DateTime.UtcNow < giveUp)
+                await Task.Delay(100);
+
+            Assert.Multiple(() => {
+                Assert.That(watching,                          Is.EqualTo(before + 1), "the browser was a client of the stream while it watched");
+                Assert.That(source.NumberOfConnectedClients,   Is.EqualTo(before),     "the stream of a browser that went away was not let go of");
+            });
+
+        }
+
+        #endregion
+
         #region AStreamOfAnotherSessionGoesOn()
 
         /// <summary>

@@ -62,7 +62,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <see cref="NodeConformanceTests.TimeServerToLearn"/> and
         /// <see cref="NodeConformanceTests.NameServerToLearn"/>.
         /// </summary>
-        ServersToLearnFrom
+        ServersToLearnFrom,
+
+        /// <summary>
+        /// The time client switched on, and held to one time server on the
+        /// loopback address that nothing answers on - so that a test of a time
+        /// server gets past the switch, and nothing leaves the machine even if
+        /// the first check of the clock came due during it.
+        /// </summary>
+        TimeClientOn
 
     }
 
@@ -290,6 +298,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                                    )
                                                )),
                                                new JProperty("maxRetries",  0)
+                                           );
+                    break;
+
+                case NodeSetup.TimeClientOn:
+
+                    configuration["nts"] = new JObject(
+                                               new JProperty("enabled",    true),
+                                               new JProperty("hostname",   "127.0.0.1"),
+                                               new JProperty("ntsKEPort",  TestPorts.Free()),
+                                               new JProperty("ntpPort",    TestPorts.Free())
                                            );
                     break;
 

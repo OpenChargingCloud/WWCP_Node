@@ -190,6 +190,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(steps?.Count,                       Is.EqualTo(1));
                 Assert.That(steps?[0]?.Value<String>("level"),  Is.EqualTo("error"));
                 Assert.That(steps?[0]?.Value<String>("text"),   Is.EqualTo($"Time synchronisation is switched off on this {Node.Kind.Name}, so nothing was asked."));
+                Assert.That(Node.Log.Recent(200, Tag: "nts").Select(entry => entry.Message),
+                            Has.Some.EqualTo($"'{AdminLogin}' asked this {Node.Kind.Name} to test the time server 'time.example'."),
+                            "who asked, in the log");
+            });
+
+        }
+
+        #endregion
+
+        #region AHostThatIsNeitherANameNorAnAddressIsSaidSo()
+
+        /// <summary>
+        /// A host written down as neither - a sentence where a name belongs -
+        /// is answered with one step that says so, and nothing is asked.
+        /// </summary>
+        [Test, WithNode(NodeSetup.TimeClientOn)]
+        public async Task AHostThatIsNeitherANameNorAnAddressIsSaidSo()
+        {
+
+            using var http = await SignedIn();
+
+            var (status, json) = await Post(http, "api/v1/configuration/nts/test",
+                                            new JProperty("host", "not a host at all"));
+
+            var steps = json["steps"] as JArray;
+
+            Assert.Multiple(() => {
+                Assert.That(status,                             Is.EqualTo(HttpStatusCode.OK), json.ToString());
+                Assert.That(json.Value<Boolean>("ok"),          Is.False);
+                Assert.That(steps?.Count,                       Is.EqualTo(1), "one step, and nothing asked after it");
+                Assert.That(steps?[0]?.Value<String>("level"),  Is.EqualTo("error"));
+                Assert.That(steps?[0]?.Value<String>("text"),   Is.EqualTo("'not a host at all' is neither a name nor an address that can be asked."));
             });
 
         }

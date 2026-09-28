@@ -92,6 +92,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region (private) InTheStore()
+
+        /// <summary>
+        /// The handles of what the store holds now, to be held against what it
+        /// holds after a request that was refused - rather than asking the store
+        /// to be empty: a kind of node may keep certificates of its own there
+        /// from its first start, as a meter keeps the identity its Modbus/TLS
+        /// listener shows and the root its clients are issued by.
+        /// </summary>
+        private String[] InTheStore()
+
+            => [.. Node.Certificates.Entries.Select(entry => entry.Id)];
+
+        #endregion
+
         #region (private) Keeps(Kind) / ARootIn(HTTP, Name, Usages)
 
         /// <summary>
@@ -208,18 +223,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http  = await SignedIn();
 
+            var before         = InTheStore();
+
             var (status, said) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
                                                 new JProperty("kind",     kind!.Value.AsText()),
                                                 new JProperty("content",  RootPem("A Root For What Its Kind Says")),
                                                 new JProperty("usages",   new JArray("nts"))
                                             ));
 
-            var (_, store)     = await Send(http, HttpMethod.Get, "api/v1/certificates");
-
             Assert.Multiple(() => {
                 Assert.That(status,           Is.EqualTo(HttpStatusCode.BadRequest), said.ToString());
                 Assert.That(said.ToString(),  Does.Contain("only a TLS root and a server certificate"));
-                Assert.That(store["certificates"]![kind.Value.AsText()]!.Children().Any(), Is.False, "nothing refused was half-imported");
+                Assert.That(InTheStore(),     Is.EquivalentTo(before), "nothing refused was half-imported");
             });
 
         }
@@ -236,16 +251,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http  = await SignedIn();
 
+            var rootsBefore = Node.Certificates.ByKind(CertificateKind.TLSRoot).Count;
+
             var entry       = await ARootIn(http, "Our Clocks' Root",       new JArray("nts"));
             _               = await ARootIn(http, "Our Clocks' Other Root", new JArray("nts"));
 
             var store       = await GetJSON(http, "api/v1/certificates");
+            var listed      = store["certificates"]!["tlsRoot"]!.Children<JObject>().
+                                  FirstOrDefault(root => root.Value<String>("id") == entry.Value<String>("id"));
 
             Assert.Multiple(() => {
-                Assert.That(entry["usages"]!.Values<String>(),                                     Is.EqualTo(new[] { "nts" }));
-                Assert.That(entry["label"]!.Value<String>(),                                       Is.EqualTo("Our Clocks' Root"), "its common name, where no label was given");
-                Assert.That(store["certificates"]!["tlsRoot"]!.Children().Count(),                 Is.EqualTo(2));
-                Assert.That(store["certificates"]!["tlsRoot"]![0]!["usages"]!.Values<String>(),   Is.EqualTo(new[] { "nts" }));
+                Assert.That(entry["usages"]!.Values<String>(),                        Is.EqualTo(new[] { "nts" }));
+                Assert.That(entry["label"]!.Value<String>(),                          Is.EqualTo("Our Clocks' Root"), "its common name, where no label was given");
+                Assert.That(store["certificates"]!["tlsRoot"]!.Children().Count(),    Is.EqualTo(rootsBefore + 2));
+                Assert.That(listed?["usages"]?.Values<String>(),                      Is.EqualTo(new[] { "nts" }), "and so the store lists it");
             });
 
         }
@@ -296,6 +315,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http  = await SignedIn();
 
+            var before               = InTheStore();
+
             var (unknown, said)      = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
                                                       new JProperty("kind",     "tlsRoot"),
                                                       new JProperty("content",  RootPem("Some Root")),
@@ -324,8 +345,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                            new JProperty("content",  RootPem("A Root Of A Kind Not Kept"))
                                        ));
 
-            var (_, store)           = await Send(http, HttpMethod.Get, "api/v1/certificates");
-
             Assert.Multiple(() => {
 
                 Assert.That(unknown,              Is.EqualTo(HttpStatusCode.BadRequest));
@@ -341,9 +360,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                 "the kinds this store keeps, and not every kind there is");
                 }
 
-                Assert.That(store["certificates"]!.Values().SelectMany(kind => kind.Children()).Any(),
-                            Is.False,
-                            "nothing refused was half-imported");
+                Assert.That(InTheStore(), Is.EquivalentTo(before), "nothing refused was half-imported");
 
             });
 
@@ -451,16 +468,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http  = await SignedIn();
 
+            var before         = InTheStore();
+
             var (status, said) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
                                                 new JProperty("kind",     "tlsIdentity"),
                                                 new JProperty("content",  Identity("node-002", WithKey: false))
                                             ));
 
-            var (_, store)     = await Send(http, HttpMethod.Get, "api/v1/certificates");
-
             Assert.Multiple(() => {
-                Assert.That(status,                                                     Is.EqualTo(HttpStatusCode.BadRequest), said.ToString());
-                Assert.That(store["certificates"]!["tlsIdentity"]!.Children().Any(),    Is.False,
+                Assert.That(status,        Is.EqualTo(HttpStatusCode.BadRequest), said.ToString());
+                Assert.That(InTheStore(),  Is.EquivalentTo(before),
                             "something the node cannot present with is not an identity of its own");
             });
 
@@ -479,6 +496,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             using var http  = await SignedIn();
 
             var (_, before)     = await Send(http, HttpMethod.Get, "api/v1/certificates");
+            var labelsBefore    = before["certificates"]!["tlsRoot"]!.Select(entry => entry["label"]!.Value<String>()!).ToArray();
 
             var roots           = Path.Combine(Node.Certificates.Directory,
                                                CertificateKind.TLSRoot.Directory().Replace('/', Path.DirectorySeparatorChar));
@@ -489,10 +507,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var (status, after) = await Send(http, HttpMethod.Post, "api/v1/certificates/reload", new JObject());
 
             Assert.Multiple(() => {
-                Assert.That(before["certificates"]!["tlsRoot"]!.Children().Any(),   Is.False);
-                Assert.That(status,                                                 Is.EqualTo(HttpStatusCode.OK), after.ToString());
-                Assert.That(after["certificates"]!["tlsRoot"]!.Select(entry => entry["label"]!.Value<String>()),
-                            Is.EqualTo(new[] { "Copied By Hand" }));
+                Assert.That(labelsBefore,  Does.Not.Contain("Copied By Hand"));
+                Assert.That(status,        Is.EqualTo(HttpStatusCode.OK), after.ToString());
+                Assert.That(after["certificates"]!["tlsRoot"]!.Select(entry => entry["label"]!.Value<String>()!),
+                            Is.EquivalentTo(labelsBefore.Append("Copied By Hand")),
+                            "what was there, and the one copied in");
             });
 
         }
