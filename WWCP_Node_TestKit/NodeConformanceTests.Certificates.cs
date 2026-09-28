@@ -131,6 +131,101 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #endregion
 
 
+        #region TheStoreSaysWhatEachOfItsKindsIsFor()
+
+        /// <summary>
+        /// What the page's usage fields are drawn from: for every kind the
+        /// store keeps, whether one of it is told what it is for and what it
+        /// may be told - the store's word, not the kind's - and which kinds are
+        /// believed, presented and recognised.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the kind's own answer, so that what a kind of node adds to
+        /// it - see WWCPNode.CompleteCertificatesJSON - cannot overwrite what
+        /// every node says. A TLS root and a server certificate may be told the
+        /// node's services, and an identity the listeners its kind names; and a
+        /// page that offered an identity the services a root vouches for was
+        /// offering what the store then refused.
+        /// </remarks>
+        [Test]
+        public async Task TheStoreSaysWhatEachOfItsKindsIsFor()
+        {
+
+            using var http = await SignedIn();
+
+            var store      = await GetJSON(http, "api/v1/certificates");
+            var kinds      = Node.Certificates.Kinds;
+
+            Assert.Multiple(() => {
+
+                Assert.That(store["usages"]!.Values<String>(),         Is.EqualTo(Node.Certificates.Usages), "what a page may offer");
+                Assert.That(((JObject) store["kinds"]!).Properties().Select(kind => kind.Name),
+                            Is.EquivalentTo(kinds.Select(kind => kind.AsText())),
+                            "the kinds this store keeps, and no others");
+
+                foreach (var kind in kinds)
+                {
+                    Assert.That(store["kinds"]![kind.AsText()]!["hasUsages"]!.Value<Boolean>(),  Is.EqualTo(Node.Certificates.HasUsages(kind)),  $"whether a {kind.AsText()} is told what it is for");
+                    Assert.That(store["kinds"]![kind.AsText()]!["usages"]!.Values<String>(),     Is.EqualTo(Node.Certificates.UsagesFor(kind)),  $"what a {kind.AsText()} may be told");
+                }
+
+                if (kinds.Contains(CertificateKind.TLSRoot))
+                    Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSRoot),       Does.Contain("dns").And.Contain("nts"),
+                                "a TLS root may vouch for the node's name servers and time servers");
+
+                if (kinds.Contains(CertificateKind.TLSIdentity))
+                    Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSIdentity),   Is.EqualTo(Node.Certificates.Listeners),
+                                "an identity is told the listeners its kind of node names, and nothing a root vouches for");
+
+                Assert.That(store["trustAnchors"]!.Values<String>(),  Is.EquivalentTo(kinds.Where(kind =>  kind.IsTrustAnchor()).Select(kind => kind.AsText())), "what the node believes");
+                Assert.That(store["credentials"]!. Values<String>(),  Is.EquivalentTo(kinds.Where(kind => !kind.IsTrustAnchor() && !kind.MustNotCarryPrivateKey()).Select(kind => kind.AsText())), "what it presents");
+                Assert.That(store["recognised"]!.  Values<String>(),  Is.EquivalentTo(kinds.Where(kind => !kind.IsTrustAnchor() &&  kind.MustNotCarryPrivateKey()).Select(kind => kind.AsText())), "what it recognises a server by");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AKindThatIsNotToldWhatItIsForIsRefusedUsages()
+
+        /// <summary>
+        /// A root of a kind that is for what its kind says - a vehicle's roots,
+        /// the roots a client connecting here has to chain to - is refused
+        /// usages where they are typed, rather than kept with them and never
+        /// asked about them.
+        /// </summary>
+        [Test]
+        public async Task AKindThatIsNotToldWhatItIsForIsRefusedUsages()
+        {
+
+            var kind = Node.Certificates.Kinds.
+                           Where (kind => kind.IsTrustAnchor() && !Node.Certificates.HasUsages(kind)).
+                           Select(kind => (CertificateKind?) kind).
+                           FirstOrDefault();
+
+            Assume.That(kind, Is.Not.Null, $"The store of a {Node.Kind.Name} keeps no root that is not told what it is for.");
+
+            using var http  = await SignedIn();
+
+            var (status, said) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
+                                                new JProperty("kind",     kind!.Value.AsText()),
+                                                new JProperty("content",  RootPem("A Root For What Its Kind Says")),
+                                                new JProperty("usages",   new JArray("nts"))
+                                            ));
+
+            var (_, store)     = await Send(http, HttpMethod.Get, "api/v1/certificates");
+
+            Assert.Multiple(() => {
+                Assert.That(status,           Is.EqualTo(HttpStatusCode.BadRequest), said.ToString());
+                Assert.That(said.ToString(),  Does.Contain("only a TLS root and a server certificate"));
+                Assert.That(store["certificates"]![kind.Value.AsText()]!.Children().Any(), Is.False, "nothing refused was half-imported");
+            });
+
+        }
+
+        #endregion
+
         #region ARootIsUploadedForTheUsesItIsFor()
 
         [Test]

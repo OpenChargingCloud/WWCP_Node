@@ -208,6 +208,115 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AnUnknownLoginIsAnsweredAsAWrongPassword()
+
+        /// <summary>
+        /// Whether an account exists is not told at the sign-in to somebody who
+        /// does not know its password: a login nobody has is answered as a
+        /// wrong password is, word for word.
+        /// </summary>
+        /// <remarks>
+        /// It was 404 "Unknown login!" for the one and 401 "Invalid password!"
+        /// for the other - and the first at once, the second after a hash
+        /// (Hermod e646766f).
+        /// </remarks>
+        [Test]
+        public async Task AnUnknownLoginIsAnsweredAsAWrongPassword()
+        {
+
+            using var http     = Anonymous();
+
+            using var unknown  = await http.PostAsync(SignInPath, SignInBody("somebody-else", "Not-The-Password-1"));
+            using var wrong    = await http.PostAsync(SignInPath, SignInBody(AdminLogin,      "Not-The-Password-1"));
+
+            var unknownSaid    = await unknown.Content.ReadAsStringAsync();
+            var wrongSaid      = await wrong.  Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(unknown.StatusCode,  Is.EqualTo(wrong.StatusCode),  $"{(Int32) unknown.StatusCode} {unknownSaid} / {(Int32) wrong.StatusCode} {wrongSaid}");
+                Assert.That(unknownSaid,         Is.EqualTo(wrongSaid),         "the same words");
+            });
+
+        }
+
+        #endregion
+
+        #region APasswordSentWithEveryRequestIsNotRationedLikeAGuess()
+
+        /// <summary>
+        /// A client that sends the password with every request - a script, a
+        /// probe, somebody else's back office - is let in every time.
+        /// </summary>
+        /// <remarks>
+        /// Guessing a password over Basic auth is rationed: ten attempts per
+        /// address and ten per account, then one every six seconds. The right
+        /// password drew on that ration as well, so the eleventh request of a
+        /// minute was answered 401. A password that was checked is believed
+        /// again without being checked, or rationed, again.
+        /// </remarks>
+        [Test]
+        public async Task APasswordSentWithEveryRequestIsNotRationedLikeAGuess()
+        {
+
+            using var http = WithPassword(AdminLogin, Password);
+
+            var answered = new List<HttpStatusCode>();
+
+            for (var request = 0; request < 25; request++)
+            {
+                using var response = await http.GetAsync("api/v1/auth/me");
+                answered.Add(response.StatusCode);
+            }
+
+            Assert.That(answered, Is.All.EqualTo(HttpStatusCode.OK),
+                        String.Join(", ", answered.Select(status => (Int32) status)));
+
+        }
+
+        #endregion
+
+        #region GuessingAtTheSignInIsRationed()
+
+        /// <summary>
+        /// The sign-in lets ten guesses a minute through, and no more - not even
+        /// the right password after them - and says so in a sentence the
+        /// sign-in page shows.
+        /// </summary>
+        /// <remarks>
+        /// The form verified every password it was sent, as fast as they came:
+        /// fifteen wrong ones in three seconds, each answered "Invalid
+        /// password!", while guessing over Basic auth was rationed.
+        /// </remarks>
+        [Test]
+        public async Task GuessingAtTheSignInIsRationed()
+        {
+
+            using var http = Anonymous();
+
+            var guesses = new List<HttpStatusCode>();
+
+            for (var guess = 1; guess <= 10; guess++)
+            {
+                using var response = await http.PostAsync(SignInPath, SignInBody(AdminLogin, $"Not-The-Password-{guess}"));
+                guesses.Add(response.StatusCode);
+            }
+
+            using var right  = await http.PostAsync(SignInPath, SignInBody(AdminLogin, Password));
+            var said         = await right.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(guesses,           Is.All.EqualTo(HttpStatusCode.Unauthorized),
+                            String.Join(", ", guesses.Select(status => (Int32) status)));
+                Assert.That(right.StatusCode,  Is.EqualTo(HttpStatusCode.TooManyRequests),
+                            "after ten guesses the right password waits like any other: " + said);
+                Assert.That(said,              Does.Contain("\"description\""),
+                            "what the sign-in page shows");
+            });
+
+        }
+
+        #endregion
+
         #region TheGeneratedPasswordSignsIn()
 
         /// <summary>
