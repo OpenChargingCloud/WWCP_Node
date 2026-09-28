@@ -80,7 +80,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var (old, oldSaid)  = await Send(http, HttpMethod.Get, "api/v1/configuration/time");
 
             Assert.Multiple(() => {
-                Assert.That(clock.Value<String>("now"),        Is.Not.Null, "the clock says what time it is");
+                Assert.That(clock.Value<String>("now"),               Is.Not.Null, "the clock says what time it is");
+                Assert.That(clock.Value<String>("source"),            Is.EqualTo("system"), "the time client is switched off, so the time is the machine's");
+                Assert.That(clock["legal"]?.Type,                     Is.EqualTo(JTokenType.Boolean), "and what it is worth");
+                Assert.That(clock["nts"]?.Value<Boolean>("enabled"),  Is.EqualTo(Node.NTSEnabled));
                 Assert.That(signedOut.StatusCode,              Is.EqualTo(HttpStatusCode.Unauthorized));
                 Assert.That(old,                               Is.EqualTo(HttpStatusCode.NotFound));
                 Assert.That(oldSaid.Value<String>("error"),    Is.EqualTo("Unknown API path"));
@@ -214,6 +217,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 // And in the file, for the next start.
                 Assert.That(onDisk["dns"]?.Value<Int32>("maxRetries"),  Is.EqualTo(4));
 
+            });
+
+        }
+
+        #endregion
+
+        #region ANameServerInTheFormTheLogUsesIsRefusedAndNothingIsWritten()
+
+        /// <summary>
+        /// "udp://…:53", as the log and the banner write a name server, typed
+        /// into the DNS page: refused with the sentence that says why, and
+        /// neither applied nor written down. It was an internal server error,
+        /// out of an exception in the address parser.
+        /// </summary>
+        [Test]
+        public async Task ANameServerInTheFormTheLogUsesIsRefusedAndNothingIsWritten()
+        {
+
+            using var http = await SignedIn();
+
+            var response = await http.PutAsync(
+                                     "api/v1/configuration/dns",
+                                     JSONBody(
+                                         new JProperty("servers", new JArray("udp://213.133.98.98:53"))
+                                     )
+                                 );
+
+            var answered = await response.Content.ReadAsStringAsync();
+            var onDisk   = File.Exists(Node.ConfigFile.Path)
+                               ? File.ReadAllText(Node.ConfigFile.Path)
+                               : "";
+
+            Assert.Multiple(() => {
+                Assert.That(response.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest),  answered);
+                Assert.That(answered,             Does.Contain("'dns.servers'").And.Contain("udp://213.133.98.98:53"));
+                Assert.That(onDisk,               Does.Not.Contain("213.133.98.98"));
+                Assert.That(Node.DNSClient.DNSServers.Select(server => server.ToString()),
+                            Has.None.Contains("213.133.98.98"));
             });
 
         }

@@ -39,7 +39,7 @@ a port of their own to connect to.
 | `WWCPNode.Certificates.cs` | what the node says about its store, and what a kind of node adds to it or needs a certificate for |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | three hundred and sixty-seven tests, none of which constructs a vehicle, a station or a controller - the conformance suite among them, asked of a node of no particular kind, and four over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | three hundred and seventy-four tests, none of which constructs a vehicle, a station or a controller - the conformance suite among them, asked of a node of no particular kind, and four over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -719,7 +719,7 @@ What every node answers alike is tested once, in `WWCP_Node_TestKit`, and
 run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
 event stream, stopping with browsers watching, the certificate store and the
-web interface - some seventy tests that the suites of the local controller,
+web interface - eighty tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.

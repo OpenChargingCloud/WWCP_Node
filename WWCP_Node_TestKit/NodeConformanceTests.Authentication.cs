@@ -241,6 +241,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region APasswordOpensTheAPIAsTheSameAccount()
+
+        /// <summary>
+        /// The same account through the other door. Hermod offers cookies,
+        /// HTTP Basic auth and API keys, and which one was used must not change
+        /// what somebody may do: the permissions hang off the account and its
+        /// groups, not off the way it arrived.
+        /// </summary>
+        /// <remarks>
+        /// This is the shape that a membership compared by reference rather
+        /// than by identification got wrong - the same account came out as the
+        /// administrator through Basic auth and as nobody through a cookie - so
+        /// the roles are asserted and not only the status.
+        /// </remarks>
+        [Test]
+        public async Task APasswordOpensTheAPIAsTheSameAccount()
+        {
+
+            using var withPassword  = WithPassword(AdminLogin, Password);
+            using var signedIn      = await SignedIn();
+
+            var byPassword          = await GetJSON(withPassword, "api/v1/auth/me");
+            var bySession           = await GetJSON(signedIn,     "api/v1/auth/me");
+
+            Assert.Multiple(() => {
+                Assert.That(byPassword.Value<String>("username"),       Is.EqualTo(AdminLogin));
+                Assert.That(byPassword["roles"]?.Values<String>(),      Is.EquivalentTo(bySession["roles"]?.Values<String>() ?? []));
+                Assert.That(byPassword["roles"]?.Values<String>(),      Does.Contain(WWCPNode.AdminRole));
+                Assert.That(byPassword["permissions"]?.Values<String>(),Is.EquivalentTo(bySession["permissions"]?.Values<String>() ?? []));
+            });
+
+        }
+
+        #endregion
+
         #region APasswordSentWithEveryRequestIsNotRationedLikeAGuess()
 
         /// <summary>
