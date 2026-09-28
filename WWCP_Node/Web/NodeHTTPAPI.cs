@@ -203,6 +203,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             RegisterNodeRoutes();
 
+            // So that the node ends the event streams when it stops, and a
+            // kind of node does not have to.
+            Node.JSONAPI     = this;
+
         }
 
         #endregion

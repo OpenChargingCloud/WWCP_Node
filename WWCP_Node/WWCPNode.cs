@@ -446,6 +446,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public HTTPAPI?               WebInterface                 { get; }
 
         /// <summary>
+        /// The JSON API below "/api" that a kind of node derived from
+        /// <see cref="NodeHTTPAPI"/>, once it has made it; null before.
+        /// </summary>
+        /// <remarks>
+        /// Made by the kind of node and not here, because it is the kind's
+        /// routes on top of every node's - but known here, so that what every
+        /// node does with it is done once: its event streams are ended by
+        /// <see cref="Stop"/>, as all eight kinds of node used to end them
+        /// each in its own OnStopping.
+        /// </remarks>
+        public NodeHTTPAPI?           JSONAPI                      { get; internal set; }
+
+        /// <summary>
         /// The TCP port the web interface listens on.
         /// </summary>
         public IPPort                 HTTPPort                     { get; }
@@ -1018,9 +1031,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         // under a base path both of those are wrong - and a
                         // single-page application that guesses its own base
                         // path is one that works until somebody mounts it
-                        // somewhere.
+                        // somewhere. The node's version and not the
+                        // constructor's argument of that name, which is null
+                        // where a node was made without one: its stub said
+                        // "v" and nothing after it.
                         IndexTransform = html => html.
-                                                     Replace("{{ServerVersion}}", $"v{Version}",         StringComparison.Ordinal).
+                                                     Replace("{{ServerVersion}}", $"v{this.Version}",    StringComparison.Ordinal).
                                                      Replace("{{BasePath}}",      BasePathText,          StringComparison.Ordinal).
                                                      Replace("{{APIBase}}",       $"{this.HTTPRootPath.ToString().TrimEnd('/')}/v1", StringComparison.Ordinal).
                                                      Replace("{{ExtBase}}",       this.ExtAPI.RootPath.ToString().TrimEnd('/'), StringComparison.Ordinal)
@@ -2302,11 +2318,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Stop listening.
         /// </summary>
         /// <remarks>
-        /// What a node of a particular kind holds open beyond the server is
-        /// ended by its <see cref="OnStopping"/>, which runs before the server
-        /// stops: the server waits for every request it started, and a request
+        /// The server waits for every request it started, and a request
         /// waiting for something other than its socket is not woken by closing
-        /// the sockets.
+        /// the sockets. So what is held open beyond the server is ended first:
+        /// the event streams of the JSON API here, whose every reader is
+        /// waiting for the next log entry - a node with one browser on its Logs
+        /// page never finished stopping otherwise - and whatever else a node of
+        /// a particular kind holds open by its <see cref="OnStopping"/>.
         /// </remarks>
         public async Task Stop()
         {
@@ -2318,6 +2336,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             timeCheckTimer?.Dispose();
             timeCheckTimer = null;
+
+            JSONAPI?.CloseEventStreams();
 
             await OnStopping();
 

@@ -38,7 +38,8 @@ a port of their own to connect to.
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
 | `WWCPNode.Certificates.cs` | what the node says about its store, and what a kind of node adds to it or needs a certificate for |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
-| `WWCP_Node_Tests/` | two hundred and sixty-four tests, none of which constructs a vehicle, a station or a controller - four of them over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
+| `WWCP_Node_Tests/` | three hundred and sixty-seven tests, none of which constructs a vehicle, a station or a controller - the conformance suite among them, asked of a node of no particular kind, and four over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -99,9 +100,11 @@ Beyond the names, a kind of node adds to the node in eight places:
   class derived from `NodeHTTPAPI`, which has what every node answers, with
   the kind's own routes on top. See "The JSON API" below.
 * **What it says once it is up, and what it ends before the server stops:**
-  `OnStarted()` and `OnStopping()`. The vehicle uses the second to close its
-  event streams, because the server waits for every request it started and a
-  request waiting for the next log entry is not woken by closing the sockets.
+  `OnStarted()` and `OnStopping()`. The event streams of its JSON API are not
+  the kind's to end: `Stop()` ends them itself, before `OnStopping()`, because
+  the server waits for every request it started and a request waiting for the
+  next log entry is not woken by closing the sockets. A local controller hangs
+  up on its CSMS there, and closes the port its stations connect to.
 * **What it listens on beside the node's own port:** `OnListening()`, asked
   once the node's port is had and before the node calls itself started. A
   charging station takes its display's port there - a second server, so that
@@ -708,6 +711,51 @@ new request with it is; that needs Hermod f4aa17db or newer, which believes
 Basic credentials it has verified for a while and forgets them when the
 password changes - with an older Hermod it would be 600 000 rounds of PBKDF2
 and a turn of the sign-in's rate limit for every line of the log.
+
+
+## Testing a kind of node
+
+What every node answers alike is tested once, in `WWCP_Node_TestKit`, and
+run by every kind of node against its own: the sign-in, the configuration,
+name resolution and the time servers with their diagnostics, the log and its
+event stream, stopping with browsers watching, the certificate store and the
+web interface - some seventy tests that the suites of the local controller,
+the charging station, the CSMS and the e-mobility provider each had a copy
+of, and the vehicle, the gateway, the roaming hub and the meter part of one
+or none.
+
+A kind's suite references the kit and derives one fixture, which says how a
+node of its kind is made:
+
+```csharp
+public class LocalControllerConformance : NodeConformanceTests
+{
+    protected override WWCPNode NewNode(String Directory, JObject Configuration)
+        => TestControllers.New(Directory, Configuration);
+}
+```
+
+- **`NewNode(Directory, Configuration)`** makes a node of the kind, not
+  started, on a free port - `TestPorts.Free()` - with its accounts in the
+  directory and the given configuration written into its file before it is
+  read. The time client is switched off in it, so nothing reaches the
+  network.
+- **`AdminLogin`, `SignInPath`, `SignInBody(...)`** are the first account and
+  the HTTPExt API's form, for a kind that signs in otherwise.
+- **One fixture, not one per topic**, so that a test added to the kit is run
+  by every kind without any of them adding a line. A test that needs a node
+  configured otherwise says so with `[WithNode(NodeSetup...)]`: a name server
+  that never answers, or servers that learn their root on first use.
+- **What a kind does not have is not failed.** A store that keeps no TLS root
+  or identity, or a node built without its web interface, makes the tests of
+  those inconclusive, saying why; a kind that refuses to lose an identity it
+  needs - `WhatWouldLose` - is not asked to.
+
+Its first run against a node of no particular kind found that such a node's
+stub said "v" where it says its version - the constructor's argument of that
+name, rather than the node's - and that the stop tests had passed against a
+node that leaves its event streams open, since a heartbeat ends them fifteen
+seconds later; they run without one now.
 
 
 ## Building it

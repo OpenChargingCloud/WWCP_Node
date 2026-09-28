@@ -43,13 +43,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 {
 
     /// <summary>
-    /// The JSON API every node has, asked of a node of no particular kind:
-    /// where it differed between the eight copies it replaces, and what a kind
-    /// of node says through it.
+    /// What a kind of node says through the JSON API every node has: its
+    /// status, what reading the clock and the log needs, its certificates
+    /// and what uses them, and who is signed in.
     /// </summary>
     /// <remarks>
-    /// What it answers otherwise is asked of every kind through its own suite -
-    /// the local controller's ran unchanged against it.
+    /// What every node answers alike is asked by the conformance suite of
+    /// WWCP_Node_TestKit - of a node of no particular kind here, see
+    /// <see cref="PlainNodeConformance"/>, and of every kind of node in its
+    /// own suite.
     /// </remarks>
     public class NodeHTTPAPITests
     {
@@ -322,66 +324,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (helper) EventStream
-
-        /// <summary>
-        /// The event stream of a node, read line by line: the data of every log
-        /// entry it delivers, and whether it has ended.
-        /// </summary>
-        private sealed class EventStream(HttpResponseMessage Response, StreamReader Reader) : IAsyncDisposable
-        {
-
-            public static async Task<EventStream> Open(HttpClient HTTP)
-            {
-
-                var response = await HTTP.SendAsync(new HttpRequestMessage(HttpMethod.Get, "api/v1/events"),
-                                                    HttpCompletionOption.ResponseHeadersRead);
-
-                Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), "the event stream did not open");
-
-                return new EventStream(response, new StreamReader(await response.Content.ReadAsStreamAsync()));
-
-            }
-
-            /// <summary>
-            /// The message of the next log entry the stream delivers, or null
-            /// when it ends first - or the timeout, when it does neither.
-            /// </summary>
-            public async Task<String?> NextLogMessage(TimeSpan Within)
-            {
-
-                using var giveUp = new CancellationTokenSource(Within);
-
-                while (true)
-                {
-
-                    var line = await Reader.ReadLineAsync(giveUp.Token);
-
-                    if (line is null)
-                        return null;
-
-                    if (line.StartsWith("data:", StringComparison.Ordinal) &&
-                        JObject.Parse(line[5..]) is JObject data &&
-                        data.Value<String>("message") is String message)
-                    {
-                        return message;
-                    }
-
-                }
-
-            }
-
-            public ValueTask DisposeAsync()
-            {
-                Reader.Dispose();
-                Response.Dispose();
-                return ValueTask.CompletedTask;
-            }
-
-        }
-
-        #endregion
-
 
         #region TheStatusNamesTheKindByItsProductAndSaysWhatTheKindAdds()
 
@@ -403,38 +345,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(json.Properties().Select(property => property.Name).Take(3),
                             Is.EqualTo(new[] { "service", "version", "testedAs" }),
                             "what the kind adds comes after the version");
-            });
-
-        }
-
-        #endregion
-
-        #region TheClockIsAtClockForAnybodySignedIn()
-
-        /// <summary>
-        /// At /api/v1/clock, and not at /api/v1/configuration/time as it was on
-        /// five kinds of node - which is a JSON 404 now, like any other path the
-        /// API does not have.
-        /// </summary>
-        [Test]
-        public async Task TheClockIsAtClockForAnybodySignedIn()
-        {
-
-            await using var node       = await Started();
-
-            using var root      = Root(node);
-            using var nobody    = Client(node);
-
-            var (clock,  said)  = await Send(root,   HttpMethod.Get, "api/v1/clock");
-            var (signedOut, _)  = await Send(nobody, HttpMethod.Get, "api/v1/clock");
-            var (old,  oldSaid) = await Send(root,   HttpMethod.Get, "api/v1/configuration/time");
-
-            Assert.Multiple(() => {
-                Assert.That(clock,                           Is.EqualTo(HttpStatusCode.OK), said.ToString());
-                Assert.That(said.Value<String>("now"),       Is.Not.Null, "the clock says what time it is");
-                Assert.That(signedOut,                       Is.EqualTo(HttpStatusCode.Unauthorized));
-                Assert.That(old,                             Is.EqualTo(HttpStatusCode.NotFound));
-                Assert.That(oldSaid.Value<String>("error"),  Is.EqualTo("Unknown API path"));
             });
 
         }
@@ -476,59 +386,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(stream.StatusCode,            Is.EqualTo(HttpStatusCode.Forbidden), "the stream asks what the log asks");
                 Assert.That(rootClock,                    Is.EqualTo(HttpStatusCode.OK));
                 Assert.That(rootLogs,                     Is.EqualTo(HttpStatusCode.OK));
-            });
-
-        }
-
-        #endregion
-
-        #region EveryMethodBelowTheAPIIsAnsweredWithAJSON404()
-
-        [TestCase("GET")]
-        [TestCase("POST")]
-        [TestCase("PUT")]
-        [TestCase("PATCH")]
-        [TestCase("DELETE")]
-        public async Task EveryMethodBelowTheAPIIsAnsweredWithAJSON404(String Method)
-        {
-
-            await using var node      = await Started();
-
-            using var root     = Root(node);
-
-            var (status, json) = await Send(root, new HttpMethod(Method), "api/v1/nothing/here", Method is "GET" or "DELETE" ? null : new JObject());
-
-            Assert.Multiple(() => {
-                Assert.That(status,                        Is.EqualTo(HttpStatusCode.NotFound));
-                Assert.That(json.Value<String>("error"),   Is.EqualTo("Unknown API path"), "not the web interface's page");
-            });
-
-        }
-
-        #endregion
-
-        #region WhatIsNotAPlaceOrAHostIsRefusedInASentence(Path, Body, Expected)
-
-        /// <summary>
-        /// A name server's place that is not a place, and a host that is not a
-        /// name: refused with 400 and a sentence - two copies took them as they
-        /// came, and threw out of the handler.
-        /// </summary>
-        [TestCase("api/v1/configuration/dns/query", """{ "name": "example.org", "recordTypes": [ "A" ], "server": "first" }""", "'server' must be the place of a name server in the list, counted from 0.")]
-        [TestCase("api/v1/configuration/dns/query", """{ "name": "example.org", "recordTypes": [ "A" ], "server": -1 }""",     "'server' must be the place of a name server in the list, counted from 0.")]
-        [TestCase("api/v1/configuration/nts/test",  """{ "host": { "name": "time.example.org" } }""",                         "'host' must be the name or the address of a time server.")]
-        public async Task WhatIsNotAPlaceOrAHostIsRefusedInASentence(String Path, String Body, String Expected)
-        {
-
-            await using var node      = await Started();
-
-            using var root     = Root(node);
-
-            var (status, json) = await Send(root, HttpMethod.Post, Path, JObject.Parse(Body));
-
-            Assert.Multiple(() => {
-                Assert.That(status,                       Is.EqualTo(HttpStatusCode.BadRequest), json.ToString());
-                Assert.That(json.Value<String>("error"),  Is.EqualTo(Expected));
             });
 
         }
@@ -688,75 +545,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region AHandleWrittenInCapitalsIsFound()
-
-        /// <summary>
-        /// The store spells a handle in lower case, and somebody may have
-        /// copied it out of something that writes capitals.
-        /// </summary>
-        [Test]
-        public async Task AHandleWrittenInCapitalsIsFound()
-        {
-
-            await using var node      = await Started();
-
-            using var root     = Root(node);
-
-            var handle         = await Imported(root, "A Root Asked For In Capitals");
-
-            var (found, entry) = await Send(root, HttpMethod.Get, $"api/v1/certificates/{handle.ToUpperInvariant()}");
-
-            Assert.Multiple(() => {
-                Assert.That(handle,                      Is.EqualTo(handle.ToLowerInvariant()), "a handle as the store spells it");
-                Assert.That(found,                       Is.EqualTo(HttpStatusCode.OK), entry.ToString());
-                Assert.That(entry.Value<String>("id"),   Is.EqualTo(handle));
-            });
-
-        }
-
-        #endregion
-
-        #region WhoChangedSomethingIsInTheLog()
-
-        /// <summary>
-        /// The node says what changed; who changed it only the request knows,
-        /// and says it: the name resolution, the time source, and every change
-        /// of the certificate store.
-        /// </summary>
-        [Test]
-        public async Task WhoChangedSomethingIsInTheLog()
-        {
-
-            await using var node      = await Started();
-
-            using var root     = Root(node);
-
-            var (dns,  _)      = await Send(root, HttpMethod.Put,    "api/v1/configuration/dns", new JObject());
-            var (nts,  _)      = await Send(root, HttpMethod.Put,    "api/v1/configuration/nts", new JObject());
-            var handle         = await Imported(root, "A Root Somebody Put In");
-            var (patch, _)     = await Send(root, HttpMethod.Patch,  $"api/v1/certificates/{handle}", new JObject(new JProperty("label", "A Root Somebody Renamed")));
-            var (reload, _)    = await Send(root, HttpMethod.Post,   "api/v1/certificates/reload", new JObject());
-            var (delete, _)    = await Send(root, HttpMethod.Delete, $"api/v1/certificates/{handle}");
-
-            var said           = node.Log.Recent(Int32.MaxValue).
-                                          Where (entry => entry.Tags.Contains("web")).
-                                          Select(entry => $"{entry.Level}: {entry.Message}").
-                                          ToArray();
-
-            Assert.Multiple(() => {
-                Assert.That(new[] { dns, nts, patch, reload, delete }, Is.All.EqualTo(HttpStatusCode.OK));
-                Assert.That(said, Has.One.EqualTo($"Notice: 'root' changed the name resolution of this {node.Kind.Name}."));
-                Assert.That(said, Has.One.EqualTo($"Notice: 'root' changed the time source of this {node.Kind.Name}."));
-                Assert.That(said, Has.One.EqualTo($"Notice: 'root' put 'A Root Somebody Put In' into the certificate store as a tlsRoot ({handle})."));
-                Assert.That(said, Has.One.EqualTo($"Notice: 'root' changed the certificate 'A Root Somebody Renamed' ({handle}) in the certificate store."));
-                Assert.That(said, Has.One.EqualTo( "Notice: 'root' had the certificate store read again from its directory."));
-                Assert.That(said, Has.One.EqualTo($"Notice: 'root' took the certificate 'A Root Somebody Renamed' ({handle}) out of the certificate store."));
-            });
-
-        }
-
-        #endregion
-
         #region WhatAKindSaysAboutWhoIsSignedInComesAfterThePermissions()
 
         [Test]
@@ -782,117 +570,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-
-        #region AStreamOpenedWithAPasswordEndsWithANewPassword()
-
-        /// <summary>
-        /// A stream opened with a password is asked about the password before
-        /// every entry, as a new request with it is: changed, the stream ends,
-        /// and what is logged after the change is not sent down it. Held to the
-        /// account alone, as it was, it went on.
-        /// </summary>
-        [Test]
-        public async Task AStreamOpenedWithAPasswordEndsWithANewPassword()
-        {
-
-            await using var node            = await Started();
-
-            var password             = "A-Driver-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
-            var reader               = await AccountIn(node, "reader1", "viewer", password);
-
-            using var http           = Client(node, "reader1", password);
-
-            await using var stream   = await EventStream.Open(http);
-
-            node.Log.Info("Before the new password.", "test");
-
-            // What the stream replays of the log before it is skipped: what
-            // counts is the entry logged now.
-            String? before;
-
-            do
-            {
-                before = await stream.NextLogMessage(TimeSpan.FromSeconds(10));
-            }
-            while (before is not null && !before.Contains("Before the new password."));
-
-            var changed              = await node.ExtAPI.ChangePassword(reader, "A-New-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)), password, SuppressNotifications: true);
-
-            Assert.That(changed.Result, Is.EqualTo(CommandResult.Success), $"the password could not be changed: {changed.Description}");
-
-            node.Log.Info("After the new password.", "test");
-
-            String? after = null;
-
-            try
-            {
-                // Entries of the change itself may come first; what counts is
-                // that the one after it never does, and that the stream ends.
-                do
-                {
-                    after = await stream.NextLogMessage(TimeSpan.FromSeconds(10));
-                }
-                while (after is not null && !after.Contains("After the new password."));
-            }
-            catch (OperationCanceledException)
-            {
-                Assert.Fail("The stream neither ended nor went on - a stream opened with the old password was still open after ten seconds.");
-            }
-
-            Assert.Multiple(() => {
-                Assert.That(before,  Does.Contain("Before the new password."));
-                Assert.That(after,   Is.Null, "the entry logged after the new password was sent to a stream opened with the old one");
-            });
-
-        }
-
-        #endregion
-
-        #region AStreamOpenedWithAPasswordIsNotRationedLikeAGuess()
-
-        /// <summary>
-        /// Fifteen entries in a row to a stream opened with a password: each of
-        /// them asks about the password again, and none of them is counted as a
-        /// guess - Hermod believes credentials it verified, and the sign-in's
-        /// rate limit would otherwise end the stream after ten.
-        /// </summary>
-        [Test]
-        public async Task AStreamOpenedWithAPasswordIsNotRationedLikeAGuess()
-        {
-
-            await using var node           = await Started();
-
-            var password            = "A-Reader-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
-
-            await AccountIn(node, "reader2", "viewer", password);
-
-            using var http          = Client(node, "reader2", password);
-
-            await using var stream  = await EventStream.Open(http);
-
-            for (var line = 1; line <= 15; line++)
-                node.Log.Info($"Line {line} of fifteen.", "test");
-
-            var received = new List<String>();
-
-            while (received.Count < 15)
-            {
-
-                var message = await stream.NextLogMessage(TimeSpan.FromSeconds(20));
-
-                if (message is null)
-                    break;
-
-                if (message.Contains("of fifteen."))
-                    received.Add(message);
-
-            }
-
-            Assert.That(received, Has.Count.EqualTo(15), $"the stream ended after {received.Count} of fifteen entries");
-
-        }
-
-        #endregion
 
     }
 

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    What every kind of node's test suite shares: the tests every node has to
+    pass against its own JSON API - NodeConformanceTests, which a kind's suite
+    derives one fixture from - and the helpers those tests and the kinds' own
+    use. A library and not a test project: its tests run in the suite of the
+    kind that derives from them, against that kind's node.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>cloud.charging.open.protocols.WWCP.Node.TestKit</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WWCP_Node\WWCP_Node.csproj" />
+  </ItemGroup>
+
+</Project>
