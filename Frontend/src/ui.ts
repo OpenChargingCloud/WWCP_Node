@@ -356,6 +356,7 @@ const acronyms = new Map<string, string>([
     ['evse',  'EVSE'],
     ['evses', 'EVSEs'],
     ['v2g',   'V2G'],
+    ['mo',    'MO'],
     ['sdp',   'SDP'],
     ['slac',  'SLAC'],
     ['secc',  'SECC'],

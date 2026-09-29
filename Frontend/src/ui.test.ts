@@ -216,6 +216,14 @@ describe('a key as a label', () => {
 
     });
 
+    it('writes a mobility operator as MO, and leaves a word that begins with "mo" alone', () => {
+
+        assert.equal(humanizeKey('moRoot'),          'MO root');
+        assert.equal(humanizeKey('moRootNotAfter'),  'MO root not after');
+        assert.equal(humanizeKey('modbusPort'),      'Modbus port');
+
+    });
+
 });
 
 
