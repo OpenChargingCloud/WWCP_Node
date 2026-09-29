@@ -24,17 +24,34 @@
         // The same gutter as the page below it.
         padding:         0 1rem;
 
+        // A line of its own, with the button that opens the menu at its end -
+        // said as deep in as _shell.scss hides the button, or that would win.
         .brand {
+            flex:          1 0 100%;
             border-bottom: none;
             padding:       0.6rem 0.5rem 0.6rem 0;
+
+            .menu-toggle {
+                display:      inline-flex;
+                margin-left:  auto;
+            }
         }
 
-        // Beside the brand where all its entries fit there, on a line of its
-        // own where they do not, and over as many lines as it takes on a
-        // phone, where not even a line of its own is enough. It had what the
-        // brand and the sign-out button left over instead: on a phone 390
-        // pixels across, a single pixel for 234 pixels of entries, the rest
-        // scrolled out of sight inside it.
+        // Folded away until the button opens it, and the page has the screen.
+        // Open, the menu stood over every page as a strip of all its entries -
+        // 438 px of the local controller's 812 on a phone, 550 px of the
+        // CSMS's - and the page scrolled in what was left (found by the CSMS).
+        &:not(.open) {
+            .menu,
+            .sidebar-foot {
+                display: none;
+            }
+        }
+
+        // Once open, on the lines below the brand, over as many lines as it
+        // takes on a phone. It had what the brand and the sign-out button left
+        // over instead: on a phone 390 pixels across, a single pixel for 234
+        // pixels of entries, the rest scrolled out of sight inside it.
         .menu {
             display:    flex;
             flex:       1 1 auto;

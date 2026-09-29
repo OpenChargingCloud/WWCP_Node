@@ -59,6 +59,30 @@
         .fa-solid {
             color: $color-accent;
         }
+
+        // Shown only where the menu is folded away - see _responsive.scss.
+        .menu-toggle {
+            display: none;
+
+            .fa-solid {
+                color: inherit;
+            }
+        }
+    }
+
+    // Buttons on the dark of the menu: the sign-out, and the one that opens
+    // the menu where it is folded away.
+    .sidebar-foot .btn,
+    .brand .btn {
+        background:    transparent;
+        border-color:  rgba(#ffffff, 0.25);
+        color:         $color-sidebar-text;
+        justify-content: center;
+
+        &:hover {
+            border-color:  #ffffff;
+            color:         #ffffff;
+        }
     }
 
     .menu {
@@ -136,18 +160,6 @@
             overflow:       hidden;
             text-overflow:  ellipsis;
             white-space:    nowrap;
-        }
-
-        .btn {
-            background:    transparent;
-            border-color:  rgba(#ffffff, 0.25);
-            color:         $color-sidebar-text;
-            justify-content: center;
-
-            &:hover {
-                border-color:  #ffffff;
-                color:         #ffffff;
-            }
         }
 
         .versions {

@@ -745,7 +745,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `cards.ts` | the cards of a Configuration page: `card()`, a section as the node sent it - a value that is a thing of its own, or a list of them, as a block below its name - and `librariesCard()`, one line per repository with its whole commit, naming an assembly only where two lines share a name |
 | `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - and what a kind publishes on the same stream |
 | `auth.ts` | who is signed in, what they may do, and the guard that sends everybody else to the sign-in |
-| `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page - who is signed in, and the versions; and what a page says somebody may not do, `mayButNot()` |
+| `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page, and on a screen too narrow for it beside the page folded away behind a button - who is signed in, and the versions; and what a page says somebody may not do, `mayButNot()` |
 | `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
 | `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |

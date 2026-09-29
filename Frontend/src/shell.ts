@@ -141,11 +141,15 @@ export function shell(root:     HTMLElement,
                 <div class="brand">
                     <i class="fa-solid ${setup.icon}"></i>
                     <span>${setup.name}</span>
+                    <button type="button" id="menu-toggle" class="btn small menu-toggle"
+                            aria-expanded="false" aria-controls="menu sidebar-foot" aria-label="Menu">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
                 </div>
 
                 ${menuHTML(visibleMenu(), options.active)}
 
-                <div class="sidebar-foot">
+                <div id="sidebar-foot" class="sidebar-foot">
                     <div class="who" title="${who?.title ?? ''}">
                         <i class="fa-solid fa-user"></i>
                         <span>${me?.username ?? '-'}</span>
@@ -180,6 +184,18 @@ export function shell(root:     HTMLElement,
 
     must<HTMLButtonElement>(root, '#sign-out').
         addEventListener('click', () => void auth.signOut());
+
+    // On a screen too narrow for the menu beside the page, it is folded away
+    // behind this button, which only such a screen shows: open, it stood over
+    // the page as a strip of every entry - 438 px of the local controller's
+    // 812 on a phone, 550 of the CSMS's - and the page scrolled in what was
+    // left below it (found by the CSMS). A page drawn anew starts folded, so
+    // following a link from the open menu leaves the next page the screen.
+    const toggle   = must<HTMLButtonElement>(root, '#menu-toggle');
+    const sidebar  = must<HTMLElement>(root, '.sidebar');
+
+    toggle.addEventListener('click', () =>
+        toggle.setAttribute('aria-expanded', String(sidebar.classList.toggle('open'))));
 
     return must<HTMLElement>(root, '#content-body');
 
@@ -243,7 +259,7 @@ export function menuHTML(Entries:  readonly MenuEntry[],
                          Active:   string): HTMLFragment {
 
     return html`
-        <ul class="menu">
+        <ul class="menu" id="menu">
             ${Entries.map(entry => html`
                 <li>
                     ${link(entry, Active)}

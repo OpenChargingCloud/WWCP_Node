@@ -20,7 +20,7 @@ import type { NodeMe }       from './api/client.ts';
 };
 
 const { auth }                                                             = await import('./auth.ts');
-const { configureShell, mayButNot, mayOpen, menuHTML, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
+const { configureShell, mayButNot, mayOpen, menuHTML, shell, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
 const { html }                                                             = await import('./html.ts');
 
 
@@ -282,6 +282,69 @@ describe('what a page says somebody may not do', () => {
         const said = html`<div class="notice">${mayButNot('look at the store', 'change it', { ...signedIn(), roles: [ '<b>boss</b>' ] })}</div>`;
 
         assert.match(said.value, /Signed in as &lt;b&gt;boss&lt;\/b&gt;, which may/);
+
+    });
+
+});
+
+
+describe('the menu on a screen too narrow for it beside the page', () => {
+
+    /**
+     * The frame drawn into a stand-in: what render() writes, and the elements
+     * shell() asks for - the button's clicks kept, the sidebar's classes and
+     * the button's attributes written down.
+     */
+    function frame() {
+
+        const clicks: (() => void)[] = [];
+        const classes     = new Set<string>();
+        const attributes  = new Map<string, string>();
+
+        const elements: Record<string, unknown> = {
+            '#sign-out':      { addEventListener: () => {} },
+            '#menu-toggle':   { addEventListener: (_: string, listener: () => void) => clicks.push(listener),
+                                setAttribute:     (name: string, value: string) => attributes.set(name, value) },
+            '.sidebar':       { classList: { toggle: (name: string) => classes.delete(name) ? false : (classes.add(name), true) } },
+            '#content-body':  {}
+        };
+
+        const root = { innerHTML: '', querySelector: (selector: string) => elements[selector] ?? null };
+
+        configureShell({ name: 'Local Controller', icon: 'fa-sitemap', menu });
+        auth.set(signedIn('configuration:read', 'dns:read'));
+
+        shell(root as unknown as HTMLElement, { active: '/configuration', title: 'Configuration' });
+
+        return { drawn: root.innerHTML, click: () => clicks.forEach(listener => listener()), classes, attributes };
+
+    }
+
+    it('is folded away behind a button that says so, and which parts it opens', () => {
+
+        const { drawn } = frame();
+
+        assert.match(drawn, /<button type="button" id="menu-toggle"/);
+        assert.match(drawn, /aria-expanded="false"/);
+        assert.match(drawn, /aria-controls="menu sidebar-foot"/);
+        assert.match(drawn, /<ul class="menu" id="menu">/,              'the menu the button opens');
+        assert.match(drawn, /<div id="sidebar-foot" class="sidebar-foot">/, 'the foot the button opens');
+
+    });
+
+    it('opens with the button, says it is open, and folds away with it again', () => {
+
+        const { click, classes, attributes } = frame();
+
+        click();
+
+        assert.ok(classes.has('open'),                    'the sidebar is not open');
+        assert.equal(attributes.get('aria-expanded'), 'true');
+
+        click();
+
+        assert.ok(!classes.has('open'),                   'the sidebar is still open');
+        assert.equal(attributes.get('aria-expanded'), 'false');
 
     });
 
