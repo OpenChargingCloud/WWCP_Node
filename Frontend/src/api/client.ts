@@ -763,58 +763,90 @@ function refusalOf(Json:      unknown,
  */
 export async function signIn<M = NodeMe>(username: string, password: string): Promise<M> {
 
-    const giveUp = new AbortController();
-    const timer  = setTimeout(() => giveUp.abort(), actWithin);
+    await extRequest('POST', '/login', new URLSearchParams({ login: username, password }));
 
-    let response: Response;
+    return request<M>('GET', '/auth/me');
+
+}
+
+
+/**
+ * One request to the HTTPExt API, where Hermod keeps the accounts - a sign-in,
+ * a sign-up, a change of one's own password - with what request() gives every
+ * request to the node's own API: a deadline over the whole answer, body and
+ * all, words about the node for silence, and a refusal's own sentence.
+ *
+ * Three copies of this stood in the pages - the sign-in every node shares, the
+ * e-mobility provider's sign-up and the meter's change of password - and the
+ * first two let their deadline go once the headers had come: an answer that
+ * stopped halfway through was waited for as long as the browser was willing
+ * to wait.
+ *
+ * A body of URLSearchParams goes form-urlencoded, as the sign-in's form takes
+ * it, and any other as JSON. The HTTPExt API refuses with a "description",
+ * which is read first. A 401 here is a password somebody got wrong, and not a
+ * session that is gone: no page is sent to sign in again. What an answer that
+ * was not a refusal says is only given back where it is JSON - a sign-in's is
+ * not needed.
+ */
+export async function extRequest<T = void>(method:  string,
+                                           path:    string,
+                                           body?:   unknown,
+                                           within:  number = actWithin): Promise<T> {
+
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+
+    if (body !== undefined)
+        headers['Content-Type'] = body instanceof URLSearchParams
+                                      ? 'application/x-www-form-urlencoded'
+                                      : 'application/json';
+
+    const giveUp = new AbortController();
+    const timer  = setTimeout(() => giveUp.abort(), within);
+
+    let response:  Response;
+    let text:      string;
 
     try
     {
-        response = await fetch(config.extBase + '/login', {
-                             method:       'POST',
-                             headers:      {
-                                               'Content-Type':  'application/x-www-form-urlencoded',
-                                               'Accept':        'application/json'
-                                           },
+
+        // Same origin, so the session cookie travels with it, and comes back
+        // with the answer to a sign-in.
+        response = await fetch(config.extBase + path, {
+                             method,
+                             headers,
                              credentials:  'same-origin',
                              signal:       giveUp.signal,
-                             body:         new URLSearchParams({ login: username, password }).toString()
+                             body:         body === undefined               ? undefined
+                                         : body instanceof URLSearchParams  ? body.toString()
+                                         :                                    JSON.stringify(body)
                          });
+
+        // Read to its end within the deadline, needed or not - which also lets
+        // the browser finish this request cleanly before the next goes out.
+        text = response.status === 204 ? '' : await response.text();
+
     }
     catch (problem)
     {
-        throw nothingCameBack(problem, 'POST', actWithin, giveUp.signal.aborted);
+        throw nothingCameBack(problem, method, within, giveUp.signal.aborted);
     }
     finally
     {
         clearTimeout(timer);
     }
 
-    if (!response.ok) {
+    let json: unknown = null;
 
-        // Its refusals carry a "description"; the node's carry an "error".
-        // Both are shown to somebody who just typed a password, so both are
-        // read - its own first, since this is its answer.
-        let json: unknown = null;
-
-        try {
-            json = JSON.parse(await response.text());
-        }
-        catch { /* the status line says enough */ }
-
-        throw new ApiError(response.status, refusalOf(json, response, ['description', 'error', 'message']), null);
-
-    }
-
-    // Read to its end, so that the browser finishes this request cleanly
-    // before the next one goes out. What it said is not needed, and a body
-    // that cannot be read is no reason to stop.
     try {
-        await response.arrayBuffer();
+        json = text.length > 0 ? JSON.parse(text) : null;
     }
-    catch { /* nothing to finish */ }
+    catch { /* not JSON: the status line says enough */ }
 
-    return request<M>('GET', '/auth/me');
+    if (!response.ok)
+        throw new ApiError(response.status, refusalOf(json, response, ['description', 'error', 'message']), json);
+
+    return (json ?? undefined) as T;
 
 }
 

@@ -728,7 +728,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `basePath.ts` | where the page is mounted, added to a route on the way into the address bar and taken off on the way out |
 | `router.ts` | which page a path is, and the way from one page to the next |
 | `unsaved.ts` | what a page holds that the node has not been told about, and the question before it is left behind |
-| `api/client.ts` | how the node is asked - a deadline on every request, a refusal in the node's own words, a 401 handed on to whoever signs out - the types of everything every node answers, checked against what `NodeHTTPAPI` sends, and `nodeAPI()`, its routes |
+| `api/client.ts` | how the node is asked - a deadline on every request, a refusal in the node's own words, a 401 handed on to whoever signs out - and the HTTPExt API, where the accounts are: `extRequest()`, with the same deadline over the whole answer, for the sign-in and for what a kind asks there, a sign-up or a change of password; the types of everything every node answers, checked against what `NodeHTTPAPI` sends, and `nodeAPI()`, its routes |
 | `ui.ts` | what else the pages share: a form held still while it is saved, a field read as a number, a time and a number as people read them, a key as a label, the way back after the sign-in |
 | `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - and what a kind publishes on the same stream |
 | `auth.ts` | who is signed in, what they may do, and the guard that sends everybody else to the sign-in |
@@ -756,7 +756,9 @@ A kind of node builds its own client from `api/client.ts`: everything every
 node answers is re-exported, so its pages go on importing `../api/client`, and
 it says what its own of it are - its resources, what its "me", its status and
 its configuration say beyond every node's, the kinds its store keeps - and
-adds its own routes, which go through the same `request()`:
+adds its own routes, which go through the same `request()` - and what it
+asks of the HTTPExt API through `extRequest()`, as the e-mobility provider
+signs up and the meter changes a password:
 
 ```ts
 export * from '@node/api/client';

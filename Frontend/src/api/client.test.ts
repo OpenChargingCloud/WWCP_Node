@@ -13,8 +13,8 @@
  * and the meter each had a few more, which are here too.
  */
 
-import { strict as assert }  from 'node:assert';
-import { describe, it }      from 'node:test';
+import { strict as assert }    from 'node:assert';
+import { describe, it, mock }  from 'node:test';
 
 // The client reads config.ts, which reads <meta> tags when it is loaded. The
 // page here names its node, and nothing else: the client falls back to its
@@ -23,7 +23,7 @@ import { describe, it }      from 'node:test';
     querySelector: (selector: string) => selector === 'meta[name="node-name"]' ? { content: 'charging station' } : null
 };
 
-const { ApiError, NoAnswer, actWithin, afterAsking, answerWithin, nodeAPI, request } =
+const { ApiError, NoAnswer, actWithin, afterAsking, answerWithin, extRequest, nodeAPI, onUnauthorized, request } =
     await import('./client.ts');
 
 const api = nodeAPI();
@@ -51,15 +51,47 @@ const staysSilent = (Signal: AbortSignal): Promise<Response> =>
         Signal.addEventListener('abort', () => reject(new Error('aborted')));
     });
 
+/** A body that never ends, until the request is given up on. */
+const neverEnding = <T>(Signal: AbortSignal) => (): Promise<T> =>
+    new Promise<T>((_, reject) => {
+        if (Signal.aborted)
+            reject(new Error('aborted'));
+        Signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+
 /** One that sends its headers and then stops halfway through the body. */
 const stopsMidAnswer = (Signal: AbortSignal): Promise<Response> =>
     Promise.resolve({
-        ok:      true,
-        status:  200,
-        text:    () => new Promise<string>((_, reject) => {
-                     Signal.addEventListener('abort', () => reject(new Error('aborted')));
-                 })
+        ok:           true,
+        status:       200,
+        statusText:   '',
+        text:         neverEnding<string>(Signal),
+        arrayBuffer:  neverEnding<ArrayBuffer>(Signal)
     } as unknown as Response);
+
+/** Let what is waiting on promises and I/O move on, a few turns of the loop. */
+const turns = async (Count: number): Promise<void> => {
+    for (let turn = 0; turn < Count; turn++)
+        await new Promise(resolve => setImmediate(resolve));
+};
+
+/**
+ * Where a promise stands after a few turns of the loop - still pending, which
+ * a request that is waited for as long as the browser likes stays - rather than
+ * awaiting it, which would wait just as long.
+ */
+function settle<T>(Promise_: Promise<T>) {
+
+    let outcome: { state: 'pending' } | { state: 'fulfilled', value: T } | { state: 'rejected', reason: unknown } = { state: 'pending' };
+
+    Promise_.then(value  => { outcome = { state: 'fulfilled', value  }; },
+                  reason => { outcome = { state: 'rejected',  reason }; });
+
+    return {
+        after: async (Turns: number) => { await turns(Turns); return outcome; }
+    };
+
+}
 
 /** One that answers at once, with whatever it was told to. */
 const answers = (Status: number, Body: unknown) => (): Promise<Response> =>
@@ -387,6 +419,37 @@ describe('signing in', () => {
 
     });
 
+    it('is given up on when the HTTPExt API stops halfway through its answer', async () => {
+
+        // The sign-in let its deadline go once the headers had come, and then
+        // read the rest for as long as the browser was willing to wait: a node
+        // that stops halfway through is as silent as one that never starts.
+        fetchThat(stopsMidAnswer);
+
+        mock.timers.enable({ apis: [ 'setTimeout' ] });
+
+        try
+        {
+
+            const signingIn = settle(api.auth.login('root', 'hunter2'));
+
+            await turns(5);
+            mock.timers.tick(actWithin);
+
+            const outcome = await signingIn.after(20);
+
+            assert.ok(outcome.state === 'rejected' && outcome.reason instanceof NoAnswer &&
+                      outcome.reason.reason === 'ran out of time',
+                      `after the deadline the sign-in was ${outcome.state}${outcome.state === 'rejected' ? `: ${String(outcome.reason)}` : ''}`);
+
+        }
+        finally
+        {
+            mock.timers.reset();
+        }
+
+    });
+
     it('has a deadline and words about the node of its own, because it does not go through the request everything else takes', async () => {
 
         // The first thing anybody does with a node that has gone quiet is try
@@ -403,6 +466,76 @@ describe('signing in', () => {
 
         assert.ok(asked[0]!.init.signal instanceof AbortSignal,
                   'the sign-in was sent without a deadline');
+
+    });
+
+});
+
+
+describe('a request to the HTTPExt API', () => {
+
+    // Where Hermod keeps the accounts: the sign-in every node shares, and what
+    // a kind asks there of its own - the e-mobility provider's sign-up, the
+    // meter's change of password - which stood in three copies of their own.
+
+    it('sends a form as a form, and anything else as JSON', async () => {
+
+        fetchThat(() => Promise.resolve(new Response(null, { status: 204 })));
+
+        await extRequest('POST', '/login',       new URLSearchParams({ login: 'root', password: 'hunter2' }));
+        await extRequest('POST', '/auth/signup', { username: 'driver', password: 'hunter2' });
+
+        const [ form, json ] = asked;
+
+        assert.ok(form!.url.endsWith('/ext/login') && json!.url.endsWith('/ext/auth/signup'), `${form!.url}, ${json!.url}`);
+        assert.equal((form!.init.headers as Record<string, string>)['Content-Type'], 'application/x-www-form-urlencoded');
+        assert.equal(form!.init.body, 'login=root&password=hunter2');
+        assert.equal((json!.init.headers as Record<string, string>)['Content-Type'], 'application/json');
+        assert.deepEqual(JSON.parse(String(json!.init.body)), { username: 'driver', password: 'hunter2' });
+
+    });
+
+    it('is given up on when silent halfway through the body, as request() is', async () => {
+
+        fetchThat(stopsMidAnswer);
+
+        const problem = await extRequest('PUT', '/users/root/password', { currentPassword: 'a', newPassword: 'b' }, 60).
+                                  then(() => null, (error: unknown) => error);
+
+        assert.ok(problem instanceof NoAnswer && problem.reason === 'ran out of time',
+                  `a body that never ended produced ${problem}`);
+
+    });
+
+    it('reads a refusal\'s "description" first, as the HTTPExt API says no with it', async () => {
+
+        fetchThat(answers(400, { description: 'The current password is wrong.', error: 'not this one' }));
+
+        await assert.rejects(
+            () => extRequest('PUT', '/users/root/password', { currentPassword: 'a', newPassword: 'b' }),
+            (problem: unknown) => problem instanceof ApiError && problem.message === 'The current password is wrong.'
+        );
+
+    });
+
+    it('takes a 401 for a password got wrong, and sends nobody to sign in again', async () => {
+
+        let sentToSignIn = 0;
+        onUnauthorized(() => sentToSignIn++);
+
+        fetchThat(answers(401, { description: 'Unknown login or wrong password.' }));
+
+        await assert.rejects(() => extRequest('POST', '/login', new URLSearchParams({ login: 'root', password: 'x' })));
+
+        assert.equal(sentToSignIn, 0, 'a wrong password was taken for a session that is gone');
+
+    });
+
+    it('answers a 204 with nothing, and has nothing to read', async () => {
+
+        fetchThat(() => Promise.resolve(new Response(null, { status: 204 })));
+
+        assert.equal(await extRequest('PUT', '/users/root/password', { currentPassword: 'a', newPassword: 'b' }), undefined);
 
     });
 
