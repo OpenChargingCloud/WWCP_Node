@@ -105,10 +105,12 @@ export interface NodeStatus {
  * server needs no change here. A kind of node adds its own sections.
  */
 export interface NodeConfiguration {
-    http:  Record<string, unknown>;
-    web:   Record<string, unknown>;
-    log:   Record<string, unknown>;
-    time:  Record<string, unknown>;
+    http:        Record<string, unknown>;
+    web:         Record<string, unknown>;
+    log:         Record<string, unknown>;
+    time:        Record<string, unknown>;
+    /** One line per repository the node was built from: name, assembly, version and commit - see librariesCard(). */
+    assemblies:  Record<string, unknown>[];
 }
 
 
