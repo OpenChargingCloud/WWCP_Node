@@ -97,7 +97,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region AnExplicitNullDNSFieldCountsAsAbsent()
 
         /// <summary>
-        /// DNS: an explicit null is the same as absent.
+        /// DNS: an explicit null is the same as absent - except where it is an
+        /// answer of its own, see AnExplicitNullRecursionDesiredTakesTheChoiceBack.
         /// </summary>
         [Test]
         public void AnExplicitNullDNSFieldCountsAsAbsent()
@@ -113,6 +114,32 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(dns!.UseCache, Is.Null);
                 Assert.That(dns.Enabled,   Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region AnExplicitNullRecursionDesiredTakesTheChoiceBack()
+
+        /// <summary>
+        /// DNS: "recursionDesired": null is "leave it to the server", one of
+        /// its three answers - taken back from the file, not left there - while
+        /// not naming it at all is not saying anything about it.
+        /// </summary>
+        [Test]
+        public void AnExplicitNullRecursionDesiredTakesTheChoiceBack()
+        {
+
+            Assert.That(DNSConfiguration.TryParse(new JObject(new JProperty("recursionDesired", JValue.CreateNull())), out var left,   out var error), Is.True, error);
+            Assert.That(DNSConfiguration.TryParse(new JObject(new JProperty("useCache",         false)),               out var silent, out error),     Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(left!.RecursionDesired,           Is.Null);
+                Assert.That(left.RemovesRecursionDesired,     Is.True);
+                Assert.That(left.RemovedKeys,                 Is.EqualTo(new[] { "recursionDesired" }));
+                Assert.That(silent!.RemovesRecursionDesired,  Is.False);
+                Assert.That(silent.RemovedKeys,               Is.Empty);
             });
 
         }

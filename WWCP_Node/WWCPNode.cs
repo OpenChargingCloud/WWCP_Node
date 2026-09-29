@@ -1484,7 +1484,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!TryPinsAfterAPageSaved(sent, asShown, out var configuration, out Error))
                     return false;
 
-                if (!ConfigFile.TryMergeSection(DNSConfiguration.SectionName, configuration.ToJSON(), out Error))
+                if (!ConfigFile.TryMergeSection(DNSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out Error))
                     return false;
 
                 ApplyDNSConfiguration(configuration);
@@ -1579,6 +1579,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 dnsClient.RecursionDesired = Configuration.RecursionDesired;
                 changed.Add($"recursion desired = {Configuration.RecursionDesired}");
+            }
+
+            // "Leave it to the server" is one of the three answers, and said
+            // with the null that means "not said" everywhere else.
+            if (Configuration.RemovesRecursionDesired && dnsClient.RecursionDesired is not null)
+            {
+                dnsClient.RecursionDesired = null;
+                changed.Add("recursion desired left to the server");
             }
 
             if (Configuration.UseCache.HasValue && dnsClient.UseCache != Configuration.UseCache.Value)

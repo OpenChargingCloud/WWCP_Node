@@ -39,7 +39,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// was given at construction, and a node given nothing keeps the system
     /// default. That is what makes a half-written file a legitimate thing to
     /// have - somebody who only cares about the name servers should not have to
-    /// write down the retry count to say so.
+    /// write down the retry count to say so. The one null that says something
+    /// is "recursionDesired": null, "leave it to the server" - see
+    /// <see cref="RemovesRecursionDesired"/>.
     /// </remarks>
     /// <param name="Enabled">Whether this node resolves names at all.</param>
     /// <param name="Servers">The name servers to ask; an empty list is not the same as none given.</param>
@@ -81,6 +83,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// The longest a query may be allowed to take, in seconds.
         /// </summary>
         public const Double  MaxQueryTimeoutSeconds = 120;
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Whether this section takes the choice about recursion back - "leave
+        /// it to the server" - rather than not mentioning it.
+        /// </summary>
+        /// <remarks>
+        /// Said with "recursionDesired": null. Anywhere else in this section a
+        /// null means "the file does not say"; here it is one of the three
+        /// answers, and read as "not said" it made the page's "leave it to the
+        /// server" a save that saved nothing once yes or no had been saved - as
+        /// a null had done to the legal time authority, see
+        /// <see cref="NTSConfiguration.RemovesLegalTimeAuthority"/>.
+        /// </remarks>
+        public Boolean  RemovesRecursionDesired  { get; init; }
+
+        /// <summary>
+        /// The keys a save of this section takes out of the file rather than
+        /// leaving them as they are.
+        /// </summary>
+        public IEnumerable<String> RemovedKeys
+        {
+            get
+            {
+                if (RemovesRecursionDesired)
+                    yield return "recursionDesired";
+            }
+        }
 
         #endregion
 
@@ -164,7 +197,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 maxCNAMEFollows,
                                 maxRetries,
                                 pins
-                            );
+                            ) {
+                                // Named, and null: "leave it to the server".
+                                // See RemovesRecursionDesired.
+                                RemovesRecursionDesired = recursionDesired is null &&
+                                                          JSON.TryGetValue("recursionDesired", out var recursionToken) &&
+                                                          recursionToken.Type == JTokenType.Null
+                            };
 
             return true;
 

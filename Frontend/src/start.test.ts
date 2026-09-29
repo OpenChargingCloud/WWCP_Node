@@ -77,13 +77,22 @@ describe('the routes of a kind of node', () => {
 
     });
 
-    it('have a sign-in, a log and a home page of every node\'s', () => {
+    it('have a sign-in, a log, the name servers, the time servers and a home page of every node\'s', () => {
 
         const routes = routesOf({ ...theKinds, pages: {} });
 
-        assert.equal(routeFor('/login', routes)?.page.title, 'Sign in');
-        assert.equal(routeFor('/logs',  routes)?.page.title, 'Logs');
-        assert.equal(routeFor('/',      routes)?.page,       firstPageOfTheMenu);
+        assert.equal(routeFor('/login',              routes)?.page.title, 'Sign in');
+        assert.equal(routeFor('/logs',               routes)?.page.title, 'Logs');
+        assert.equal(routeFor('/configuration/dns',  routes)?.page.title, 'DNS client');
+        assert.equal(routeFor('/configuration/nts',  routes)?.page.title, 'NTS client');
+        assert.equal(routeFor('/',                   routes)?.page,       firstPageOfTheMenu);
+
+        auth.set(null);
+
+        assert.equal(routeFor('/configuration/dns', routes)?.guard?.(new URL('http://here/EV/configuration/dns')),
+                     '/login?next=%2Fconfiguration%2Fdns');
+        assert.equal(routeFor('/configuration/nts', routes)?.guard?.(new URL('http://here/EV/configuration/nts')),
+                     '/login?next=%2Fconfiguration%2Fnts');
 
     });
 

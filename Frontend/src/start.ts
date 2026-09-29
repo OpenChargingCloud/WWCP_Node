@@ -3,17 +3,19 @@ import { auth } from './auth';
 import { fromURL } from './basePath';
 import { html, must, render } from './html';
 import { logs } from './logs/store';
+import { dnsPage } from './pages/dns';
 import { loginPage, type SignInWords } from './pages/login';
 import { logsPage, type LogsWords } from './pages/logs';
 import { notFoundPage } from './pages/notFound';
+import { ntsPage } from './pages/nts';
 import { Router, type Guard, type Page, type Route } from './router';
 import { configureShell, visibleMenu, type MenuEntry, type ShellSetup } from './shell';
 
 /**
  * What a kind of node says about its web interface, once, as it starts: what
  * it is called, what its menu has, and the pages that are its own. Everything
- * every node has - the sign-in, the log, the frame, following the log while
- * somebody is signed in - comes with it.
+ * every node has - the sign-in, the log, the name servers, the time servers,
+ * the frame, following the log while somebody is signed in - comes with it.
  */
 export interface NodeFrontend extends ShellSetup {
 
@@ -145,9 +147,11 @@ export function routesOf(Frontend: NodeFrontend): Route[] {
         // remembers where somebody was going, and for the first visit that is
         // "/" - which would otherwise be a page that exists on the way in and
         // not on the way back.
-        { path: '/',       page: firstPageOfTheMenu,         guard: auth.requireSignIn },
-        { path: '/logs',   page: logsPage(Frontend.logs),    guard: toReadTheLog       },
-        { path: '/login',  page: loginPage(Frontend.signIn)                            }
+        { path: '/',                   page: firstPageOfTheMenu,         guard: auth.requireSignIn },
+        { path: '/configuration/dns',  page: dnsPage,                    guard: auth.requireSignIn },
+        { path: '/configuration/nts',  page: ntsPage,                    guard: auth.requireSignIn },
+        { path: '/logs',               page: logsPage(Frontend.logs),    guard: toReadTheLog       },
+        { path: '/login',              page: loginPage(Frontend.signIn)                            }
 
     ];
 

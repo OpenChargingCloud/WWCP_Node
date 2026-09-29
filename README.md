@@ -40,7 +40,7 @@ a port of their own to connect to.
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `Frontend/` | what every kind of node's web interface shares: TypeScript and SCSS that each kind bundles into its own, imported as `@node/...` - see "The web interface" below |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | four hundred and ninety-five tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | four hundred and ninety-seven tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -735,6 +735,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page - who is signed in, and the versions |
 | `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
+| `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |
 | `styles/` | what all of it looks like, in the kind's colour |
 
 The shared pages say what the node says, in its name: the question before
@@ -777,8 +778,9 @@ export const auth = nodeAuth as unknown as AuthState<Me, Resource>;
 
 A kind of node starts its web interface with `startNode()`, and says only
 what is its own: what it is called, what its menu has, and its own pages.
-The sign-in, the log, the frame and the page for an address with none come
-with it - the local controller's `main.ts`, less its imports:
+The sign-in, the log, the name servers, the time servers, the frame and the
+page for an address with none come with it - the local controller's
+`main.ts`, less its imports:
 
 ```ts
 startNode({
@@ -794,14 +796,17 @@ startNode({
         nodeMenu.logs
     ],
     pages: {
-        '/':                    configurationPage,
+        '/configuration':       configurationPage,
         '/configuration/csms':  csmsPage
     }
 });
 ```
 
-A page of its own at a path every node has a page for - `"/"` here - is the
-kind's. An e-mobility provider's sign-up goes into `publicPages`, which
+A page of its own at a path every node has a page for is the kind's. `"/"`
+opens the first page of the menu the person signed in may open - the
+configuration for whoever may read it, the name servers for a desk that
+may read only those, where a kind's own "/" had shown them a page that
+answered 403. An e-mobility provider's sign-up goes into `publicPages`, which
 nobody has to be signed in for, and a meter's old bookmarks into `routes`,
 which are asked first. `signIn`, `logs` and `who` say what the sign-in, the
 Logs page and the foot of the menu say where the node's words do not fit.
@@ -907,7 +912,7 @@ run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
 event stream, stopping with browsers watching, the certificate store, the
 web interface, roles the configuration file adds and what a kind starts
-with - one hundred and six tests that the suites of the local controller,
+with - one hundred and seven tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.

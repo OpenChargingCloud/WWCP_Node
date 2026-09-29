@@ -291,6 +291,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region LeavingRecursionToTheServerIsAnAnswerOfItsOwn()
+
+        /// <summary>
+        /// Whether a query asks for recursion has three answers - yes, no, and
+        /// "leave it to the server" - and the third is said with a null, which
+        /// everywhere else in the section means "not said". It meant that here
+        /// too: once yes or no had been saved, the page's "leave it to the
+        /// server" was answered "Saved, and in effect." and changed nothing -
+        /// not the client, not the file.
+        /// </summary>
+        [Test]
+        public async Task LeavingRecursionToTheServerIsAnAnswerOfItsOwn()
+        {
+
+            using var http = await SignedIn();
+
+            using var chose  = await http.PutAsync("api/v1/configuration/dns",
+                                                   JSONBody(new JProperty("recursionDesired", false)));
+
+            using var left   = await http.PutAsync("api/v1/configuration/dns",
+                                                   JSONBody(new JProperty("recursionDesired", JValue.CreateNull())));
+
+            var answered     = JObject.Parse(await left.Content.ReadAsStringAsync());
+            var onDisk       = JObject.Parse(File.ReadAllText(Node.ConfigFile.Path))["dns"] as JObject;
+
+            Assert.Multiple(() => {
+
+                Assert.That(chose.IsSuccessStatusCode,                         Is.True);
+                Assert.That(left. IsSuccessStatusCode,                         Is.True,  answered.ToString());
+
+                Assert.That(answered["settings"]?["recursionDesired"]?.Type,   Is.EqualTo(JTokenType.Null),
+                            "the node answered as if 'leave it to the server' had not been said");
+                Assert.That(Node.DNSClient.RecursionDesired,                   Is.Null,
+                            "the client still says what was saved before");
+                Assert.That(onDisk?.ContainsKey("recursionDesired"),           Is.Not.True,
+                            "the file still says what was saved before, for the next start");
+
+            });
+
+        }
+
+        #endregion
+
         #region EmptyingTheNameServersIsRefused()
 
         /// <summary>
