@@ -102,6 +102,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region TheStubCarriesTheNameOfTheNode()
+
+        /// <summary>
+        /// And the name the node goes by in everything it says - "local
+        /// controller", "charging station" - which the pages say too: the
+        /// question before a page's changes are left behind names what they
+        /// were not told to. The server replaces {{NodeName}} as it serves the
+        /// stub, as it replaces the version.
+        /// </summary>
+        /// <remarks>
+        /// Asked of a stub that has the tag: a kind of node whose pages do not
+        /// read the name yet has no reason to carry it, and is not asked.
+        /// </remarks>
+        [Test]
+        public async Task TheStubCarriesTheNameOfTheNode()
+        {
+
+            HasAWebInterface();
+
+            using var http = Anonymous();
+
+            var html = await http.GetStringAsync("");
+            var tag  = System.Text.RegularExpressions.Regex.Match(html, "name=\"node-name\"\\s+content=\"([^\"]*)\"");
+
+            Assume.That(tag.Success, Is.True,
+                        $"The stub of this {Node.Kind.Name} has no <meta name=\"node-name\"> for its pages to read.");
+
+            Assert.Multiple(() => {
+                Assert.That(tag.Groups[1].Value,                                      Is.EqualTo(Node.Kind.Name),
+                            $"The stub does not carry the name of the {Node.Kind.Name} that served it.");
+                Assert.That(html.Contains("{{NodeName}}", StringComparison.Ordinal),  Is.False,
+                            "The placeholder was served as it stands, so nothing replaced it.");
+            });
+
+        }
+
+        #endregion
+
         #region TheStubReferencesABundleThatIsServed()
 
         /// <summary>

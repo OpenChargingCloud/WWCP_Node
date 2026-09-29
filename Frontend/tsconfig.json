@@ -1,0 +1,31 @@
+{
+  // The rules every kind of node compiles these files with: a kind's own
+  // tsconfig.json includes them next to its own, with the same options, so a
+  // shared file that its type checker would refuse is refused here first.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": [ "ES2022", "DOM", "DOM.Iterable" ],
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,
+
+    "isolatedModules": true,
+    "skipLibCheck": true,
+
+    // Nothing but types to strip - no enum, no namespace, no parameter
+    // property - so that Node can run every file here in a test as it stands.
+    "erasableSyntaxOnly": true,
+    "sourceMap": true,
+    "newLine": "lf"
+  },
+  "include": [ "src/**/*.ts" ],
+
+  // The tests are read by Node rather than by webpack, and spell their imports
+  // the way Node wants them - with the extension. They are checked by
+  // tsconfig.test.json instead.
+  "exclude": [ "src/**/*.test.ts" ]
+}

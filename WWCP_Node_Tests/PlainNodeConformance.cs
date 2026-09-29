@@ -89,6 +89,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                               <head>
                                   <base href="{{BasePath}}/" />
                                   <meta name="server-version" content="{{ServerVersion}}" />
+                                  <meta name="node-name" content="{{NodeName}}" />
                                   <script defer src="assets/main.test.js"></script>
                               </head>
                               <body><div id="app"></div></body>

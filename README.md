@@ -38,8 +38,9 @@ a port of their own to connect to.
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
 | `WWCPNode.Certificates.cs` | what the node says about its store, and what a kind of node adds to it or needs a certificate for |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
+| `Frontend/` | what every kind of node's web interface shares: TypeScript and SCSS that each kind bundles into its own, imported as `@node/...` - see "The web interface" below |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | four hundred and ninety-three tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | four hundred and ninety-four tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -713,6 +714,108 @@ password changes - with an older Hermod it would be 600 000 rounds of PBKDF2
 and a turn of the sign-in's rate limit for every line of the log.
 
 
+## The web interface
+
+What every kind of node shows in a browser - the sign-in, the log, the name
+resolution, the time servers, the store - was eight copies too, one per kind,
+of the same TypeScript and SCSS, and they had begun to differ as the API had.
+`Frontend/src` is where it goes instead, a few files at a time. So far:
+
+| | |
+|---|---|
+| `html.ts` | the tagged template every page is written in - the one file all eight had alike |
+| `config.ts` | what the node wrote into the page's `<meta>` tags: where the page and its APIs are, the versions, and the node's name |
+| `basePath.ts` | where the page is mounted, added to a route on the way into the address bar and taken off on the way out |
+| `router.ts` | which page a path is, and the way from one page to the next |
+| `unsaved.ts` | what a page holds that the node has not been told about, and the question before it is left behind |
+
+The shared pages say what the node says, in its name: the question before
+a page's changes are left behind is "…that the local controller has not been
+told about" on a local controller and "…that the charging station has not
+been told about" on a station. The node writes its `Kind.Name` into the stub
+as it serves it - `{{NodeName}}`, like `{{ServerVersion}}` - and `config.ts`
+reads it from the kind's `index.html`:
+
+```html
+<meta name="node-name" content="{{NodeName}}" />
+```
+
+Without the tag a page says "the node".
+
+A kind of node loads none of it from anywhere when it runs. Its own webpack
+bundles these files into its own bundle, as it bundles its own, and its own
+build embeds that bundle into its assembly as before - so the files a kind
+gets are the ones in the WWCP_Node its repository pins, as with the C#. It
+imports them as `@node/...`:
+
+```ts
+import { html, render } from '@node/html';
+```
+
+and says where that is in three places, each relative to its `Frontend`
+directory - `libs/<Kind>/<Kind>/Frontend`, with this repository in
+`libs/WWCP_Node`, where its `.csproj` already finds `..\..\WWCP_Node`:
+
+* `webpack.config.js`, for the bundle:
+  ```js
+  resolve: {
+      extensions: ['.ts', '.js'],
+      alias:      { '@node': path.resolve(__dirname, '../../../WWCP_Node/Frontend/src') }
+  }
+  ```
+* `tsconfig.json`, for the type checker, which checks the shared files as the
+  kind's own - `"paths": { "@node/*": [ "../../../WWCP_Node/Frontend/src/*" ] }`
+  among the compiler options, `../../../WWCP_Node/Frontend/src/**/*.ts` in
+  `include`, and its tests in `exclude`.
+* `package.json`, for the tests, which Node runs, and Node knows neither the
+  alias nor the paths - `"imports"` cannot say it either, since it may not
+  point out of the package:
+  ```
+  "test": "node --import ../../../WWCP_Node/Frontend/test/resolve.ts --test \"src/**/*.test.ts\""
+  ```
+  `test/resolve.ts` tells Node what webpack is told: where `@node/...` is, and
+  that a relative import without its extension means the `.ts` file.
+
+And in its `.csproj`, without which a new WWCP_Node changes nothing: the
+frontend is built only when an input of `BuildFrontend` changed, and the
+shared files have to be among them -
+
+```xml
+<FrontendInput Include="$(MSBuildProjectDirectory)\..\..\WWCP_Node\Frontend\src\**\*" />
+```
+
+Without it, a WWCP_Node that had changed only shared files left the bundle
+up to date, and the old one was embedded - on a machine that keeps `dist/`;
+CI, which starts from nothing, would not have noticed. The local
+controller's `.csproj` also touches `dist/index.html` after webpack has run:
+webpack leaves a file alone whose content did not change, which kept
+`index.html` older than what had just been built, so the target was never up
+to date again and every build ran npm.
+
+What a shared file may not do:
+
+* Import anything of a kind. What differs between the kinds is handed in,
+  or asked of the JSON API - which says per kind already, for one, what the
+  store takes.
+* Be anything but types to strip: `erasableSyntaxOnly` in
+  `Frontend/tsconfig.json`. Node runs the tests with the types stripped, and
+  a parameter property in `html.ts` - code to be generated, not a type - was
+  why no test of any kind could load a page.
+* Import an npm package. webpack would look for it upwards from
+  `WWCP_Node/Frontend`, not in the kind's `node_modules`.
+
+`Frontend/` has a `package.json` of its own, for the type checker; the
+workflows run its checks and its tests on the Debian leg:
+
+```
+cd Frontend
+npm ci
+npm run typecheck
+npm run typecheck:test
+npm test
+```
+
+
 ## Testing a kind of node
 
 What every node answers alike is tested once, in `WWCP_Node_TestKit`, and
@@ -720,7 +823,7 @@ run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
 event stream, stopping with browsers watching, the certificate store, the
 web interface, roles the configuration file adds and what a kind starts
-with - one hundred and four tests that the suites of the local controller,
+with - one hundred and five tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.

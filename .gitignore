@@ -124,3 +124,6 @@ UpgradeLog*.XML
 # Fetch them with: bash tools/download-schemas.sh
 *.xsd
 *.exig
+
+# The shared frontend: what npm installs for its type checks
+Frontend/node_modules/

@@ -1,0 +1,19 @@
+{
+  // The same rules as the pages, for the files Node runs rather than webpack:
+  // they import with the extension spelled out, which needs saying, and they
+  // are never emitted. "@node/..." is said here for the test of test/resolve.ts,
+  // which asks Node for a shared file the way a kind of node's tests do.
+  "extends": "./tsconfig.json",
+
+  "compilerOptions": {
+    "types":                      [ "node" ],
+    "noEmit":                     true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@node/*": [ "./src/*" ]
+    }
+  },
+
+  "include": [ "src/**/*.test.ts", "test/**/*.ts" ],
+  "exclude": []
+}

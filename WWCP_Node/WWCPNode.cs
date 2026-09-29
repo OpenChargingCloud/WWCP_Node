@@ -1025,7 +1025,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     this.Frontend,
                     new SinglePageAppOptions {
 
-                        // Three placeholders and not one. The bundle reads
+                        // Three placeholders for where things are, and not
+                        // one. The bundle reads
                         // where it is and where its API is out of <meta> tags
                         // rather than assuming "/" and "/api/v1", because
                         // under a base path both of those are wrong - and a
@@ -1034,9 +1035,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         // somewhere. The node's version and not the
                         // constructor's argument of that name, which is null
                         // where a node was made without one: its stub said
-                        // "v" and nothing after it.
+                        // "v" and nothing after it. And the name the node goes
+                        // by in everything it says, for the pages every kind
+                        // shares to say it too - "the local controller has not
+                        // been told about" - rather than one kind's name in all
+                        // of them, or none.
                         IndexTransform = html => html.
                                                      Replace("{{ServerVersion}}", $"v{this.Version}",    StringComparison.Ordinal).
+                                                     Replace("{{NodeName}}",      System.Net.WebUtility.HtmlEncode(this.Kind.Name), StringComparison.Ordinal).
                                                      Replace("{{BasePath}}",      BasePathText,          StringComparison.Ordinal).
                                                      Replace("{{APIBase}}",       $"{this.HTTPRootPath.ToString().TrimEnd('/')}/v1", StringComparison.Ordinal).
                                                      Replace("{{ExtBase}}",       this.ExtAPI.RootPath.ToString().TrimEnd('/'), StringComparison.Ordinal)

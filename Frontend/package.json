@@ -1,0 +1,20 @@
+{
+  "name": "wwcp-node-frontend",
+  "version": "0.1.0",
+  "description": "What the web interface of every WWCP node shares: TypeScript and SCSS that each kind of node bundles into its own, imported as @node/... through a webpack alias.",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "test": "node --import ./test/resolve.ts --test \"src/**/*.test.ts\" \"test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}
