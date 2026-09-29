@@ -270,36 +270,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// nothing ever answers on - what the DNS page sent for a port
         /// somebody had emptied.
         /// </summary>
+        /// <remarks>
+        /// "Nothing applied, nothing written" is asked as "nothing changed": a
+        /// kind of node may start with name servers of its own. The charging
+        /// station's test stations ask 192.0.2.53, so that no real name server
+        /// is ever asked - which is where this test first looked for a refused
+        /// 192.0.2.53, and found it.
+        /// </remarks>
         [Test]
         public async Task ANameServerOnPortZeroIsRefusedAndNothingIsWritten()
         {
 
             using var http = await SignedIn();
 
-            var response = await http.PutAsync(
-                                     "api/v1/configuration/dns",
-                                     JSONBody(
-                                         new JProperty("servers", new JArray(
-                                             new JObject(
-                                                 new JProperty("address",    "192.0.2.53"),
-                                                 new JProperty("port",       0),
-                                                 new JProperty("transport",  "UDP")
-                                             )
-                                         ))
-                                     )
-                                 );
+            var askedBefore  = Node.DNSClient.DNSServers.Select(server => server.ToString()).ToArray();
+            var fileBefore   = File.Exists(Node.ConfigFile.Path) ? File.ReadAllText(Node.ConfigFile.Path) : "";
 
-            var answered = await response.Content.ReadAsStringAsync();
-            var onDisk   = File.Exists(Node.ConfigFile.Path)
-                               ? File.ReadAllText(Node.ConfigFile.Path)
-                               : "";
+            var response     = await http.PutAsync(
+                                         "api/v1/configuration/dns",
+                                         JSONBody(
+                                             new JProperty("servers", new JArray(
+                                                 new JObject(
+                                                     new JProperty("address",    "198.51.100.53"),
+                                                     new JProperty("port",       0),
+                                                     new JProperty("transport",  "UDP")
+                                                 )
+                                             ))
+                                         )
+                                     );
+
+            var answered     = await response.Content.ReadAsStringAsync();
+            var fileAfter    = File.Exists(Node.ConfigFile.Path) ? File.ReadAllText(Node.ConfigFile.Path) : "";
 
             Assert.Multiple(() => {
                 Assert.That(response.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest),  answered);
                 Assert.That(answered,             Does.Contain("'dns.servers[].port'"));
-                Assert.That(onDisk,               Does.Not.Contain("192.0.2.53"));
+                Assert.That(fileAfter,            Is.EqualTo(fileBefore),  "the refused server was written down");
                 Assert.That(Node.DNSClient.DNSServers.Select(server => server.ToString()),
-                            Has.None.Contains("192.0.2.53"));
+                            Is.EqualTo(askedBefore),                       "the refused server was applied");
             });
 
         }
