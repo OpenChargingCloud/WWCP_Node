@@ -288,6 +288,67 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AShortPasswordIsAnsweredAsAWrongPassword() / AShortLoginIsAnsweredAsAWrongPassword()
+
+        /// <summary>
+        /// A password too short to be chosen is at the sign-in only a wrong one:
+        /// answered as a long wrong password is, word for word.
+        /// </summary>
+        /// <remarks>
+        /// The form judged a password by the rules for choosing one before it
+        /// checked it, and answered "not-it" with 400 "The password does not match
+        /// the password quality criteria!" - nothing true of a password somebody
+        /// mistyped - and kept out an account whose password had been set under a
+        /// laxer rule (Hermod 640b5ae1).
+        /// </remarks>
+        [Test]
+        public async Task AShortPasswordIsAnsweredAsAWrongPassword()
+        {
+
+            using var http      = Anonymous();
+
+            using var tooShort  = await http.PostAsync(SignInPath, SignInBody(AdminLogin, "not-it"));
+            using var wrong     = await http.PostAsync(SignInPath, SignInBody(AdminLogin, "Not-The-Password-1"));
+
+            var tooShortSaid    = await tooShort.Content.ReadAsStringAsync();
+            var wrongSaid       = await wrong.   Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(tooShort.StatusCode,  Is.EqualTo(wrong.StatusCode),  $"{(Int32) tooShort.StatusCode} {tooShortSaid} / {(Int32) wrong.StatusCode} {wrongSaid}");
+                Assert.That(tooShortSaid,         Is.EqualTo(wrongSaid),         "the same words");
+            });
+
+        }
+
+        /// <summary>
+        /// And a login too short to be chosen is only one nobody has.
+        /// </summary>
+        /// <remarks>
+        /// 400 "The login is too short!", before any password was looked at -
+        /// which told somebody guessing more than a wrong password does
+        /// (Hermod 640b5ae1).
+        /// </remarks>
+        [Test]
+        public async Task AShortLoginIsAnsweredAsAWrongPassword()
+        {
+
+            using var http      = Anonymous();
+
+            using var tooShort  = await http.PostAsync(SignInPath, SignInBody("abc",      "Not-The-Password-1"));
+            using var wrong     = await http.PostAsync(SignInPath, SignInBody(AdminLogin, "Not-The-Password-1"));
+
+            var tooShortSaid    = await tooShort.Content.ReadAsStringAsync();
+            var wrongSaid       = await wrong.   Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(tooShort.StatusCode,  Is.EqualTo(wrong.StatusCode),  $"{(Int32) tooShort.StatusCode} {tooShortSaid} / {(Int32) wrong.StatusCode} {wrongSaid}");
+                Assert.That(tooShortSaid,         Is.EqualTo(wrongSaid),         "the same words");
+            });
+
+        }
+
+        #endregion
+
         #region APasswordOpensTheAPIAsTheSameAccount()
 
         /// <summary>
