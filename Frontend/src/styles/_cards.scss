@@ -108,6 +108,15 @@
 
 }
 
+// A commit is forty characters that have to survive being copied out of here
+// and pasted into a checkout, so it is never shortened and never truncated -
+// it wraps instead. Monospaced because that is what makes two of them
+// comparable at a glance (the vehicle's, which showed them first).
+.commit {
+    font-family:  $font-mono;
+    word-break:   break-all;
+}
+
 .kv-nested {
 
     > .k {

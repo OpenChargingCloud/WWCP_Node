@@ -247,6 +247,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public String                 Version                      { get; }
 
         /// <summary>
+        /// What this node was built from: every assembly of ours it runs, and
+        /// the commit each was built from - the kind of node's own among them,
+        /// whoever started it.
+        /// </summary>
+        public BuiltFrom              BuiltFrom                    { get; }
+
+        /// <summary>
         /// Where everything this node can be told in writing lives between
         /// starts: its name resolution, its time source, its certificates -
         /// and, in the same file, whatever a node of a particular kind adds.
@@ -624,8 +631,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         {
 
-            this.Kind     = Kind    ?? NodeKind.Default;
-            this.Version  = Version ?? typeof(WWCPNode).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+            this.Kind       = Kind    ?? NodeKind.Default;
+            this.Version    = Version ?? typeof(WWCPNode).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+            this.BuiltFrom  = new BuiltFrom(GetType().Assembly);
 
             #region The clock, before anything that wants to know the time
 
@@ -2217,6 +2225,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("lastSync",        lastTimeSync?.Value<String>("at")),
                        new JProperty("lastSyncResult",  LastSyncSaid(lastTimeSync)),
                        new JProperty("now",             TimeProvider.GetUtcNow().ToString("o"))
+                   )),
+
+                   // One line per repository, each with the commit it was built
+                   // from, as the banner says it: what somebody reading a bug
+                   // report can check out. Five kinds of node wrote theirs by
+                   // hand - Hermod, Norn, the node, the protocol, the kind - and
+                   // two listed every assembly, the ISO 15118 repository's
+                   // dozens among them; what a library that joins or leaves
+                   // does to either list is nothing.
+                   new JProperty("assemblies", new JArray(
+                       BuiltFrom.Repositories.Select(repository => new JObject(
+                           new JProperty("name",      repository.Repository),
+                           new JProperty("assembly",  repository.Name),
+                           new JProperty("version",   repository.Version),
+                           new JProperty("commit",    repository.Commit)
+                       ))
                    ))
 
                );

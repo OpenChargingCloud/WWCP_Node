@@ -32,6 +32,8 @@ a port of their own to connect to.
 | `WWCPNode.Diagnostics.cs` | asking a name server or a time server something, step by step, for a page to show |
 | `WWCPNode.TimeServerCertificates.cs` | which certificates of its time servers it believes: the machine's roots, its own, and the fingerprints a server is held to |
 | `NodeKind.cs` | the five names a kind of node goes by |
+| `BuiltFrom.cs` | what the node was built from: every assembly of ours it runs, and the commit each was built from - for the banner, the Configuration page and a bug report |
+| `CommandLine/` | `NodeCLI`, the command line every kind of node has: its commands, `syncNTS` among them, and the console from the first prompt until 'quit', Ctrl+C or SIGTERM |
 | `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles` |
@@ -40,7 +42,7 @@ a port of their own to connect to.
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `Frontend/` | what every kind of node's web interface shares: TypeScript and SCSS that each kind bundles into its own, imported as `@node/...` - see "The web interface" below |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | five hundred and nine tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | five hundred and twenty tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -133,8 +135,15 @@ Beyond the names, a kind of node adds to the node in eight places:
   read, edit or run, and `RoleDefinitions`, its roles and what each of them
   may do - see below.
 * **What it is, for the Configuration page:** `ConfigurationJSON()` is
-  virtual and answers with the node's cards - `http`, `web`, `log`, `time` -
-  and the kind adds its own on top.
+  virtual and answers with the node's cards - `http`, `web`, `log`, `time`,
+  and `assemblies`, one line per repository with the commit it was built
+  from - and the kind adds its own on top.
+* **Its command line:** a kind derives its own from `NodeCLI`, gives it the
+  prompt it wants and registers its type, so that its own commands - built
+  from that type - are found in its assembly beside the node's. Its
+  Program.cs prints `BuiltFrom.BannerLines()` in its banner and ends in
+  `RunUntilStopped()`: a prompt where somebody can type, waiting where
+  nobody can, and the log sharing the screen with the prompt.
 
 And the bundle: a kind of node hands in an `IStaticContentSource` - the
 files webpack built, embedded into its assembly - and the node serves it at
@@ -968,7 +977,7 @@ run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
 event stream, stopping with browsers watching, the certificate store, the
 web interface, roles the configuration file adds and what a kind starts
-with - one hundred and eleven tests that the suites of the local controller,
+with - one hundred and twelve tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.

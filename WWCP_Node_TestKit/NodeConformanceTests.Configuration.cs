@@ -552,6 +552,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region TheConfigurationSaysWhatTheNodeWasBuiltFrom()
+
+        /// <summary>
+        /// The Configuration page names the repository this kind of node was
+        /// built from, with the commit - read from its own assembly, which says
+        /// so only where its repository stamps it.
+        /// </summary>
+        /// <remarks>
+        /// Five kinds of node wrote their list of libraries by hand and two
+        /// listed every assembly they found; the list is the node's now, one
+        /// line per repository, as the banner says it. And that a kind's own
+        /// assembly carries its stamp - the hub asked it of itself - is asked
+        /// of every kind here.
+        /// </remarks>
+        [Test]
+        public void TheConfigurationSaysWhatTheNodeWasBuiltFrom()
+        {
+
+            var own    = Node.BuiltFrom.Assemblies.
+                             Single(assembly => assembly.Name == Node.GetType().Assembly.GetName().Name);
+
+            Assert.That(own.IsStamped, Is.True,
+                        $"the {Node.Kind.Name}'s own assembly, {own.Name}, carries no GitCommit: Directory.Build.props did not reach it");
+
+            var lines  = (Node.ConfigurationJSON()["assemblies"] as JArray)?.OfType<JObject>().ToArray() ?? [];
+
+            Assert.That(lines.Any(line => line.Value<String>("name")   == own.Repository &&
+                                          line.Value<String>("commit") == own.Commit),
+                        Is.True,
+                        $"the configuration does not name {own.Repository} {own.Commit}, which the {Node.Kind.Name} was built from");
+
+        }
+
+        #endregion
+
     }
 
 }
