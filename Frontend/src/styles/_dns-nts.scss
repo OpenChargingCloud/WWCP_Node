@@ -1,0 +1,166 @@
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// One name server: address, port, transport, and a way to take it away.
+.server-list {
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.4rem;
+}
+
+.server-row {
+
+    display:      flex;
+    gap:          0.4rem;
+    align-items:  center;
+
+    input, select {
+        padding:        0.35rem 0.5rem;
+        border:         1px solid $color-border;
+        border-radius:  6px;
+        background:     $color-surface;
+        color:          $color-text;
+        font:           inherit;
+        font-size:      0.9rem;
+        min-width:      0;
+    }
+
+    input[data-field="address"] {
+        flex: 1 1 10rem;
+    }
+
+    input.port {
+        width: 5.5rem;
+    }
+
+}
+
+// The time servers of the NTS page.
+//
+// One row per server, with what it said the last time it was asked, the root
+// its last key exchange ended at, and what can be done with it on the right;
+// "Sync now" in a card of its own below, big, because asking all of them is
+// what the page is mostly for.
+.btn.large {
+    padding:    0.65rem 1.3rem;
+    font-size:  1.05rem;
+}
+
+.sync-bar {
+
+    display:      flex;
+    align-items:  center;
+    gap:          1rem;
+    flex-wrap:    wrap;
+
+    .hint {
+        flex:  1 1 18rem;
+    }
+
+}
+
+.sync-verdict {
+    margin-top:  0.75rem;
+}
+
+// Measured by its own width rather than the window's, which is what the rows
+// below lay themselves out by: the same window leaves this list more room
+// with the menu along the top than beside it.
+.time-server-list {
+    display:         flex;
+    flex-direction:  column;
+    margin:          0 0 0.25rem;
+    container-type:  inline-size;
+}
+
+.time-server-row {
+
+    display:                grid;
+    grid-template-columns:  minmax(10rem, 1fr) minmax(12rem, 1.3fr) minmax(14rem, 1.3fr) auto;
+    grid-template-areas:    "who said root actions";
+    gap:                    0.4rem 1rem;
+    align-items:            center;
+    padding:                0.6rem 0.25rem;
+
+    + .time-server-row {
+        border-top: 1px solid $color-border;
+    }
+
+    .who, .said, .root-ca {
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.1rem;
+        min-width:       0;
+    }
+
+    .who      { grid-area: who;     }
+    .said     { grid-area: said;    }
+    .root-ca  { grid-area: root;    }
+    .actions  { grid-area: actions; }
+
+    // The root CA's fingerprint is compared character by character with a
+    // pinned one, so it is shown whole - in a typewriter face, and allowed to
+    // break anywhere, because 64 characters have nowhere else to break.
+    .fingerprint {
+        font-family:    $font-mono;
+        font-size:      0.75rem;
+        color:          $color-muted;
+        overflow-wrap:  anywhere;
+    }
+
+    .name {
+        font-weight:  600;
+        word-break:   break-all;
+    }
+
+    .answer.ok  { color: $color-ok;    }
+    .answer.bad { color: $color-error; }
+
+    .actions {
+        display:  flex;
+        gap:      0.4rem;
+    }
+
+    // Still in the list, and not asked: there, but quieter.
+    &.off .name {
+        color:            $color-muted;
+        text-decoration:  line-through;
+    }
+
+}
+
+// Narrower, the root CA goes under what the server said rather than pushing
+// the buttons out of the card.
+@container (max-width: 56rem) {
+    .time-server-row {
+        grid-template-columns:  minmax(10rem, 1fr) minmax(12rem, 1.6fr) auto;
+        grid-template-areas:    "who said actions"
+                                "who root actions";
+    }
+}
+
+// On a phone the row stacks: name, what it said, the root CA, then the button.
+@container (max-width: 34rem) {
+    .time-server-row {
+        grid-template-columns:  1fr;
+        grid-template-areas:    "who" "said" "root" "actions";
+    }
+}
+
+.query-result {
+
+    @include panel;
+
+    margin-top:  1rem;
+    padding:     0.85rem 1rem;
+
+    &.ok   { border-left: 3px solid $color-ok;    }
+    &.bad  { border-left: 3px solid $color-error; }
+
+    h3 {
+        margin:     1rem 0 0.4rem;
+        font-size:  0.9rem;
+        color:      $color-muted;
+    }
+
+}

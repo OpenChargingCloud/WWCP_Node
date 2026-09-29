@@ -1,0 +1,216 @@
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// Logs
+
+.log-filters {
+
+    display:      flex;
+    align-items:  center;
+    gap:          0.9rem;
+    flex-wrap:    wrap;
+    margin-bottom: 0.6rem;
+
+    .filter-search {
+
+        position:  relative;
+        flex:      1;
+        min-width: 14rem;
+
+        .fa-solid {
+            position:        absolute;
+            left:            0.7rem;
+            top:             50%;
+            transform:       translateY(-50%);
+            color:           $color-muted;
+            pointer-events:  none;
+            font-size:       0.85rem;
+        }
+
+        input {
+            width:         100%;
+            padding-left:  2.1rem;
+        }
+
+    }
+
+    .filter-level,
+    .filter-follow {
+        display:      flex;
+        align-items:  center;
+        gap:          0.4rem;
+        font-size:    0.85rem;
+        color:        $color-muted;
+        white-space:  nowrap;
+    }
+
+    .filter-level select {
+        padding: 0.35rem 0.5rem;
+    }
+
+}
+
+.tag-filters {
+    display:        flex;
+    flex-wrap:      wrap;
+    gap:            0.35rem;
+    margin-bottom:  0.6rem;
+}
+
+// The list and the button that floats over it. The button points at the top
+// now, so that is where it belongs - and floating rather than in a row of its
+// own, because a button that is only there when it is needed would otherwise
+// shove the whole list down the moment it appears.
+.log-pane {
+
+    position:         relative;
+    flex:             1;
+    min-height:       0;
+    display:          flex;
+    flex-direction:   column;
+
+}
+
+.jump-newest {
+
+    position:       absolute;
+    top:            0.6rem;
+    left:           50%;
+    transform:      translateX(-50%);
+    z-index:        2;
+    border-color:   $color-accent;
+    color:          $color-accent;
+    box-shadow:     0 2px 10px rgba(15, 23, 42, 0.18);
+
+}
+
+.log {
+
+    @include panel;
+
+    flex:        1;
+    min-height:  12rem;
+    overflow-y:  auto;
+    overflow-x:  hidden;
+    padding:     0.35rem 0;
+
+    // The newest line goes in at the top, so every line already there moves
+    // down by its height. Chrome and Firefox would undo that by themselves and
+    // Safari would not, which is the worst of the three outcomes: the page
+    // cannot then know whether it still has to. So it always does, and the
+    // browser is asked to keep out of it.
+    overflow-anchor: none;
+    font-family: $font-mono;
+    font-size:   0.82rem;
+    line-height: 1.55;
+
+    .log-empty {
+        padding:      1rem;
+        color:        $color-muted;
+        font-family:  $font-stack;
+        font-size:    0.9rem;
+    }
+
+    // A line the filters are not letting through. It stays where it is rather
+    // than being taken out and built again the next time it is wanted.
+    .line.filtered-out {
+        display: none;
+    }
+
+}
+
+.line {
+
+    display:        flex;
+    align-items:    baseline;
+    flex-wrap:      wrap;
+    gap:            0.4rem;
+    padding:        0.1rem 0.8rem;
+    border-left:    3px solid transparent;
+
+    // "notice" is a level of the log as well as the box a page says something
+    // in, and a line of that level was drawn as that box: a frame, a larger
+    // type and a margin below, in the middle of the log - measured, 43 px of
+    // line and 16 of margin where every other line is 24. Here it is a line,
+    // with the accent at its edge as the other levels have their colour there.
+    // Before the hover below, so that a notice line lights up as every other
+    // one does.
+    &.notice {
+        background:     none;
+        border:         0;
+        border-left:    3px solid $color-accent;
+        border-radius:  0;
+        margin-bottom:  0;
+        padding:        0.1rem 0.8rem;
+        font-size:      inherit;
+    }
+
+    &:hover {
+        background: rgba($color-accent, 0.05);
+    }
+
+    time {
+        color:        $color-muted;
+        white-space:  nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .message {
+        flex:        1;
+        min-width:   12rem;
+        word-break:  break-word;
+        white-space: pre-wrap;
+    }
+
+    &.warning   { border-left-color: $color-warn; }
+    &.error     { border-left-color: $color-error; background: rgba($color-error, 0.04); }
+    &.critical  { border-left-color: #b91c1c;     background: rgba($color-error, 0.09); }
+
+    &.debug .message {
+        color: $color-muted;
+    }
+
+}
+
+.log-foot {
+    display:      flex;
+    align-items:  center;
+    justify-content: space-between;
+    gap:          1rem;
+    padding-top:  0.5rem;
+}
+
+// Whether the event stream is up: the one thing on the Logs page that says
+// whether what is on screen is still the present.
+.stream-state {
+
+    display:         inline-flex;
+    align-items:     center;
+    gap:             0.4rem;
+    font-size:       0.78rem;
+    text-transform:  uppercase;
+    letter-spacing:  0.04em;
+    color:           $color-muted;
+
+    &::before {
+        content:        "";
+        width:          0.55rem;
+        height:         0.55rem;
+        border-radius:  50%;
+        background:     $color-muted;
+    }
+
+    &.live::before {
+        background:  $color-ok;
+        box-shadow:  0 0 0 3px rgba($color-ok, 0.18);
+    }
+
+    &.down {
+        color: $color-warn;
+
+        &::before {
+            background: $color-warn;
+        }
+    }
+
+}

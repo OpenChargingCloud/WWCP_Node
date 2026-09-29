@@ -1,0 +1,30 @@
+// What the web interface of every WWCP node looks like: a menu on the left, a
+// page on the right, and a log that has to stay readable when a thousand
+// lines an hour go through it - the frame, the forms, the dialogs, and the
+// pages every node has (sign-in, logs, DNS, NTS, what a server is held to,
+// the certificate store).
+//
+// A product's app.scss begins with
+//
+//     @use '@node/styles/node' as * with ($color-accent: ..., $color-accent-dark: ...);
+//
+// and adds below it what only its own pages need, with the tokens and the
+// panel mixin at hand. The order of the @use rules below is the order of the
+// CSS, and it matters: .notice before .chip and .line (a log line and its chip
+// of level "notice" carry the class as well), .btn before .jump-newest,
+// .test-dialog before .server-dialog, and the narrow-window rules last.
+
+@forward 'tokens';
+@forward 'mixins';
+
+@use 'base';
+@use 'forms';
+@use 'dialogs';
+@use 'shell';
+@use 'cards';
+@use 'chips';
+@use 'tables';
+@use 'dns-nts';
+@use 'pins';
+@use 'log';
+@use 'responsive';

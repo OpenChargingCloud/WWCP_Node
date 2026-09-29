@@ -1,0 +1,75 @@
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+.chips {
+    display:    flex;
+    flex-wrap:  wrap;
+    gap:        0.3rem;
+}
+
+// The little rounded labels: the level of an entry, its tags, and the buttons
+// above the list that switch those tags on and off.
+.chip {
+
+    display:         inline-block;
+    padding:         0.05rem 0.45rem;
+    border-radius:   999px;
+    border:          1px solid $color-border;
+    background:      $color-bg;
+    color:           $color-muted;
+    font-size:       0.72rem;
+    font-family:     $font-stack;
+    line-height:     1.5;
+    white-space:     nowrap;
+
+    &.level {
+        font-weight:     600;
+        text-transform:  uppercase;
+        letter-spacing:  0.02em;
+    }
+
+    // What is in force: the certificate chosen, a server's certificate
+    // believed and what it is held to from now on. The node's own colour
+    // rather than green, because it says what this node does and not that
+    // something went well.
+    &.on    { color: $color-accent; border-color: $color-accent; background: rgba($color-accent, 0.08); }
+
+    &.ok    { color: $color-ok;    border-color: #a7f3d0; background: #ecfdf5;        }
+    &.warn  { color: #92400e;      border-color: #fde68a; background: $color-warn-bg;  }
+    &.bad   { color: $color-error; border-color: #fecaca; background: $color-error-bg; }
+
+    // One colour per level, used by the chip in a line and by the line itself.
+    &.level.debug     { color: #64748b; border-color: #cbd5e1; background: #f1f5f9; }
+    &.level.info      { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
+    // No margin below it, which the box called "notice" has: in the level chip
+    // of a log line it still held that line at 39 px, where the others are 24.
+    &.level.notice    { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; margin-bottom: 0; }
+    &.level.warning   { color: #92400e; border-color: #fde68a; background: $color-warn-bg; }
+    &.level.error     { color: $color-error; border-color: #fecaca; background: $color-error-bg; }
+    &.level.critical  { color: #ffffff; border-color: #7f1d1d; background: #b91c1c; }
+
+}
+
+.tag-button {
+
+    cursor: pointer;
+    font:   inherit;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.55rem;
+
+    &:hover {
+        border-color:  $color-accent;
+        color:         $color-accent;
+    }
+
+    &.on {
+        background:    $color-accent;
+        border-color:  $color-accent;
+        color:         #ffffff;
+    }
+
+    &.clear-tags {
+        border-style: dashed;
+    }
+
+}

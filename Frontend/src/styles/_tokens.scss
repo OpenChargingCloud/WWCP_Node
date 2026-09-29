@@ -1,0 +1,26 @@
+// The design tokens every node's web interface is drawn with. Each is
+// !default, so that a product configures it where it @uses node.scss:
+// the accent - and the darker accent of a hovered button - are what differs.
+
+$color-bg:           #f6f7f9 !default;
+$color-surface:      #ffffff !default;
+$color-text:         #1f2933 !default;
+$color-muted:        #616e7c !default;
+$color-accent:       #1b5f7f !default;
+$color-accent-dark:  #14495f !default;
+$color-ok:           #1e7f4f !default;
+$color-warn:         #c98a1b !default;
+$color-error:        #b42318 !default;
+$color-error-bg:     #fde8e6 !default;
+$color-warn-bg:      #fff7e6 !default;
+$color-border:       #d9dee5 !default;
+
+$color-sidebar:      #16202b !default;
+$color-sidebar-text: #c9d4df !default;
+$color-sidebar-hi:   #ffffff !default;
+
+$font-stack:         system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif !default;
+$font-mono:          ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace !default;
+
+$radius:             8px !default;
+$sidebar-width:      15rem !default;

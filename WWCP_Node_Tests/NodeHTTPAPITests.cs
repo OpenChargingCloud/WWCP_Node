@@ -378,6 +378,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var stream         = await viewer.GetAsync("api/v1/events", HttpCompletionOption.ResponseHeadersRead);
             var (rootClock, _)       = await Send(root,   HttpMethod.Get, "api/v1/clock");
             var (rootLogs,  _)       = await Send(root,   HttpMethod.Get, "api/v1/logs");
+            var (_,         viewerIs) = await Send(viewer, HttpMethod.Get, "api/v1/auth/me");
+            var (_,         rootIs)   = await Send(root,   HttpMethod.Get, "api/v1/auth/me");
 
             Assert.Multiple(() => {
                 Assert.That(clock,                        Is.EqualTo(HttpStatusCode.Forbidden), clockSaid.ToString());
@@ -386,6 +388,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(stream.StatusCode,            Is.EqualTo(HttpStatusCode.Forbidden), "the stream asks what the log asks");
                 Assert.That(rootClock,                    Is.EqualTo(HttpStatusCode.OK));
                 Assert.That(rootLogs,                     Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(viewerIs.Value<Boolean?>("mayReadTheLog"), Is.False, "'me' tells the viewer the log is for them, and the log refuses them");
+                Assert.That(rootIs.  Value<Boolean?>("mayReadTheLog"), Is.True,  "'me' tells the administrator the log is not for them");
             });
 
         }
@@ -562,7 +566,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(me.Value<String>("username"),  Is.EqualTo("root"));
                 Assert.That(me.Value<String>("roleTitle"), Is.EqualTo("Tester, as 'root'"));
                 Assert.That(me.Properties().Select(property => property.Name),
-                            Is.EqualTo(new[] { "username", "roles", "permissions", "roleTitle" }),
+                            Is.EqualTo(new[] { "username", "roles", "permissions", "mayReadTheLog", "roleTitle" }),
                             "what the kind adds comes after what every node says");
             });
 

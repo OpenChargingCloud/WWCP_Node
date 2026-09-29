@@ -680,6 +680,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// checked again on arrival, so a browser that edits this list gains
         /// nothing but a button that answers 403.
         ///
+        /// Whether the log is for them is said as the log's own answer rather
+        /// than left to the pages to work out: what it takes is this kind's to
+        /// say - a sign-in, or a permission its drivers do not have, see
+        /// <see cref="ToReadTheLog"/> - and a page that worked it out for
+        /// itself opened a stream the node refused, and then told somebody
+        /// that they may no longer read a log they had never been let read.
+        ///
         /// What a kind of node adds comes after them - see
         /// <see cref="ProductMe"/>.
         /// </remarks>
@@ -687,9 +694,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         {
 
             var me = new JObject(
-                         new JProperty("username",     User.Id.ToString()),
-                         new JProperty("roles",        new JArray(Node.RolesOf(User).Select(role => role.Name))),
-                         new JProperty("permissions",  new JArray(Node.PermissionsOf(User).Select(permission => permission.ToString())))
+                         new JProperty("username",       User.Id.ToString()),
+                         new JProperty("roles",          new JArray(Node.RolesOf(User).Select(role => role.Name))),
+                         new JProperty("permissions",    new JArray(Node.PermissionsOf(User).Select(permission => permission.ToString()))),
+                         new JProperty("mayReadTheLog",  MayReadTheLog(User))
                      );
 
             foreach (var property in ProductMe(User))

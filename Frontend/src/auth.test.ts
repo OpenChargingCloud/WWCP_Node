@@ -32,7 +32,7 @@ const nodeAnswers = (Status: number, Body: unknown) => {
     } as unknown as Response);
 };
 
-const somebody: NodeMe = { username: 'alice', roles: [ 'dnsdesk' ], permissions: [ 'dns:read', 'dns:edit' ] };
+const somebody: NodeMe = { username: 'alice', roles: [ 'dnsdesk' ], permissions: [ 'dns:read', 'dns:edit' ], mayReadTheLog: true };
 
 
 describe('the guard of a page', () => {

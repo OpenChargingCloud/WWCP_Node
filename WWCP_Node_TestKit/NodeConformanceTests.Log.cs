@@ -405,6 +405,68 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region WhoIsSignedInIsToldWhetherTheLogIsForThem()
+
+        /// <summary>
+        /// What "me" says about the log is what the log answers. The pages
+        /// follow the log, and offer its page, to whoever "me" says may read
+        /// it - so the two must not disagree, for an administrator or for an
+        /// account in no group at all.
+        /// </summary>
+        /// <remarks>
+        /// Every kind repeated its node's rule in its own pages - signed in, or
+        /// "configuration:read", or "log:read" - and a page that asked the
+        /// wrong one opened a stream the node refused, and then told an account
+        /// that it may no longer read a log it had never been let read.
+        /// </remarks>
+        [Test]
+        public async Task WhoIsSignedInIsToldWhetherTheLogIsForThem()
+        {
+
+            var account       = await AccountIn("deputy", WWCPNode.AdminRole, "Deputy-For-Now-1");
+
+            using var admin   = await SignedIn();
+            using var nobody  = await SignedInAs("deputy", "Deputy-For-Now-1");
+
+            Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(WWCPNode.AdminRole), out var group) && group is UserGroup,
+                        Is.True);
+
+            Assert.That((await Node.ExtAPI.RemoveUserFromUserGroup((User) account, (UserGroup) group!)).IsSuccess,
+                        Is.True,
+                        "the account could not be taken out of the group");
+
+            var said = new List<(String Who, JToken? Says, HttpStatusCode Log)>();
+
+            foreach (var (who, http) in new[] { ("an administrator", admin), ("an account in no group", nobody) })
+            {
+
+                var me         = await GetJSON(http, "api/v1/auth/me");
+                using var log  = await http.GetAsync("api/v1/logs?limit=1");
+
+                said.Add((who, me["mayReadTheLog"], log.StatusCode));
+
+            }
+
+            Assert.Multiple(() => {
+
+                foreach (var (who, says, log) in said)
+                {
+                    Assert.That(says?.Type,  Is.EqualTo(JTokenType.Boolean),  $"{who}: 'me' does not say whether the log is for them");
+                    Assert.That(says?.Value<Boolean>(),
+                                Is.EqualTo(log == HttpStatusCode.OK),
+                                $"{who}: 'me' says {says?.ToString() ?? "nothing"}, and the log answers {(Int32) log}");
+                }
+
+                Assert.That(said[0].Says?.Type == JTokenType.Boolean && said[0].Says!.Value<Boolean>(),
+                            Is.True,
+                            "an administrator is told the log is not for them");
+
+            });
+
+        }
+
+        #endregion
+
         #region AClosedBrowserIsLetGoOfAtTheNextHeartbeat()
 
         /// <summary>

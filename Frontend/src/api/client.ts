@@ -70,9 +70,16 @@ export type Permission<R extends string = NodeResource> = `${R}:${Operation}`;
 
 /** Who is signed in to the web interface, as every node says it. A kind of node may say more. */
 export interface NodeMe<R extends string = NodeResource> {
-    username:     string;
-    roles:        string[];
-    permissions:  Permission<R>[];
+    username:       string;
+    roles:          string[];
+    permissions:    Permission<R>[];
+    /**
+     * Whether the log is for them: what the log itself would answer. A kind
+     * of node decides what it takes - a sign-in, or a permission its drivers
+     * do not have - and the pages follow the log, and offer its page, as this
+     * says rather than working the rule out for themselves.
+     */
+    mayReadTheLog:  boolean;
 }
 
 

@@ -1,0 +1,202 @@
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// Buttons and forms
+
+.btn {
+
+    display:         inline-flex;
+    align-items:     center;
+    gap:             0.4rem;
+    font:            inherit;
+    padding:         0.45rem 0.9rem;
+    border:          1px solid $color-border;
+    border-radius:   $radius;
+    background:      $color-surface;
+    color:           $color-text;
+    cursor:          pointer;
+    white-space:     nowrap;
+
+    &:hover {
+        border-color:  $color-accent;
+        color:         $color-accent;
+    }
+
+    &:disabled {
+        opacity:  0.6;
+        cursor:   default;
+    }
+
+    &.primary {
+        background:    $color-accent;
+        border-color:  $color-accent;
+        color:         #ffffff;
+
+        &:hover {
+            background:    $color-accent-dark;
+            border-color:  $color-accent-dark;
+            color:         #ffffff;
+        }
+
+        // The opacity of the rule above is not enough on a filled button: a
+        // disabled Save stayed green enough to look like a Save that works.
+        &:disabled,
+        &:disabled:hover {
+            background:    $color-border;
+            border-color:  $color-border;
+            color:         $color-muted;
+        }
+
+    }
+
+    &.small {
+        padding:    0.3rem 0.6rem;
+        font-size:  0.85rem;
+    }
+
+    &.danger:hover {
+        border-color:  $color-error;
+        color:         $color-error;
+    }
+
+}
+
+input, textarea, select {
+
+    font:           inherit;
+    color:          $color-text;
+    padding:        0.5rem 0.7rem;
+    border:         1px solid $color-border;
+    border-radius:  $radius;
+    background:     $color-surface;
+
+    &:focus {
+        outline:       2px solid rgba($color-accent, 0.35);
+        border-color:  $color-accent;
+    }
+
+    // A field somebody may not change should not look like one they may: a
+    // page is read by whoever has the browser open, and that is not always
+    // whoever may act on it, so the difference has to be visible rather than
+    // discovered by clicking.
+    &:disabled {
+        background:  $color-bg;
+        color:       $color-muted;
+        cursor:      not-allowed;
+    }
+
+}
+
+.form-stack {
+
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.85rem;
+
+    label {
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.3rem;
+        font-size:       0.85rem;
+        color:           $color-muted;
+    }
+
+    .form-actions {
+        display:      flex;
+        align-items:  center;
+        gap:          0.75rem;
+        flex-wrap:    wrap;
+        margin-top:   0.25rem;
+    }
+
+}
+
+// A checkbox with its label beside it rather than under it, and room for a
+// line of explanation below both.
+.form-stack label.checkbox {
+
+    flex-direction:  row;
+    flex-wrap:       wrap;
+    align-items:     baseline;
+    gap:             0.15rem 0.5rem;
+    color:           $color-text;
+    font-size:       0.9rem;
+
+    input {
+        flex: none;
+    }
+
+    .hint {
+        flex-basis: 100%;
+    }
+
+}
+
+.hint {
+    color:        $color-muted;
+    font-size:    0.8rem;
+    font-weight:  400;
+}
+
+.form-notice {
+    color:      $color-ok;
+    font-size:  0.9rem;
+
+    &:empty {
+        display: none;
+    }
+}
+
+.form-error {
+
+    color:      $color-error;
+    font-size:  0.9rem;
+
+    &:empty {
+        display: none;
+    }
+
+}
+
+.error-box {
+    @include panel;
+    border-color:  $color-error;
+    background:    $color-error-bg;
+    color:         $color-error;
+    padding:       0.75rem 1rem;
+    margin:        1rem 0;
+}
+
+.loading {
+    color:    $color-muted;
+    padding:  1rem 0;
+}
+
+// Switching a whole subsystem on or off. Bigger than the checkboxes in a form
+// below it, because it decides whether that form matters at all.
+.switch {
+
+    display:      flex;
+    align-items:  center;
+    gap:          0.55rem;
+    font-weight:  600;
+
+    input {
+        width:   1.15rem;
+        height:  1.15rem;
+        accent-color: $color-accent;
+    }
+
+}
+
+// A switch in a form is still a switch: its box beside its words, as it is
+// everywhere else. .form-stack label is the stronger rule (0,1,1 against
+// 0,1,0) and stacks a label's children in a column, and with .switch's
+// align-items: center the box stood centred above its words - found on the
+// meter's DNS page; the controller's CSMS and station-group forms had it too.
+.form-stack label.switch {
+    flex-direction:  row;
+    gap:             0.55rem;
+    font-size:       inherit;
+    color:           $color-text;
+}

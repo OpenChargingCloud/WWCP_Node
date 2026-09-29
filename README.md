@@ -40,7 +40,7 @@ a port of their own to connect to.
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `Frontend/` | what every kind of node's web interface shares: TypeScript and SCSS that each kind bundles into its own, imported as `@node/...` - see "The web interface" below |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | four hundred and ninety-four tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | four hundred and ninety-five tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -732,6 +732,10 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `ui.ts` | what else the pages share: a form held still while it is saved, a field read as a number, a time and a number as people read them, a key as a label, the way back after the sign-in |
 | `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - and what a kind publishes on the same stream |
 | `auth.ts` | who is signed in, what they may do, and the guard that sends everybody else to the sign-in |
+| `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page - who is signed in, and the versions |
+| `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in |
+| `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
+| `styles/` | what all of it looks like, in the kind's colour |
 
 The shared pages say what the node says, in its name: the question before
 a page's changes are left behind is "…that the local controller has not been
@@ -769,6 +773,54 @@ and the shell read the same - typed with its own:
 
 ```ts
 export const auth = nodeAuth as unknown as AuthState<Me, Resource>;
+```
+
+A kind of node starts its web interface with `startNode()`, and says only
+what is its own: what it is called, what its menu has, and its own pages.
+The sign-in, the log, the frame and the page for an address with none come
+with it - the local controller's `main.ts`, less its imports:
+
+```ts
+startNode({
+    name:  'Local Controller',
+    icon:  'fa-sitemap',
+    menu:  [
+        nodeMenu.configuration([
+            nodeMenu.dns,
+            nodeMenu.nts,
+            { path: '/configuration/csms', label: 'CSMS connection', icon: 'fa-satellite-dish', permission: [ 'csms:read' ] },
+            { ...nodeMenu.certificates, label: 'Certificate store', icon: 'fa-vault' }
+        ]),
+        nodeMenu.logs
+    ],
+    pages: {
+        '/':                    configurationPage,
+        '/configuration/csms':  csmsPage
+    }
+});
+```
+
+A page of its own at a path every node has a page for - `"/"` here - is the
+kind's. An e-mobility provider's sign-up goes into `publicPages`, which
+nobody has to be signed in for, and a meter's old bookmarks into `routes`,
+which are asked first. `signIn`, `logs` and `who` say what the sign-in, the
+Logs page and the foot of the menu say where the node's words do not fit.
+
+Each menu entry is shown to whoever may open its page: `permission` is any
+one of the permissions the node writes into "me", or a function. Whether the
+log is for somebody is the node's to say, not the page's - "me" carries
+`mayReadTheLog`, which is what the log itself would answer - and the Logs
+entry, the Logs page and following the log all go by it. Every kind had
+repeated its own node's rule in its pages - signed in, `configuration:read`,
+`log:read` - and a page that asked the wrong one opened a stream the node
+refused, and then told the account it may no longer read a log it had never
+been let read.
+
+Its stylesheet begins with every node's, in its own colour, and adds what
+only its own pages need, with the tokens and the `panel` mixin at hand:
+
+```scss
+@use '@node/styles/node' as * with ($color-accent: #1b5f7f, $color-accent-dark: #14495f);
 ```
 
 A kind of node loads none of it from anywhere when it runs. Its own webpack
@@ -833,6 +885,9 @@ What a shared file may not do:
 * Import an npm package. webpack would look for it upwards from
   `WWCP_Node/Frontend`, not in the kind's `node_modules`.
 
+`imports.test.ts` holds every shared file to that: it may import another
+shared file and nothing else.
+
 `Frontend/` has a `package.json` of its own, for the type checker; the
 workflows run its checks and its tests on the Debian leg:
 
@@ -852,7 +907,7 @@ run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
 event stream, stopping with browsers watching, the certificate store, the
 web interface, roles the configuration file adds and what a kind starts
-with - one hundred and five tests that the suites of the local controller,
+with - one hundred and six tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.

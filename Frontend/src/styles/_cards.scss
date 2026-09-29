@@ -1,0 +1,141 @@
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// Configuration
+
+.cards {
+    display:                grid;
+    grid-template-columns:  repeat(auto-fill, minmax(22rem, 1fr));
+    gap:                    1rem;
+    align-items:            start;
+}
+
+.card {
+
+    @include panel;
+
+    padding: 1rem 1.2rem 1.1rem;
+
+    h2 {
+        margin:      0 0 0.75rem;
+        font-size:   1rem;
+        display:     flex;
+        align-items: center;
+        gap:         0.5rem;
+
+        .fa-solid {
+            color: $color-accent;
+        }
+
+        // A state of the thing the card is about, said next to its name
+        // rather than buried in the rows below it.
+        .chip {
+            margin-left: auto;
+        }
+    }
+
+}
+
+.card.wide {
+    grid-column: 1 / -1;
+}
+
+// One card under the other, each as wide as the page: for a page that is read
+// from the top down rather than taken in at a glance. What is inside keeps to
+// a width that can be read - a form, or names beside their values, stretched
+// across a wide screen puts a label a screen away from what it labels, and a
+// name server's buttons a screen away from its address.
+.cards.stacked {
+
+    grid-template-columns: minmax(0, 1fr);
+
+    .form-stack,
+    .kv-list {
+        max-width: 36rem;
+    }
+
+    .server-list {
+        max-width: 44rem;
+    }
+
+}
+
+.kv-list {
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.35rem;
+}
+
+.kv {
+
+    display:                grid;
+    grid-template-columns:  minmax(7rem, 38%) 1fr;
+    gap:                    0.75rem;
+    align-items:            baseline;
+    font-size:              0.9rem;
+
+    // Allowed to break where it has to. A grid cell does not shrink below
+    // what its text needs, so a name with nothing to break at - a library's,
+    // a host's - ran out of its column and was drawn across the value beside
+    // it.
+    .k, dt {
+        color:          $color-muted;
+        min-width:      0;
+        overflow-wrap:  anywhere;
+    }
+
+    .v {
+        word-break:  break-word;
+        font-family: $font-mono;
+        font-size:   0.85rem;
+    }
+
+    dt, dd {
+        margin: 0;
+    }
+
+    dd {
+        word-break: break-word;
+    }
+
+}
+
+.kv-nested {
+
+    > .k {
+        display:     block;
+        color:       $color-muted;
+        font-size:   0.9rem;
+        margin-top:  0.4rem;
+    }
+
+    .nested {
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.5rem;
+        margin-top:      0.35rem;
+    }
+
+    .nested-item {
+        border-left:   2px solid $color-border;
+        padding-left:  0.7rem;
+    }
+
+}
+
+// Something the node wants read before it is acted on, but that is not an
+// error - most often: this page is showing you something you may not change.
+.notice {
+    @include panel;
+    background:    $color-warn-bg;
+    border-color:  #f3d9a4;
+    padding:       0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size:     0.9rem;
+}
+
+// A path in a sentence, which has no spaces for a line to break at and would
+// otherwise run out of its card.
+.path {
+    overflow-wrap:  anywhere;
+}
