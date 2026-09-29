@@ -28,6 +28,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -102,36 +103,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configuration, """{ "nts": { "enabled": false } }""");
 
-            var node = new WWCPNode(
-                           HTTPPort:          FreePort(),
+            return await TestPorts.StartedOnFreshPorts(() => new WWCPNode(
+                           HTTPPort:          IPPort.Parse(TestPorts.Free()),
                            AccountsPath:      Path.Combine(directory, "accounts"),
                            Roles:             Roles,
                            ConfigFile:        new WWCPConfigFile(configuration),
                            CertificatesPath:  Path.Combine(directory, "certificates"),
                            LogToConsole:      false,
                            BridgeDebugLog:    false
-                       );
-
-            await node.Start();
-
-            return node;
-
-        }
-
-        #endregion
-
-        #region (helper) FreePort()
-
-        private static IPPort FreePort()
-        {
-
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
-            return IPPort.Parse((UInt16) port);
+                       ));
 
         }
 

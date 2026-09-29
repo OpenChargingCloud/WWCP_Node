@@ -241,14 +241,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             nodeLeftRunning  = false;
 
-            Directory      = Path.Combine(Path.GetTempPath(), $"node-conformance-{Guid.NewGuid().ToString("N")[..12]}");
-            System.IO.Directory.CreateDirectory(Directory);
+            // Made again, on fresh ports, where another test run on this
+            // machine took one of them before the node could bind it - and
+            // then in a directory and with a configuration of its own.
+            var attempt    = 0;
 
-            Configuration  = ConfigurationFor(setup);
-            Node           = NewNode(Directory, (JObject) Configuration.DeepClone());
+            Node           = await TestPorts.StartedOnFreshPorts(() => {
+
+                                 if (attempt++ > 0)
+                                 {
+                                     silentNameServer?.Dispose();
+                                     silentNameServer = null;
+                                     Remove(Directory);
+                                 }
+
+                                 Directory      = Path.Combine(Path.GetTempPath(), $"node-conformance-{Guid.NewGuid().ToString("N")[..12]}");
+                                 System.IO.Directory.CreateDirectory(Directory);
+
+                                 Configuration  = ConfigurationFor(setup);
+
+                                 return NewNode(Directory, (JObject) Configuration.DeepClone());
+
+                             });
+
             BaseURL        = BaseURLOf(Node);
-
-            await Node.Start();
 
             // After Start(), because that is what makes the account. Null would
             // mean accounts were already there, and the directory is new.

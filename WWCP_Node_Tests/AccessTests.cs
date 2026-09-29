@@ -31,6 +31,7 @@ using org.GraphDefined.Vanaheimr.Hermod.Mail;
 
 using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -160,16 +161,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A node of no particular kind, started with the given configuration
         /// file - on a port nobody else has, and without asking a time server.
         /// </summary>
-        private async Task<WWCPNode> StartedNode(String Configuration = """{ "nts": { "enabled": false } }""")
-        {
+        private Task<WWCPNode> StartedNode(String Configuration = """{ "nts": { "enabled": false } }""")
 
-            var node = NodeWith(Configuration);
-
-            await node.Start();
-
-            return node;
-
-        }
+            => TestPorts.StartedOnFreshPorts(() => NodeWith(Configuration));
 
         #endregion
 
@@ -183,30 +177,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             File.WriteAllText(configuration, Configuration);
 
             return new WWCPNode(
-                       HTTPPort:          FreePort(),
+                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
                        AccountsPath:      Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
                        CertificatesPath:  Path.Combine(directory, "certificates"),
                        LogToConsole:      false,
                        BridgeDebugLog:    false
                    );
-
-        }
-
-        #endregion
-
-        #region (helper) FreePort()
-
-        private static IPPort FreePort()
-        {
-
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
-            return IPPort.Parse((UInt16) port);
 
         }
 

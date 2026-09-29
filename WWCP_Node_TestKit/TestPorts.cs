@@ -20,6 +20,8 @@
 using System.Net;
 using System.Net.Sockets;
 
+using NUnit.Framework;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.TestKit
@@ -49,6 +51,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// gives up on it.
         /// </summary>
         public const Int32 MaxAttempts = 100;
+
+        /// <summary>
+        /// How often <see cref="StartedOnFreshPorts"/> makes and starts a node
+        /// before a port taken under it is said to be taken for good.
+        /// </summary>
+        public const Int32 StartAttempts = 3;
 
         /// <summary>
         /// Every port this test run has been handed, one way or another.
@@ -115,6 +123,94 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         {
             lock (padlock)
                 return claimed.Add(Port);
+        }
+
+        #endregion
+
+        #region StartedOnFreshPorts(Make)
+
+        /// <summary>
+        /// A node that Make makes, started - and where a port it was handed was
+        /// taken before it could bind it, made again, on fresh ports, and
+        /// started again: up to <see cref="StartAttempts"/> times.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The gap between <see cref="Free"/> letting a port go and a node
+        /// binding it is one nothing here can close, and a test run of another
+        /// assembly or another checkout on the same machine falls into it now
+        /// and then. A test that ends in "something else is already listening
+        /// on it" has said nothing about the node it was to test - and on one
+        /// afternoon, four test runs on one machine lost a test that way.
+        /// </para>
+        /// <para>
+        /// Make is asked again at every attempt, and hands the node fresh ports,
+        /// as <see cref="Free"/> does. A start makes its accounts before it
+        /// comes to its port: those a failed start made - it made up a password,
+        /// so they were not there before - go with it, so that the next start
+        /// is a first start as the failed one was, and a test that asks for the
+        /// password made up at the first start still has one. Accounts that
+        /// were there before stay, and nothing outside the temporary directory
+        /// is ever taken away.
+        /// </para>
+        /// </remarks>
+        /// <param name="Make">A new node, on ports nobody has been handed yet.</param>
+        /// <exception cref="PortUnavailableException">A port was taken <see cref="StartAttempts"/> times in a row.</exception>
+        public static async Task<TNode> StartedOnFreshPorts<TNode>(Func<TNode> Make)
+
+            where TNode : WWCPNode
+
+        {
+
+            for (var attempt = 1; ; attempt++)
+            {
+
+                var node = Make();
+
+                try
+                {
+                    await node.Start();
+                    return node;
+                }
+                catch (PortUnavailableException taken) when (attempt < StartAttempts)
+                {
+
+                    TestContext.Progress.WriteLine($"{taken.Message} - started again on fresh ports, attempt {attempt + 1} of {StartAttempts}.");
+
+                    var itsOwnAccounts = node.GeneratedPassword is not null;
+
+                    await node.DisposeAsync();
+
+                    if (itsOwnAccounts)
+                        ForgetAccounts(node.AccountsPath);
+
+                }
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private) ForgetAccounts(AccountsPath)
+
+        /// <summary>
+        /// Take away the accounts a failed start made - where they are below
+        /// the temporary directory, which is where every test keeps them.
+        /// </summary>
+        private static void ForgetAccounts(String AccountsPath)
+        {
+
+            var accounts   = Path.GetFullPath(AccountsPath);
+            var temporary  = Path.GetFullPath(Path.GetTempPath());
+
+            if (accounts.StartsWith(temporary, StringComparison.OrdinalIgnoreCase) &&
+                accounts.Length > temporary.Length &&
+                System.IO.Directory.Exists(accounts))
+            {
+                System.IO.Directory.Delete(accounts, recursive: true);
+            }
+
         }
 
         #endregion

@@ -27,6 +27,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -111,23 +112,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (helper) FreePort()
-
-        private static IPPort FreePort()
-        {
-
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
-            return IPPort.Parse((UInt16) port);
-
-        }
-
-        #endregion
-
 
         #region TheFirstPasswordIsMadeOfCharactersThatDoNotReadAsEachOther()
 
@@ -155,9 +139,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Directory.CreateDirectory(here);
                 File.Copy(Path.Combine(directory, WWCPConfigFile.DefaultFileName), Path.Combine(here, WWCPConfigFile.DefaultFileName));
 
-                await using var node = new WatchingNode(here, FreePort());
-
-                await node.Start();
+                await using var node = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(here, IPPort.Parse(TestPorts.Free())));
 
                 passwords.Add(node.GeneratedPassword ?? "");
 
@@ -185,12 +167,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AKindOfNodeSeesItsAccountsBeforeThePortOpens()
         {
 
-            var port = FreePort();
-
-            await using (var node = new WatchingNode(directory, port))
+            await using (var node = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(directory, IPPort.Parse(TestPorts.Free()))))
             {
-
-                await node.Start();
 
                 Assert.Multiple(() => {
                     Assert.That(node.Seen,               Has.Count.EqualTo(1));
@@ -203,10 +181,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // And again at the next start, when the accounts are read rather
             // than made.
-            await using (var again = new WatchingNode(directory, FreePort()))
+            await using (var again = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(directory, IPPort.Parse(TestPorts.Free()))))
             {
-
-                await again.Start();
 
                 Assert.Multiple(() => {
                     Assert.That(again.Seen,               Has.Count.EqualTo(1));
@@ -229,7 +205,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AClockNobodyCheckedIsNotSynchronised()
         {
 
-            await using var node = new WatchingNode(directory, FreePort());
+            await using var node = new WatchingNode(directory, IPPort.Parse(TestPorts.Free()));
 
             Assert.That(node.ClockIsSynchronised,  Is.False);
 

@@ -29,6 +29,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -110,14 +111,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
 
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
             return new WWCPNode(
                        Kind:              Kind,
-                       HTTPPort:          IPPort.Parse((UInt16) port),
+                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
                        AccountsPath:      Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
                        Frontend:          Frontend,
@@ -142,9 +138,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ItsSentencesNameItsKind()
         {
 
-            await using var node = Node(Station);
-
-            await node.Start();
+            await using var node = await TestPorts.StartedOnFreshPorts(() => Node(Station));
 
             var resolved  = await node.ResolveAsync("example.org");
             var synced    = await node.SyncTimeAsync();

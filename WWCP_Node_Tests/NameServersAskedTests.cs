@@ -26,6 +26,7 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -134,13 +135,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configuration, $$"""{ "dns": {{DNS}}, "nts": { "enabled": false } }""");
 
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
             return new WWCPNode(
-                       HTTPPort:          IPPort.Parse((UInt16) port),
+                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
                        AccountsPath:      Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
                        CertificatesPath:  Path.Combine(directory, "certificates"),

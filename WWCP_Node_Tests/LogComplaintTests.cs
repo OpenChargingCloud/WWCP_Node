@@ -27,6 +27,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -326,13 +327,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // Never started, so never listening - but a port nobody else has
             // all the same, in case that ever changes.
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
             node = new WWCPNode(
-                          HTTPPort:          IPPort.Parse(port),
+                          HTTPPort:          IPPort.Parse(TestPorts.Free()),
                           AccountsPath:      Path.Combine(directory, "accounts"),
                           ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
                           CertificatesPath:  Path.Combine(directory, "certificates"),

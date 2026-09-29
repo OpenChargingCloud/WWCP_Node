@@ -798,22 +798,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ARunningNodePutsANewIntervalIntoItsClockCheckAtOnce()
         {
 
-            var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-            var port  = ((System.Net.IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
-            await using var node = new WWCPNode(
-                                       HTTPPort:          IPPort.Parse((UInt16) port),
+            await using var node = await TestKit.TestPorts.StartedOnFreshPorts(() => new WWCPNode(
+                                       HTTPPort:          IPPort.Parse(TestKit.TestPorts.Free()),
                                        AccountsPath:      Path.Combine(directory, "accounts"),
                                        ConfigFile:        new WWCPConfigFile(ConfigurationPath),
                                        CertificatesPath:  Path.Combine(directory, "certificates"),
                                        LogToConsole:      false,
                                        BridgeDebugLog:    false,
                                        TimeProvider:      ClockWithoutTimers.Instance
-                                   );
-
-            await node.Start();
+                                   ));
 
             Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "checkEverySeconds": 600 }"""), out var error),  Is.True,  error);
             Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "enabled": false }"""),          out error),      Is.True,  error);
@@ -1063,9 +1056,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task TheClockLineNamesTheServersAsTheyAreRead()
         {
 
-            await using var node = TestNodes.New(directory, Clock: ClockWithoutTimers.Instance);
-
-            await node.Start();
+            await using var node = await TestKit.TestPorts.StartedOnFreshPorts(() => TestNodes.New(directory, Clock: ClockWithoutTimers.Instance));
 
             var line = node.Log.Recent(200).
                                 Select(entry => entry.Message).
