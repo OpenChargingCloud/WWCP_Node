@@ -13,7 +13,7 @@
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import { beingSaved, humanizeKey, isChecked, numberField, numberFrom, safeNext, whileSaving } from './ui.ts';
+import { beingSaved, formatTimestamp, humanizeKey, isChecked, numberField, numberFrom, safeNext, whileSaving } from './ui.ts';
 
 
 /** Something on a page that can be switched off; all whileSaving cares about. */
@@ -247,6 +247,28 @@ describe('where somebody is sent after signing in', () => {
         assert.equal(safeNext('/\t/evil.example/'),  null, 'a tab');
         assert.equal(safeNext('/\n/evil.example/'),  null, 'a line break');
 
+    });
+
+});
+
+
+describe('the whole moment', () => {
+
+    const inUTC = (Locale: string) => new Intl.DateTimeFormat(Locale, { dateStyle: 'medium', timeStyle: 'medium', timeZone: 'UTC' });
+
+    /** One space for every kind a locale writes, as the narrow one before "PM". */
+    const spaced = (Text: string) => Text.replace(/\s/g, ' ');
+
+    it('has its milliseconds after the seconds, before the "PM" of a twelve-hour clock', () => {
+        assert.equal(spaced(formatTimestamp('2026-09-29T15:52:17.123Z', inUTC('en-US'))), 'Sep 29, 2026, 3:52:17.123 PM');
+    });
+
+    it('has them after the seconds on a twenty-four-hour clock as well', () => {
+        assert.equal(spaced(formatTimestamp('2026-09-29T15:52:07.004Z', inUTC('de-DE'))), '29.09.2026, 15:52:07.004');
+    });
+
+    it('is what it was given, where that is no moment', () => {
+        assert.equal(formatTimestamp('not a moment'), 'not a moment');
     });
 
 });

@@ -189,15 +189,25 @@ export function formatTime(iso: string): string {
 
 }
 
-/** The whole moment, for the title of a log line and for the details. */
-export function formatTimestamp(iso: string): string {
+/**
+ * The whole moment, for the title of a log line and for the details - its
+ * milliseconds after the seconds, where the locale writes the seconds: added
+ * to the end, they came after the "PM" of a twelve-hour clock, "3:52:17
+ * PM.123". A date style and fractional seconds cannot be asked of one format.
+ */
+export function formatTimestamp(iso:     string,
+                                Moment:  Intl.DateTimeFormat = wholeMoment): string {
 
     const date = new Date(iso);
 
-    return Number.isNaN(date.getTime())
-               ? iso
-               : wholeMoment.format(date) +
-                 `.${String(date.getMilliseconds()).padStart(3, '0')}`;
+    if (Number.isNaN(date.getTime()))
+        return iso;
+
+    const milliseconds = `.${String(date.getMilliseconds()).padStart(3, '0')}`;
+
+    return Moment.formatToParts(date).
+                  map(part => part.type === 'second' ? part.value + milliseconds : part.value).
+                  join('');
 
 }
 
