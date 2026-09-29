@@ -96,6 +96,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         private readonly SemaphoreSlim                        storeLock  = new (1, 1);
         private readonly Dictionary<String, CertificateEntry>  entries    = [];
+
+        /// <summary>
+        /// What the index remembers of kinds this node does not keep: not in
+        /// the store, and written back into the index as it was read, for the
+        /// day such a kind is kept again - switched off where it was, under
+        /// its label.
+        /// </summary>
+        private readonly Dictionary<String, CertificateEntry>  setAside   = [];
         private readonly EventLog                              log;
 
         #endregion
@@ -367,6 +375,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 var found       = new Dictionary<String, CertificateEntry>();
                 var adopted     = 0;
 
+                // Only the directories of the kinds kept are read, so an entry
+                // of any other kind is not found - and is not gone either. It
+                // was dropped from the index as if it were, the security log
+                // saying of a file that was still there that it was "no longer
+                // there", and a root switched off came back switched on when
+                // its kind was kept again (found by the CSMS).
+                setAside.Clear();
+
+                foreach (var entry in remembered.Values.Where(entry => !Kinds.Contains(entry.Kind)))
+                    setAside.Add(entry.Id, entry);
+
                 foreach (var kind in Kinds)
                 {
 
@@ -429,10 +448,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 }
 
-                foreach (var gone in remembered.Values.Where(entry => !found.ContainsKey(entry.Id)))
+                foreach (var gone in remembered.Values.Where(entry => Kinds.Contains(entry.Kind) && !found.ContainsKey(entry.Id)))
                     log.Metrological(LogLevel.Notice,
                                      $"Certificates: '{gone.FileName}' is no longer there and was dropped from the index.",
                                      "certificates", "security");
+
+                if (setAside.Count > 0)
+                    log.Info($"Certificates: {setAside.Count} in the index of a kind this {NodeName} does not keep " +
+                             $"({String.Join(", ", setAside.Values.Select(entry => entry.Kind.Describe()).Distinct())}) " +
+                             $"left as {(setAside.Count == 1 ? "it was" : "they were")}.",
+                             "certificates");
 
                 entries.Clear();
 
@@ -1976,6 +2001,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                new JProperty("certificates",
                                    new JArray(
                                        entries.Values.
+                                           Concat (setAside.Values).
                                            OrderBy(entry => entry.Kind.SortOrder()).
                                            ThenBy (entry => entry.Label, StringComparer.OrdinalIgnoreCase).
                                            Select (entry => entry.ToJSON())

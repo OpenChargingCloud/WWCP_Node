@@ -839,6 +839,61 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnEntryOfAKindNoLongerKeptIsLeftAsItWas()
+
+        /// <summary>
+        /// A certificate of a kind a node stops keeping is not in its store, and
+        /// not gone either: the index keeps it as it was - switched off, under
+        /// its label - for the day the kind is kept again.
+        /// </summary>
+        /// <remarks>
+        /// Found by the CSMS before it stopped keeping the client roots nothing
+        /// of it read: the index dropped them, the security log saying of files
+        /// that were still there that they were "no longer there", and a root
+        /// somebody had switched off came back switched on once the kind was
+        /// kept again.
+        /// </remarks>
+        [Test]
+        public void AnEntryOfAKindNoLongerKeptIsLeftAsItWas()
+        {
+
+            var first = new CertificateStore(directory, log, Kinds: [ CertificateKind.V2GRoot, CertificateKind.MORoot ]);
+
+            first.Reload();
+
+            using var root = Root("An MO Root");
+
+            Assert.That(first.Import(Pem(root), CertificateKind.MORoot, null, "What we call it", out var entry, out var error),
+                        Is.True, error);
+
+            Assert.That(first.SetActive(entry!.Id, false, out _, out var error2), Is.True, error2);
+
+            var said = new List<String>();
+
+            log.OnLogged += logged => said.Add(logged.Message);
+
+            // A start that keeps no MO roots, and then one that keeps them again.
+            var without = new CertificateStore(directory, log, Kinds: [ CertificateKind.V2GRoot ]);
+            without.Reload();
+
+            var again   = new CertificateStore(directory, log, Kinds: [ CertificateKind.V2GRoot, CertificateKind.MORoot ]);
+            again.Reload();
+
+            var back    = again.Get(entry!.Id);
+
+            Assert.Multiple(() => {
+                Assert.That(without.Entries,  Is.Empty,  "a kind that is not kept is not in the store");
+                Assert.That(said,             Has.None.Contains("no longer there"),
+                            "the security log said of a file that is still there that it had gone");
+                Assert.That(back,             Is.Not.Null);
+                Assert.That(back?.IsActive,   Is.False,  "a root switched off came back switched on");
+                Assert.That(back?.Label,      Is.EqualTo("What we call it"));
+            });
+
+        }
+
+        #endregion
+
         #region TheWarningAboutKeysSaysWhatThereIsToTake()
 
         /// <summary>
