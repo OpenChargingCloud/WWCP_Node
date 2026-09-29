@@ -8,7 +8,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it }     from 'node:test';
 
-import { asksBeforeItsReload, drawnAnewWithoutItsDrafts, formsNotHeld, formsOf, inlineStylesOf, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand } from './pages.ts';
+import { asksBeforeItsReload, drawnAnewWithoutItsDrafts, formsKnownByNothing, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -171,6 +171,19 @@ describe('a page drawn anew', () => {
                                                      current = await api.csms.saveCredentials(update);  draw();
                                                      current = loaded;  draw();`)),
                      2);
+    });
+
+    it('with a form known by neither an id nor a data-id is found, one for each such form', () => {
+        assert.equal(formsKnownByNothing(page(`<form id="add-form">  <form class="form-stack upload-form" data-id="\${entry.id}">
+                                               <form class="form-stack" data-edit="\${entry.id}">  <form>`)),
+                     2);
+    });
+
+    it('naming as the one saved a form it has not is found, and a form it has, none, or a variable pass', () => {
+        assert.deepEqual(keptFormsNotOnThePage(page(`<form id="token-form" class="form-stack">
+                                                     keepDrafts(content, 'token-forms', draw);  keepDrafts(content, 'token-form', draw);
+                                                     keepDrafts(content, null, draw);  keepDrafts(content, saved, draw);  keepDrafts(content, id, draw);`)),
+                         [ 'token-forms' ]);
     });
 
     it('through keepDrafts passes, and so do a card drawn on its own and a draw() a comment speaks of', () => {

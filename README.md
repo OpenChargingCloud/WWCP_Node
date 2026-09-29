@@ -890,7 +890,8 @@ once, `anyFormTypedSinceDrawn(content)` - and asks before its Reload throws
 one away; it draws itself anew, after a save, a removal or a row opened for
 editing, through `keepDrafts(content, the form saved or null, draw)`, which
 puts back what is typed into its other forms - `draw()` is for the first
-drawing only; every number typed is read with `numberField`, or `numberFrom`
+drawing only, the form it names as the one saved is one it has, and every
+form has an id or a data-id to be known by; every number typed is read with `numberField`, or `numberFrom`
 for an input outside a form, not `Number()`, which makes an emptied field
 0 - but where a page says itself what empty means, `=== '' ? ... :` before
 it. Every page links through `toURL`, since `href="/..."` leads past the

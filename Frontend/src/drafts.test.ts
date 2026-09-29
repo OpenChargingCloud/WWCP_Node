@@ -41,9 +41,9 @@ const text = (name: string, drawn: string, typed: string = drawn): Control =>
 const hidden = (name: string, drawn: string): Control =>
     ({ tagName: 'INPUT', name, type: 'hidden', value: drawn, defaultValue: drawn, checked: false, defaultChecked: false });
 
-/** A box drawn ticked or not, and left ticked or not. */
-const box = (name: string, drawn: boolean, ticked: boolean = drawn): Control =>
-    ({ tagName: 'INPUT', name, type: 'checkbox', value: 'on', defaultValue: 'on', checked: ticked, defaultChecked: drawn });
+/** A box drawn ticked or not, and left ticked or not - standing for "on", or for the value given. */
+const box = (name: string, drawn: boolean, ticked: boolean = drawn, value: string = 'on'): Control =>
+    ({ tagName: 'INPUT', name, type: 'checkbox', value, defaultValue: value, checked: ticked, defaultChecked: drawn });
 
 /** A list drawn with one choice, and left at another. */
 const list = (name: string, values: string[], drawn: string, chosen: string = drawn): Control =>
@@ -130,6 +130,19 @@ describe('a page drawn anew with a draft on it', () => {
         assert.equal(renegotiate!.checked, true);
         assert.deepEqual(protocol!.options!.filter(option => option.selected).map(option => option.value), [ '20' ]);
         assert.equal(typedSinceDrawn(asRoot(shown.forms[0]!)), true);
+
+    });
+
+    it('leaves boxes that stand for other things as drawn, as many as they were', () => {
+
+        const shown = page([ form('import-form', [ box('usage', false, true, 'modbus'), box('usage', false, false, 'web') ]) ]);
+
+        keepDrafts(asRoot(shown), null, () => {
+            shown.forms = [ form('import-form', [ box('usage', false, false, 'dns'), box('usage', false, false, 'nts') ]) ];
+        });
+
+        assert.deepEqual(shown.forms[0]!.elements.map(control => control.checked), [ false, false ],
+                         'modbus ticked, and the time servers\' box ticked for it');
 
     });
 

@@ -178,6 +178,36 @@ export function drawnAnewWithoutItsDrafts(Page: Page): number {
 }
 
 /**
+ * How many forms of a page have neither an id nor a data-id: keepDrafts cannot
+ * tell such a form from its neighbours after a drawing anew, and drops what
+ * was typed into it without a word - the forms drawn for each login and each
+ * connection on the charging station's pages, which said only data-edit.
+ */
+export function formsKnownByNothing(Page: Page): number {
+    return [ ...Page.source.matchAll(/<form(\s[^>]*)?>/g) ].
+               filter(match => !/\s(id|data-id)="[^"]+"/.test(match[1] ?? '')).
+               length;
+}
+
+/**
+ * The forms a page names as the one saved - keepDrafts(content, 'x-form',
+ * draw) - that it has no form of. Misspelt, the form saved is not told from
+ * the others, and what was typed into it comes back once it is saved, as if
+ * it were still to be saved: 'token-forms' for 'token-form', a mutation the
+ * count of draw() let through (the e-mobility provider). A name the page
+ * gives by a variable, or by an entry's data-id, is not asked.
+ */
+export function keptFormsNotOnThePage(Page: Page): string[] {
+
+    const forms = new Set(formsOf(Page));
+
+    return [ ...Page.source.matchAll(/keepDrafts\(\s*[\w.]+\s*,\s*'([^']+)'/g) ].
+               map(match => match[1]!).
+               filter(name => !forms.has(name));
+
+}
+
+/**
  * Where a page says itself who is signed in - "Signed in as ${…}" - rather
  * than through mayButNot. Said by hand, it was said four ways, and one of them,
  * ?? 'somebody' after the roles joined, told an account with no role "Signed
@@ -261,12 +291,27 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
 
     describe('a page drawn anew', () => {
 
-        for (const page of pages.filter(page => page.source.includes('<form')))
+        for (const page of pages.filter(page => page.source.includes('<form'))) {
+
             it(`${page.name} draws itself anew through keepDrafts, so that what is typed into one form outlives saving another`, () => {
                 const times = drawnAnewWithoutItsDrafts(page);
                 assert.equal(times, 0, `${page.name} draws itself anew with draw() ${times} time(s) beyond the first, and what is typed ` +
                                        `into its forms goes with it - keepDrafts(content, the form saved or null, draw) puts it back`);
             });
+
+            it(`${page.name} names a form it has where it names the one saved`, () => {
+                const named = keptFormsNotOnThePage(page);
+                assert.deepEqual(named, [], `${page.name} names ${named.join(', ')} as the form saved, and has no form of that id - ` +
+                                            `what was typed into the one saved comes back after the save`);
+            });
+
+            it(`${page.name} gives every form an id or a data-id, so that what is typed into it outlives a drawing anew`, () => {
+                const unknown = formsKnownByNothing(page);
+                assert.equal(unknown, 0, `${page.name} has ${unknown} form(s) with neither an id nor a data-id, whose drafts ` +
+                                         `keepDrafts cannot tell from their neighbours and drops`);
+            });
+
+        }
 
     });
 

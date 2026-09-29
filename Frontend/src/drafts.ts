@@ -12,6 +12,16 @@
  * typed into it: the form saved is drawn as the node now has it, the rest as
  * they were left - still typed into, so that leaving the page still asks
  * first.
+ *
+ * What a page shows because of what is typed - a remark beside a list, the
+ * fields a box shows and lets be filled in - is drawn anew as the node's
+ * answer has it, not as what is put back: putting a value back is not typing
+ * it, and no input or change is sent for it, since a listener may save at
+ * once what it is told of, as a switch in a list does. A page with such a
+ * thing on a form that is not the one saved says it again after keepDrafts
+ * (the local controller's remark on the kind of key to make); a field left
+ * disabled that way is not sent by FormData at all (found by the e-mobility
+ * provider and the hub).
  */
 
 import { typedSinceDrawn } from './unsaved';
@@ -130,7 +140,10 @@ export function draftsIn(Root: ParentNode, Except: string | null): Map<string, K
 /**
  * Put what was typed back into the forms drawn anew, control by control. A
  * form drawn with other controls than it had is left as drawn: which of them
- * a value belonged to is no longer certain.
+ * a value belonged to is no longer certain. A box or a radio button is the
+ * same one only with the same value, which is what it stands for: boxes for
+ * what another kind of certificate is for, as many as before, would have been
+ * ticked as the boxes of the kind chosen before were (found by the meter).
  */
 export function putBack(Root: ParentNode, Drafts: ReadonlyMap<string, readonly Kept[]>): void {
 
@@ -145,7 +158,10 @@ export function putBack(Root: ParentNode, Drafts: ReadonlyMap<string, readonly K
         const controls = controlsOf(form);
 
         if (controls.length !== kept.length ||
-            controls.some((control, index) => control.name !== kept[index]!.name || control.type !== kept[index]!.type))
+            controls.some((control, index) => control.name !== kept[index]!.name ||
+                                              control.type !== kept[index]!.type ||
+                                              ((control.type === 'checkbox' || control.type === 'radio') &&
+                                               control.value !== kept[index]!.value)))
             continue;
 
         controls.forEach((control, index) => {
