@@ -195,7 +195,10 @@ export function formsKnownByNothing(Page: Page): number {
  * the others, and what was typed into it comes back once it is saved, as if
  * it were still to be saved: 'token-forms' for 'token-form', a mutation the
  * count of draw() let through (the e-mobility provider). A name the page
- * gives by a variable, or by an entry's data-id, is not asked.
+ * gives by a variable, or by an entry's data-id, is not asked - and neither
+ * is one handed on through a function of the page's own, drawAnew('x-form')
+ * or load('x-form'): a page that names the form saved that way has only its
+ * own eyes on it (the charging station and the meter found theirs so).
  */
 export function keptFormsNotOnThePage(Page: Page): string[] {
 

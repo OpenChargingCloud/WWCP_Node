@@ -891,27 +891,27 @@ one away; it draws itself anew, after a save, a removal or a row opened for
 editing, through `keepDrafts(content, the form saved or null, draw)`, which
 puts back what is typed into its other forms - `draw()` is for the first
 drawing only, the form it names as the one saved is one it has, and every
-form has an id or a data-id to be known by; every number typed is read with `numberField`, or `numberFrom`
-for an input outside a form, not `Number()`, which makes an emptied field
-0 - but where a page says itself what empty means, `=== '' ? ... :` before
-it. Every page links through `toURL`, since `href="/..."` leads past the
-base the node may be served under in a new tab or a copied link; and takes
-its look from the stylesheet, by a class - `style="..."` is dropped by the
-policy the pages are served with, `style-src 'self'`, which the kit asks
-every kind for. `input.capitals` and a card heading's `.heading-action`
-are there for what three partner pages wrote as style attributes. What
-somebody may not do, a page says through `mayButNot('look at the name
-resolution', 'change it')` - "Signed in as cpo, which may look at the name
-resolution but not change it. That needs a role that may change it." - and
-it names no role as the one that is needed: which roles there are, and what
-each may, is the configuration file's to say.
-`withForms` names the pages with a form, so that
-the rules are not said of nothing; `dialogForms` names the forms that are a
-dialog's, which asks for itself when it is closed; `notDrafts` names a page
-whose form is none, with why - signing in is the way in, and nothing typed
-there is the node's to lose. So every kind has a frontend test of its own,
-and the scaffolding with it; one whose pages have no form yet has
-`withForms: []`, which says so, and says it again the day one has.
+form has an id or a data-id to be known by; every number typed is read with
+`numberField`, or `numberFrom` for an input outside a form, not `Number()`,
+which makes an emptied field 0 - but where a page says itself what empty
+means, `=== '' ? ... :` before it. Every page links through `toURL`, since
+`href="/..."` leads past the base the node may be served under in a new tab
+or a copied link; and takes its look from the stylesheet, by a class -
+`style="..."` is dropped by the policy the pages are served with, `style-src
+'self'`, which the kit asks every kind for. `input.capitals` and a card
+heading's `.heading-action` are there for what three partner pages wrote as
+style attributes. What somebody may not do, a page says through
+`mayButNot('look at the name resolution', 'change it')` - "Signed in as cpo,
+which may look at the name resolution but not change it. That needs a role
+that may change it." - and it names no role as the one that is needed: which
+roles there are, and what each may, is the configuration file's to say.
+`withForms` names the pages with a form, so that the rules are not said of
+nothing; `dialogForms` names the forms that are a dialog's, which asks for
+itself when it is closed; `notDrafts` names a page whose form is none, with
+why - signing in is the way in, and nothing typed there is the node's to
+lose. So every kind has a frontend test of its own, and the scaffolding with
+it; one whose pages have no form yet has `withForms: []`, which says so, and
+says it again the day one has.
 
 Asked of every kind's own pages before they were shared, the rules found
 pages of five kinds that held nothing at all, or not every form - a flag of

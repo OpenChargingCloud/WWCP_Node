@@ -263,8 +263,8 @@ describe('the whole moment', () => {
         assert.equal(spaced(formatTimestamp('2026-09-29T15:52:17.123Z', inUTC('en-US'))), 'Sep 29, 2026, 3:52:17.123 PM');
     });
 
-    it('has them after the seconds on a twenty-four-hour clock as well', () => {
-        assert.equal(spaced(formatTimestamp('2026-09-29T15:52:07.004Z', inUTC('de-DE'))), '29.09.2026, 15:52:07.004');
+    it('has them after the seconds on a twenty-four-hour clock as well, set off as the locale sets them off', () => {
+        assert.equal(spaced(formatTimestamp('2026-09-29T15:52:07.004Z', inUTC('de-DE'))), '29.09.2026, 15:52:07,004');
     });
 
     it('is what it was given, where that is no moment', () => {

@@ -190,10 +190,42 @@ export function formatTime(iso: string): string {
 }
 
 /**
+ * What a format's locale writes between the seconds and their fraction - "."
+ * in English, "," in German - as the time of day in front of every log line
+ * writes it. Asked once for each format: the log page asks for a moment once
+ * for each line.
+ */
+const fractionSeparators = new WeakMap<Intl.DateTimeFormat, string>();
+
+function fractionSeparatorOf(Moment: Intl.DateTimeFormat): string {
+
+    let separator = fractionSeparators.get(Moment);
+
+    if (separator === undefined)
+    {
+
+        const parts  = new Intl.DateTimeFormat(Moment.resolvedOptions().locale, { second: '2-digit', fractionalSecondDigits: 3 }).
+                           formatToParts(0);
+        const at     = parts.findIndex(part => part.type === 'fractionalSecond');
+
+        separator    = at > 0 && parts[at - 1]!.type === 'literal' ? parts[at - 1]!.value : '.';
+
+        fractionSeparators.set(Moment, separator);
+
+    }
+
+    return separator;
+
+}
+
+/**
  * The whole moment, for the title of a log line and for the details - its
  * milliseconds after the seconds, where the locale writes the seconds: added
  * to the end, they came after the "PM" of a twelve-hour clock, "3:52:17
  * PM.123". A date style and fractional seconds cannot be asked of one format.
+ * And set off from them as the locale sets them off, as the time of day in
+ * front of the same line does: "16:47:22,700" beside "16:47:22.700" was one
+ * moment written two ways (found by the meter).
  */
 export function formatTimestamp(iso:     string,
                                 Moment:  Intl.DateTimeFormat = wholeMoment): string {
@@ -203,7 +235,7 @@ export function formatTimestamp(iso:     string,
     if (Number.isNaN(date.getTime()))
         return iso;
 
-    const milliseconds = `.${String(date.getMilliseconds()).padStart(3, '0')}`;
+    const milliseconds = fractionSeparatorOf(Moment) + String(date.getMilliseconds()).padStart(3, '0');
 
     return Moment.formatToParts(date).
                   map(part => part.type === 'second' ? part.value + milliseconds : part.value).
