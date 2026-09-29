@@ -8,7 +8,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it }     from 'node:test';
 
-import { asksBeforeItsReload, drawnAnewWithoutItsDrafts, formsKnownByNothing, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand } from './pages.ts';
+import { asksBeforeItsReload, drawnAnewWithoutItsDrafts, formsKnownByNothing, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -143,6 +143,22 @@ describe('a style', () => {
 
     it('said by a class passes, and so does a style property the script sets, which the policy lets through', () => {
         assert.deepEqual(inlineStylesOf(page(`<input name="partyId" class="capitals" data-style="x" />  bar.style.width = \`\${percent}%\`;`)),
+                         []);
+    });
+
+});
+
+
+describe('a table', () => {
+
+    it('drawn straight into its card is found, as on a phone it stands past the card', () => {
+        assert.deepEqual(tablesOutsideAScroll(page(`<p class="hint">Who may sign in.</p>\n    <table class="table">\n<thead></thead></table>`)),
+                         [ '<table class="table">' ]);
+    });
+
+    it('in a .table-scroll passes, with other classes beside it as well', () => {
+        assert.deepEqual(tablesOutsideAScroll(page(`<div class="table-scroll">\n    <table class="records"></table>\n</div>  ` +
+                                                   `<div class="wide table-scroll" data-id="x"><table></table></div>`)),
                          []);
     });
 

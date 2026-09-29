@@ -2,10 +2,13 @@
 @use 'mixins' as *;
 
 // One name server: address, port, transport, and a way to take it away.
+//
+// Measured by its own width, as the time servers are: see .time-server-list.
 .server-list {
     display:         flex;
     flex-direction:  column;
     gap:             0.4rem;
+    container-type:  inline-size;
 }
 
 .server-row {
@@ -33,6 +36,41 @@
         width: 5.5rem;
     }
 
+}
+
+// Narrower, a name server takes two lines: its address on a line of its own,
+// where an IPv6 address fits, and its port, transport and buttons below it.
+// In one line with the rest, the address was what gave way: 67 pixels of a
+// list 303 across, "192.168" of 192.168.178.1 and "fd00:00" of an IPv6
+// address, and the transport "UD" (found by the energy meter).
+@container (max-width: 36rem) {
+
+    .server-row {
+
+        flex-wrap: wrap;
+
+        input[data-field="address"] {
+            flex-basis: 100%;
+        }
+
+    }
+
+    // More than one line to a server: a line between two of them says whose
+    // they are.
+    .server-entry + .server-entry {
+        border-top:   1px solid $color-border;
+        padding-top:  0.4rem;
+    }
+
+}
+
+// On a phone three, the buttons on a line of their own, and the transport
+// taking what the port leaves of its line - rather than one button alone on
+// a third.
+@container (max-width: 25rem) {
+    .server-row select {
+        flex: 1 1 calc(100% - 6rem);
+    }
 }
 
 // The time servers of the NTS page.

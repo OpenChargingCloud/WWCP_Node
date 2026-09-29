@@ -912,7 +912,10 @@ or a copied link; and takes its look from the stylesheet, by a class -
 `style="..."` is dropped by the policy the pages are served with, `style-src
 'self'`, which the kit asks every kind for. `input.capitals` and a card
 heading's `.heading-action` are there for what three partner pages wrote as
-style attributes. What somebody may not do, a page says through
+style attributes. A table sits in a `<div class="table-scroll">`, which
+scrolls it inside its card: outside one, a table wider than its card stood
+past it on a phone, and the page scrolled sideways. What somebody may not
+do, a page says through
 `mayButNot('look at the name resolution', 'change it')` - "Signed in as cpo,
 which may look at the name resolution but not change it. That needs a role
 that may change it." - and it names no role as the one that is needed: which

@@ -23,6 +23,9 @@
         gap:             0.5rem;
         // The same gutter as the page below it.
         padding:         0 1rem;
+        // An open menu taller than the screen scrolls. On a phone held
+        // sideways, 375 pixels high, the frame cut off what did not fit.
+        overflow-y:      auto;
 
         // A line of its own, with the button that opens the menu at its end -
         // said as deep in as _shell.scss hides the button, or that would win.
@@ -48,23 +51,15 @@
             }
         }
 
-        // Once open, on the lines below the brand, over as many lines as it
-        // takes on a phone. It had what the brand and the sign-out button left
-        // over instead: on a phone 390 pixels across, a single pixel for 234
-        // pixels of entries, the rest scrolled out of sight inside it.
+        // Once open, below the brand, one entry to a line and a page's own
+        // pages under it, as beside the page on a wide screen. Flowed as a
+        // row that wrapped, the entries read out of order: the local
+        // controller's Logs stood beside Configuration, above its eight
+        // pages, and the CSMS's Roaming data beside Configuration, with its
+        // Logs only below Configuration's ten (found by the CSMS).
         .menu {
-            display:    flex;
-            flex:       1 1 auto;
-            flex-wrap:  wrap;
-            margin:     0;
-
-            a {
-                padding: 0.5rem 0.8rem;
-
-                &.active {
-                    box-shadow: inset 0 -3px 0 $color-accent;
-                }
-            }
+            flex:    1 0 100%;
+            margin:  0;
         }
 
         // Allowed to be narrower than a long user id, which is then cut off
@@ -92,8 +87,13 @@
         padding: 1rem;
     }
 
+    // The same as the frame's: a card with a table in it made its column as
+    // wide as the whole table, and the page scrolled sideways under a card cut
+    // off at the right - 402 pixels of the local controller's logins on a
+    // phone 375 across, 743 of the EMSP's roaming partners (found by the
+    // EMSP). No wider than the page, a table scrolls inside its card.
     .cards {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 
 }

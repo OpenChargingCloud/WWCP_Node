@@ -21,6 +21,9 @@
  * - that a page's look comes from the stylesheet - a style attribute is
  *   dropped by the policy every node serves its pages with (found on the
  *   partner pages of the CSMS, the e-mobility provider and the hub);
+ * - that a table scrolls in a .table-scroll - outside one, a table wider than
+ *   its card stood past it on a phone, and the page scrolled sideways (found
+ *   on the local controller's logins, once its cards kept to the page);
  * - that a page says what somebody may not do through mayButNot, and names no
  *   role that would do - said by hand, the DNS and NTS pages told an account
  *   with no role "Signed in as , which may …", and the kinds' own pages named
@@ -127,6 +130,18 @@ export function formsNotHeld(Page: Page, DialogForms: readonly string[] = []): s
 export function inlineStylesOf(Page: Page): string[] {
     return [ ...Page.source.matchAll(/\sstyle\s*=\s*("[^"]*"|'[^']*')|<style\b|setAttribute\(\s*['"]style['"]/g) ].
                map(match => match[0].trim());
+}
+
+/**
+ * The tables a page draws outside a .table-scroll, which scrolls a table
+ * wider than its card inside the card. Outside one, on a phone, the table
+ * stood past its card and the page scrolled sideways with it: the local
+ * controller's logins, 360 and 591 pixels wide in a card of 304.
+ */
+export function tablesOutsideAScroll(Page: Page): string[] {
+    return [ ...Page.source.matchAll(/<table\b[^>]*>/g) ].
+               filter(match => !/<div class="[^"]*\btable-scroll\b[^"]*"[^>]*>\s*$/.test(Page.source.slice(0, match.index))).
+               map(match => match[0]);
 }
 
 /**
@@ -340,11 +355,19 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
 
     describe('the look of a page', () => {
 
-        for (const page of pages)
+        for (const page of pages) {
+
             it(`${page.name} takes its look from the stylesheet, not from a style the policy drops`, () => {
                 const styles = inlineStylesOf(page);
                 assert.deepEqual(styles, [], `${page.name} writes ${styles.join(', ')} into itself - style-src 'self' lets no style through that is not in the stylesheet; say it by a class`);
             });
+
+            it(`${page.name} scrolls a table inside a .table-scroll, so that on a phone the page does not scroll sideways`, () => {
+                const tables = tablesOutsideAScroll(page);
+                assert.deepEqual(tables, [], `${page.name} draws ${tables.join(', ')} outside a <div class="table-scroll"> - wider than its card, it stands past it`);
+            });
+
+        }
 
     });
 
