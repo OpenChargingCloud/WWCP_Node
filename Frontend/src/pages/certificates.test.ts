@@ -14,7 +14,7 @@ import type { Certificate }  from '../api/client.ts';
     querySelector: (selector: string) => selector === 'meta[name="node-name"]' ? { content: 'local controller' } : null
 };
 
-const { marksOf, stateOf } = await import('./certificates.ts');
+const { believedHint, marksOf, stateOf } = await import('./certificates.ts');
 
 
 const now  = Date.parse('2026-09-29T12:00:00Z');
@@ -74,6 +74,25 @@ describe('what the node has chosen a certificate for', () => {
     it('is nothing for a certificate nothing has chosen, or where nothing is chosen at all', () => {
         assert.deepEqual(marksOf(certificate({ id: 'fedcba9876543210' }), chosen), []);
         assert.deepEqual(marksOf(certificate(), undefined), []);
+    });
+
+});
+
+
+describe('what a node believes, where its kind says nothing of its own', () => {
+
+    it('is said of every kind of root, not of the servers it connects to alone', () => {
+
+        const said = believedHint('electric vehicle', [ 'v2gRoot', 'moRoot', 'oemRoot' ]).value;
+
+        assert.match(said, /the roots a certificate shown to this electric vehicle has to chain to/);
+        assert.doesNotMatch(said, /server|this machine/, 'a vehicle\'s V2G, contract and OEM roots are no server\'s');
+
+    });
+
+    it('says that a server may chain to what this machine trusts as well, where there are TLS roots', () => {
+        assert.match(believedHint('local controller', [ 'tlsRoot', 'clientRoot' ]).value,
+                     /A server's certificate may chain to the roots this machine trusts as well\./);
     });
 
 });

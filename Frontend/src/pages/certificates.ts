@@ -84,6 +84,27 @@ export function marksOf(Entry:   Certificate,
 
 }
 
+/**
+ * What is said above the roots where a kind of node says nothing of its own:
+ * what every kind of root is, as each card's heading says it - not a server's
+ * roots alone, which a vehicle's V2G, contract and OEM roots are not, nor a
+ * CSMS's roots for the stations connecting to it - and, where there are TLS
+ * roots among them, that a server may chain to the roots this machine trusts
+ * as well.
+ */
+export function believedHint(NodeName:      string,
+                             TrustAnchors:  readonly string[]): HTMLFragment {
+
+    return html`
+        Trust anchors: the roots a certificate shown to this ${NodeName} has to chain to, each kind for
+        what its card says it is for. Every switched-on root of a kind is believed at once.
+        ${TrustAnchors.includes('tlsRoot')
+              ? html`A server's certificate may chain to the roots this machine trusts as well.`
+              : ''}
+    `;
+
+}
+
 
 /**
  * This node's own certificate store: everything it believes, what it presents
@@ -207,10 +228,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
                     <h2>What this ${config.nodeName} believes</h2>
                     <p class="hint">
-                        ${Options.hints?.believes ?? html`
-                            Trust anchors: the roots a server this ${config.nodeName} connects to may chain to,
-                            beside the ones this machine trusts. Every switched-on root is believed at once.
-                        `}
+                        ${Options.hints?.believes ?? believedHint(config.nodeName, store.trustAnchors)}
                     </p>
                     ${store.trustAnchors.map(kind => kindCard(kind))}
 
