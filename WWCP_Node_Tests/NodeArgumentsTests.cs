@@ -1,0 +1,418 @@
+﻿/*
+ * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
+ * This file is part of WWCP_Node <https://github.com/OpenChargingCloud/WWCP_Node>
+ *
+ * Licensed under the Affero GPL license, Version 3.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.gnu.org/licenses/agpl.html
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#region Usings
+
+using NUnit.Framework;
+
+using org.GraphDefined.Vanaheimr.Hermod;
+
+using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.CommandLine;
+
+#endregion
+
+namespace cloud.charging.open.protocols.WWCP.Node.Tests
+{
+
+    /// <summary>
+    /// The command line every kind of node reads alike: what each switch
+    /// sets, what is refused and in which words - the words eight kinds had
+    /// written eight times - and everything else left for the kind as it was
+    /// typed. And what -h shows of it.
+    /// </summary>
+    [TestFixture]
+    public class NodeArgumentsTests
+    {
+
+        #region Data
+
+        private static readonly NodeKind TestKind = new ("test node", "test", "TestNode", "Test", "test");
+
+        private static NodeUsage Usage(IEnumerable<CertificateKind>? CertificateKinds  = null,
+                                       IEnumerable<String>?          Synopsis          = null,
+                                       IEnumerable<String>?          After             = null,
+                                       IEnumerable<String>?          Before            = null,
+                                       String                        Program           = "TestNodeCLI",
+                                       NodeKind?                     Kind              = null)
+
+            => new (Program,
+                    Kind ?? TestKind,
+                    IPPort.Parse(4711),
+                    "libs/Test/Test/Frontend",
+                    CertificateKinds:      CertificateKinds,
+                    Synopsis:              Synopsis,
+                    AfterTheWebInterface:  After,
+                    BeforeTheLog:          Before);
+
+        #endregion
+
+
+        #region EverySwitchEveryNodeHasIsRead()
+
+        /// <summary>
+        /// Each switch sets what it says it sets, and nothing is left over.
+        /// </summary>
+        [Test]
+        public void EverySwitchEveryNodeHasIsRead()
+        {
+
+            var frontend  = Directory.CreateTempSubdirectory("node-frontend-").FullName;
+
+            try
+            {
+
+                var parsed = NodeArguments.Parse([ "--port", "8080", "--any", "--frontend", frontend,
+                                                   "--accounts", "people", "--config", "node.json",
+                                                   "-v", "--no-trace", "--log-file", "logs-here",
+                                                   "--certificate-password", "secret", "--list-certificates",
+                                                   "--import-certificate", "tlsRoot=root.pem",
+                                                   "--import-certificate", "tlsServer=server.pem" ]);
+
+                Assert.Multiple(() => {
+                    Assert.That(parsed.Problem,              Is.Null);
+                    Assert.That(parsed.Port,                 Is.EqualTo(IPPort.Parse(8080)));
+                    Assert.That(parsed.HTTPHostname,         Is.EqualTo(IPvXAddress.Any));
+                    Assert.That(parsed.FrontendDirectory,    Is.EqualTo(frontend));
+                    Assert.That(parsed.Frontend,             Is.Not.Null);
+                    Assert.That(parsed.AccountsPath,         Is.EqualTo("people"));
+                    Assert.That(parsed.ConfigFilePath,       Is.EqualTo("node.json"));
+                    Assert.That(parsed.ConsoleLogLevel,      Is.EqualTo(LogLevel.Debug));
+                    Assert.That(parsed.NoTrace,              Is.True);
+                    Assert.That(parsed.LogPathBelow("root"), Is.EqualTo("logs-here"));
+                    Assert.That(parsed.CertificatePassword,  Is.EqualTo("secret"));
+                    Assert.That(parsed.ListCertificates,     Is.True);
+                    Assert.That(parsed.CertificateImports,   Is.EqualTo(new[] { (CertificateKind.TLSRoot,   "root.pem"),
+                                                                                (CertificateKind.TLSServer, "server.pem") }));
+                    Assert.That(parsed.Rest,                 Is.Empty);
+                });
+
+            }
+            finally
+            {
+                Directory.Delete(frontend);
+            }
+
+        }
+
+        #endregion
+
+        #region WithoutSwitchesTheNodeListensOnlyHereAndWritesBelowTheRoot()
+
+        /// <summary>
+        /// No switch at all: 127.0.0.1, the kind's own port and frontend, the
+        /// console at information, and every file below the repository root -
+        /// the log files too, since a console nobody watched keeps nothing.
+        /// </summary>
+        [Test]
+        public void WithoutSwitchesTheNodeListensOnlyHereAndWritesBelowTheRoot()
+        {
+
+            var parsed = NodeArguments.Parse([]);
+            var root   = Path.Combine("repository", "root");
+
+            Assert.Multiple(() => {
+                Assert.That(parsed.Problem,                    Is.Null);
+                Assert.That(parsed.Port,                       Is.Null);
+                Assert.That(parsed.HTTPHostname,               Is.EqualTo(IPv4Address.Localhost));
+                Assert.That(parsed.Frontend,                   Is.Null);
+                Assert.That(parsed.ConsoleLogLevel,            Is.EqualTo(LogLevel.Info));
+                Assert.That(parsed.AccountsPathBelow(root),    Is.EqualTo(Path.Combine(root, WWCPNode.DefaultAccountsPath)));
+                Assert.That(parsed.ConfigFilePathBelow(root),  Is.EqualTo(Path.Combine(root, Configuration.WWCPConfigFile.DefaultFileName)));
+                Assert.That(parsed.LogPathBelow(root),         Is.EqualTo(Path.Combine(root, WWCPNode.DefaultLogPath)));
+                Assert.That(parsed.CertificatesPath,           Is.Null, "the configuration file's to say");
+                Assert.That(NodeArguments.Parse([ "--log-file", "x", "--no-log-file" ]).LogPathBelow(root), Is.Null, "--no-log-file wins");
+                Assert.That(NodeArguments.Parse([ "-q" ]).ConsoleLogLevel, Is.EqualTo(LogLevel.Warning));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatTheNodeDoesNotKnowIsLeftForTheKindAsItWasTyped()
+
+        /// <summary>
+        /// A kind's switches and their values arrive in the kind's hands in the
+        /// order they were typed, the node's taken out from between them - so a
+        /// kind reads its own with the loop it had.
+        /// </summary>
+        [Test]
+        public void WhatTheNodeDoesNotKnowIsLeftForTheKindAsItWasTyped()
+        {
+
+            var parsed = NodeArguments.Parse([ "--name", "EV01", "--port", "8080", "--vin", "WVWZZZ", "-q", "--sdp" ]);
+
+            Assert.Multiple(() => {
+                Assert.That(parsed.Problem,  Is.Null);
+                Assert.That(parsed.Port,     Is.EqualTo(IPPort.Parse(8080)));
+                Assert.That(parsed.Quiet,    Is.True);
+                Assert.That(parsed.Rest,     Is.EqualTo(new[] { "--name", "EV01", "--vin", "WVWZZZ", "--sdp" }));
+            });
+
+            var i = 0;
+
+            Assert.Multiple(() => {
+                Assert.That(NodeArguments.TryTakeValue(parsed.Rest, ref i, out var name), Is.True);
+                Assert.That(name, Is.EqualTo("EV01"));
+                Assert.That(i,    Is.EqualTo(1), "the index is moved onto the value");
+                i = 4;
+                Assert.That(NodeArguments.TryTakeValue(parsed.Rest, ref i, out _), Is.False, "nothing after --sdp");
+            });
+
+        }
+
+        #endregion
+
+        #region ASwitchWithoutItsValueIsRefusedInItsOwnWords(Arguments, Problem)
+
+        /// <summary>
+        /// A switch whose value is missing - or is the next switch - is refused
+        /// in the words every kind of node used, and nothing after it is read.
+        /// </summary>
+        [TestCase(new[] { "--port" },                          "Missing or invalid port number after --port!")]
+        [TestCase(new[] { "--port", "70000" },                 "Missing or invalid port number after --port!")]
+        [TestCase(new[] { "--frontend" },                      "Missing directory after --frontend!")]
+        [TestCase(new[] { "--accounts", "--verbose" },         "Missing directory after --accounts!")]
+        [TestCase(new[] { "--config" },                        "Missing file after --config!")]
+        [TestCase(new[] { "--log-file" },                      "Missing directory after --log-file!")]
+        [TestCase(new[] { "--certificates" },                  "Missing directory after --certificates!")]
+        [TestCase(new[] { "--certificate-password" },          "Missing password after --certificate-password!")]
+        [TestCase(new[] { "--import-certificate" },            "Missing <kind>=<file> after --import-certificate!")]
+        [TestCase(new[] { "--import-certificate", "root.pem" }, "--import-certificate wants <kind>=<file>, and 'root.pem' is not that.")]
+        [TestCase(new[] { "--import-certificate", "tlsRoot=" }, "--import-certificate wants <kind>=<file>, and 'tlsRoot=' is not that.")]
+        [TestCase(new[] { "--verbose", "--quiet" },            "--verbose and --quiet ask for opposite things!")]
+        public void ASwitchWithoutItsValueIsRefusedInItsOwnWords(String[] Arguments, String Problem)
+        {
+
+            var parsed  = NodeArguments.Parse(Arguments);
+            var said    = new StringWriter();
+
+            Assert.Multiple(() => {
+                Assert.That(parsed.Problem,                                         Is.EqualTo(Problem));
+                Assert.That(parsed.Refused(Usage(), TextWriter.Null, said),         Is.EqualTo(2));
+                Assert.That(said.ToString().TrimEnd(),                              Is.EqualTo(Problem));
+            });
+
+        }
+
+        #endregion
+
+        #region AnImportIsAKindOfCertificateAndAFile()
+
+        /// <summary>
+        /// --import-certificate names a kind there is: anything else is refused
+        /// with the kinds there are. Whether the node keeps that kind is the
+        /// node's to say once it is there.
+        /// </summary>
+        [Test]
+        public void AnImportIsAKindOfCertificateAndAFile()
+        {
+
+            var parsed = NodeArguments.Parse([ "--import-certificate", "nothing=root.pem" ]);
+
+            Assert.Multiple(() => {
+                Assert.That(parsed.Problem, Does.StartWith("'nothing' is not a kind of certificate. Use one of "));
+                Assert.That(parsed.Problem, Does.Contain("tlsRoot").And.Contain("v2gRoot"));
+                Assert.That(NodeArguments.Parse([ "--import-certificate", "tlsIdentity=a=b.p12" ]).CertificateImports,
+                            Is.EqualTo(new[] { (CertificateKind.TLSIdentity, "a=b.p12") }),
+                            "split at the first '='");
+            });
+
+        }
+
+        #endregion
+
+        #region TheCertificateStoreIsMeasuredFromWhereTheNodeIsStarted()
+
+        /// <summary>
+        /// A relative --certificates is measured from where the node is started,
+        /// as every other path on its command line is - handed on relative, the
+        /// node would measure it from the configuration file.
+        /// </summary>
+        [Test]
+        public void TheCertificateStoreIsMeasuredFromWhereTheNodeIsStarted()
+
+            => Assert.That(NodeArguments.Parse([ "--certificates", "store" ]).CertificatesPath,
+                           Is.EqualTo(Path.GetFullPath("store")));
+
+        #endregion
+
+        #region HelpIsTheUsageAndNothingElse()
+
+        /// <summary>
+        /// -h stops reading: whatever follows is neither refused nor left for
+        /// the kind, and Main returns 0 after the usage.
+        /// </summary>
+        [Test]
+        public void HelpIsTheUsageAndNothingElse()
+        {
+
+            var parsed  = NodeArguments.Parse([ "-h", "--port" ]);
+            var shown   = new StringWriter();
+
+            Assert.Multiple(() => {
+                Assert.That(parsed.WantsHelp,                               Is.True);
+                Assert.That(parsed.Problem,                                 Is.Null);
+                Assert.That(parsed.Refused(Usage(), shown, TextWriter.Null), Is.EqualTo(0));
+                Assert.That(shown.ToString(),                               Does.StartWith("Usage: TestNodeCLI [--port <number>]"));
+            });
+
+        }
+
+        #endregion
+
+        #region AWordNeitherKnowsIsUnknown()
+
+        /// <summary>
+        /// A kind with no switches of its own calls the first word left over
+        /// unknown, and shows the usage after it; with nothing left over it
+        /// goes on.
+        /// </summary>
+        [Test]
+        public void AWordNeitherKnowsIsUnknown()
+        {
+
+            var said   = new StringWriter();
+            var shown  = new StringWriter();
+
+            Assert.Multiple(() => {
+                Assert.That(NodeArguments.Parse([ "-v", "--bogus", "x" ]).RefuseTheRest(Usage(), shown, said), Is.EqualTo(2));
+                Assert.That(said.ToString().TrimEnd(),  Is.EqualTo("Unknown argument '--bogus'!"));
+                Assert.That(shown.ToString(),           Does.StartWith("Usage: "));
+                Assert.That(NodeArguments.Parse([ "-v" ]).RefuseTheRest(Usage()), Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region AFrontendDirectoryThatIsNotThereIsSaidSo()
+
+        [Test]
+        public void AFrontendDirectoryThatIsNotThereIsSaidSo()
+        {
+
+            var nowhere = Path.Combine(Path.GetTempPath(), $"no-frontend-{Guid.NewGuid():N}");
+
+            Assert.That(NodeArguments.Parse([ "--frontend", nowhere ]).Problem,
+                        Is.EqualTo($"The frontend directory '{nowhere}' does not exist!"));
+
+        }
+
+        #endregion
+
+
+        #region TheUsageNamesTheKindItsPortAndWhereItsFrontendIsBuilt()
+
+        /// <summary>
+        /// What -h shows is the kind's: its program, its port, where its
+        /// frontend is built, its name where the prompt is explained, and the
+        /// variable a certificate's password is read from.
+        /// </summary>
+        [Test]
+        public void TheUsageNamesTheKindItsPortAndWhereItsFrontendIsBuilt()
+        {
+
+            var usage = String.Join("\n", Usage().Lines());
+
+            Assert.Multiple(() => {
+                Assert.That(usage, Does.StartWith("Usage: TestNodeCLI [--port <number>] [--any]"));
+                Assert.That(usage, Does.Contain("(default: 4711)"));
+                Assert.That(usage, Does.Contain("'npm run watch' in libs/Test/Test/Frontend"));
+                Assert.That(usage, Does.Contain("stops the test node"));
+                Assert.That(usage, Does.Contain("TESTNODE_CERT_PASSWORD"));
+                Assert.That(usage, Does.Contain($"last {EventLog.DefaultCapacity} entries"));
+                Assert.That(usage, Does.Contain("SIGTERM"));
+            });
+
+        }
+
+        #endregion
+
+        #region NoLineOfTheUsageIsWiderThanEightyColumns()
+
+        /// <summary>
+        /// Wrapped at 80 columns, whatever the kind and its program are called.
+        /// </summary>
+        [Test]
+        public void NoLineOfTheUsageIsWiderThanEightyColumns()
+        {
+
+            var usage = Usage(Program:  "ModbusTLSEnergyMeterCLI",
+                              Kind:     new NodeKind("Modbus/TLS energy meter", "meter", "ModbusTLSEnergyMeter", "Meter", "meter"),
+                              Synopsis: [ "[--listen <address>]", "[--idle-timeout <s>]", "[--selftest [<role>]]" ]);
+
+            Assert.That(usage.Lines().Where(line => line.Length > NodeUsage.Width), Is.Empty);
+
+        }
+
+        #endregion
+
+        #region TheKindsOwnLinesStandWhereTheyBelong()
+
+        /// <summary>
+        /// A kind's switches in the first lines, its other listeners after the
+        /// web interface's switches, its own sections before the log's.
+        /// </summary>
+        [Test]
+        public void TheKindsOwnLinesStandWhereTheyBelong()
+        {
+
+            var lines = Usage(Synopsis:  [ "[--kiosk-port <n>]" ],
+                              After:     [ "Display:", "  --kiosk-port <n>  the display's port", "" ],
+                              Before:    [ "V2G:", "  --v2g             the wire below the cable", "" ]).Lines().ToList();
+
+            var usageEnds   = lines.IndexOf("");
+            var accounts    = lines.IndexOf("Accounts:");
+            var display     = lines.IndexOf("Display:");
+            var web         = lines.IndexOf("Web interface:");
+            var v2g         = lines.IndexOf("V2G:");
+            var log         = lines.IndexOf("Log:");
+            var store       = lines.FindIndex(line => line.StartsWith("The certificate store"));
+
+            Assert.Multiple(() => {
+                Assert.That(lines.Take(usageEnds).Any(line => line.Contains("[--kiosk-port <n>]")), Is.True, "in the usage lines");
+                Assert.That(display, Is.GreaterThan(web).And.LessThan(accounts));
+                Assert.That(v2g,     Is.GreaterThan(store).And.LessThan(log));
+            });
+
+        }
+
+        #endregion
+
+        #region OnlyTheKindsOfCertificateTheNodeKeepsAreListed()
+
+        [Test]
+        public void OnlyTheKindsOfCertificateTheNodeKeepsAreListed()
+        {
+
+            var usage = Usage(CertificateKinds: [ CertificateKind.TLSRoot, CertificateKind.TLSServer ]).Lines().ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(usage.Any(line => line.TrimStart().StartsWith("tlsRoot ")),    Is.True);
+                Assert.That(usage.Any(line => line.TrimStart().StartsWith("tlsServer ")),  Is.True);
+                Assert.That(usage.Any(line => line.TrimStart().StartsWith("v2gRoot ")),    Is.False);
+            });
+
+        }
+
+        #endregion
+
+    }
+
+}
