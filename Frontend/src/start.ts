@@ -3,6 +3,7 @@ import { auth } from './auth';
 import { fromURL } from './basePath';
 import { html, must, render } from './html';
 import { logs } from './logs/store';
+import { certificatesPage, type CertificatesOptions } from './pages/certificates';
 import { dnsPage } from './pages/dns';
 import { loginPage, type SignInWords } from './pages/login';
 import { logsPage, type LogsWords } from './pages/logs';
@@ -15,7 +16,8 @@ import { configureShell, visibleMenu, type MenuEntry, type ShellSetup } from './
  * What a kind of node says about its web interface, once, as it starts: what
  * it is called, what its menu has, and the pages that are its own. Everything
  * every node has - the sign-in, the log, the name servers, the time servers,
- * the frame, following the log while somebody is signed in - comes with it.
+ * the certificate store, the frame, following the log while somebody is
+ * signed in - comes with it.
  */
 export interface NodeFrontend extends ShellSetup {
 
@@ -33,6 +35,7 @@ export interface NodeFrontend extends ShellSetup {
 
     signIn?:       SignInWords;
     logs?:         LogsWords;
+    certificates?: CertificatesOptions;
 
 }
 
@@ -150,6 +153,7 @@ export function routesOf(Frontend: NodeFrontend): Route[] {
         { path: '/',                   page: firstPageOfTheMenu,         guard: auth.requireSignIn },
         { path: '/configuration/dns',  page: dnsPage,                    guard: auth.requireSignIn },
         { path: '/configuration/nts',  page: ntsPage,                    guard: auth.requireSignIn },
+        { path: '/configuration/certificates',  page: certificatesPage(Frontend.certificates),  guard: auth.requireSignIn },
         { path: '/logs',               page: logsPage(Frontend.logs),    guard: toReadTheLog       },
         { path: '/login',              page: loginPage(Frontend.signIn)                            }
 

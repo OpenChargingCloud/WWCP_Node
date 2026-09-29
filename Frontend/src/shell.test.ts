@@ -99,6 +99,21 @@ describe('what the menu shows somebody', () => {
 
     });
 
+    it('takes a page below an entry that says nothing of its own as its entry\'s', () => {
+
+        // The roaming hub's OCPI, below the configuration and with no
+        // permission of its own: for an account that may read the time
+        // servers and nothing else, it stood in the configuration's place.
+        const withOCPI = [ { ...menu[0]!, children: [ ...menu[0]!.children!, { path: '/configuration/ocpi', label: 'OCPI', icon: 'fa-plug' } ] } ];
+
+        auth.set(signedIn('nts:read'));
+        assert.deepEqual(paths(visibleMenu(withOCPI)), [ '/configuration/nts' ]);
+
+        auth.set(signedIn('configuration:read'));
+        assert.deepEqual(paths(visibleMenu(withOCPI)), [ '/configuration [/configuration/ocpi]' ]);
+
+    });
+
     it('asks an entry that decides for itself', () => {
 
         let theirs = false;

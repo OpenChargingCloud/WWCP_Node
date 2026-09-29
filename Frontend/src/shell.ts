@@ -100,12 +100,18 @@ export function mayOpen(Entry: MenuEntry): boolean {
  * open. Where an entry is not theirs but some of what is below it is, those
  * stand in its place - somebody who may look at the name servers and at
  * nothing else of the configuration still finds the name servers.
+ *
+ * A page below an entry that says nothing of its own about who may open it
+ * is its entry's: it was never shown without it. Taken as everybody's, it
+ * stood in the place of an entry that was not theirs - the roaming hub's
+ * OCPI for an account that may read the time servers and nothing else, the
+ * e-mobility provider's locations and tariffs for a driver.
  */
 export function visibleMenu(Menu: readonly MenuEntry[] = setup.menu): MenuEntry[] {
 
     return Menu.flatMap(entry => {
 
-        const children = entry.children?.filter(mayOpen);
+        const children = entry.children?.filter(child => mayOpen(child.permission === undefined ? { ...child, permission: entry.permission } : child));
 
         if (!mayOpen(entry))
             return children ?? [];

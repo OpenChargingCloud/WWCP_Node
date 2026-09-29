@@ -38,7 +38,7 @@ const withForms = pages.filter(page => page.source.includes('<form') && !notDraf
 describe('every page with a form', () => {
 
     it('is found at all, so that what follows is not said of nothing', () => {
-        assert.deepEqual(withForms.map(page => page.name).sort(), [ 'dns.ts', 'nts.ts' ]);
+        assert.deepEqual(withForms.map(page => page.name).sort(), [ 'certificates.ts', 'dns.ts', 'nts.ts' ]);
     });
 
     for (const page of withForms) {
@@ -59,7 +59,7 @@ describe('every page with a form', () => {
             const forms = [ ...page.source.matchAll(/<form id="([^"]+)"/g) ].map(match => match[1]!).
                               // A dialog's form lives and dies with its dialog,
                               // which asks for itself when it is closed.
-                              filter(id => !/^(server|pins|query)-form$/.test(id));
+                              filter(id => !/^(server|pins|query|usages)-form$/.test(id));
 
             for (const id of forms)
                 assert.match(page.source, new RegExp(`typedSinceDrawn\\(content\\.querySelector\\('#${id}'\\)\\)`),

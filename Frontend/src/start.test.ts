@@ -85,6 +85,9 @@ describe('the routes of a kind of node', () => {
         assert.equal(routeFor('/logs',               routes)?.page.title, 'Logs');
         assert.equal(routeFor('/configuration/dns',  routes)?.page.title, 'DNS client');
         assert.equal(routeFor('/configuration/nts',  routes)?.page.title, 'NTS client');
+        assert.equal(routeFor('/configuration/certificates', routes)?.page.title, 'Certificates');
+        assert.equal(routeFor('/configuration/certificates', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
+                     'Certificate store');
         assert.equal(routeFor('/',                   routes)?.page,       firstPageOfTheMenu);
 
         auth.set(null);
@@ -93,6 +96,8 @@ describe('the routes of a kind of node', () => {
                      '/login?next=%2Fconfiguration%2Fdns');
         assert.equal(routeFor('/configuration/nts', routes)?.guard?.(new URL('http://here/EV/configuration/nts')),
                      '/login?next=%2Fconfiguration%2Fnts');
+        assert.equal(routeFor('/configuration/certificates', routes)?.guard?.(new URL('http://here/EV/configuration/certificates')),
+                     '/login?next=%2Fconfiguration%2Fcertificates');
 
     });
 

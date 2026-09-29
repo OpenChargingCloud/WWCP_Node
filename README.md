@@ -736,6 +736,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
 | `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |
+| `pages/certificates.ts` | the certificate store: what the node believes, presents and recognises, and what each certificate is told it is for (`certificateUsages.ts`) |
 | `styles/` | what all of it looks like, in the kind's colour |
 
 The shared pages say what the node says, in its name: the question before
@@ -778,9 +779,9 @@ export const auth = nodeAuth as unknown as AuthState<Me, Resource>;
 
 A kind of node starts its web interface with `startNode()`, and says only
 what is its own: what it is called, what its menu has, and its own pages.
-The sign-in, the log, the name servers, the time servers, the frame and the
-page for an address with none come with it - the local controller's
-`main.ts`, less its imports:
+The sign-in, the log, the name servers, the time servers, the certificate
+store, the frame and the page for an address with none come with it - the
+local controller's `main.ts`, less its imports:
 
 ```ts
 startNode({
@@ -795,6 +796,10 @@ startNode({
         ]),
         nodeMenu.logs
     ],
+    certificates: {
+        title:   'Certificate store',
+        chosen:  { csmsClientCertificate: { label: 'signs in to the CSMS' } }
+    },
     pages: {
         '/configuration':       configurationPage,
         '/configuration/csms':  csmsPage
@@ -808,8 +813,10 @@ configuration for whoever may read it, the name servers for a desk that
 may read only those, where a kind's own "/" had shown them a page that
 answered 403. An e-mobility provider's sign-up goes into `publicPages`, which
 nobody has to be signed in for, and a meter's old bookmarks into `routes`,
-which are asked first. `signIn`, `logs` and `who` say what the sign-in, the
-Logs page and the foot of the menu say where the node's words do not fit.
+which are asked first. `signIn`, `logs`, `certificates` and `who` say what
+the sign-in, the Logs page, the certificate store and the foot of the menu
+say where the node's words do not fit - the store's `chosen` names what the
+node chose a certificate for, on its row.
 
 Each menu entry is shown to whoever may open its page: `permission` is any
 one of the permissions the node writes into "me", or a function. Whether the

@@ -361,6 +361,14 @@ export interface CertificateStore<K extends string = string> {
     certificates:  Record<K, Certificate<K>[]>;
     /** Whether anything in the store carries a private key, which is kept unencrypted. */
     keysAreUnencrypted: boolean;
+    /**
+     * What a kind of node has chosen of the store, by name - the certificate
+     * a local controller signs in to its CSMS with, the four a vehicle's
+     * charging session takes - each the handle of one certificate, or null.
+     * A certificate chosen is not deleted until another one is: the node
+     * answers that with a 409.
+     */
+    chosen?:       Record<string, string | null>;
 }
 
 /** What an import sends: the file, base64-encoded, and what to make of it. */
