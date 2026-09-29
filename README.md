@@ -728,6 +728,10 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `basePath.ts` | where the page is mounted, added to a route on the way into the address bar and taken off on the way out |
 | `router.ts` | which page a path is, and the way from one page to the next |
 | `unsaved.ts` | what a page holds that the node has not been told about, and the question before it is left behind |
+| `api/client.ts` | how the node is asked - a deadline on every request, a refusal in the node's own words, a 401 handed on to whoever signs out - the types of everything every node answers, checked against what `NodeHTTPAPI` sends, and `nodeAPI()`, its routes |
+| `ui.ts` | what else the pages share: a form held still while it is saved, a field read as a number, a time and a number as people read them, a key as a label, the way back after the sign-in |
+| `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - and what a kind publishes on the same stream |
+| `auth.ts` | who is signed in, what they may do, and the guard that sends everybody else to the sign-in |
 
 The shared pages say what the node says, in its name: the question before
 a page's changes are left behind is "…that the local controller has not been
@@ -741,6 +745,31 @@ reads it from the kind's `index.html`:
 ```
 
 Without the tag a page says "the node".
+
+A kind of node builds its own client from `api/client.ts`: everything every
+node answers is re-exported, so its pages go on importing `../api/client`, and
+it says what its own of it are - its resources, what its "me", its status and
+its configuration say beyond every node's, the kinds its store keeps - and
+adds its own routes, which go through the same `request()`:
+
+```ts
+export * from '@node/api/client';
+
+export type Resource = NodeResource | 'csms' | 'stations';
+export type Me       = NodeMe<Resource>;
+
+export const api = {
+    ...nodeAPI<{ me: Me; status: Status; configuration: Configuration; kind: CertificateKind; store: CertificateStore }>(),
+    csms: { get: () => request<CSMSConfiguration>('GET', '/configuration/csms') }
+};
+```
+
+And its `auth.ts` hands on the one `AuthState` there is - the router's guard
+and the shell read the same - typed with its own:
+
+```ts
+export const auth = nodeAuth as unknown as AuthState<Me, Resource>;
+```
 
 A kind of node loads none of it from anywhere when it runs. Its own webpack
 bundles these files into its own bundle, as it bundles its own, and its own
