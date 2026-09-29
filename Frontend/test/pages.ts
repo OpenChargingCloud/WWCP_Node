@@ -105,14 +105,18 @@ export function formsNotHeld(Page: Page, DialogForms: readonly string[] = []): s
 }
 
 /**
- * The fields a page reads with Number(), which makes an emptied field 0 - but
- * a priority, where empty means 0, the priority every server has unless it is
- * given another. numberField reads the rest: an emptied field is NaN there,
- * which JSON.stringify sends as null, and null is "not said".
+ * What a page reads with Number() of what was typed - a form's field, by
+ * data.get or by field(), or an input's value - which makes an emptied field
+ * 0. But a priority, where empty means 0, the priority every server has unless
+ * it is given another; and a read after "=== '' ? … :", where the page says
+ * itself what empty means (the station's V2G port: empty lets the system
+ * choose). numberField and numberFrom read the rest: an emptied field is NaN
+ * there, which JSON.stringify sends as null, and null is "not said".
  */
 export function numbersReadAsZeroWhenEmptied(Page: Page): string[] {
-    return [ ...Page.source.matchAll(/Number\(data\.get\('([^']+)'\)/g) ].
-               map(match => match[1]!).
+    return [ ...Page.source.matchAll(/(=== ''\s*\?[^:]*:\s*)?Number\((?:data\.get\('([^']+)'\)|field\(\w+,\s*'([^']+)'\)|(\w+)\.value\))/g) ].
+               filter(match => match[1] === undefined).
+               map(match => match[2] ?? match[3] ?? `${match[4]}.value`).
                filter(name => name !== 'priority');
 }
 

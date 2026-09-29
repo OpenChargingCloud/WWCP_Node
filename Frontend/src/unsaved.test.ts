@@ -209,6 +209,30 @@ describe('whether a form has been typed into since it was drawn', () => {
         assert.equal(typedSinceDrawn(form([picker(2, 0)])), true);
     });
 
+    /** A list the page drew with no entry marked, and what is chosen in it now. */
+    const unmarked = (chosen: number | null, Shape: { disabled?: number[], size?: number } = {}) =>
+        ({ tagName: 'SELECT', size: Shape.size ?? 0,
+           options: [0, 1, 2].map(index => ({ selected: index === chosen, defaultSelected: false, disabled: Shape.disabled?.includes(index) ?? false })) });
+
+    it('is no, for a list drawn with no entry marked, where the browser chose the first', () => {
+        // The browser chose it, and nobody else: an untouched form that asked
+        // before every Reload was the charging station's.
+        assert.equal(typedSinceDrawn(form([unmarked(0)])), false);
+    });
+
+    it('and is no where the first entry may not be chosen, and the browser chose the next', () => {
+        assert.equal(typedSinceDrawn(form([unmarked(1, { disabled: [0] })])), false);
+    });
+
+    it('is yes, for another entry chosen from a list drawn with none marked', () => {
+        assert.equal(typedSinceDrawn(form([unmarked(2)])), true);
+    });
+
+    it('and a list showing several entries has none chosen that the page did not mark', () => {
+        assert.equal(typedSinceDrawn(form([unmarked(null, { size: 3 })])), false);
+        assert.equal(typedSinceDrawn(form([unmarked(0,    { size: 3 })])), true);
+    });
+
     it('and is no where there is no form at all', () => {
         // A page halfway through loading has no form to compare, which is not
         // the same thing as a page with something in it.

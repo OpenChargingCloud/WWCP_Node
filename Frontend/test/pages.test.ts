@@ -109,7 +109,21 @@ describe('a number', () => {
     });
 
     it('may be read with Number() where it is a priority, since empty means 0 there', () => {
-        assert.deepEqual(numbersReadAsZeroWhenEmptied(page(`priority: Number(data.get('priority'))`)), []);
+        assert.deepEqual(numbersReadAsZeroWhenEmptied(page(`priority: Number(data.get('priority') ?? 0)`)), []);
+    });
+
+    it('read with Number() of field() is found as well', () => {
+        assert.deepEqual(numbersReadAsZeroWhenEmptied(page(`pingEvery: Number(field(form, 'pingEvery')),`)), [ 'pingEvery' ]);
+    });
+
+    it('read with Number() of an input\'s value is found as well, and of what is not typed is not', () => {
+        assert.deepEqual(numbersReadAsZeroWhenEmptied(page(`const index = Number(input.dataset.index);
+                                                           servers[index].port = Number(input.value);`)),
+                         [ 'input.value' ]);
+    });
+
+    it('may be read with Number() where the page says itself what empty means', () => {
+        assert.deepEqual(numbersReadAsZeroWhenEmptied(page(`port: field(form, 'port') === '' ? 0 : Number(field(form, 'port')),`)), []);
     });
 
 });

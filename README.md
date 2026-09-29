@@ -884,8 +884,10 @@ everyPageIn(new URL('./', import.meta.url), {
 Every page with a form says whether it is holding a draft, holds every form
 it has - by name, `typedSinceDrawn(content.querySelector('#…'))`, or all at
 once, `anyFormTypedSinceDrawn(content)` - and asks before its Reload throws
-one away; every number is read with `numberField`, not `Number()`, which
-makes an emptied field 0. `withForms` names the pages with a form, so that
+one away; every number typed is read with `numberField`, or `numberFrom`
+for an input outside a form, not `Number()`, which makes an emptied field
+0 - but where a page says itself what empty means, `=== '' ? ... :` before
+it. `withForms` names the pages with a form, so that
 the rules are not said of nothing; `dialogForms` names the forms that are a
 dialog's, which asks for itself when it is closed; `notDrafts` names a page
 whose form is none, with why - signing in is the way in, and nothing typed

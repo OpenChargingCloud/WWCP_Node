@@ -114,7 +114,30 @@ interface Changeable {
     defaultValue?:   string;
     checked?:        boolean;
     defaultChecked?: boolean;
-    options?:        readonly { selected: boolean; defaultSelected: boolean }[];
+    multiple?:       boolean;
+    size?:           number;
+    options?:        readonly { selected: boolean; defaultSelected: boolean; disabled?: boolean }[];
+}
+
+/**
+ * Whether another entry of a list is chosen than the page drew as chosen.
+ *
+ * What the page drew is what it marked selected - or, where it marked none,
+ * what the browser chose in its place: in a list that shows one entry at a
+ * time, the first entry that may be chosen. Compared with the marks alone,
+ * that entry read as chosen by somebody, and a form nobody had touched as a
+ * draft - found on the charging station's sign-in kinds and RFID readers.
+ */
+function chosenSinceDrawn(List: Changeable): boolean {
+
+    const options   = [ ...(List.options ?? []) ];
+    const marked    = options.some(option => option.defaultSelected);
+    const oneShown  = !List.multiple && (List.size ?? 0) <= 1;
+    const first     = options.findIndex(option => !option.disabled);
+
+    return options.some((option, index) =>
+               option.selected !== (marked ? option.defaultSelected : oneShown && index === first));
+
 }
 
 /**
@@ -141,7 +164,7 @@ export function typedSinceDrawn(Root: ParentNode | null): boolean {
     {
 
         if (control.tagName === 'SELECT') {
-            if ([...(control.options ?? [])].some(option => option.selected !== option.defaultSelected))
+            if (chosenSinceDrawn(control))
                 return true;
         }
 

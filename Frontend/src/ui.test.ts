@@ -13,7 +13,7 @@
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import { beingSaved, humanizeKey, isChecked, numberField, safeNext, whileSaving } from './ui.ts';
+import { beingSaved, humanizeKey, isChecked, numberField, numberFrom, safeNext, whileSaving } from './ui.ts';
 
 
 /** Something on a page that can be switched off; all whileSaving cares about. */
@@ -166,6 +166,25 @@ describe('a number field', () => {
         assert.equal(numberField(form({ maxRetries: '0' }),               'maxRetries'),          0);
         assert.equal(numberField(form({ queryTimeoutSeconds: ' 2.5 ' }),  'queryTimeoutSeconds'), 2.5);
 
+    });
+
+});
+
+
+describe('a number typed into an input outside a form', () => {
+
+    it('is not a number when it is emptied, or holds nothing but blanks', () => {
+
+        assert.ok(Number.isNaN(numberFrom('')));
+        assert.ok(Number.isNaN(numberFrom('  ')));
+
+        assert.equal(JSON.stringify({ port: numberFrom('') }), '{"port":null}');
+
+    });
+
+    it('is the number it holds, 0 among them', () => {
+        assert.equal(numberFrom('0'),     0);
+        assert.equal(numberFrom(' 853 '), 853);
     });
 
 });

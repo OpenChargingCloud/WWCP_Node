@@ -115,7 +115,17 @@ export function isChecked(form: HTMLFormElement, name: string): boolean {
  * goes as null, which the node takes for not given.
  */
 export function numberField(form: HTMLFormElement, name: string): number {
-    const text = field(form, name);
+    return numberFrom(field(form, name));
+}
+
+/**
+ * Read what was typed as a number, as numberField reads a form's field: NaN
+ * when it is empty or not one. For an input outside a form - a port in a row
+ * of the name servers, which Number(input.value) made 0 once emptied, where the
+ * node takes no port for the port of the transport.
+ */
+export function numberFrom(Text: string): number {
+    const text = Text.trim();
     return text === '' ? NaN : Number(text);
 }
 

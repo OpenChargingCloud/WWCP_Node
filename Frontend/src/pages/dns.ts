@@ -4,7 +4,7 @@ import { config } from '../config';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage, formatValue, humanizeKey, numberField, whileSaving } from '../ui';
+import { errorMessage, formatValue, humanizeKey, numberField, numberFrom, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { allServersTake, entryOf, isEncrypted, oneServerTakes, sentOf } from './dnsServers';
 import { keysOf, pinsIn, saysAnything, withPins, type StoreOffers } from './pins';
@@ -450,8 +450,9 @@ export const dnsPage: Page = {
 
                 if (field === 'address')
                     servers[index].address = input.value;
+                // Emptied, no port: the node takes the port of the transport.
                 else if (field === 'port')
-                    servers[index].port = Number(input.value);
+                    servers[index].port = numberFrom(input.value);
 
             });
 
