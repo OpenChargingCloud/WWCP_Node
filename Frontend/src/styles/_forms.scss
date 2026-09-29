@@ -200,3 +200,10 @@ input, textarea, select {
     font-size:       inherit;
     color:           $color-text;
 }
+
+// A field whose value is capitals - a country code, a party ID - shown in them
+// as it is typed. Said in a style attribute, as three kinds' partner pages
+// said it, it was refused by the policy the pages are served with.
+input.capitals {
+    text-transform:  uppercase;
+}

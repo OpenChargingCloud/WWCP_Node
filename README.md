@@ -40,7 +40,7 @@ a port of their own to connect to.
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `Frontend/` | what every kind of node's web interface shares: TypeScript and SCSS that each kind bundles into its own, imported as `@node/...` - see "The web interface" below |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | four hundred and ninety-nine tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | five hundred and four tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -887,7 +887,13 @@ once, `anyFormTypedSinceDrawn(content)` - and asks before its Reload throws
 one away; every number typed is read with `numberField`, or `numberFrom`
 for an input outside a form, not `Number()`, which makes an emptied field
 0 - but where a page says itself what empty means, `=== '' ? ... :` before
-it. `withForms` names the pages with a form, so that
+it. Every page links through `toURL`, since `href="/..."` leads past the
+base the node may be served under in a new tab or a copied link; and takes
+its look from the stylesheet, by a class - `style="..."` is dropped by the
+policy the pages are served with, `style-src 'self'`, which the kit asks
+every kind for. `input.capitals` and a card heading's `.heading-action`
+are there for what three partner pages wrote as style attributes.
+`withForms` names the pages with a form, so that
 the rules are not said of nothing; `dialogForms` names the forms that are a
 dialog's, which asks for itself when it is closed; `notDrafts` names a page
 whose form is none, with why - signing in is the way in, and nothing typed
@@ -950,7 +956,7 @@ run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
 event stream, stopping with browsers watching, the certificate store, the
 web interface, roles the configuration file adds and what a kind starts
-with - one hundred and nine tests that the suites of the local controller,
+with - one hundred and eleven tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.

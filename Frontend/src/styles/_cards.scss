@@ -32,6 +32,14 @@
         .chip {
             margin-left: auto;
         }
+
+        // An action on everything the card lists - "Show the tokens" - at the
+        // end of its heading, where a chip goes. Said in a style attribute, as
+        // three kinds' partner pages said it, it was refused by the policy the
+        // pages are served with, and the button stood beside the title.
+        .heading-action {
+            margin-left: auto;
+        }
     }
 
 }

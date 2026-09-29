@@ -74,6 +74,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region TheStubLetsNoInlineScriptOrStyleThrough()
+
+        /// <summary>
+        /// The stub is served with a policy that takes scripts and styles from
+        /// the node's own files only: nothing written into a page - no inline
+        /// script, no style attribute - is ever applied.
+        /// </summary>
+        /// <remarks>
+        /// What the pages are held to rests on it. A style attribute is dropped
+        /// by the browser under this policy: three kinds' partner pages had
+        /// three, whose button never moved to the end of its card's heading and
+        /// whose country code was never shown in capitals, and the rules of the
+        /// pages refuse the attribute now. This says why it could not work.
+        /// </remarks>
+        [Test]
+        public async Task TheStubLetsNoInlineScriptOrStyleThrough()
+        {
+
+            HasAWebInterface();
+
+            using var http      = Anonymous();
+            using var response  = await http.GetAsync("");
+
+            var policy          = response.Headers.TryGetValues("Content-Security-Policy", out var values)
+                                      ? String.Join("; ", values)
+                                      : "";
+
+            Assert.Multiple(() => {
+                Assert.That(policy,  Does.Contain("script-src 'self'"),   policy);
+                Assert.That(policy,  Does.Contain("style-src 'self'"),    policy);
+                Assert.That(policy,  Does.Not.Contain("'unsafe-inline'"), policy);
+            });
+
+        }
+
+        #endregion
+
         #region TheStubCarriesTheVersionOfTheNode()
 
         /// <summary>

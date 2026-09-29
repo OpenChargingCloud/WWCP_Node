@@ -220,6 +220,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region APortNoClientCanAskIsRefusedWithASentence(Port)
+
+        /// <summary>
+        /// A name server's port is read as every other port of the file: 0 is
+        /// "any free port" to a listener and nothing at all to a client, and was
+        /// kept - a name server that nothing ever answers on, which is what the
+        /// DNS page sent for a port somebody emptied; one past the last port, or
+        /// one below the first, threw out of the parser.
+        /// </summary>
+        [TestCase(0)]
+        [TestCase(65536)]
+        [TestCase(-1)]
+        public void APortNoClientCanAskIsRefusedWithASentence(Int32 Port)
+        {
+
+            var               entry   = new JObject(
+                                            new JProperty("address",  "192.0.2.53"),
+                                            new JProperty("port",     Port)
+                                        );
+
+            var               parsed  = true;
+            DNSServerConfig?  server  = null;
+            String?           error   = null;
+
+            Assert.That(() => parsed = DNSConfiguration.TryParseServer(entry, out server, out error),  Throws.Nothing);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(parsed,  Is.False);
+                Assert.That(server,  Is.Null);
+                Assert.That(error,   Does.Contain("'dns.servers[].port'"));
+            });
+
+        }
+
+        #endregion
+
         #region ANameWithAnAddressInItIsAName()
 
         /// <summary>

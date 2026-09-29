@@ -264,17 +264,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             // Left at null when the file does not say, so that DNSServerConfig
             // picks the port of the transport - 53, 853, 443 - instead of this
-            // file keeping its own second list of which port means what.
-            var portNumber = json?.Value<UInt16?>("port");
-
-            var port       = portNumber.HasValue
-                                 ? IPPort.Parse(portNumber.Value)
-                                 : (IPPort?) null;
-
+            // file keeping its own second list of which port means what. Read
+            // as every other port of the file is: 0 was kept, a name server
+            // that nothing ever answers on, and a port out of range threw.
+            IPPort?   port         = null;
             TimeSpan? queryTimeout = null;
 
             if (json is not null &&
-                !ConfigurationReader.TryReadSeconds(json, "queryTimeoutSeconds", "dns.servers[]", 0.1, MaxQueryTimeoutSeconds, out queryTimeout, out Error))
+               (!ConfigurationReader.TryReadPort   (json, "port",                "dns.servers[]",                               out port,         out Error) ||
+                !ConfigurationReader.TryReadSeconds(json, "queryTimeoutSeconds", "dns.servers[]", 0.1, MaxQueryTimeoutSeconds, out queryTimeout, out Error)))
             {
                 return false;
             }

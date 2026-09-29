@@ -12,7 +12,13 @@
  * - that a number is read as one - an emptied field is not given, where
  *   Number("") made it 0, which the node refuses for a timeout, the whole save
  *   with it (found on the energy meter, and on the local controller's DNS and
- *   NTS pages too).
+ *   NTS pages too);
+ * - that a link goes through toURL - a path of its own leads past the base the
+ *   node may be served under, in a new tab or a copied link (found on the
+ *   charging station's V2G and power pages);
+ * - that a page's look comes from the stylesheet - a style attribute is
+ *   dropped by the policy every node serves its pages with (found on the
+ *   partner pages of the CSMS, the e-mobility provider and the hub).
  *
  * The pages every kind shares are asked in src/pages/pages.test.ts. A kind of
  * node asks its own the same way, in its own src/pages/pages.test.ts -
@@ -105,6 +111,32 @@ export function formsNotHeld(Page: Page, DialogForms: readonly string[] = []): s
 }
 
 /**
+ * The styles a page writes into itself - a style attribute, a style element, a
+ * style set as an attribute - which the policy every node serves its pages
+ * with, style-src 'self', drops: what they say never shows. Three kinds'
+ * partner pages had three, a button that never moved to the right of its card
+ * and a country code and party ID never shown in capitals. What a page looks
+ * like is the stylesheet's to say, by a class.
+ */
+export function inlineStylesOf(Page: Page): string[] {
+    return [ ...Page.source.matchAll(/\sstyle\s*=\s*("[^"]*"|'[^']*')|<style\b|setAttribute\(\s*['"]style['"]/g) ].
+               map(match => match[0].trim());
+}
+
+/**
+ * The links a page writes with a path of its own - href="/…" - past the base
+ * the node may be served under. The router makes a click on one work, as it
+ * takes the base off whatever it is given; a new tab, a middle click or a copied
+ * link leads out of the web interface. toURL puts the base in front:
+ * href="${toURL('/logs')}" - found by the charging station, whose V2G page
+ * linked its log three times without it.
+ */
+export function linksPastTheBase(Page: Page): string[] {
+    return [ ...Page.source.matchAll(/\shref\s*=\s*["'](\/(?!\/)[^"']*)["']/g) ].
+               map(match => match[1]!);
+}
+
+/**
  * What a page reads with Number() of what was typed - a form's field, by
  * data.get or by field(), or an input's value - which makes an emptied field
  * 0. But a priority, where empty means 0, the priority every server has unless
@@ -185,6 +217,26 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
             it(`${page.name} reads its numbers with numberField, so that an emptied field is not 0`, () => {
                 const read = numbersReadAsZeroWhenEmptied(page);
                 assert.deepEqual(read, [], `${page.name} reads ${read.join(', ')} with Number(), which makes an emptied field 0`);
+            });
+
+    });
+
+    describe('a link on a page', () => {
+
+        for (const page of pages)
+            it(`${page.name} links through toURL, so that a link stays below the base the node is served under`, () => {
+                const links = linksPastTheBase(page);
+                assert.deepEqual(links, [], `${page.name} links ${links.join(', ')} past the base - href="\${toURL('…')}" keeps it below`);
+            });
+
+    });
+
+    describe('the look of a page', () => {
+
+        for (const page of pages)
+            it(`${page.name} takes its look from the stylesheet, not from a style the policy drops`, () => {
+                const styles = inlineStylesOf(page);
+                assert.deepEqual(styles, [], `${page.name} writes ${styles.join(', ')} into itself - style-src 'self' lets no style through that is not in the stylesheet; say it by a class`);
             });
 
     });

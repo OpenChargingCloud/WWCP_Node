@@ -261,6 +261,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region ANameServerOnPortZeroIsRefusedAndNothingIsWritten()
+
+        /// <summary>
+        /// A name server on port 0 is refused, as every other port of the file
+        /// is: port 0 is "any free port" to a listener and nothing at all to a
+        /// client. It was answered 200, and a name server kept on a port that
+        /// nothing ever answers on - what the DNS page sent for a port
+        /// somebody had emptied.
+        /// </summary>
+        [Test]
+        public async Task ANameServerOnPortZeroIsRefusedAndNothingIsWritten()
+        {
+
+            using var http = await SignedIn();
+
+            var response = await http.PutAsync(
+                                     "api/v1/configuration/dns",
+                                     JSONBody(
+                                         new JProperty("servers", new JArray(
+                                             new JObject(
+                                                 new JProperty("address",    "192.0.2.53"),
+                                                 new JProperty("port",       0),
+                                                 new JProperty("transport",  "UDP")
+                                             )
+                                         ))
+                                     )
+                                 );
+
+            var answered = await response.Content.ReadAsStringAsync();
+            var onDisk   = File.Exists(Node.ConfigFile.Path)
+                               ? File.ReadAllText(Node.ConfigFile.Path)
+                               : "";
+
+            Assert.Multiple(() => {
+                Assert.That(response.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest),  answered);
+                Assert.That(answered,             Does.Contain("'dns.servers[].port'"));
+                Assert.That(onDisk,               Does.Not.Contain("192.0.2.53"));
+                Assert.That(Node.DNSClient.DNSServers.Select(server => server.ToString()),
+                            Has.None.Contains("192.0.2.53"));
+            });
+
+        }
+
+        #endregion
+
         #region WhatAChangeDoesNotMentionIsLeftAlone()
 
         /// <summary>

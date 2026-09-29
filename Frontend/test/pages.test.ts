@@ -8,7 +8,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it }     from 'node:test';
 
-import { asksBeforeItsReload, formsNotHeld, formsOf, numbersReadAsZeroWhenEmptied, saysWhetherItHolds } from './pages.ts';
+import { asksBeforeItsReload, formsNotHeld, formsOf, inlineStylesOf, linksPastTheBase, numbersReadAsZeroWhenEmptied, saysWhetherItHolds } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -124,6 +124,40 @@ describe('a number', () => {
 
     it('may be read with Number() where the page says itself what empty means', () => {
         assert.deepEqual(numbersReadAsZeroWhenEmptied(page(`port: field(form, 'port') === '' ? 0 : Number(field(form, 'port')),`)), []);
+    });
+
+});
+
+
+describe('a style', () => {
+
+    it('written into a page as an attribute is found, as the policy drops it', () => {
+        assert.deepEqual(inlineStylesOf(page(`<button type="button" id="reveal" class="btn small" style="margin-left:auto">`)),
+                         [ 'style="margin-left:auto"' ]);
+    });
+
+    it('in a style element, or set as an attribute by the script, is found as well', () => {
+        assert.deepEqual(inlineStylesOf(page(`<style>.x { color: red }</style>  row.setAttribute('style', 'display:none');`)),
+                         [ '<style', "setAttribute('style'" ]);
+    });
+
+    it('said by a class passes, and so does a style property the script sets, which the policy lets through', () => {
+        assert.deepEqual(inlineStylesOf(page(`<input name="partyId" class="capitals" data-style="x" />  bar.style.width = \`\${percent}%\`;`)),
+                         []);
+    });
+
+});
+
+
+describe('a link', () => {
+
+    it('written with a path of its own is found, as it leads past the base', () => {
+        assert.deepEqual(linksPastTheBase(page(`Every reading is in the <a href="/logs">log</a>.`)), [ '/logs' ]);
+    });
+
+    it('through toURL passes, and so do one to elsewhere and one within the page', () => {
+        assert.deepEqual(linksPastTheBase(page(`<a href="\${toURL('/logs')}">log</a>  <a href="https://www.ptb.de/">PTB</a>  <a href="#legal">legal time</a>`)),
+                         []);
     });
 
 });
