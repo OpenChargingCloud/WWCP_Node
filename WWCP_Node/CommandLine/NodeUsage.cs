@@ -90,6 +90,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// </summary>
         public String    ConfigurationSays    { get; }
 
+        /// <summary>
+        /// What the kind says of its certificate store beside what every node
+        /// says, or null.
+        /// </summary>
+        public String?   CertificatesSays     { get; }
+
+        /// <summary>
+        /// The kinds of certificate this kind of node keeps, which --import-certificate
+        /// takes - and which the command line is held to before the node is made:
+        /// see <see cref="NodeArguments.Refused(NodeUsage, TextWriter?, TextWriter?)"/>.
+        /// </summary>
+        public IReadOnlyList<CertificateKind> CertificateKinds
+            => certificateKinds;
+
         #endregion
 
         #region Constructor(s)
@@ -106,6 +120,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <param name="Synopsis">The kind's own switches in the first lines, one bracketed item each: "[--name &lt;name&gt;]".</param>
         /// <param name="AfterTheWebInterface">The kind's own lines after the web interface's switches - its other listeners - ending with an empty one.</param>
         /// <param name="BeforeTheLog">The kind's own lines before the log's switches - its own sections - ending with an empty one.</param>
+        /// <param name="CertificatesSays">What the kind says of its certificate store beside what every node says, after the kinds it keeps: "clientRoot and tlsIdentity are kept, and used by nothing here yet."</param>
         public NodeUsage(String                         Program,
                          NodeKind                       Kind,
                          IPPort                         DefaultPort,
@@ -114,7 +129,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                          IEnumerable<CertificateKind>?  CertificateKinds       = null,
                          IEnumerable<String>?           Synopsis               = null,
                          IEnumerable<String>?           AfterTheWebInterface   = null,
-                         IEnumerable<String>?           BeforeTheLog           = null)
+                         IEnumerable<String>?           BeforeTheLog           = null,
+                         String?                        CertificatesSays       = null)
         {
 
             this.Program               = Program;
@@ -122,6 +138,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             this.DefaultPort           = DefaultPort;
             this.FrontendSources       = FrontendSources;
             this.ConfigurationSays     = ConfigurationSays ?? DefaultConfigurationSays(Kind);
+            this.CertificatesSays      = CertificatesSays;
             this.certificateKinds      = (CertificateKinds ?? CertificateKindExtensions.All).ToArray();
             this.synopsis              = Synopsis?.            ToArray() ?? [];
             this.afterTheWebInterface  = AfterTheWebInterface?.ToArray() ?? [];
@@ -236,8 +253,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             foreach (var line in Switch("--import-certificate <kind>=<file>",
                                         $"copy a certificate into the store before the {Kind.Name} starts, as PEM, DER or PKCS#12. " +
-                                         "A root is a certificate on its own; a TLS identity has to bring its private key, so a PEM " +
-                                        $"for one carries the key beside it. May be given several times. <kind> is one of:"))
+                                        $"{WhatComesWithIt()}May be given several times. <kind> is one of:"))
                 yield return line;
 
             var nameWidth = certificateKinds.Length > 0
@@ -253,6 +269,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                     yield return line;
 
             }
+
+            foreach (var line in Wrap(AfterTheKinds(), new String(' ', Column), new String(' ', Column)))
+                yield return line;
 
             foreach (var line in Switch("--certificate-password <pw>",
                                          "what opens a protected PKCS#12 being imported. Used once and not kept: the store holds what " +
@@ -284,8 +303,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             foreach (var line in Switch("    --no-trace",    "do not pick up what the libraries below write with DebugX"))
                 yield return line;
 
-            foreach (var line in Switch("--log-file <dir>",  $"where the log files go (default: {WWCPNode.DefaultLogPath}/ below the repository root): " +
-                                                              "one file per UTC day, every entry down to the debug ones, and nothing is ever deleted."))
+            // Below the long forms of -v and -q, as --no-trace and --no-log-file are.
+            foreach (var line in Switch("    --log-file <dir>", $"where the log files go (default: {WWCPNode.DefaultLogPath}/ below the repository root): " +
+                                                                 "one file per UTC day, every entry down to the debug ones, and nothing is ever deleted."))
                 yield return line;
 
             foreach (var line in Switch("    --no-log-file", "do not write one. Then what the console did not show, and what falls out of the web " +
@@ -372,15 +392,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                                String  First,
                                                String  Next)
 
-            => WrapItems(Text.Split(' ', StringSplitOptions.RemoveEmptyEntries), First, Next);
+            => WrapItems(WithTheirDashes(Text.Split(' ', StringSplitOptions.RemoveEmptyEntries)), First, Next);
 
         #endregion
 
-        #region (private static) WrapItems(Items, First, Next)
+        #region (static) WrapItems(Items, First, Next)
 
-        private static IEnumerable<String> WrapItems(IEnumerable<String>  Items,
-                                                     String               First,
-                                                     String               Next)
+        /// <summary>
+        /// Items broken between, never inside, at <see cref="Width"/>: the
+        /// switches of a synopsis, "[--port &lt;number&gt;]", which
+        /// <see cref="Wrap(String, String, String)"/> would break between their
+        /// words - for a kind whose synopsis is its own (the energy meter's).
+        /// </summary>
+        /// <param name="Items">What is not broken.</param>
+        /// <param name="First">What the first line begins with: "Usage: ModbusTLSEnergyMeterCLI ".</param>
+        /// <param name="Next">What every line after it begins with.</param>
+        public static IEnumerable<String> WrapItems(IEnumerable<String>  Items,
+                                                    String               First,
+                                                    String               Next)
         {
 
             var line   = new StringBuilder(First);
@@ -411,16 +440,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region (private static) WhatItIsFor(Kind)
+        #region (private static) WithTheirDashes(Words)
 
         /// <summary>
-        /// What a kind of certificate is for, without its name in front, which
-        /// the list of kinds already begins the line with.
+        /// The words of a paragraph, a dash between two of them kept with the
+        /// one before it: broken before it, a line began "- which", which reads
+        /// as a switch (found in the charging station's --v2g-loopback).
         /// </summary>
-        private static String WhatItIsFor(CertificateKind Kind)
+        private static IEnumerable<String> WithTheirDashes(IEnumerable<String> Words)
         {
 
-            var described = Kind.Describe();
+            String? held = null;
+
+            foreach (var word in Words)
+            {
+
+                if (word == "-" && held is not null)
+                {
+                    held += " -";
+                    continue;
+                }
+
+                if (held is not null)
+                    yield return held;
+
+                held = word;
+
+            }
+
+            if (held is not null)
+                yield return held;
+
+        }
+
+        #endregion
+
+        #region (private) WhatItIsFor(Certificate)
+
+        /// <summary>
+        /// What a kind of certificate is for, said of this kind of node, and
+        /// without its name in front, which the list of kinds already begins
+        /// the line with.
+        /// </summary>
+        private String WhatItIsFor(CertificateKind Certificate)
+        {
+
+            var described = Certificate.Describe(Kind.Name);
             var dash      = described.IndexOf(" - ", StringComparison.Ordinal);
 
             return dash >= 0
@@ -428,6 +493,77 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                        : described;
 
         }
+
+        #endregion
+
+        #region (private) WhatComesWithIt()
+
+        /// <summary>
+        /// What a certificate being imported comes with, said of the kinds this
+        /// node keeps: a root on its own, and what proves who somebody is with
+        /// its private key. "A TLS identity" was all that was said, above a
+        /// list with the vehicle's, the contract's and the OEM's in it (found by
+        /// the EV).
+        /// </summary>
+        private String WhatComesWithIt()
+        {
+
+            var said   = new List<String>();
+            var keyed  = certificateKinds.Where(kind => kind.NeedsPrivateKey()).Select(kind => kind.AsText()).ToArray();
+
+            if (certificateKinds.Any(kind => kind.IsTrustAnchor()))
+                said.Add("A root is a certificate on its own");
+
+            if (keyed.Length > 0)
+                said.Add($"{(said.Count > 0 ? "a" : "A")} {OneOf(keyed)} has to bring its private key, so a PEM for one carries the key beside it");
+
+            return said.Count > 0
+                       ? String.Join("; ", said) + ". "
+                       : "";
+
+        }
+
+        #endregion
+
+        #region (private) AfterTheKinds()
+
+        /// <summary>
+        /// What is said below the kinds: that a root or a server certificate
+        /// imported here holds for every use until the web interface narrows it,
+        /// as three kinds had said it - a TLS identity is told its uses by the
+        /// listeners of its kind of node, and is left out - and what the kind
+        /// says of its store itself.
+        /// </summary>
+        private String AfterTheKinds()
+        {
+
+            var forEveryUse = certificateKinds.Where(kind => kind is CertificateKind.TLSRoot or CertificateKind.TLSServer).
+                                               Select(kind => kind.AsText()).
+                                               ToArray();
+
+            return String.Join(" ",
+                               new[] {
+                                   forEveryUse.Length > 0
+                                       ? $"A {OneOf(forEveryUse)} imported here holds for every use until the Certificates page of the " +
+                                          "web interface narrows it."
+                                       : null,
+                                   CertificatesSays
+                               }.Where(said => !String.IsNullOrWhiteSpace(said)));
+
+        }
+
+        #endregion
+
+        #region (private static) OneOf(Names)
+
+        /// <summary>
+        /// "tlsRoot", "tlsRoot or tlsServer", "vehicle, contract or tlsIdentity".
+        /// </summary>
+        private static String OneOf(IReadOnlyList<String> Names)
+
+            => Names.Count > 1
+                   ? $"{String.Join(", ", Names.Take(Names.Count - 1))} or {Names[^1]}"
+                   : Names[0];
 
         #endregion
 

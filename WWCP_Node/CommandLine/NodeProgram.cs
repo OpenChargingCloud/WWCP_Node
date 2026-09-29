@@ -116,30 +116,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region Started(this Node, Verbose, AdviceOfTheKind = null, Error = null)
+        #region Started(this Node, Verbose, AdviceOfTheKind = null, Error = null, SwitchOf = null)
 
         /// <summary>
         /// Start the node: null once it has started, or what Main returns when
-        /// it could not - 1, after saying which port it could not have, why,
+        /// it could not - 1, after saying why, and for a port which one, whose,
         /// and what somebody can do about it.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// What somebody starting a second copy of a node used to get was a
         /// stack trace under the operating system's own words for a port in
         /// use - in German on a German Windows - with neither the port nor what
         /// it was for named anywhere. A second copy is the usual answer only
         /// where the address is in use; a port below 1024 on Linux wants rights
         /// instead (found by the energy meter), and anything else is said as
-        /// it is.
+        /// it is. So is whatever else a start fails with, which ran past Main
+        /// as an unhandled exception (found by the energy meter as well).
+        /// </para>
+        /// <para>
+        /// The one account of a first start is made before the port is opened,
+        /// and what it was given is shown once: a start that ended at its port
+        /// shows it all the same. It had made the account and never shown the
+        /// password, and the next start found "1 user(s)" and nobody who could
+        /// sign in (found by the EMSP, the gateway and the CSMS).
+        /// </para>
         /// </remarks>
         /// <param name="Node">The node to start.</param>
         /// <param name="Verbose">Whether --verbose was given: then the whole exception as well.</param>
-        /// <param name="AdviceOfTheKind">What to do about a port of the kind's own, which is set somewhere else than --port - the charging station server's, say; null for the web interface's.</param>
+        /// <param name="AdviceOfTheKind">What to do about a port of the kind's own that is in use - the charging station server's, say, set in the configuration file; null for the web interface's.</param>
         /// <param name="Error">Where to say it; the console's error stream by default.</param>
+        /// <param name="SwitchOf">The switch that sets a port, where it is not --port: "--http-port" for the energy meter's web interface; null where no switch sets it.</param>
         public static async Task<Int32?> Started(this WWCPNode                               Node,
                                                  Boolean                                     Verbose,
                                                  Func<PortUnavailableException, String?>?   AdviceOfTheKind  = null,
-                                                 TextWriter?                                 Error            = null)
+                                                 TextWriter?                                 Error            = null,
+                                                 Func<PortUnavailableException, String?>?   SwitchOf         = null)
         {
 
             try
@@ -154,13 +166,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                 Error.WriteLine($"The {Node.Kind.Name} could not start: {problem.Message}.");
 
-                foreach (var line in AdviceOn(Node.Kind, problem, AdviceOfTheKind, OperatingSystem.IsWindows(), Environment.ProcessPath))
+                foreach (var line in AdviceOn(Node.Kind, problem, AdviceOfTheKind, OperatingSystem.IsWindows(), Environment.ProcessPath, SwitchOf))
                     Error.WriteLine(line);
 
-                if (Verbose)
-                    Error.WriteLine(problem);
+                return CouldNotStart(Node, problem, Verbose, Error);
 
-                return 1;
+            }
+            catch (Exception problem)
+            {
+
+                Error ??= Console.Error;
+
+                Error.WriteLine($"The {Node.Kind.Name} could not start: {problem.Message}");
+
+                return CouldNotStart(Node, problem, Verbose, Error);
 
             }
 
@@ -168,39 +187,101 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region (static) AdviceOn(Kind, Problem, AdviceOfTheKind, OnWindows, Program)
+        #region (private static) CouldNotStart(Node, Problem, Verbose, Error)
+
+        /// <summary>
+        /// The rest of what a start that failed says: the whole exception where
+        /// --verbose asked for it, and the password of a first start's account.
+        /// </summary>
+        private static Int32 CouldNotStart(WWCPNode    Node,
+                                           Exception   Problem,
+                                           Boolean     Verbose,
+                                           TextWriter  Error)
+        {
+
+            if (Verbose)
+                Error.WriteLine(Problem);
+
+            foreach (var line in Node.FirstStartBox())
+                Error.WriteLine(line);
+
+            return 1;
+
+        }
+
+        #endregion
+
+        #region (static) AdviceOn(Kind, Problem, AdviceOfTheKind, OnWindows, Program, SwitchOf = null)
 
         /// <summary>
         /// What somebody can do about a port a node could not have.
         /// </summary>
+        /// <remarks>
+        /// Started as "dotnet LocalControllerCLI.dll", the program is dotnet
+        /// itself, and setcap on it would give the ports below 1024 to every
+        /// .NET program on the machine (found by the hub and the gateway): the
+        /// right goes to a published program instead.
+        /// </remarks>
         /// <param name="Kind">The kind of node.</param>
         /// <param name="Problem">Which port, whose and why.</param>
-        /// <param name="AdviceOfTheKind">The kind's advice on a port of its own; null for the web interface's.</param>
+        /// <param name="AdviceOfTheKind">The kind's advice on a port of its own that is in use; null for the web interface's.</param>
         /// <param name="OnWindows">Whether this runs on Windows, where no port wants rights.</param>
         /// <param name="Program">The program's path, for setcap.</param>
+        /// <param name="SwitchOf">The switch that sets a port, where it is not --port; null where no switch sets it.</param>
         public static IEnumerable<String> AdviceOn(NodeKind                                   Kind,
                                                    PortUnavailableException                   Problem,
                                                    Func<PortUnavailableException, String?>?  AdviceOfTheKind,
                                                    Boolean                                    OnWindows,
-                                                   String?                                    Program)
+                                                   String?                                    Program,
+                                                   Func<PortUnavailableException, String?>?  SwitchOf  = null)
         {
 
-            var port = Problem.Port.ToUInt16();
+            var port    = Problem.Port.ToUInt16();
+
+            // The meter's web interface is --http-port, its Modbus/TLS server
+            // --port; the web interface of every other kind is --port.
+            var option  = SwitchOf?.Invoke(Problem)
+                              ?? (Problem.Whose == NodePort.WebInterface ? "--port" : null);
 
             if (Problem.Because == SocketError.AccessDenied && port < 1024 && !OnWindows)
             {
+
+                if (IsDotnet(Program))
+                {
+                    yield return $"Port {port} is privileged. Either start this as root, or publish it and, once:";
+                    yield return  "  sudo setcap cap_net_bind_service=+ep <the published program>";
+                    yield return $"or pick a port above 1024{(option is not null ? $" with {option}" : "")}.";
+                    yield return  "Not on dotnet itself, which runs this now: that would give the ports below";
+                    yield return  "1024 to every .NET program on this machine.";
+                    yield break;
+                }
+
                 yield return $"Port {port} is privileged. Either start this as root, or once:";
                 yield return $"  sudo setcap cap_net_bind_service=+ep {Program ?? "<this program>"}";
-                yield return  "or pick a port above 1024.";
+                yield return $"or pick a port above 1024{(option is not null ? $" with {option}" : "")}.";
                 yield break;
+
             }
 
             if (Problem.Because == SocketError.AddressAlreadyInUse)
                 yield return AdviceOfTheKind?.Invoke(Problem)
                                  ?? $"Another copy of this {Kind.Name} already running is the usual answer. Stop it, " +
-                                     "or give this one another port with --port <number>.";
+                                    $"or give this one another port{(option is not null ? $" with {option} <number>" : "")}.";
 
         }
+
+        #endregion
+
+        #region (private static) IsDotnet(Program)
+
+        /// <summary>
+        /// Whether the program running is the dotnet host - "dotnet X.dll",
+        /// or "dotnet run" - rather than a program of its own.
+        /// </summary>
+        private static Boolean IsDotnet(String? Program)
+
+            => Program is not null &&
+               Path.GetFileNameWithoutExtension(Program).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
 
         #endregion
 
@@ -341,7 +422,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 if (ofKind.Length == 0)
                     continue;
 
-                Out.WriteLine($"  {kind.Describe()}");
+                Out.WriteLine($"  {kind.Describe(Node.Kind.Name)}");
 
                 foreach (var entry in ofKind)
                 {

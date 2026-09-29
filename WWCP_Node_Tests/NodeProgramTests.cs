@@ -277,7 +277,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// to advise on.
         /// </summary>
         [TestCase(SocketError.AddressAlreadyInUse, false, "Another copy of this test node already running is the usual answer. Stop it, or give this one another port with --port <number>.")]
-        [TestCase(SocketError.AccessDenied,        false, "Port 80 is privileged. Either start this as root, or once:|  sudo setcap cap_net_bind_service=+ep /usr/bin/node|or pick a port above 1024.")]
+        [TestCase(SocketError.AccessDenied,        false, "Port 80 is privileged. Either start this as root, or once:|  sudo setcap cap_net_bind_service=+ep /usr/bin/node|or pick a port above 1024 with --port.")]
         [TestCase(SocketError.AccessDenied,        true,  "")]
         [TestCase(SocketError.AddressNotAvailable, false, "")]
         public void WhatToDoAboutAPortDependsOnWhyAndWhose(SocketError Because, Boolean OnWindows, String Advice)
@@ -294,6 +294,174 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                  false,
                                                  null),
                             Is.EqualTo(new[] { "Stop whatever has it, or give the display another port with --kiosk-port <number>." }));
+            });
+
+        }
+
+        #endregion
+
+        #region AFirstStartThatCannotHaveItsPortStillShowsThePasswordItMadeUp()
+
+        /// <summary>
+        /// The account is made before the port is opened, and the password
+        /// made up for it is shown once: a first start that ended at a port in
+        /// use made the account and never showed it, and the next start found
+        /// "1 user(s)" and nobody who could sign in (found by the EMSP, the
+        /// gateway and the CSMS).
+        /// </summary>
+        [Test]
+        public async Task AFirstStartThatCannotHaveItsPortStillShowsThePasswordItMadeUp()
+        {
+
+            var squatter = new TcpListener(System.Net.IPAddress.Loopback, 0);
+            squatter.Start();
+
+            try
+            {
+
+                var port  = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+                var said  = new StringWriter();
+
+                await using var node = Node(IPPort.Parse(port));
+
+                var exit  = await node.Started(Verbose: false, Error: said);
+                var text  = said.ToString();
+
+                Assert.Multiple(() => {
+                    Assert.That(exit,                    Is.EqualTo(1));
+                    Assert.That(node.GeneratedPassword,  Is.Not.Null, "the account was made before the port");
+                    Assert.That(text,                    Does.Contain($"password  {node.GeneratedPassword}"));
+                    Assert.That(text.IndexOf("First start", StringComparison.Ordinal),
+                                Is.GreaterThan(text.IndexOf("could not start", StringComparison.Ordinal)),
+                                "after what went wrong");
+                });
+
+            }
+            finally
+            {
+                squatter.Stop();
+            }
+
+        }
+
+        #endregion
+
+        #region AStartThatFailsForAnotherReasonSaysWhyAndEndsWithOne()
+
+        /// <summary>
+        /// A node that cannot listen on its own port for another reason than
+        /// the port - here a certificate it could not read.
+        /// </summary>
+        private sealed class NodeThatCannotListen(IPPort          Port,
+                                                  String          AccountsPath,
+                                                  WWCPConfigFile  ConfigFile)
+
+            : WWCPNode(HTTPPort:        Port,
+                       AccountsPath:    AccountsPath,
+                       ConfigFile:      ConfigFile,
+                       LogToConsole:    false,
+                       BridgeDebugLog:  false)
+
+        {
+
+            protected override Task OnListening()
+                => throw new InvalidOperationException("The charging station server's certificate could not be read.");
+
+        }
+
+        /// <summary>
+        /// Whatever else a start fails with is said as it is, and Main returns
+        /// 1 - only a port was caught, and anything else ran past Main as an
+        /// unhandled exception (found by the energy meter).
+        /// </summary>
+        [Test]
+        public async Task AStartThatFailsForAnotherReasonSaysWhyAndEndsWithOne()
+        {
+
+            var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
+            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+
+            var brief  = new StringWriter();
+            var whole  = new StringWriter();
+
+            await using var node   = new NodeThatCannotListen(IPPort.Parse(TestPorts.Free()), Path.Combine(directory, "accounts"),       new WWCPConfigFile(configuration));
+            await using var again  = new NodeThatCannotListen(IPPort.Parse(TestPorts.Free()), Path.Combine(directory, "accounts-again"), new WWCPConfigFile(configuration));
+
+            var exit     = await node. Started(Verbose: false, Error: brief);
+            var verbose  = await again.Started(Verbose: true,  Error: whole);
+
+            Assert.Multiple(() => {
+                Assert.That(exit,              Is.EqualTo(1));
+                Assert.That(brief.ToString(),  Does.StartWith("The WWCP node could not start: The charging station server's certificate could not be read."));
+                Assert.That(brief.ToString(),  Does.Not.Contain("System.InvalidOperationException"));
+                Assert.That(verbose,           Is.EqualTo(1));
+                Assert.That(whole.ToString(),  Does.Contain("System.InvalidOperationException"), "the whole exception with --verbose");
+            });
+
+        }
+
+        #endregion
+
+        #region APortIsNamedByTheSwitchThatSetsIt()
+
+        /// <summary>
+        /// The advice names the switch that sets the port it is about: the
+        /// energy meter's web interface is --http-port and its Modbus/TLS server
+        /// --port, and a port below 1024 said "or pick a port above 1024" with
+        /// neither (found by the energy meter). A port no switch sets is named
+        /// by none.
+        /// </summary>
+        [Test]
+        public void APortIsNamedByTheSwitchThatSetsIt()
+        {
+
+            var kind      = new NodeKind("energy meter", "meter", "ModbusTLSEnergyMeter", "Meter", "meter");
+            var modbus    = new NodePort("The Modbus/TLS server");
+            var switchOf  = (PortUnavailableException problem) => problem.Whose == modbus ? "--port" : "--http-port";
+
+            PortUnavailableException Problem(UInt16 Port, SocketError Because, NodePort? Whose = null)
+                => new (IPPort.Parse(Port), new SocketException((Int32) Because), Whose);
+
+            Assert.Multiple(() => {
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(80,  SocketError.AccessDenied),         null, false, "/opt/meter/ModbusTLSEnergyMeterCLI", switchOf).Last(),
+                            Is.EqualTo("or pick a port above 1024 with --http-port."));
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(802, SocketError.AccessDenied, modbus), null, false, "/opt/meter/ModbusTLSEnergyMeterCLI", switchOf).Last(),
+                            Is.EqualTo("or pick a port above 1024 with --port."));
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(8080, SocketError.AddressAlreadyInUse), null, false, null, switchOf),
+                            Is.EqualTo(new[] { "Another copy of this energy meter already running is the usual answer. Stop it, " +
+                                               "or give this one another port with --http-port <number>." }));
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(802, SocketError.AccessDenied, modbus), null, false, "/opt/meter/ModbusTLSEnergyMeterCLI").Last(),
+                            Is.EqualTo("or pick a port above 1024."), "a port no switch is known to set");
+            });
+
+        }
+
+        #endregion
+
+        #region SetcapIsNeverAdvisedForDotnetItself()
+
+        /// <summary>
+        /// Started as "dotnet LocalControllerCLI.dll", the program is the dotnet
+        /// host, and setcap on it would give the ports below 1024 to every .NET
+        /// program on the machine (found by the hub and the gateway): the right
+        /// goes to a published program, or the node to a port above 1024.
+        /// </summary>
+        [TestCase("/usr/share/dotnet/dotnet")]
+        [TestCase("/home/someone/.dotnet/dotnet")]
+        public void SetcapIsNeverAdvisedForDotnetItself(String Dotnet)
+        {
+
+            var kind    = new NodeKind("test node", "test", "TestNode", "Test", "test");
+            var advice  = NodeProgram.AdviceOn(kind,
+                                               new PortUnavailableException(IPPort.Parse(80), new SocketException((Int32) SocketError.AccessDenied)),
+                                               null,
+                                               false,
+                                               Dotnet).ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(advice.Where(line => line.Contains("setcap") && line.Contains(Dotnet)), Is.Empty, String.Join("\n", advice));
+                Assert.That(advice, Does.Contain("  sudo setcap cap_net_bind_service=+ep <the published program>"));
+                Assert.That(advice, Does.Contain("or pick a port above 1024 with --port."));
             });
 
         }
@@ -349,6 +517,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(listed.ToString(), Does.Contain($"    {imported[0].Id}  on             until "));
                 Assert.That(listed.ToString(), Does.Contain("Test Root"));
                 Assert.That(listed.ToString(), Does.Contain("<- chosen"));
+                Assert.That(listed.ToString(), Does.Contain("TLS root - what a server this WWCP node connects to may chain to"),
+                            "said of the kind of node, as -h says it");
             });
 
         }

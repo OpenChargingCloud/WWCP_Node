@@ -60,6 +60,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         private readonly List<(CertificateKind Kind, String File)>  imports  = [];
         private readonly List<String>                               rest     = [];
 
+        /// <summary>
+        /// What --import-certificate named that is no kind of certificate at
+        /// all: said with the kinds of the node where the node is known - see
+        /// <see cref="Refused(NodeUsage, TextWriter?, TextWriter?)"/>.
+        /// </summary>
+        private String? notAKind;
+
         #endregion
 
         #region Properties
@@ -283,8 +290,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                         break;
 
                     // Whether this kind of node keeps that kind of certificate
-                    // is the node's to say, once it is there - see
-                    // NodeProgram.ImportCertificates. Here only whether it is
+                    // is the kind's to say, which the command line does not
+                    // know yet - see Refused(Usage). Here only whether it is
                     // a kind of certificate at all.
                     case "--import-certificate":
 
@@ -297,8 +304,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                             return parsed.Refusing($"--import-certificate wants <kind>=<file>, and '{import}' is not that.");
 
                         if (!CertificateKindExtensions.TryParseKind(import[..split], out var kind))
+                        {
+                            parsed.notAKind = import[..split];
                             return parsed.Refusing($"'{import[..split]}' is not a kind of certificate. " +
                                                    $"Use one of {String.Join(", ", CertificateKindExtensions.All.Select(one => one.AsText()))}.");
+                        }
 
                         parsed.imports.Add((kind, import[(split + 1)..]));
                         break;
@@ -395,9 +405,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <summary>
         /// What Main returns when this command line is not to be run: 0 after
         /// the usage for -h, 2 after the problem for a switch that cannot be
-        /// followed; null when it is to be run.
+        /// followed, or for a certificate of a kind the node does not keep;
+        /// null when it is to be run.
         /// </summary>
-        /// <param name="Usage">What -h shows.</param>
+        /// <remarks>
+        /// A kind the node does not keep is said here, before the node is made,
+        /// in the node's words and with its kinds. Said once the node was made,
+        /// it came after nine lines of log and a mobility operator's root the
+        /// EMSP had made meanwhile, and named all eleven kinds there are before
+        /// that (found by the hub, the EMSP, the gateway and the CSMS).
+        /// </remarks>
+        /// <param name="Usage">What -h shows, with the kinds of certificate the node keeps.</param>
         /// <param name="Out">Where the usage goes; the console by default.</param>
         /// <param name="Error">Where the problem goes; the console's error stream by default.</param>
         public Int32? Refused(NodeUsage    Usage,
@@ -413,13 +431,39 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             if (Problem is not null)
             {
-                (Error ?? Console.Error).WriteLine(Problem);
+                (Error ?? Console.Error).WriteLine(notAKind is not null
+                                                       ? NotKeptBy(Usage, notAKind)
+                                                       : Problem);
                 return 2;
+            }
+
+            foreach (var (kind, _) in imports)
+            {
+                if (!Usage.CertificateKinds.Contains(kind))
+                {
+                    (Error ?? Console.Error).WriteLine(NotKeptBy(Usage, kind.AsText()));
+                    return 2;
+                }
             }
 
             return null;
 
         }
+
+        #endregion
+
+        #region (private static) NotKeptBy(Usage, Kind)
+
+        /// <summary>
+        /// A kind of certificate the node does not keep, said with the ones it does.
+        /// </summary>
+        private static String NotKeptBy(NodeUsage  Usage,
+                                        String     Kind)
+
+            => $"'{Kind}' is not a kind of certificate this {Usage.Kind.Name} keeps. " +
+               (Usage.CertificateKinds.Count > 0
+                    ? $"Use one of {String.Join(", ", Usage.CertificateKinds.Select(kind => kind.AsText()))}."
+                    : "It keeps none.");
 
         #endregion
 

@@ -89,7 +89,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("kinds",        new JObject(
                                kinds.Select(kind =>
                                    new JProperty(kind.AsText(), new JObject(
-                                       new JProperty("description",     kind.Describe()),
+                                       new JProperty("description",     kind.Describe(Kind.Name)),
                                        new JProperty("trustAnchor",     kind.IsTrustAnchor()),
                                        new JProperty("needsPrivateKey", kind.NeedsPrivateKey()),
                                        // Whether one of the kind is told what it is

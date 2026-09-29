@@ -411,6 +411,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                    _                                   => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown certificate kind.")
                };
 
+
+        /// <summary>
+        /// What this kind is for, said of a kind of node: "what a server this
+        /// roaming hub connects to may chain to".
+        /// </summary>
+        /// <remarks>
+        /// Said of "this node", a line in a usage, a list or a log that says
+        /// "this roaming hub" everywhere else read as if it were somebody
+        /// else's certificate (found by the hub and the EV).
+        /// </remarks>
+        /// <param name="Kind">The kind of certificate.</param>
+        /// <param name="NodeName">What the node is called in a sentence: "roaming hub".</param>
+        public static String Describe(this CertificateKind  Kind,
+                                      String                NodeName)
+
+            => Kind.Describe().Replace("this node", $"this {NodeName}", StringComparison.Ordinal);
+
         #endregion
 
         #region SortOrder(this Kind)

@@ -49,7 +49,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                        IEnumerable<String>?          After             = null,
                                        IEnumerable<String>?          Before            = null,
                                        String                        Program           = "TestNodeCLI",
-                                       NodeKind?                     Kind              = null)
+                                       NodeKind?                     Kind              = null,
+                                       String?                       CertificatesSays  = null)
 
             => new (Program,
                     Kind ?? TestKind,
@@ -58,7 +59,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     CertificateKinds:      CertificateKinds,
                     Synopsis:              Synopsis,
                     AfterTheWebInterface:  After,
-                    BeforeTheLog:          Before);
+                    BeforeTheLog:          Before,
+                    CertificatesSays:      CertificatesSays);
 
         #endregion
 
@@ -407,6 +409,198 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(usage.Any(line => line.TrimStart().StartsWith("tlsRoot ")),    Is.True);
                 Assert.That(usage.Any(line => line.TrimStart().StartsWith("tlsServer ")),  Is.True);
                 Assert.That(usage.Any(line => line.TrimStart().StartsWith("v2gRoot ")),    Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region AKindOfCertificateTheNodeDoesNotKeepIsRefusedBeforeItIsMade()
+
+        /// <summary>
+        /// A kind of certificate the node does not keep is refused with the
+        /// command line, before the node is made - made first, the EMSP had a
+        /// mobility operator's root and nine lines of log before it said no -
+        /// and the kinds named are the node's, not all eleven there are (found
+        /// by the hub, the EMSP, the gateway and the CSMS).
+        /// </summary>
+        [Test]
+        public void AKindOfCertificateTheNodeDoesNotKeepIsRefusedBeforeItIsMade()
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            var another  = new StringWriter();
+            var nothing  = new StringWriter();
+
+            Assert.Multiple(() => {
+                Assert.That(NodeArguments.Parse([ "--import-certificate", "v2gRoot=root.pem" ]).Refused(Usage(tls), TextWriter.Null, another),
+                            Is.EqualTo(2));
+                Assert.That(another.ToString().TrimEnd(),
+                            Is.EqualTo("'v2gRoot' is not a kind of certificate this test node keeps. Use one of tlsRoot, tlsServer, tlsIdentity."));
+                Assert.That(NodeArguments.Parse([ "--import-certificate", "nothing=root.pem" ]).Refused(Usage(tls), TextWriter.Null, nothing),
+                            Is.EqualTo(2));
+                Assert.That(nothing.ToString().TrimEnd(),
+                            Is.EqualTo("'nothing' is not a kind of certificate this test node keeps. Use one of tlsRoot, tlsServer, tlsIdentity."));
+                Assert.That(NodeArguments.Parse([ "--import-certificate", "tlsRoot=root.pem" ]).Refused(Usage(tls)),
+                            Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region ADashBetweenWordsNeverBeginsALine()
+
+        /// <summary>
+        /// A dash between words stays with the word before it: broken before
+        /// it, a line began "- which", which reads as a switch (found in the
+        /// charging station's --v2g-loopback).
+        /// </summary>
+        [Test]
+        public void ADashBetweenWordsNeverBeginsALine()
+        {
+
+            // "well" ends at column 79, where the dash no longer fits.
+            var text   = new String('x', 74) + " well - which of the two sockets";
+            var lines  = NodeUsage.Wrap(text, "", "").ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(lines.Where(line => line.TrimStart().StartsWith("- ")),  Is.Empty);
+                Assert.That(lines.Where(line => line.Length > NodeUsage.Width),     Is.Empty);
+                Assert.That(String.Join(" ", lines),                                Is.EqualTo(text));
+            });
+
+        }
+
+        #endregion
+
+        #region TheLogsSwitchesStandInTwoColumns()
+
+        /// <summary>
+        /// In the log's section a switch with a short form begins at column 2,
+        /// and one without at column 6, below the long form of the ones above -
+        /// --log-file stood at column 2 between two at 6 (found by the CSMS).
+        /// </summary>
+        [Test]
+        public void TheLogsSwitchesStandInTwoColumns()
+        {
+
+            var log = Usage().Lines().
+                          SkipWhile(line => line != "Log:").
+                          Skip(1).
+                          TakeWhile(line => line.Length > 0).
+                          Where(line => line.TrimStart().StartsWith('-')).
+                          ToArray();
+
+            Assert.That(log.Select(line => line.Length - line.TrimStart().Length), Is.EqualTo(new[] { 2, 2, 6, 6, 6 }),
+                        String.Join("\n", log));
+
+        }
+
+        #endregion
+
+        #region WhatHasToBringItsPrivateKeyIsSaidOfTheKindsTheNodeKeeps()
+
+        /// <summary>
+        /// What has to bring its private key is said of the kinds the node
+        /// keeps: "a TLS identity" was all it said, above a list with the
+        /// vehicle's, the contract's and the OEM's in it (found by the EV).
+        /// </summary>
+        [Test]
+        public void WhatHasToBringItsPrivateKeyIsSaidOfTheKindsTheNodeKeeps()
+        {
+
+            static String Said(NodeUsage Usage) => String.Join(" ", Usage.Lines().Select(line => line.Trim()));
+
+            Assert.Multiple(() => {
+                Assert.That(Said(Usage()),
+                            Does.Contain("a vehicle, contract, oemProvisioning or tlsIdentity has to bring its private key"));
+                Assert.That(Said(Usage([ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ])),
+                            Does.Contain("a tlsIdentity has to bring its private key"));
+                Assert.That(Said(Usage([ CertificateKind.V2GRoot, CertificateKind.TLSRoot ])),
+                            Does.Not.Contain("private key"));
+            });
+
+        }
+
+        #endregion
+
+        #region TheKindsOfCertificateAreSaidOfTheKindOfNode()
+
+        /// <summary>
+        /// "What this node presents" in a usage that says "this roaming hub"
+        /// everywhere else read as if it were somebody else's (found by the hub
+        /// and the EV): the kinds are said of the kind of node.
+        /// </summary>
+        [Test]
+        public void TheKindsOfCertificateAreSaidOfTheKindOfNode()
+        {
+
+            var said = String.Join(" ", Usage([ CertificateKind.TLSRoot, CertificateKind.ClientRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ]).
+                                            Lines().Select(line => line.Trim()));
+
+            Assert.Multiple(() => {
+                Assert.That(said, Does.Contain("what a server this test node connects to may chain to"));
+                Assert.That(said, Does.Contain("what this test node presents in TLS"));
+                Assert.That(said, Does.Not.Contain("this node"));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatAKindSaysOfItsStoreStandsBelowItsKinds()
+
+        /// <summary>
+        /// Below the kinds, that a root or a server certificate holds for every
+        /// use until the web interface narrows it, as the EV had said it, and
+        /// what the kind says of its store itself - the hub's "used by nothing
+        /// here yet" was gone with its own usage.
+        /// </summary>
+        [Test]
+        public void WhatAKindSaysOfItsStoreStandsBelowItsKinds()
+        {
+
+            var lines     = Usage([ CertificateKind.TLSRoot, CertificateKind.ClientRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ],
+                                  CertificatesSays: "clientRoot and tlsIdentity are kept, and used by nothing here yet.").Lines().ToList();
+            var said      = String.Join(" ", lines.Select(line => line.Trim()));
+            var kinds     = lines.FindIndex(line => line.TrimStart().StartsWith("tlsIdentity "));
+            var password  = lines.FindIndex(line => line.TrimStart().StartsWith("--certificate-password"));
+            var between   = String.Join(" ", lines.Skip(kinds + 1).Take(password - kinds - 1).Select(line => line.Trim()));
+
+            Assert.Multiple(() => {
+                Assert.That(said,     Does.Contain("A tlsRoot or tlsServer imported here holds for every use until the Certificates page of the web interface narrows it."));
+                Assert.That(between,  Does.Contain("clientRoot and tlsIdentity are kept, and used by nothing here yet."), "below the kinds, above the next switch");
+                Assert.That(String.Join(" ", Usage([ CertificateKind.V2GRoot, CertificateKind.TLSIdentity ]).Lines()),
+                            Does.Not.Contain("for every use"), "a TLS identity is told its uses by its node's listeners");
+            });
+
+        }
+
+        #endregion
+
+        #region ASynopsisIsBrokenBetweenItsSwitchesOnly()
+
+        /// <summary>
+        /// A kind whose synopsis is its own - the energy meter's - breaks it
+        /// between its switches, as the node's is broken: Wrap, which breaks
+        /// between words, would part "[--listen &lt;address&gt;]".
+        /// </summary>
+        [Test]
+        public void ASynopsisIsBrokenBetweenItsSwitchesOnly()
+        {
+
+            String[] switches = [ "[--port <number>]", "[--any | --listen <address>]", "[--idle-timeout <seconds>]", "[--write-timeout <seconds>]",
+                                  "[--http-port <number>]", "[--https]", "[--config <file>]", "[--data <directory>]", "[--selftest [<role>]]" ];
+
+            var first  = "Usage: ModbusTLSEnergyMeterCLI ";
+            var lines  = NodeUsage.WrapItems(switches, first, new String(' ', first.Length)).ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(lines.Length,                                           Is.GreaterThan(1));
+                Assert.That(lines.Where(line => line.Length > NodeUsage.Width),     Is.Empty);
+                Assert.That(switches.All(item => lines.Any(line => line.Contains(item))), Is.True, String.Join("\n", lines));
             });
 
         }

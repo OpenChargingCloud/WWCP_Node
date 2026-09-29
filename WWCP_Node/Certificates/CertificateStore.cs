@@ -437,7 +437,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                             {
                                 adopted++;
                                 log.Metrological(LogLevel.Notice,
-                                                 $"Certificates: adopted '{relative}' - {entry.Label}, {kind.Describe()}. It is switched on" +
+                                                 $"Certificates: adopted '{relative}' - {entry.Label}, {kind.Describe(NodeName)}. It is switched on" +
                                                  $"{(kind.HasUsages() ? ", " + CertificateUsages.Describe(entry.Usages) : "")}.",
                                                  "certificates", "security");
                             }
@@ -455,7 +455,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 if (setAside.Count > 0)
                     log.Info($"Certificates: {setAside.Count} in the index of a kind this {NodeName} does not keep " +
-                             $"({String.Join(", ", setAside.Values.Select(entry => entry.Kind.Describe()).Distinct())}) " +
+                             $"({String.Join(", ", setAside.Values.Select(entry => entry.Kind.Describe(NodeName)).Distinct())}) " +
                              $"left as {(setAside.Count == 1 ? "it was" : "they were")}.",
                              "certificates");
 
@@ -590,7 +590,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             // not given a directory by a refused import.
             if (!Kinds.Contains(Kind))
             {
-                Error = $"This {NodeName} keeps no certificate of that kind: {Kind.Describe()}.";
+                Error = $"This {NodeName} keeps no certificate of that kind: {Kind.Describe(NodeName)}.";
                 return false;
             }
 
@@ -736,7 +736,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 storeChanged = true;
 
                 log.Metrological(LogLevel.Notice,
-                                 $"Certificates: imported {Entry.Label} as {Kind.Describe()}, " +
+                                 $"Certificates: imported {Entry.Label} as {Kind.Describe(NodeName)}, " +
                                  $"{Entry.KeyAlgorithm}, valid until {Entry.NotAfter.UtcDateTime:yyyy-MM-dd}, SHA-256 {Entry.Thumbprint}. It is switched on" +
                                  $"{(Kind.HasUsages() ? ", " + CertificateUsages.Describe(usages) : "")}.",
                                  "certificates", "security");
