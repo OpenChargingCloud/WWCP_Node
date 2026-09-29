@@ -100,9 +100,11 @@ export interface NodeStatus {
 }
 
 /**
- * What the node is made of. Only the shape a page relies on is named; the
- * rest is rendered from whatever the node sends, so that a new section on the
- * server needs no change here. A kind of node adds its own sections.
+ * What the node is made of. Only the shape a page relies on is named here.
+ * The fields of a section are rendered from whatever the node sends, so a
+ * field added on the server needs no change here or on a page; a section
+ * added there shows once a page has a card for it. A kind of node adds its
+ * own sections.
  */
 export interface NodeConfiguration {
     http:        Record<string, unknown>;
