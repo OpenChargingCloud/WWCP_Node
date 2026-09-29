@@ -174,11 +174,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             _ = AlsoStoppedBy?.ContinueWith(_ => stopped.TrySetResult(), TaskScheduler.Default);
 
+            var promptLeft = false;
+
             try
             {
 
                 if (canBeTypedAt)
-                    await Prompt(stopped.Task);
+                    promptLeft = await Prompt(stopped.Task);
 
                 else
                     await stopped.Task;
@@ -186,8 +188,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             }
             finally
             {
+
+                // The console back to the log alone. A prompt left standing -
+                // Ctrl+C, SIGTERM or the task stopped the node while somebody
+                // was typing - would otherwise be put back under every entry
+                // the shutdown writes, and stay the last line on the screen.
+                // Its line is ended first, or the first of those entries would
+                // start right behind what was typed. With a lock of its own,
+                // as after a prompt that broke.
+                var padlock = new Lock();
+
+                lock (padlock)
+                {
+
+                    Node.ShareConsoleWith(write => { lock (padlock) { write(); } });
+
+                    if (promptLeft)
+                        Console.WriteLine();
+
+                }
+
                 Console.CancelKeyPress -= OnCancelKeyPress;
                 terminated?.Dispose();
+
             }
 
         }
@@ -198,9 +221,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         /// <summary>
         /// The prompt, until it is quit or the node is to stop - and a new one
-        /// where one broke.
+        /// where one broke. Says whether a prompt is still standing, with
+        /// whatever was being typed at it when the node was told to stop.
         /// </summary>
-        private async Task Prompt(Task Stopped)
+        private async Task<Boolean> Prompt(Task Stopped)
         {
 
             var brokeAtOnce = false;
@@ -225,8 +249,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                 await Task.WhenAny(Stopped, typing);
 
+                // Quit - or stopped, and then the prompt is still reading keys.
                 if (!typing.IsFaulted)
-                    return;
+                    return !typing.IsCompleted;
 
                 // A command line that broke is not somebody asking for the node
                 // to stop. What broke it first, in the vehicle and the charging
@@ -274,7 +299,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 if (giveUp)
                 {
                     await Stopped;
-                    return;
+                    return false;
                 }
 
             }

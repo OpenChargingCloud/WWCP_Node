@@ -296,6 +296,48 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region TheLogHasTheConsoleToItselfOnceTheNodeStops()
+
+        /// <summary>
+        /// Once the console ends, the log writes on its own again: a prompt left
+        /// standing when the node was told to stop is not put back under every
+        /// entry of the shutdown, as the last line on the screen. No prompt can
+        /// stand in a test host, whose input is redirected; what can be seen
+        /// here is that the log no longer writes through what the command line
+        /// gave it.
+        /// </summary>
+        [Test]
+        public async Task TheLogHasTheConsoleToItselfOnceTheNodeStops()
+        {
+
+            Assume.That(Console.IsInputRedirected || Console.IsOutputRedirected, Is.True,
+                        "a terminal on both ends, where the console would wait for keys instead");
+
+            var throughTheCommandLine = 0;
+
+            node.ShareConsoleWith(write => { throughTheCommandLine++; write(); });
+
+            var server   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var running  = new NodeCLI(node).RunUntilStopped(server.Task);
+
+            server.SetResult();
+
+            Assert.That(await Task.WhenAny(running, Task.Delay(TimeSpan.FromSeconds(5))), Is.SameAs(running),
+                        "the console still ran 5 s after the task finished");
+
+            var written = false;
+
+            node.Log.ComplaintBlock(() => written = true);
+
+            Assert.Multiple(() => {
+                Assert.That(written,                Is.True, "the log's block was not written at all");
+                Assert.That(throughTheCommandLine,  Is.Zero, "the log still wrote through the command line");
+            });
+
+        }
+
+        #endregion
+
 
         #region (class) KindCLI, KindCommand
 
