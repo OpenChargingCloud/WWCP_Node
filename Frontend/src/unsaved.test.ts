@@ -13,7 +13,7 @@
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import { questionAbout, theQuestion, typedSinceDrawn, unsaved } from './unsaved.ts';
+import { anyFormTypedSinceDrawn, questionAbout, theQuestion, typedSinceDrawn, unsaved } from './unsaved.ts';
 
 
 /** What was asked, and what the answer was. */
@@ -167,23 +167,25 @@ describe('a page that has been left', () => {
 });
 
 
+/** A control as the browser keeps it: what is in it now, and what the page drew it with. */
+const field = (value: string, drawnWith: string) =>
+    ({ tagName: 'INPUT', type: 'text', value, defaultValue: drawnWith });
+
+const tick = (checked: boolean, drawnWith: boolean) =>
+    ({ tagName: 'INPUT', type: 'checkbox', checked, defaultChecked: drawnWith });
+
+const choice = (checked: boolean, drawnWith: boolean) =>
+    ({ tagName: 'INPUT', type: 'radio', checked, defaultChecked: drawnWith });
+
+const picker = (chosen: number, drawnWith: number) =>
+    ({ tagName: 'SELECT',
+       options: [0, 1, 2].map(index => ({ selected: index === chosen, defaultSelected: index === drawnWith })) });
+
+const form = (controls: unknown[]) =>
+    ({ querySelectorAll: () => controls }) as unknown as ParentNode;
+
+
 describe('whether a form has been typed into since it was drawn', () => {
-
-    const field = (value: string, drawnWith: string) =>
-        ({ tagName: 'INPUT', type: 'text', value, defaultValue: drawnWith });
-
-    const tick = (checked: boolean, drawnWith: boolean) =>
-        ({ tagName: 'INPUT', type: 'checkbox', checked, defaultChecked: drawnWith });
-
-    const choice = (checked: boolean, drawnWith: boolean) =>
-        ({ tagName: 'INPUT', type: 'radio', checked, defaultChecked: drawnWith });
-
-    const picker = (chosen: number, drawnWith: number) =>
-        ({ tagName: 'SELECT',
-           options: [0, 1, 2].map(index => ({ selected: index === chosen, defaultSelected: index === drawnWith })) });
-
-    const form = (controls: unknown[]) =>
-        ({ querySelectorAll: () => controls }) as unknown as ParentNode;
 
     it('is no, for a form still as the node left it', () => {
         assert.equal(typedSinceDrawn(form([field('22:00', '22:00'), tick(true, true), choice(false, false), picker(1, 1)])), false);
@@ -212,6 +214,46 @@ describe('whether a form has been typed into since it was drawn', () => {
         // the same thing as a page with something in it.
         assert.equal(typedSinceDrawn(null), false);
         assert.equal(typedSinceDrawn(form([])), false);
+    });
+
+});
+
+
+describe('whether any form on a page has been typed into since it was drawn', () => {
+
+    /**
+     * A page: its forms, and the controls outside every form - a switch that
+     * acts the moment it is flipped, say. Asked for its controls, it gives
+     * all of them, as the browser would.
+     */
+    const page = (forms: unknown[][], outside: unknown[] = []) =>
+        ({ querySelectorAll: (selector: string) => selector === 'form'
+                                                       ? forms.map(form)
+                                                       : [ ...forms.flat(), ...outside ] }) as unknown as ParentNode;
+
+    it('is no, for a page whose forms are all as the node left them', () => {
+        assert.equal(anyFormTypedSinceDrawn(page([ [field('dns.example', 'dns.example')], [tick(true, true)] ])), false);
+    });
+
+    it('is yes, for one field typed into in any one of them - the last as much as the first', () => {
+        assert.equal(anyFormTypedSinceDrawn(page([ [field('dns.example', 'dns.example')], [field('05:45', '06:00')] ])), true);
+    });
+
+    it('is no, for a switch outside every form, which is no draft', () => {
+
+        const flipped = page([ [field('dns.example', 'dns.example')] ], [ tick(false, true) ]);
+
+        assert.equal(anyFormTypedSinceDrawn(flipped), false);
+
+        // What the page as a whole would have said: holding something, on a
+        // page with nothing to lose.
+        assert.equal(typedSinceDrawn(flipped), true);
+
+    });
+
+    it('and is no where there is no page, or no form on it', () => {
+        assert.equal(anyFormTypedSinceDrawn(null), false);
+        assert.equal(anyFormTypedSinceDrawn(page([], [ tick(false, true) ])), false);
     });
 
 });

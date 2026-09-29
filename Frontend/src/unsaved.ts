@@ -127,7 +127,10 @@ interface Changeable {
  * It is not the question for a page that edits a list, because such a page
  * redraws itself as the list is edited, and every field in it then matches
  * what it was drawn with again. Those pages keep a flag of their own and
- * answer with that instead.
+ * answer with that as well - not instead: what is typed into a form and not
+ * yet added to the list is in no flag. And a page that draws a form again with
+ * what was typed into it, so that a redraw does not empty it, asks what it
+ * kept too: drawn again, what was typed is what the page drew.
  */
 export function typedSinceDrawn(Root: ParentNode | null): boolean {
 
@@ -153,5 +156,25 @@ export function typedSinceDrawn(Root: ParentNode | null): boolean {
     }
 
     return false;
+
+}
+
+/**
+ * Whether any form under here has been typed into since the page drew it: the
+ * question for a page whose every form is a draft, asked of every form it has
+ * now, so that a form added to the page later is held without anybody
+ * remembering to name it.
+ *
+ * The forms only: a switch outside a form acts the moment it is flipped, and
+ * is nothing to lose. A dialog's form is not under a page's content at all; it
+ * lives and dies with its dialog. A page that edits a list asks its flag
+ * too - `() => dirty || anyFormTypedSinceDrawn(content)`.
+ */
+export function anyFormTypedSinceDrawn(Root: ParentNode | null): boolean {
+
+    if (Root === null)
+        return false;
+
+    return Array.from(Root.querySelectorAll('form')).some(form => typedSinceDrawn(form));
 
 }

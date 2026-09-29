@@ -869,6 +869,35 @@ directory - `libs/<Kind>/<Kind>/Frontend`, with this repository in
   `test/resolve.ts` tells Node what webpack is told: where `@node/...` is, and
   that a relative import without its extension means the `.ts` file.
 
+Its own pages are held to what the shared ones are, by the same rules -
+`test/pages.ts`, which `src/pages/pages.test.ts` asks of the shared pages -
+in its own `src/pages/pages.test.ts`; `@node/..` is `WWCP_Node/Frontend`:
+
+```ts
+import { everyPageIn } from '@node/../test/pages.ts';
+
+everyPageIn(new URL('./', import.meta.url), {
+    withForms: [ 'csms.ts', 'ocppServer.ts' ]
+});
+```
+
+Every page with a form says whether it is holding a draft, holds every form
+it has - by name, `typedSinceDrawn(content.querySelector('#…'))`, or all at
+once, `anyFormTypedSinceDrawn(content)` - and asks before its Reload throws
+one away; every number is read with `numberField`, not `Number()`, which
+makes an emptied field 0. `withForms` names the pages with a form, so that
+the rules are not said of nothing; `dialogForms` names the forms that are a
+dialog's, which asks for itself when it is closed; `notDrafts` names a page
+whose form is none, with why - signing in is the way in, and nothing typed
+there is the node's to lose. So every kind has a frontend test of its own,
+and the scaffolding with it; one whose pages have no form yet has
+`withForms: []`, which says so, and says it again the day one has.
+
+Asked of every kind's own pages before they were shared, the rules found
+pages of five kinds that held nothing at all, or not every form - a flag of
+the page's own holds what is added to its list, not what is typed into a
+form and not yet added - and one kind's numbers that an emptied field made 0.
+
 And in its `.csproj`, without which a new WWCP_Node changes nothing: the
 frontend is built only when an input of `BuildFrontend` changed, and the
 shared files have to be among them -
