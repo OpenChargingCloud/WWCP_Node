@@ -4,7 +4,7 @@ import { toURL } from '../basePath';
 import { config } from '../config';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
-import { shell } from '../shell';
+import { mayButNot, shell } from '../shell';
 import { errorMessage, humanizeKey, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { hasUsages, usageName, usagesOf } from './certificateUsages';
@@ -162,8 +162,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
                     ${mayChange ? '' : html`
                         <div class="notice">
-                            Signed in as ${auth.user?.roles.join(', ') || 'nobody in particular'}, which may look at
-                            the store but not change it. That needs a role that may change it.
+                            ${mayButNot('look at the store', 'change it')}
                         </div>
                     `}
 

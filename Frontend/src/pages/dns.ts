@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { config } from '../config';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
-import { shell } from '../shell';
+import { mayButNot, shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, numberField, numberFrom, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { allServersTake, entryOf, isEncrypted, oneServerTakes, sentOf } from './dnsServers';
@@ -89,8 +89,7 @@ export const dnsPage: Page = {
 
                 ${mayChange ? '' : html`
                     <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the name
-                        resolution but not change it. That needs a role that may change it.
+                        ${mayButNot('look at the name resolution', 'change it')}
                     </div>
                 `}
 

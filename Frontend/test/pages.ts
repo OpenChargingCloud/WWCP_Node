@@ -18,7 +18,11 @@
  *   charging station's V2G and power pages);
  * - that a page's look comes from the stylesheet - a style attribute is
  *   dropped by the policy every node serves its pages with (found on the
- *   partner pages of the CSMS, the e-mobility provider and the hub).
+ *   partner pages of the CSMS, the e-mobility provider and the hub);
+ * - that a page says what somebody may not do through mayButNot, and names no
+ *   role that would do - said by hand, the DNS and NTS pages told an account
+ *   with no role "Signed in as , which may …", and the kinds' own pages named
+ *   roles only a configuration file knows.
  *
  * The pages every kind shares are asked in src/pages/pages.test.ts. A kind of
  * node asks its own the same way, in its own src/pages/pages.test.ts -
@@ -152,6 +156,29 @@ export function numbersReadAsZeroWhenEmptied(Page: Page): string[] {
                filter(name => name !== 'priority');
 }
 
+/**
+ * Where a page says itself who is signed in - "Signed in as ${…}" - rather
+ * than through mayButNot. Said by hand, it was said four ways, and one of them,
+ * ?? 'somebody' after the roles joined, told an account with no role "Signed
+ * in as , which may …": [].join(', ') is '', not the undefined ?? waits for.
+ */
+export function signedInSaidByHand(Page: Page): string[] {
+    return [ ...Page.source.matchAll(/Signed in as \$\{[^}]*\}/g) ].
+               map(match => match[0]);
+}
+
+/**
+ * Where a page names a role as the one that something needs - "That needs the
+ * CPO or the system administrator role" - though which roles there are, and
+ * what each may, is the configuration file's to say: a node given other roles,
+ * or other rights for these, sends somebody after a role it does not have.
+ * "That needs a role that may change it", as mayButNot says it, names none.
+ */
+export function rolesNamedAsNeeded(Page: Page): string[] {
+    return [ ...Page.source.matchAll(/\bneeds?\s+the\s+(?:(?!roles?\b)[\w-]+,?\s+(?:(?:or|and)\s+)?(?:the\s+)?){1,6}?roles?\b/gi) ].
+               map(match => match[0].replace(/\s+/g, ' '));
+}
+
 
 /**
  * Asks every page in a directory what is above, as tests of the runner that
@@ -238,6 +265,24 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
                 const styles = inlineStylesOf(page);
                 assert.deepEqual(styles, [], `${page.name} writes ${styles.join(', ')} into itself - style-src 'self' lets no style through that is not in the stylesheet; say it by a class`);
             });
+
+    });
+
+    describe('what a page says somebody may not do', () => {
+
+        for (const page of pages) {
+
+            it(`${page.name} says who is signed in through mayButNot, so that an account with no role is not left without a name`, () => {
+                const said = signedInSaidByHand(page);
+                assert.deepEqual(said, [], `${page.name} says ${said.join(', ')} itself - mayButNot('look at …', 'change it') says it as every kind says it`);
+            });
+
+            it(`${page.name} names no role as the one that is needed, as which roles there are is the configuration file's to say`, () => {
+                const named = rolesNamedAsNeeded(page);
+                assert.deepEqual(named, [], `${page.name} says "${named.join('", "')}" - "that needs a role that may …" names none`);
+            });
+
+        }
 
     });
 

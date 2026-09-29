@@ -20,7 +20,8 @@ import type { NodeMe }       from './api/client.ts';
 };
 
 const { auth }                                                             = await import('./auth.ts');
-const { configureShell, mayOpen, menuHTML, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
+const { configureShell, mayButNot, mayOpen, menuHTML, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
+const { html }                                                             = await import('./html.ts');
 
 
 /** Somebody signed in who may do this, and nothing else. */
@@ -217,6 +218,71 @@ describe('the foot of the menu', () => {
 
     it('names the node as the node names itself, beside its version and the web interface\'s', () => {
         assert.match(versions().value, /^electric vehicle \S+ &middot; web \S+$/);
+    });
+
+});
+
+
+describe('what a page says somebody may not do', () => {
+
+    it('says who they are signed in as, and that it needs a role that may', () => {
+
+        configureShell({ name: 'Electric Vehicle', icon: 'fa-car', menu: [] });
+
+        assert.equal(mayButNot('look at the name resolution', 'change it', { ...signedIn(), roles: [ 'driver', 'service' ] }),
+                     'Signed in as driver, service, which may look at the name resolution but not change it. ' +
+                     'That needs a role that may change it.');
+
+    });
+
+    it('says that they hold no role where they hold none, rather than leave the name empty', () => {
+
+        configureShell({ name: 'Electric Vehicle', icon: 'fa-car', menu: [] });
+
+        assert.equal(signedInAs({ ...signedIn(), roles: [] }), 'Signed in as an account with no role');
+
+        assert.equal(mayButNot('look at the time servers', 'change them', { ...signedIn(), roles: [] }),
+                     'Signed in as an account with no role, which may look at the time servers but not change them. ' +
+                     'That needs a role that may change them.');
+
+    });
+
+    it('names them as the foot of the menu does, where the kind of node has a better name for a role', () => {
+
+        configureShell({
+            name:  'Energy Meter',
+            icon:  'fa-bolt',
+            menu:  [],
+            who:   () => ({ line: 'Auditor', title: 'may read everything and change nothing' })
+        });
+
+        assert.equal(signedInAs(signedIn()), 'Signed in as Auditor');
+
+    });
+
+    it('asks who is signed in when it is said, not when the page was loaded', () => {
+
+        configureShell({ name: 'Electric Vehicle', icon: 'fa-car', menu: [] });
+
+        auth.set({ ...signedIn(), roles: [ 'installer' ] });
+
+        try {
+            assert.match(mayButNot('look at the store', 'change it'), /^Signed in as installer, which may look at the store/);
+        }
+        finally {
+            auth.set(null);
+        }
+
+    });
+
+    it('is written as text on a page, a role\'s name with it', () => {
+
+        configureShell({ name: 'Electric Vehicle', icon: 'fa-car', menu: [] });
+
+        const said = html`<div class="notice">${mayButNot('look at the store', 'change it', { ...signedIn(), roles: [ '<b>boss</b>' ] })}</div>`;
+
+        assert.match(said.value, /Signed in as &lt;b&gt;boss&lt;\/b&gt;, which may/);
+
     });
 
 });

@@ -203,6 +203,35 @@ export function whoIsSignedIn(Me: NodeMe<string>): { line: string; title: string
 
 }
 
+/**
+ * Who somebody is signed in as, to begin a sentence with: by the roles they
+ * hold, as the foot of the menu names them - and where they hold none, by
+ * that, not by a name left empty ("Signed in as , which may …").
+ */
+export function signedInAs(Me: NodeMe<string> | null): string {
+
+    if (Me === null || Me.roles.length === 0)
+        return 'Signed in as an account with no role';
+
+    return `Signed in as ${whoIsSignedIn(Me).line}`;
+
+}
+
+/**
+ * What a page says to somebody who may do one thing with a part of it and not
+ * another: "Signed in as cpo, which may look at the name resolution but not
+ * change it. That needs a role that may change it."
+ *
+ * It names the roles they hold, and never one that would do: which roles there
+ * are, and what each may, is the configuration file's to say. A string, so
+ * that html`…` writes a role's name as text.
+ */
+export function mayButNot(May:     string,
+                          MayNot:  string,
+                          Me:      NodeMe<string> | null = auth.user): string {
+    return `${signedInAs(Me)}, which may ${May} but not ${MayNot}. That needs a role that may ${MayNot}.`;
+}
+
 /** Which node and which web interface this is: in the foot of the menu, and under the sign-in. */
 export function versions(): HTMLFragment {
     return html`${config.nodeName} ${config.serverVersion} &middot; web ${config.frontendVersion}`;

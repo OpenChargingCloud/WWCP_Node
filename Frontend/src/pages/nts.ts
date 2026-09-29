@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { config } from '../config';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
-import { shell } from '../shell';
+import { mayButNot, shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, numberField, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { nameTaken, readable, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
@@ -119,8 +119,7 @@ export const ntsPage: Page = {
 
                 ${mayChange ? '' : html`
                     <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the time
-                        servers but not change them. That needs a role that may change them.
+                        ${mayButNot('look at the time servers', 'change them')}
                     </div>
                 `}
 

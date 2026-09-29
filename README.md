@@ -732,7 +732,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `ui.ts` | what else the pages share: a form held still while it is saved, a field read as a number, a time and a number as people read them, a key as a label, the way back after the sign-in |
 | `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - and what a kind publishes on the same stream |
 | `auth.ts` | who is signed in, what they may do, and the guard that sends everybody else to the sign-in |
-| `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page - who is signed in, and the versions |
+| `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page - who is signed in, and the versions; and what a page says somebody may not do, `mayButNot()` |
 | `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
 | `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |
@@ -894,7 +894,12 @@ base the node may be served under in a new tab or a copied link; and takes
 its look from the stylesheet, by a class - `style="..."` is dropped by the
 policy the pages are served with, `style-src 'self'`, which the kit asks
 every kind for. `input.capitals` and a card heading's `.heading-action`
-are there for what three partner pages wrote as style attributes.
+are there for what three partner pages wrote as style attributes. What
+somebody may not do, a page says through `mayButNot('look at the name
+resolution', 'change it')` - "Signed in as cpo, which may look at the name
+resolution but not change it. That needs a role that may change it." - and
+it names no role as the one that is needed: which roles there are, and what
+each may, is the configuration file's to say.
 `withForms` names the pages with a form, so that
 the rules are not said of nothing; `dialogForms` names the forms that are a
 dialog's, which asks for itself when it is closed; `notDrafts` names a page

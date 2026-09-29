@@ -8,7 +8,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it }     from 'node:test';
 
-import { asksBeforeItsReload, formsNotHeld, formsOf, inlineStylesOf, linksPastTheBase, numbersReadAsZeroWhenEmptied, saysWhetherItHolds } from './pages.ts';
+import { asksBeforeItsReload, formsNotHeld, formsOf, inlineStylesOf, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -157,6 +157,46 @@ describe('a link', () => {
 
     it('through toURL passes, and so do one to elsewhere and one within the page', () => {
         assert.deepEqual(linksPastTheBase(page(`<a href="\${toURL('/logs')}">log</a>  <a href="https://www.ptb.de/">PTB</a>  <a href="#legal">legal time</a>`)),
+                         []);
+    });
+
+});
+
+
+describe('who is signed in', () => {
+
+    it('said by the page itself is found, whichever way it names them', () => {
+        assert.deepEqual(signedInSaidByHand(page(`Signed in as \${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the name
+                                                  resolution but not change it.  Signed in as \${auth.user?.roleTitle ?? 'somebody'}, which may`)),
+                         [ `Signed in as \${auth.user?.roles.join(', ') ?? 'somebody'}`, `Signed in as \${auth.user?.roleTitle ?? 'somebody'}` ]);
+    });
+
+    it('said through mayButNot passes, and so does a table that shows the name alone', () => {
+        assert.deepEqual(signedInSaidByHand(page(`<div class="notice">\${mayButNot('look at the store', 'change it')}</div>
+                                                  <tr><td>Signed in as</td><td><code>\${me?.username ?? '-'}</code></td></tr>`)),
+                         []);
+    });
+
+});
+
+
+describe('a role', () => {
+
+    it('named as the one that is needed is found, one or several, across a line\'s end', () => {
+        assert.deepEqual(rolesNamedAsNeeded(page(`That needs the system administrator role.  That needs the CPO or the system administrator role.
+                                                  That needs the driver, the service or the system
+                                                  administrator role.  Switching one off needs the CPO role; the others need the installer role.
+                                                  That needs the operator role or better.`)),
+                         [ 'needs the system administrator role', 'needs the CPO or the system administrator role',
+                           'needs the driver, the service or the system administrator role', 'needs the CPO role',
+                           'need the installer role', 'needs the operator role' ]);
+    });
+
+    it('that is needed without a name passes, and so does what else a page says is needed', () => {
+        assert.deepEqual(rolesNamedAsNeeded(page(`That needs a role that may change it.  Looking something up needs a role that may run queries.
+                                                  That needs the role that changes how this station connects.
+                                                  A partner needs the token it was given to call any of them.
+                                                  Which roles there are, and what the role of an account may, is the configuration file's to say.`)),
                          []);
     });
 
