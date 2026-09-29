@@ -1054,12 +1054,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // bundle built by webpack carries an SVG. A literal route wins
                 // over the catch-all, so this answers before the stub would -
                 // and beats a 404 on every visit, which is a line in the log
-                // and a broken icon in the tab.
-                //
-                // The length is said because nothing else says it: a response
-                // without a body is not given one of its own, and a client on
-                // a connection that is kept alive then waits for a body until
-                // the server gives the connection up.
+                // and a broken icon in the tab. That it has no body, Hermod
+                // says of every response without one.
                 if (this.Frontend.TryGet(FaviconSVG, out _))
                     this.WebInterface.AddHandler(
                         HTTPPath.Parse("/favicon.ico"),
@@ -1067,8 +1063,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                        new HTTPResponse.Builder(request) {
                                            HTTPStatusCode  = HTTPStatusCode.TemporaryRedirect,
                                            Location        = Location.From(HTTPPath.Parse($"{BasePathText}/{FaviconSVG}")),
-                                           CacheControl    = "public, max-age=3600",
-                                           ContentLength   = 0
+                                           CacheControl    = "public, max-age=3600"
                                        }.AsImmutable
                                    ),
                         HTTPMethod.GET
