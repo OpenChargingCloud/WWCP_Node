@@ -44,6 +44,27 @@ describe('a card', () => {
 
     });
 
+    it('draws a thing and a list of things inside a thing as blocks as well, however deep', () => {
+
+        // The station's 10BASE-T1S bus, as its V2G section sends it.
+        const drawn = card('V2G', 'fa-plug', {
+                          t1s: {
+                              medium:   'loopback',
+                              thermal:  { state: 'normal', alarm: false },
+                              nodes:    [ { id: 1, name: 'inlet', mac: '02:00:00:00:00:01' },
+                                          { id: 2, name: 'cable', mac: '02:00:00:00:00:02', extra: { weight: 3 } } ]
+                          }
+                      }).value;
+
+        assert.ok(!drawn.includes('&quot;'), 'a thing as JSON');
+        assert.equal(drawn.match(/<div class="nested-item">/g)?.length, 5,
+                     'the bus, its thermal state, each of its two nodes, and what the second has extra');
+        assert.match(drawn, /<span class="k">Thermal<\/span>\s*<div class="nested">\s*<div class="nested-item">\s*<div class="kv">\s*<span class="k">State<\/span>\s*<span class="v">normal<\/span>/);
+        assert.match(drawn, /<span class="k">Name<\/span>\s*<span class="v">cable<\/span>/);
+        assert.match(drawn, /<span class="k">Weight<\/span>\s*<span class="v">3<\/span>/);
+
+    });
+
 });
 
 

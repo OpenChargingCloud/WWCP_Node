@@ -224,6 +224,25 @@ describe('a key as a label', () => {
 
     });
 
+    it('writes the station\'s 10BASE-T1S bus as T1S, and a C after a word as the degrees Celsius it is', () => {
+
+        assert.equal(humanizeKey('t1s'),           'T1S');
+        assert.equal(humanizeKey('warningC'),      'Warning °C');
+        assert.equal(humanizeKey('temperatureC'),  'Temperature °C');
+        assert.equal(humanizeKey('t1sOverloadC'),  'T1S overload °C');
+
+    });
+
+    it('keeps SoC and SoH whole, which have a capital inside, where the words are cut apart', () => {
+
+        assert.equal(humanizeKey('targetSoC'),   'Target SoC');
+        assert.equal(humanizeKey('maxSoC'),      'Max SoC');
+        assert.equal(humanizeKey('soC'),         'SoC');
+        assert.equal(humanizeKey('soH'),         'SoH');
+        assert.equal(humanizeKey('batterySoH'),  'Battery SoH');
+
+    });
+
 });
 
 

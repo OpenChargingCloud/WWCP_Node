@@ -30,8 +30,6 @@ export function card(title:   string,
                      values:  Record<string, unknown>,
                      extra?:  HTMLFragment): HTMLFragment {
 
-    const entries = Object.entries(values ?? {});
-
     return html`
         <section class="card">
 
@@ -41,41 +39,51 @@ export function card(title:   string,
 
                 ${extra ?? ''}
 
-                ${entries.map(([key, value]) => {
-
-                    const things = thingsIn(value);
-
-                    return things !== null
-                        ? html`
-                            <div class="kv-nested">
-                                <span class="k">${humanizeKey(key)}</span>
-                                <div class="nested">
-                                    ${things.map(thing => html`
-                                        <div class="nested-item">
-                                            ${Object.entries(thing).map(([thingKey, thingValue]) => html`
-                                                <div class="kv">
-                                                    <span class="k">${humanizeKey(thingKey)}</span>
-                                                    <span class="v">${formatValue(thingValue)}</span>
-                                                </div>
-                                            `)}
-                                        </div>
-                                    `)}
-                                </div>
-                            </div>
-                        `
-                        : html`
-                            <div class="kv">
-                                <span class="k">${humanizeKey(key)}</span>
-                                <span class="v">${formatValue(value)}</span>
-                            </div>
-                        `;
-
-                })}
+                ${fields(values ?? {})}
 
             </div>
 
         </section>
     `;
+
+}
+
+
+/**
+ * The fields of a thing, a line each, and a field that is itself a thing or
+ * a list of things as a block below its name - inside a block as well.
+ *
+ * Drawn one level deep, the charging station's 10BASE-T1S bus - a thing in
+ * its V2G section - showed its thermal limits, and every node on the bus, as
+ * a line of JSON: a card 1127 pixels high for two nodes (found by the station).
+ */
+function fields(values: Record<string, unknown>): HTMLFragment[] {
+
+    return Object.entries(values).map(([key, value]) => {
+
+        const things = thingsIn(value);
+
+        return things !== null
+            ? html`
+                <div class="kv-nested">
+                    <span class="k">${humanizeKey(key)}</span>
+                    <div class="nested">
+                        ${things.map(thing => html`
+                            <div class="nested-item">
+                                ${fields(thing)}
+                            </div>
+                        `)}
+                    </div>
+                </div>
+            `
+            : html`
+                <div class="kv">
+                    <span class="k">${humanizeKey(key)}</span>
+                    <span class="v">${formatValue(value)}</span>
+                </div>
+            `;
+
+    });
 
 }
 

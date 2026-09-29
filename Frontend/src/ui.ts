@@ -363,6 +363,8 @@ const acronyms = new Map<string, string>([
     ['evcc',  'EVCC'],
     ['vin',   'VIN'],
     ['soc',   'SoC'],
+    ['soh',   'SoH'],
+    ['t1s',   'T1S'],
     ['ocpi',  'OCPI'],
     ['cpo',   'CPO'],
     ['emsp',  'EMSP'],
@@ -377,7 +379,8 @@ export function humanizeKey(key: string): string {
     const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').
                       replace(/_/g, ' ').
                       split(' ').
-                      filter(word => word.length > 0);
+                      filter(word => word.length > 0).
+                      reduce(capitalsInside, []);
 
     return words.map((word, index) => {
 
@@ -386,6 +389,12 @@ export function humanizeKey(key: string): string {
                if (acronym !== undefined)
                    return acronym;
 
+               // A C after the words it belongs to is a unit: the charging
+               // station's warningC and temperatureC are degrees Celsius, and
+               // read "Warning c" and "Temperature c".
+               if (word === 'C' && index > 0)
+                   return '°C';
+
                // Only the first word is capitalised: "Server name", not
                // "Server Name" - this is a label, not a headline.
                return index === 0
@@ -393,6 +402,24 @@ export function humanizeKey(key: string): string {
                           : word.toLowerCase();
 
            }).join(' ');
+
+}
+
+/**
+ * SoC and SoH whole again: they have a capital inside, where a key is cut
+ * into words. OCPP 2.1 writes targetSoC and soH, which read "Target so c" and
+ * "So h" - and with a C read as a unit, "Target so °C".
+ */
+function capitalsInside(words: string[], word: string): string[] {
+
+    const last = words.length > 0 ? words[words.length - 1] : undefined;
+
+    if (last !== undefined && /^so$/i.test(last) && /^[CH]$/.test(word))
+        words[words.length - 1] = last + word;
+    else
+        words.push(word);
+
+    return words;
 
 }
 
