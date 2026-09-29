@@ -220,7 +220,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryAuthorize(Request, Permission.Run (NodeResources.NTS), true, out var user, out var refused))
                 return refused;
 
-            Log.Info($"'{user.Id}' asked this {Node.Kind.Name} to synchronise its time.", "nts", "test", "web");
+            // A notice rather than information: a request about the clock that
+            // everything this node writes down is stamped with wants somebody's
+            // attention - the energy meter's users asked for it, and it is the
+            // same request on every kind.
+            Log.Notice($"'{user.Id}' asked this {Node.Kind.Name} to synchronise its time.", "nts", "test", "web");
 
             var result = await Node.SyncTimeAsync(Request.CancellationToken);
 

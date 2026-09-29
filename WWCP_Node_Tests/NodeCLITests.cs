@@ -24,6 +24,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.CommandLine;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
@@ -189,6 +190,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(servers, Is.Not.Empty, "a node with no time servers to offer says nothing here");
 
             Assert.That(suggestions.Select(suggestion => suggestion.Suggestion), Is.SupersetOf(servers));
+
+        }
+
+        #endregion
+
+        #region WhoAskedAtTheConsoleIsANoticeAsOnThePage()
+
+        /// <summary>
+        /// syncNTS writes the line "Sync now" writes: a notice, with the tags it
+        /// carries on the page, "cli" where the page says "web" - and whoever is
+        /// at the console for the account that pressed the button.
+        /// </summary>
+        [Test]
+        public async Task WhoAskedAtTheConsoleIsANoticeAsOnThePage()
+        {
+
+            var cli   = new NodeCLI(node);
+            var said  = new List<LogEntry>();
+
+            node.Log.OnLogged += logged => said.Add(logged);
+
+            await cli.Execute("syncNTS");
+
+            var asked = said.Where(entry => entry.Message == $"Somebody at the command line asked this {node.Kind.Name} to synchronise its time.").
+                             ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(asked,                         Has.Length.EqualTo(1), "who asked, in the log");
+                Assert.That(asked.FirstOrDefault()?.Level, Is.EqualTo(LogLevel.Notice));
+                Assert.That(asked.FirstOrDefault()?.Tags,  Is.EqualTo(new[] { "nts", "test", "cli" }));
+            });
 
         }
 

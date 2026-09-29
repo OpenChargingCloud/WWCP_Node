@@ -199,7 +199,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             // which the node cannot tell apart. Said before anything is
             // asked, because the entries that follow record which servers were
             // asked and what came of it, and nothing in them says who wanted it.
-            cli.Node.Log.Info(
+            cli.Node.Log.Notice(
                 $"Somebody at the command line asked this {cli.Node.Kind.Name} to synchronise its time.",
                 "nts", "test", "cli"
             );

@@ -23,6 +23,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using cloud.charging.open.protocols.WWCP.Node.Logging;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.TestKit
@@ -193,6 +195,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(Node.Log.Recent(200, Tag: "nts").Select(entry => entry.Message),
                             Has.Some.EqualTo($"'{AdminLogin}' asked this {Node.Kind.Name} to test the time server 'time.example'."),
                             "who asked, in the log");
+            });
+
+        }
+
+        #endregion
+
+        #region WhoAskedForTheTimeIsANotice()
+
+        /// <summary>
+        /// "Sync now" is written down as a notice, with the account that pressed
+        /// it: a request about the clock everything on the node is stamped with
+        /// is one of the entries that want somebody's attention - which the
+        /// energy meter's users asked for, and so on every kind.
+        /// </summary>
+        [Test]
+        public async Task WhoAskedForTheTimeIsANotice()
+        {
+
+            using var http = await SignedIn();
+
+            var (status, json) = await Post(http, "api/v1/configuration/nts/sync");
+
+            var asked = Node.Log.Recent(200, Tag: "nts").
+                                 Where(entry => entry.Message == $"'{AdminLogin}' asked this {Node.Kind.Name} to synchronise its time.").
+                                 ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(status,                        Is.EqualTo(HttpStatusCode.OK), json.ToString());
+                Assert.That(asked,                         Has.Length.EqualTo(1), "who asked, in the log");
+                Assert.That(asked.FirstOrDefault()?.Level, Is.EqualTo(LogLevel.Notice));
+                Assert.That(asked.FirstOrDefault()?.Tags,  Is.EqualTo(new[] { "nts", "test", "web" }));
             });
 
         }

@@ -42,7 +42,7 @@ a port of their own to connect to.
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `Frontend/` | what every kind of node's web interface shares: TypeScript and SCSS that each kind bundles into its own, imported as `@node/...` - see "The web interface" below |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | five hundred and twenty-three tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | five hundred and twenty-five tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -709,7 +709,9 @@ said where the kind says it:
 
 Who changed something is in the log at Notice, on every kind of node: the
 name resolution, the time source, and each change of the certificate store -
-"'alice' changed the time source of this charging station." The node says
+"'alice' changed the time source of this charging station." So is who asked
+it to synchronise its time, with "Sync now" or `syncNTS`: a request about
+the clock that everything it writes down is stamped with. The node says
 what changed; only the request knows who. And a certificate's handle may be
 written in capitals, as a tool it was copied out of may have written it: the
 store spells handles in lower case, and so does the API before it asks.
@@ -977,7 +979,7 @@ run by every kind of node against its own: the sign-in, the configuration,
 name resolution and the time servers with their diagnostics, the log and its
 event stream, stopping with browsers watching, the certificate store, the
 web interface, roles the configuration file adds and what a kind starts
-with - one hundred and twelve tests that the suites of the local controller,
+with - one hundred and thirteen tests that the suites of the local controller,
 the charging station, the CSMS and the e-mobility provider each had a copy
 of, and the vehicle, the gateway, the roaming hub and the meter part of one
 or none.
