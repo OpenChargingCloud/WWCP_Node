@@ -172,6 +172,65 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
+        #region ANodeThatIsGivenUpOnIsLetGo()
+
+        /// <summary>
+        /// The node made last, whose port was taken as well, is let go of
+        /// before its start is given up on: nobody else ever gets to see it,
+        /// and whatever it holds - its log files among them - would stay held
+        /// for the rest of the test run.
+        /// </summary>
+        [Test]
+        public async Task ANodeThatIsGivenUpOnIsLetGo()
+        {
+
+            var taken = new List<UInt16>();
+
+            for (var attempt = 0; attempt < TestPorts.StartAttempts; attempt++)
+            {
+                taken.Add(TestPorts.Free());
+                await Squat(taken[^1]);
+            }
+
+            var made = new List<WatchedNode>();
+
+            Assert.That(async () => await TestPorts.StartedOnFreshPorts(() => Watched(made, taken[made.Count])),
+                        Throws.TypeOf<PortUnavailableException>());
+
+            Assert.That(made.Select(node => node.LetGo), Is.EqualTo(Enumerable.Repeat(true, TestPorts.StartAttempts)),
+                        "a node whose start was given up on was never let go of");
+
+        }
+
+        #endregion
+
+        #region ANodeWhoseStartFailsOtherwiseIsLetGo()
+
+        /// <summary>
+        /// A start that fails for another reason than a taken port is not tried
+        /// again: it ends in what it failed with, and the node is let go of.
+        /// </summary>
+        [Test]
+        public async Task ANodeWhoseStartFailsOtherwiseIsLetGo()
+        {
+
+            var made = new List<WatchedNode>();
+
+            // What a kind of node listens on beside the node's own port fails
+            // the way a certificate that cannot be read makes it fail.
+            Assert.That(async () => await TestPorts.StartedOnFreshPorts(() => Watched(made, TestPorts.Free(), new InvalidOperationException("no certificate to listen with"))),
+                        Throws.InvalidOperationException.With.Message.EqualTo("no certificate to listen with"));
+
+            Assert.Multiple(() => {
+                Assert.That(made,           Has.Count.EqualTo(1),  "a start that failed for another reason than a taken port was tried again");
+                Assert.That(made[0].LetGo,  Is.True,               "a node whose start failed was never let go of");
+            });
+
+        }
+
+        #endregion
+
+
         #region (private) NodeOn(Port, Name)
 
         /// <summary>
@@ -215,6 +274,84 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await squatter.Start();
 
             squatters.Add(squatter);
+
+        }
+
+        #endregion
+
+        #region (private) Watched(Made, Port, FailsToListen = null)
+
+        /// <summary>
+        /// A node of no particular kind on the given port that says whether it
+        /// was let go of, counted among the ones made - and whose start fails
+        /// with the given exception once its own port is had, where one is
+        /// given.
+        /// </summary>
+        private WatchedNode Watched(List<WatchedNode>  Made,
+                                    UInt16             Port,
+                                    Exception?         FailsToListen   = null)
+        {
+
+            var here           = Path.Combine(directory, $"watched{Made.Count}");
+            var configuration  = Path.Combine(here, WWCPConfigFile.DefaultFileName);
+
+            Directory.CreateDirectory(here);
+            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+
+            var node = new WatchedNode(
+                           HTTPPort:          IPPort.Parse(Port),
+                           AccountsPath:      Path.Combine(here, "accounts"),
+                           ConfigFile:        new WWCPConfigFile(configuration),
+                           CertificatesPath:  Path.Combine(here, "certificates"),
+                           FailsToListen:     FailsToListen
+                       );
+
+            Made.Add(node);
+
+            return node;
+
+        }
+
+        #endregion
+
+
+        #region (private class) WatchedNode
+
+        /// <summary>
+        /// A node of no particular kind that says whether it was let go of -
+        /// and fails to listen with the given exception, where one is given.
+        /// </summary>
+        private sealed class WatchedNode(IPPort          HTTPPort,
+                                         String          AccountsPath,
+                                         WWCPConfigFile  ConfigFile,
+                                         String          CertificatesPath,
+                                         Exception?      FailsToListen)
+
+            : WWCPNode(HTTPPort:          HTTPPort,
+                       AccountsPath:      AccountsPath,
+                       ConfigFile:        ConfigFile,
+                       CertificatesPath:  CertificatesPath,
+                       LogToConsole:      false,
+                       BridgeDebugLog:    false)
+
+        {
+
+            /// <summary>
+            /// Whether it was let go of.
+            /// </summary>
+            public Boolean LetGo { get; private set; }
+
+            protected override Task OnListening()
+
+                => FailsToListen is null
+                       ? Task.CompletedTask
+                       : Task.FromException(FailsToListen);
+
+            public override async ValueTask DisposeAsync()
+            {
+                LetGo = true;
+                await base.DisposeAsync();
+            }
 
         }
 

@@ -153,6 +153,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// were there before stay, and nothing outside the temporary directory
         /// is ever taken away.
         /// </para>
+        /// <para>
+        /// A node whose start is given up on, or fails for another reason than
+        /// a taken port, is let go of before the start ends in what it failed
+        /// with: nobody else ever gets to see it.
+        /// </para>
         /// </remarks>
         /// <param name="Make">A new node, on ports nobody has been handed yet.</param>
         /// <exception cref="PortUnavailableException">A port was taken <see cref="StartAttempts"/> times in a row.</exception>
@@ -184,6 +189,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                     if (itsOwnAccounts)
                         ForgetAccounts(node.AccountsPath);
 
+                }
+                catch
+                {
+                    // Given up on, or failed for another reason: nobody else
+                    // ever gets to see this node, to let it go.
+                    await node.DisposeAsync();
+                    throw;
                 }
 
             }
