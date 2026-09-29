@@ -35,7 +35,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     /// The command line every node has: its commands, found without being
     /// listed - the node's in this library and a kind's in its own - and
     /// syncNTS, which every kind had a copy of, as what it answers without
-    /// asking anybody anything.
+    /// asking anybody anything; and its console where nobody can type at it,
+    /// which runs until a task it was given ends.
     /// </summary>
     [TestFixture]
     public class NodeCLITests
@@ -216,6 +217,48 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 "                 ModbusTLSEnergyMeter (ModbusTLSEnergyMeter)     2222222222222222222222222222222222222222",
                 "                 ModbusTLSEnergyMeter (ModbusTLSEnergyMeterCLI)  3333333333333333333333333333333333333333"
             }));
+
+        }
+
+        #endregion
+
+        #region ANodeStopsWhenTheTaskItWasGivenEnds(Ending)
+
+        /// <summary>
+        /// Where nobody can type - under a service manager, in CI, in this test
+        /// host - the console only waits, and a task it was given stops it as
+        /// Ctrl+C does: the energy meter's Modbus server's, however that ends,
+        /// for a server that failed is as gone as one that finished. Not
+        /// before, though: a console that returned at once would stop the node
+        /// right after its banner.
+        /// </summary>
+        [TestCase("finished")]
+        [TestCase("failed")]
+        [TestCase("cancelled")]
+        public async Task ANodeStopsWhenTheTaskItWasGivenEnds(String Ending)
+        {
+
+            Assume.That(Console.IsInputRedirected || Console.IsOutputRedirected, Is.True,
+                        "a terminal on both ends, where the console would wait for keys instead");
+
+            var server   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var running  = new NodeCLI(node).RunUntilStopped(server.Task);
+
+            Assert.That(await Task.WhenAny(running, Task.Delay(300)), Is.Not.SameAs(running),
+                        "the console returned before the task ended");
+
+            switch (Ending)
+            {
+                case "finished":  server.SetResult();                                                  break;
+                case "failed":    server.SetException(new IOException("The Modbus server stopped."));  break;
+                default:          server.SetCanceled();                                                break;
+            }
+
+            Assert.That(await Task.WhenAny(running, Task.Delay(TimeSpan.FromSeconds(5))), Is.SameAs(running),
+                        $"the console still ran 5 s after the task {Ending}");
+
+            Assert.That(running.IsCompletedSuccessfully, Is.True,
+                        "a task that ended is the node being stopped, not the console failing");
 
         }
 
