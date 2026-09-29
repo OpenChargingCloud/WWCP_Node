@@ -8,7 +8,9 @@
  *   holding anything; that it holds every form it has; and that its Reload
  *   asks first - five pages of the local controller threw a typed address,
  *   port, station, subject or authority away on one click of Reload or of the
- *   menu, without a word;
+ *   menu, without a word; and that it draws itself anew through keepDrafts,
+ *   which puts back what was typed into its other forms (the vehicle's pages
+ *   did, the local controller's threw it away);
  * - that a number is read as one - an emptied field is not given, where
  *   Number("") made it 0, which the node refuses for a timeout, the whole save
  *   with it (found on the energy meter, and on the local controller's DNS and
@@ -157,6 +159,25 @@ export function numbersReadAsZeroWhenEmptied(Page: Page): string[] {
 }
 
 /**
+ * How often a page with a form draws itself anew with draw() - the whole of
+ * it, from what the node said - beyond the first time: every form on it
+ * drawn again as the node has it, and what somebody had typed into one and
+ * not saved yet gone, without a word, as the page itself threw it away.
+ * Saving the connection took the credentials typed below it with it, and
+ * removing an entry the address typed beside the list (on the local
+ * controller). keepDrafts(content, the form saved or null, draw) draws the
+ * page anew and puts back what was typed into every other form, as the
+ * vehicle's pages did first. Asked of the code, not of what a comment says.
+ */
+export function drawnAnewWithoutItsDrafts(Page: Page): number {
+
+    const code = Page.source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    return Math.max(0, (code.match(/(?<![\w.])draw\(\);/g) ?? []).length - 1);
+
+}
+
+/**
  * Where a page says itself who is signed in - "Signed in as ${…}" - rather
  * than through mayButNot. Said by hand, it was said four ways, and one of them,
  * ?? 'somebody' after the roles joined, told an account with no role "Signed
@@ -235,6 +256,17 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
                 });
 
         }
+
+    });
+
+    describe('a page drawn anew', () => {
+
+        for (const page of pages.filter(page => page.source.includes('<form')))
+            it(`${page.name} draws itself anew through keepDrafts, so that what is typed into one form outlives saving another`, () => {
+                const times = drawnAnewWithoutItsDrafts(page);
+                assert.equal(times, 0, `${page.name} draws itself anew with draw() ${times} time(s) beyond the first, and what is typed ` +
+                                       `into its forms goes with it - keepDrafts(content, the form saved or null, draw) puts it back`);
+            });
 
     });
 

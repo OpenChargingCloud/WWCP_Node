@@ -728,6 +728,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `basePath.ts` | where the page is mounted, added to a route on the way into the address bar and taken off on the way out |
 | `router.ts` | which page a path is, and the way from one page to the next |
 | `unsaved.ts` | what a page holds that the node has not been told about, and the question before it is left behind |
+| `drafts.ts` | what is typed into a page's other forms, kept while the page draws itself anew: `keepDrafts()` |
 | `api/client.ts` | how the node is asked - a deadline on every request, a refusal in the node's own words, a 401 handed on to whoever signs out - and the HTTPExt API, where the accounts are: `extRequest()`, with the same deadline over the whole answer, for the sign-in and for what a kind asks there, a sign-up or a change of password; the types of everything every node answers, checked against what `NodeHTTPAPI` sends, and `nodeAPI()`, its routes |
 | `ui.ts` | what else the pages share: a form held still while it is saved, a field read as a number, a time and a number as people read them, a key as a label, the way back after the sign-in |
 | `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - and what a kind publishes on the same stream |
@@ -886,7 +887,10 @@ everyPageIn(new URL('./', import.meta.url), {
 Every page with a form says whether it is holding a draft, holds every form
 it has - by name, `typedSinceDrawn(content.querySelector('#…'))`, or all at
 once, `anyFormTypedSinceDrawn(content)` - and asks before its Reload throws
-one away; every number typed is read with `numberField`, or `numberFrom`
+one away; it draws itself anew, after a save, a removal or a row opened for
+editing, through `keepDrafts(content, the form saved or null, draw)`, which
+puts back what is typed into its other forms - `draw()` is for the first
+drawing only; every number typed is read with `numberField`, or `numberFrom`
 for an input outside a form, not `Number()`, which makes an emptied field
 0 - but where a page says itself what empty means, `=== '' ? ... :` before
 it. Every page links through `toURL`, since `href="/..."` leads past the

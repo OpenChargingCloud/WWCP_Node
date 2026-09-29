@@ -8,7 +8,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it }     from 'node:test';
 
-import { asksBeforeItsReload, formsNotHeld, formsOf, inlineStylesOf, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand } from './pages.ts';
+import { asksBeforeItsReload, drawnAnewWithoutItsDrafts, formsNotHeld, formsOf, inlineStylesOf, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -158,6 +158,30 @@ describe('a link', () => {
     it('through toURL passes, and so do one to elsewhere and one within the page', () => {
         assert.deepEqual(linksPastTheBase(page(`<a href="\${toURL('/logs')}">log</a>  <a href="https://www.ptb.de/">PTB</a>  <a href="#legal">legal time</a>`)),
                          []);
+    });
+
+});
+
+
+describe('a page drawn anew', () => {
+
+    it('with draw() after something was done on it is found, once for each time beyond the first', () => {
+        assert.equal(drawnAnewWithoutItsDrafts(page(`<form id="connection-form">  <form id="credentials-form">
+                                                     current = await api.csms.save(update);  draw();
+                                                     current = await api.csms.saveCredentials(update);  draw();
+                                                     current = loaded;  draw();`)),
+                     2);
+    });
+
+    it('through keepDrafts passes, and so do a card drawn on its own and a draw() a comment speaks of', () => {
+        assert.equal(drawnAnewWithoutItsDrafts(page(`<form id="connection-form">  <form id="credentials-form">
+                                                     keepDrafts(content, 'connection-form', draw);
+                                                     keepDrafts(content, null, draw);
+                                                     drawServers();  shown.draw();
+                                                     // Redrawn with draw(); once, which threw the credentials away.
+                                                     /* draw(); draw(); */
+                                                     current = loaded;  draw();`)),
+                     0);
     });
 
 });

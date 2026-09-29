@@ -1,6 +1,7 @@
 import { nodeAPI, type DNSConfiguration, type DNSQueryResult, type DNSServer, type DNSUpdate } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
+import { keepDrafts } from '../drafts';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { mayButNot, shell } from '../shell';
@@ -548,7 +549,7 @@ export const dnsPage: Page = {
                 current = await whileSaving(content, note, () => api.dns.save(update));
                 servers = current.servers.map(server => ({ ...server }));
 
-                draw();
+                keepDrafts(content, 'dns-form', draw);
 
                 must<HTMLElement>(content, '#form-note').textContent = 'Saved, and in effect.';
             }

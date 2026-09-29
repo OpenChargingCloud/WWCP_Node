@@ -2,6 +2,7 @@ import { nodeAPI, type Certificate, type CertificateStore } from '../api/client'
 import { auth } from '../auth';
 import { toURL } from '../basePath';
 import { config } from '../config';
+import { keepDrafts } from '../drafts';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { mayButNot, shell } from '../shell';
@@ -542,7 +543,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                     return;
 
                 current = await api.certificates.get();
-                draw();
+                keepDrafts(content, 'import-form', draw);
 
                 must<HTMLElement>(content, '#import-note').textContent = `Imported ${imported.label}, and switched on.`;
 
