@@ -14,7 +14,9 @@
  * - that a number is read as one - an emptied field is not given, where
  *   Number("") made it 0, which the node refuses for a timeout, the whole save
  *   with it (found on the energy meter, and on the local controller's DNS and
- *   NTS pages too);
+ *   NTS pages too) - on every page, with a form or without: the charging
+ *   station's power fields are inputs of their own, and an emptied one was
+ *   0 kW;
  * - that a link goes through toURL - a path of its own leads past the base the
  *   node may be served under, in a new tab or a copied link (found on the
  *   charging station's V2G and power pages);
@@ -333,9 +335,12 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
 
     });
 
+    // Every page, not the ones with a form: an input outside any form is
+    // emptied as easily (the charging station's evses.ts, which this did not
+    // ask while it asked only the pages with a form).
     describe('a number on a page', () => {
 
-        for (const page of pages.filter(page => page.source.includes('<form')))
+        for (const page of pages)
             it(`${page.name} reads its numbers with numberField, so that an emptied field is not 0`, () => {
                 const read = numbersReadAsZeroWhenEmptied(page);
                 assert.deepEqual(read, [], `${page.name} reads ${read.join(', ')} with Number(), which makes an emptied field 0`);

@@ -182,6 +182,63 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnIPv6NameServerIsWrittenAsPeopleWriteIt(Given, Written)
+
+        /// <summary>
+        /// An IPv6 name server is written in the short form of RFC 5952, which
+        /// the page shows and the file keeps. Spelled out, it was 39 characters,
+        /// cut off on the charging station's DNS page at 320 pixels; and "::1"
+        /// came in brackets. Written either way, it is read back as the same
+        /// server.
+        /// </summary>
+        [TestCase("2001:4860:4860::8888",                     "2001:4860:4860::8888")]
+        [TestCase("2001:4860:4860:0000:0000:0000:0000:8888",  "2001:4860:4860::8888")]
+        [TestCase("2606:4700:4700::1111",                     "2606:4700:4700::1111")]
+        [TestCase("::1",                                      "::1")]
+        [TestCase("[::1]",                                    "::1")]
+        public void AnIPv6NameServerIsWrittenAsPeopleWriteIt(String  Given,
+                                                             String  Written)
+        {
+
+            Assert.That(DNSConfiguration.TryParseServer(new JObject(new JProperty("address",    Given),
+                                                                    new JProperty("transport",  "TLS")),
+                                                        out var server, out var error),
+                        Is.True, error);
+
+            var json = DNSConfiguration.ServerJSON(server!);
+
+            Assert.That(json.Value<String>("address"), Is.EqualTo(Written));
+
+            Assert.That(DNSConfiguration.TryParseServer(json, out var reread, out var error2), Is.True, error2);
+
+            Assert.That(reread!.IPAddress, Is.EqualTo(server!.IPAddress));
+
+        }
+
+        #endregion
+
+        #region AnIPv6NameServerKeepsTheNameItIsKnownBy()
+
+        /// <summary>
+        /// The name the log and the memory of known servers give an IPv6 name
+        /// server stays spelled out, as it always was: what a node knows of a
+        /// server is kept under that name, and a short one would find nothing.
+        /// </summary>
+        [Test]
+        public void AnIPv6NameServerKeepsTheNameItIsKnownBy()
+        {
+
+            Assert.That(DNSConfiguration.TryParseServer(new JObject(new JProperty("address",    "2001:4860:4860::8888"),
+                                                                    new JProperty("transport",  "TLS")),
+                                                        out var server, out var error),
+                        Is.True, error);
+
+            Assert.That(WWCPNode.NameOf(server!), Is.EqualTo("tls://2001:4860:4860:0000:0000:0000:0000:8888:853"));
+
+        }
+
+        #endregion
+
         #region TheFormTheLogNamesAServerInIsRefusedWithASentence(Entry)
 
         /// <summary>

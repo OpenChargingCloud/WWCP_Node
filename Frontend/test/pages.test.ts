@@ -5,8 +5,10 @@
  * asked - by name, all at once, and by a flag of the page's own.
  */
 
-import { strict as assert } from 'node:assert';
-import { describe, it }     from 'node:test';
+import { strict as assert }  from 'node:assert';
+import { spawnSync }         from 'node:child_process';
+import { describe, it }      from 'node:test';
+import { fileURLToPath }     from 'node:url';
 
 import { asksBeforeItsReload, drawnAnewWithoutItsDrafts, formsKnownByNothing, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
 
@@ -124,6 +126,29 @@ describe('a number', () => {
 
     it('may be read with Number() where the page says itself what empty means', () => {
         assert.deepEqual(numbersReadAsZeroWhenEmptied(page(`port: field(form, 'port') === '' ? 0 : Number(field(form, 'port')),`)), []);
+    });
+
+    it('is asked of a page with no form as well, whose inputs are emptied as easily - the charging station\'s power fields', () => {
+
+        // The rules run as everyPageIn runs them for a kind, on the page in
+        // fixtures/numbers/, and what failed there is what they found. In a
+        // runner of their own: node:test's run() declines to run files from
+        // within a test file, and the variable this runner gives its files
+        // turned a nested one's failures into none.
+        const env = { ...process.env };
+        delete env.NODE_TEST_CONTEXT;
+
+        const child  = spawnSync(process.execPath,
+                                 [ '--test', '--test-reporter=tap', fileURLToPath(new URL('./fixtures/numbers.rules.ts', import.meta.url)) ],
+                                 { env, encoding: 'utf-8' });
+
+        const failed = child.stdout.split('\n').
+                                    filter(line => /^\s*not ok \d+ - /.test(line)).
+                                    map   (line => line.replace(/^\s*not ok \d+ - /, ''));
+
+        assert.ok(failed.some(name => name.startsWith('power.ts reads its numbers with numberField')),
+                  `power.ts, which has no form, was not asked how it reads its numbers - failed: ${failed.join(', ') || 'nothing'}`);
+
     });
 
 });

@@ -42,7 +42,7 @@ a port of their own to connect to.
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
 | `Frontend/` | what every kind of node's web interface shares: TypeScript and SCSS that each kind bundles into its own, imported as `@node/...` - see "The web interface" below |
 | `WWCP_Node_TestKit/` | what every kind of node's test suite shares: `NodeConformanceTests`, the tests every node has to pass against its own JSON API, and the helpers they are written with - see "Testing a kind of node" below |
-| `WWCP_Node_Tests/` | five hundred and eighty-two tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
+| `WWCP_Node_Tests/` | six hundred and twenty-seven tests, none of which constructs a vehicle, a station or a controller: the node's own code - its log, its clock, its file, its start - which the suites of the kinds each used to carry a copy of, the conformance suite asked of a node of no particular kind, and five over a real key exchange with a time server of Norn's own |
 
 
 ## A kind of node
@@ -918,10 +918,12 @@ one away; it draws itself anew, after a save, a removal or a row opened for
 editing, through `keepDrafts(content, the form saved or null, draw)`, which
 puts back what is typed into its other forms - `draw()` is for the first
 drawing only, the form it names as the one saved is one it has, and every
-form has an id or a data-id to be known by; every number typed is read with
-`numberField`, or `numberFrom` for an input outside a form, not `Number()`,
-which makes an emptied field 0 - but where a page says itself what empty
-means, `=== '' ? ... :` before it. Every page links through `toURL`, since
+form has an id or a data-id to be known by; every number typed, on every
+page, with a form or without, is read with `numberField`, or `numberFrom`
+for an input outside a form, not `Number()`, which makes an emptied field 0
+- but where a page says itself what empty means, `=== '' ? ... :` before it.
+The rule asked only the pages with a form, and the charging station's power
+fields, inputs of their own, were 0 kW once emptied. Every page links through `toURL`, since
 `href="/..."` leads past the base the node may be served under in a new tab
 or a copied link; and takes its look from the stylesheet, by a class -
 `style="..."` is dropped by the policy the pages are served with, `style-src
@@ -974,7 +976,10 @@ What a shared file may not do:
   a parameter property in `html.ts` - code to be generated, not a type - was
   why no test of any kind could load a page.
 * Import an npm package. webpack would look for it upwards from
-  `WWCP_Node/Frontend`, not in the kind's `node_modules`.
+  `WWCP_Node/Frontend`, not in the kind's `node_modules`. The day a shared
+  file has to, every kind's `webpack.config.js` says first where to look -
+  `resolve: { modules: [ path.resolve(__dirname, 'node_modules'), 'node_modules' ] }`,
+  which none says yet.
 
 `imports.test.ts` holds every shared file to that: it may import another
 shared file and nothing else.
@@ -1049,6 +1054,17 @@ public class LocalControllerConformance : NodeConformanceTests
   that the next is a first start too; accounts that were there stay. A node
   given up on, or whose start failed for another reason, is let go of
   before the start ends in what it failed with.
+- **What a kind's code says is held to `SourceRules`**, as its pages are to
+  `test/pages.ts`: `ArticlesBeforeANameIn(...)` finds "a" or "an" put in
+  front of a name that is interpolated. Which article a name takes goes by
+  how it is said - "an OEM root" but "a V2G root" - and "A {Node.Kind.Name}"
+  read "A electric vehicle" in the kit's own messages (found by the EV).
+  A name is said with its article - `CertificateKind.WithArticle()` - or
+  without one: "this electric vehicle". A kind asks its own sources:
+  ```csharp
+  Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(SourceRules.RepositoryAbove(AppContext.BaseDirectory, "EV", "EVTests"), "EV")),
+              Is.Empty);
+  ```
 - **What a kind does not have is not failed.** A store that keeps no TLS root
   or identity, or a node built without its web interface, makes the tests of
   those inconclusive, saying why; a kind that refuses to lose an identity it

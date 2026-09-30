@@ -365,10 +365,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// <summary>
         /// One name server as the file keeps it and the web interface reads it.
         /// </summary>
+        /// <remarks>
+        /// An IPv6 address in the short form of RFC 5952, "2001:4860:4860::8888",
+        /// which is how people write one and fits on a phone: spelled out, it was
+        /// 39 characters, cut off at 320 pixels (found by the charging station).
+        /// The name the log and the memory of known servers give a server is
+        /// not this - see WWCPNode.NameOf - and stays as it was.
+        /// </remarks>
         public static JObject ServerJSON(DNSServerConfig Server)
 
             => new (
-                   new JProperty("address",               Server.IPAddress?.ToString() ?? Server.DomainName?.ToString()),
+                   new JProperty("address",               Server.IPAddress?.ToString(IPv6Format.Short) ?? Server.DomainName?.ToString()),
                    new JProperty("port",                  Server.Port.ToUInt16()),
                    new JProperty("transport",             Server.Transport.ToString()),
                    new JProperty("queryTimeoutSeconds",   Server.QueryTimeout?.TotalSeconds)

@@ -73,6 +73,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// not its timeout, which says how long to wait for a server rather
         /// than which one.
         /// </summary>
+        /// <remarks>
+        /// An IPv6 address comes spelled out, as Hermod's ToString() has always
+        /// written it, although the page shows the short form: what a node
+        /// knows of a server is kept under this name, and a name written anew
+        /// would find nothing it knew of an IPv6 name server.
+        /// </remarks>
         public static String NameOf(DNSServerConfig Server)
 
             => $"{Server.Transport.ToString().ToLowerInvariant()}://{Server.IPAddress?.ToString() ?? Server.DomainName?.Trimmed}:{Server.Port}";
