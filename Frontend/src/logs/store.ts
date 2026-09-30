@@ -104,6 +104,9 @@ export class LogStore {
     /** The next attempt to find out, so that stopping cancels it. */
     private askAgain: ReturnType<typeof setTimeout> | null = null;
 
+    /** Whether pause() closed a stream that resume() is to open again. */
+    private paused = false;
+
 
     onChange(listener: Listener): () => void {
         this.listeners.add(listener);
@@ -315,10 +318,48 @@ export class LogStore {
 
         this.streamConnected = false;
         this.streamRefused   = false;
+        this.paused          = false;
         this.lastId          = 0;
 
         this.entries.length = 0;
         this.tags.clear();
+
+    }
+
+    /**
+     * Close the stream while the page waits in the browser's back/forward
+     * cache, and keep what is known - resume() opens it again when the page
+     * is shown.
+     *
+     * A page left for another in the same tab is kept whole for the way back,
+     * and its stream with it: four or five pages typed or bookmarked one after
+     * the other held the six connections a browser gives a host, and the next
+     * page waited 15 to 56 seconds for one, or for ever (found by the gateway).
+     */
+    pause(): void {
+
+        this.paused = this.source !== null;
+
+        if (this.askAgain !== null) {
+            clearTimeout(this.askAgain);
+            this.askAgain = null;
+        }
+
+        this.source?.close();
+        this.source           = null;
+        this.streamConnected  = false;
+
+    }
+
+    /** Open the stream again where pause() closed one; the 'open' reloads what was missed. */
+    resume(): void {
+
+        if (!this.paused)
+            return;
+
+        this.paused = false;
+
+        this.start();
 
     }
 

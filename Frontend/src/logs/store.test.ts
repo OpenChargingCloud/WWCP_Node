@@ -406,6 +406,67 @@ describe('a stream that stops', () => {
 });
 
 
+describe('a page the browser keeps for the way back', () => {
+
+    it('lets go of its stream while it waits there, and keeps what it knows', () => {
+
+        nodeAnswers('yes');
+
+        const store = new LogStore();
+        store.start();
+
+        const stream = Stream.latest!;
+
+        stream.fire('log', { data: JSON.stringify({ id: 7, timestamp: '2026-09-30T00:00:00Z', level: 'info', tags: [ 'web' ], message: 'up' }) });
+
+        store.pause();
+
+        assert.equal(stream.closed,           true,  'a stream held open for a page nobody sees - one of the six connections a browser gives a host');
+        assert.equal(store.entries.length,    1,     'what the page knew was thrown away');
+        assert.equal(store.streamConnected,   false);
+
+        store.stop();
+
+    });
+
+    it('opens it again when it is shown, and a page that followed nothing opens nothing', () => {
+
+        nodeAnswers('yes');
+
+        const store = new LogStore();
+        store.start();
+
+        const first = Stream.latest!;
+
+        store.pause();
+        store.resume();
+
+        assert.notEqual(Stream.latest,          first, 'shown again, the page followed nothing');
+        assert.equal   (Stream.latest!.closed,  false);
+
+        const idle    = new LogStore();
+        const before  = Stream.latest;
+
+        idle.pause();
+        idle.resume();
+
+        assert.equal(Stream.latest, before, 'a stream was opened for a page that followed none');
+
+        // Signed out in between: what was paused is not the page's to open.
+        store.pause();
+        store.stop();
+
+        const stopped = Stream.latest;
+
+        store.resume();
+
+        assert.equal(Stream.latest, stopped, 'a stream was opened again for somebody signed out');
+
+    });
+
+});
+
+
 describe('what a kind of node publishes on the stream besides the log', () => {
 
     const published = (Data: unknown) => ({ data: JSON.stringify(Data) });

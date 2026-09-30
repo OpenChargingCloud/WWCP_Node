@@ -8,6 +8,7 @@
  */
 
 import { strict as assert }  from 'node:assert';
+import { readFileSync }      from 'node:fs';
 import { describe, it }      from 'node:test';
 
 import type { NodeMe }       from './api/client.ts';
@@ -19,7 +20,7 @@ import type { Page }         from './router.ts';
 
 const { auth }                                                        = await import('./auth.ts');
 const { configureShell }                                              = await import('./shell.ts');
-const { afterASignInChange, firstPageOfTheMenu, mayReadTheLog, nodeMenu, routesOf } = await import('./start.ts');
+const { afterASignInChange, firstPageOfTheMenu, followAcrossTheCache, mayReadTheLog, nodeMenu, routesOf } = await import('./start.ts');
 
 
 const signedIn = (Log: boolean, ...Permissions: string[]): NodeMe =>
@@ -217,6 +218,44 @@ describe('"/", where the kind has not said what it shows', () => {
         auth.set(signedIn(true, 'dns:read'));
 
         assert.equal(opened(), '/configuration/dns');
+
+    });
+
+});
+
+
+describe('a page the browser keeps for the way back', () => {
+
+    it('closes the stream of the log while it waits, and opens it again when it is shown', () => {
+
+        // Left for another page in the same tab, a page waits whole in the
+        // browser's back/forward cache - its stream open with it, until the
+        // six connections a browser gives a host were held by pages nobody
+        // saw, and the next page waited 15 to 56 seconds (found by the gateway).
+        const window  = new EventTarget();
+        const said: string[] = [];
+
+        followAcrossTheCache(window, { pause: () => said.push('pause'), resume: () => said.push('resume') });
+
+        window.dispatchEvent(new Event('pagehide'));
+        window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+
+        // Shown for the first time, rather than out of the cache: its stream
+        // is the sign-in's to open.
+        window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: false }));
+
+        assert.deepEqual(said, [ 'pause', 'resume' ]);
+
+    });
+
+    it('is looked after by startNode, for every kind of node', () => {
+
+        // startNode needs a page to start on, which Node has not got: what is
+        // asked here is that it asks for the above, with the log's store.
+        const source  = readFileSync(new URL('./start.ts', import.meta.url), 'utf-8');
+        const start   = source.slice(source.indexOf('export function startNode('));
+
+        assert.match(start.slice(0, start.indexOf('\n}\n')), /followAcrossTheCache\(window, logs\);/);
 
     });
 

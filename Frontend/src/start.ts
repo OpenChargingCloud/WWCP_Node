@@ -2,7 +2,7 @@ import type { NodeMe } from './api/client';
 import { auth } from './auth';
 import { fromURL } from './basePath';
 import { html, must, render } from './html';
-import { logs } from './logs/store';
+import { logs, type LogStore } from './logs/store';
 import { certificatesPage, type CertificatesOptions } from './pages/certificates';
 import { dnsPage } from './pages/dns';
 import { loginPage, type SignInWords } from './pages/login';
@@ -188,6 +188,25 @@ export function afterASignInChange(User:  NodeMe<string> | null,
 
 
 /**
+ * The stream of the log closed while the page waits in the browser's
+ * back/forward cache, and opened again when the page is shown - see
+ * LogStore.pause(). A page shown for the first time rather than out of the
+ * cache is left alone: its stream is the sign-in's to open.
+ */
+export function followAcrossTheCache(Window:  EventTarget,
+                                     Log:     Pick<LogStore, 'pause' | 'resume'>): void {
+
+    Window.addEventListener('pagehide', () => Log.pause());
+
+    Window.addEventListener('pageshow', event => {
+        if ((event as PageTransitionEvent).persisted)
+            Log.resume();
+    });
+
+}
+
+
+/**
  * Start the web interface of a kind of node: the frame, the routes, following
  * the log while somebody who may read it is signed in, and the sign-in for
  * whoever is not.
@@ -225,6 +244,8 @@ export function startNode(Frontend: NodeFrontend): Router {
             router.navigate(auth.requireSignIn(new URL(location.href)) ?? '/login', true);
 
     });
+
+    followAcrossTheCache(window, logs);
 
     // Find out who is signed in before the first page renders, so that a
     // reload on a deep URL does not flash the sign-in page on its way back to

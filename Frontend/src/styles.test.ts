@@ -7,9 +7,9 @@
  * (the local controller's Logs stood beside Configuration).
  */
 
-import { strict as assert }  from 'node:assert';
-import { readFileSync }      from 'node:fs';
-import { describe, it }      from 'node:test';
+import { strict as assert }           from 'node:assert';
+import { readdirSync, readFileSync }  from 'node:fs';
+import { describe, it }               from 'node:test';
 
 
 /** A rule of a stylesheet: what it says, and the rules inside it. */
@@ -113,6 +113,27 @@ describe('a narrow screen', () => {
         assert.equal(menu.declarations.get('flex'),         '1 0 100%', 'the menu on lines of its own');
         assert.ok(!menu.declarations.has('display'),        'the entries flowed as a row');
         assert.ok(!menu.declarations.has('flex-wrap'),      'the entries flowed as a row');
+
+    });
+
+});
+
+
+describe('a path, a token or an address in a sentence', () => {
+
+    it('breaks anywhere in code, in a hint and in a notice, rather than taking the page sideways', () => {
+
+        // Nothing to break at: on a phone the DNS page's "Saved to
+        // D:\Coding\...\configuration.json" made it 420 pixels of 375, and the
+        // certificate store's directory 443 (found by the hub).
+        const rules = readdirSync(new URL('./styles/', import.meta.url)).
+                          filter(file => file.endsWith('.scss')).
+                          flatMap(file => rulesOf(file).rules);
+
+        for (const selector of [ 'code', '.hint', '.notice' ])
+            assert.ok(rules.some(rule => rule.selector.split(',').map(one => one.trim()).includes(selector) &&
+                                         rule.declarations.get('overflow-wrap') === 'anywhere'),
+                      `${selector} does not break a word that has nothing to break at`);
 
     });
 

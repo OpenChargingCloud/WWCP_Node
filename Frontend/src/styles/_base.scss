@@ -47,6 +47,14 @@ code {
     font-size:    0.9em;
 }
 
+// A path, a token or an address has nothing to break at, and in code, a hint
+// or a notice on a phone it ran out of its card and took the page sideways
+// with it: the DNS page's "Saved to D:\Coding\...\configuration.json" made it
+// 420 pixels of 375, the certificate store's directory 443 (found by the hub).
+code, .hint, .notice {
+    overflow-wrap: anywhere;
+}
+
 h1, h2 {
     font-weight: 600;
 }
