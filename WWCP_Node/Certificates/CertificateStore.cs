@@ -587,6 +587,39 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region (static) OpensOnlyWithAPassword(Content)
+
+        /// <summary>
+        /// Whether a file opens only with a password: a PKCS#12 that cannot be
+        /// opened without one, or a PEM whose private key is encrypted - told
+        /// as the store tells it, whatever the file is for.
+        /// </summary>
+        /// <remarks>
+        /// For a kind that reads a PKCS#12 of its own, outside the store, such
+        /// as the charging station's certificate for V2G: where it was given no
+        /// password, it can say that one is wanted and where it goes, rather
+        /// than pass .NET's "... with the provided password, the password may be
+        /// incorrect" on (asked for by the charging station). A file that opens
+        /// without a password, or is no certificate at all, does not.
+        /// </remarks>
+        /// <param name="Content">The file as it is.</param>
+        public static Boolean OpensOnlyWithAPassword(Byte[] Content)
+        {
+
+            try
+            {
+                Dispose(ReadCollection(Content, null));
+                return false;
+            }
+            catch (Exception exception)
+            {
+                return exception is PasswordWantedException;
+            }
+
+        }
+
+        #endregion
+
         #region (private static) TryReadLeaf(Content, Kind, Password, out Collection, out Leaf, out Error, out PasswordWanted)
 
         /// <summary>

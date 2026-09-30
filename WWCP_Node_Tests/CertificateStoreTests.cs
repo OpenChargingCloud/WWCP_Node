@@ -939,6 +939,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region WhatOpensOnlyWithAPasswordIsSaidToBeThat(What, OnlyWithAPassword)
+
+        /// <summary>
+        /// Whether a file opens only with a password, for a kind that reads one
+        /// of its own outside the store - the charging station's certificate
+        /// for V2G - and was given no password: a PKCS#12 a password guards
+        /// does, and a PEM whose key is encrypted; one that opens without, and
+        /// what is no certificate at all, do not (asked for by the charging
+        /// station).
+        /// </summary>
+        [TestCase("a PKCS#12 a password guards",      true)]
+        [TestCase("a PEM whose key is encrypted",     true)]
+        [TestCase("a PKCS#12 without a password",     false)]
+        [TestCase("a PEM whose key is in the clear",  false)]
+        [TestCase("a certificate alone",              false)]
+        [TestCase("a key in DER",                     false)]
+        [TestCase("a note",                           false)]
+        [TestCase("nothing",                          false)]
+        public void WhatOpensOnlyWithAPasswordIsSaidToBeThat(String What, Boolean OnlyWithAPassword)
+        {
+
+            using var root   = Root("Some Root");
+            var (leaf, key)  = LeafWithKey("Some Leaf", root);
+
+            try
+            {
+
+                using var withKey = leaf.CopyWithPrivateKey(key);
+
+                Byte[] content = What switch {
+                    "a PKCS#12 a password guards"      => Pkcs12(withKey, "opensesame"),
+                    "a PEM whose key is encrypted"     => EncryptedPemWithKey(key, "opensesame", leaf),
+                    "a PKCS#12 without a password"     => Pkcs12(withKey),
+                    "a PEM whose key is in the clear"  => PemWithKey(key, "PRIVATE KEY", leaf),
+                    "a certificate alone"              => Pem(root),
+                    "a key in DER"                     => key.ExportPkcs8PrivateKey(),
+                    "a note"                           => "hello, this is not a certificate"u8.ToArray(),
+                    "nothing"                          => [],
+                    _                                  => throw new ArgumentException($"No file '{What}' here.", nameof(What))
+                };
+
+                Assert.That(CertificateStore.OpensOnlyWithAPassword(content), Is.EqualTo(OnlyWithAPassword));
+
+            }
+            finally
+            {
+                leaf.Dispose();
+                key.Dispose();
+            }
+
+        }
+
+        #endregion
+
 
         #region AStoreThatKeepsNoKindWritesNothing()
 

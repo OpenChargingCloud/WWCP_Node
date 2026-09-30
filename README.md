@@ -440,7 +440,10 @@ whose key is encrypted - is refused with just that, and the command line says
 where the password goes: `--certificate-password`, or `<PRODUCT>_CERT_PASSWORD`.
 It was refused with .NET's "with the provided password, the password may be
 incorrect", where none had been provided (found by the EMSP). A file not built
-as a PKCS#12 is not asked for a password at all. The file
+as a PKCS#12 is not asked for a password at all. A kind that reads a PKCS#12
+of its own, outside the store, asks `CertificateStore.OpensOnlyWithAPassword`
+the same of it, and says where its own password goes (asked for by the
+charging station, for its certificate for V2G). The file
 system is what guards them, and the node says so at every start and at every
 import. A file somebody copied into the right directory by hand is adopted at
 the next reload, because on a machine somebody already has a shell on that is
