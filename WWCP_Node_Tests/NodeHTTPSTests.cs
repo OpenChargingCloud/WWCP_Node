@@ -18,7 +18,6 @@
 #region Usings
 
 using System.Net;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -29,6 +28,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -90,7 +90,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (helpers) SelfSigned() / FreePort() / Node(...)
+        #region (helpers) SelfSigned() / Node(...)
 
         /// <summary>
         /// A certificate for 127.0.0.1 with its key, as a server can use it on
@@ -114,19 +114,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var ephemeral = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
 
             return X509CertificateLoader.LoadPkcs12(ephemeral.Export(X509ContentType.Pkcs12), null);
-
-        }
-
-        private static IPPort FreePort()
-        {
-
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
-            return IPPort.Parse((UInt16) port);
 
         }
 
@@ -158,11 +145,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ANodeGivenACertificateSpeaksTLSAndSaysSo()
         {
 
-            var port = FreePort();
-
-            await using var node = Node(port, ServerCertificateSelector: (server, client) => certificate);
-
-            await node.Start();
+            await using var node = await TestPorts.StartedOnFreshPorts(() => Node(IPPort.Parse(TestPorts.Free()), ServerCertificateSelector: (server, client) => certificate));
 
             String? shown = null;
 
@@ -174,7 +157,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                 };
 
             using var client   = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
-            using var response = await client.GetAsync($"https://127.0.0.1:{port}/");
+            using var response = await client.GetAsync($"https://127.0.0.1:{node.HTTPPort}/");
 
             Assert.Multiple(() => {
                 Assert.That(shown,                                                   Is.EqualTo(CertificateEntry.ThumbprintOf(certificate)),  "another certificate was shown, or none");
@@ -223,8 +206,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AServerThatIsHandedInKeepsItsOwnTLS()
         {
 
-            var withTLS    = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: FreePort(), ServerCertificateSelector: (server, client) => certificate);
-            var withoutTLS = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: FreePort());
+            var withTLS    = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: IPPort.Parse(TestPorts.Free()), ServerCertificateSelector: (server, client) => certificate);
+            var withoutTLS = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: IPPort.Parse(TestPorts.Free()));
 
             await using (var node = Node(Server: withTLS))
                 Assert.Multiple(() => {

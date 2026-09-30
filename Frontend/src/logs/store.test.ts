@@ -474,15 +474,17 @@ describe('a page the browser keeps for the way back', () => {
         Stream.latest!.fire('open');
         await settle();
 
+        // What the page reads as it is told: told before the store knew, it
+        // would draw "live" all the same (found by the hub).
         const told: string[] = [];
-        store.onChange(event => told.push(event.type));
+        store.onChange(event => told.push(`${event.type}, ${store.streamConnected ? 'live' : 'down'}`));
 
         store.pause();
 
         // Unsaid, the page came out of the cache saying "live", and went on
         // saying it where the node had gone meanwhile: a stream that never
         // opens has nothing to say (found by the meter).
-        assert.deepEqual(told, [ 'stream' ], 'the page was not told its stream is down');
+        assert.deepEqual(told, [ 'stream, down' ], 'what the page was told of its stream, and could read');
         assert.equal(store.streamConnected, false);
 
         store.stop();

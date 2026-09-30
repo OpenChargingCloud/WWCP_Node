@@ -167,7 +167,7 @@ export const dnsPage: Page = {
                                 <span id="form-error" class="form-error"  role="alert"></span>
                             </div>
 
-                            <span class="hint">Saved to ${configuration.file}, and in effect at once.</span>
+                            <span class="hint">Saved to <span class="path">${configuration.file}</span>, and in effect at once.</span>
 
                         </form>
 

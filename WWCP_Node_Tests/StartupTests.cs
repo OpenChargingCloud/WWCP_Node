@@ -20,6 +20,7 @@
 using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -72,9 +73,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AFirstStartMakesUpAnAccountAndKeepsOnlyItsHash()
         {
 
-            await using var node = TestNodes.New(directory, TestNodes.Offline);
-
-            await node.Start();
+            await using var node = await TestPorts.StartedOnFreshPorts(() => TestNodes.New(directory, TestNodes.Offline));
 
             Assert.Multiple(() => {
 
@@ -109,15 +108,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             String firstPassword;
 
-            await using (var first = TestNodes.New(directory, TestNodes.Offline))
+            await using (var first = await TestPorts.StartedOnFreshPorts(() => TestNodes.New(directory, TestNodes.Offline)))
             {
-                await first.Start();
                 firstPassword = first.GeneratedPassword!;
             }
 
-            await using var second = TestNodes.New(directory, TestNodes.Offline);
-
-            await second.Start();
+            await using var second = await TestPorts.StartedOnFreshPorts(() => TestNodes.New(directory, TestNodes.Offline));
 
             Assert.Multiple(() => {
                 Assert.That(second.GeneratedPassword,    Is.Null,
@@ -223,9 +219,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ASwitchedOffTimeClientSchedulesNothing()
         {
 
-            await using var node = TestNodes.New(directory, TestNodes.Offline);
-
-            await node.Start();
+            await using var node = await TestPorts.StartedOnFreshPorts(() => TestNodes.New(directory, TestNodes.Offline));
 
             Assert.Multiple(() => {
 

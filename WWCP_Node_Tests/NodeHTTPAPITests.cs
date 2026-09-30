@@ -19,7 +19,6 @@
 
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -35,6 +34,7 @@ using org.GraphDefined.Vanaheimr.Hermod.Mail;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 using cloud.charging.open.protocols.WWCP.Node.Web;
 
 #endregion
@@ -205,24 +205,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (helpers) FreePort() / Started(Clock, Log) / Client(...) / Send(...)
-
-        private static IPPort FreePort()
-        {
-
-            var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
-
-            return IPPort.Parse((UInt16) port);
-
-        }
+        #region (helpers) Started(Clock, Log) / Client(...) / Send(...)
 
         /// <summary>
         /// A node with the API of a kind of node, started - on a port nobody
-        /// else has, and without asking a time server.
+        /// else has, made again on a fresh one where another process took it
+        /// first, and without asking a time server.
         /// </summary>
         private async Task<TestNode> Started(Permission? Clock = null, Permission? Log = null)
         {
@@ -231,13 +219,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configuration, """{ "nts": { "enabled": false } }""");
 
-            var node = new TestNode(FreePort(), directory, new WWCPConfigFile(configuration));
+            return await TestPorts.StartedOnFreshPorts(() => {
 
-            node.API = new TestAPI(node, Clock, Log);
+                var node = new TestNode(IPPort.Parse(TestPorts.Free()), directory, new WWCPConfigFile(configuration));
 
-            await node.Start();
+                node.API = new TestAPI(node, Clock, Log);
 
-            return node;
+                return node;
+
+            });
 
         }
 
