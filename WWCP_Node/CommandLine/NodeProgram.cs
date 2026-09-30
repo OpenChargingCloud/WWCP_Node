@@ -164,10 +164,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                 Error ??= Console.Error;
 
-                Error.WriteLine($"The {Node.Kind.Name} could not start: {problem.Message}.");
+                Say(Error, $"The {Node.Kind.Name} could not start: {problem.Message}.");
 
                 foreach (var line in AdviceOn(Node.Kind, problem, AdviceOfTheKind, OperatingSystem.IsWindows(), Environment.ProcessPath, SwitchOf))
-                    Error.WriteLine(line);
+                    Say(Error, line);
 
                 return CouldNotStart(Node, problem, Verbose, Error);
 
@@ -177,11 +177,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                 Error ??= Console.Error;
 
-                Error.WriteLine($"The {Node.Kind.Name} could not start: {problem.Message}");
+                Say(Error, $"The {Node.Kind.Name} could not start: {problem.Message}");
 
                 return CouldNotStart(Node, problem, Verbose, Error);
 
             }
+
+        }
+
+        #endregion
+
+        #region (private static) Say(Error, Line)
+
+        /// <summary>
+        /// A line of what a start that failed says, broken between words at
+        /// <see cref="NodeUsage.Width"/>: at 115 columns, the EMSP's broke in the
+        /// middle of "operating" in a terminal of 80 (found by the EMSP). A line
+        /// that begins with a space is a command to copy, setcap's, and stays
+        /// whole.
+        /// </summary>
+        private static void Say(TextWriter  Error,
+                                String      Line)
+        {
+
+            if (Line.StartsWith(' '))
+                Error.WriteLine(Line);
+
+            else
+                foreach (var part in NodeUsage.Wrap(Line, "", ""))
+                    Error.WriteLine(part);
 
         }
 

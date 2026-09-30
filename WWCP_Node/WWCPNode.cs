@@ -2233,15 +2233,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    // hand - Hermod, Norn, the node, the protocol, the kind - and
                    // two listed every assembly, the ISO 15118 repository's
                    // dozens among them; what a library that joins or leaves
-                   // does to either list is nothing.
-                   new JProperty("assemblies", new JArray(
-                       BuiltFrom.Repositories.Select(repository => new JObject(
-                           new JProperty("name",      repository.Repository),
-                           new JProperty("assembly",  repository.Name),
-                           new JProperty("version",   repository.Version),
-                           new JProperty("commit",    repository.Commit)
-                       ))
-                   ))
+                   // does to either list is nothing. An assembly only where two
+                   // repositories share a name (BuiltFrom.ConfigurationLinesOf).
+                   new JProperty("assemblies", BuiltFrom.ConfigurationLinesOf(BuiltFrom.Repositories))
 
                );
 

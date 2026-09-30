@@ -19,6 +19,8 @@
 
 using System.Reflection;
 
+using Newtonsoft.Json.Linq;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node
@@ -215,6 +217,43 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              Label(repositories[i]).PadRight(width) +
                              "  " +
                              repositories[i].Commit;
+
+        }
+
+        #endregion
+
+        #region (static) ConfigurationLinesOf(Repositories)
+
+        /// <summary>
+        /// What the configuration says of it: a line for each repository, with
+        /// its name, its version and the whole commit - and its assembly only
+        /// where two repositories share a directory's name, as the banner names
+        /// it (<see cref="BannerLinesOf"/>). Named on every line, it was the
+        /// first assembly the node had found of the repository - "SDP" for all
+        /// of ISO 15118's dozens - and said nothing of it (found by the
+        /// vehicle).
+        /// </summary>
+        /// <param name="Repositories">One line per repository, as <see cref="OnePerRepository"/> makes them.</param>
+        public static JArray ConfigurationLinesOf(IEnumerable<LoadedAssembly> Repositories)
+        {
+
+            var repositories = Repositories.ToArray();
+
+            return new JArray(
+                       repositories.Select(repository => {
+
+                           var line = new JObject(new JProperty("name", repository.Repository));
+
+                           if (repositories.Count(other => other.Repository == repository.Repository) > 1)
+                               line.Add("assembly", repository.Name);
+
+                           line.Add("version", repository.Version);
+                           line.Add("commit",  repository.Commit);
+
+                           return line;
+
+                       })
+                   );
 
         }
 

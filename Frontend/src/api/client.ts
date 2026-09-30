@@ -111,7 +111,7 @@ export interface NodeConfiguration {
     web:         Record<string, unknown>;
     log:         Record<string, unknown>;
     time:        Record<string, unknown>;
-    /** One line per repository the node was built from: name, assembly, version and commit - see librariesCard(). */
+    /** One line per repository the node was built from: name, version and commit, and the assembly where two lines share a name - see librariesCard(). */
     assemblies:  Record<string, unknown>[];
 }
 

@@ -17,6 +17,9 @@
 
 #region Usings
 
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
 using NUnit.Framework;
 
 #endregion
@@ -129,6 +132,75 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             // Not by the repository's name, which is the directory it was
             // cloned into, and not this test's to decide.
             Assert.That(library.IsStamped, Is.True, "WWCP_Node carries no GitCommit: Directory.Build.props did not reach it");
+
+        }
+
+        #endregion
+
+        #region ALineOfANameOfItsOwnNamesNoAssembly()
+
+        /// <summary>
+        /// A repository whose name no other line of the configuration has is
+        /// said by that name alone, as the banner says it. The assembly beside
+        /// it was the first one the node had found of the repository - "SDP"
+        /// for all of ISO 15118's dozens - and said nothing of it (found by the
+        /// vehicle).
+        /// </summary>
+        [Test]
+        public async Task ALineOfANameOfItsOwnNamesNoAssembly()
+        {
+
+            var directory = TestNodes.TemporaryDirectory("built-from");
+
+            try
+            {
+
+                await using var node = TestNodes.New(directory, TestNodes.Offline);
+
+                var lines  = (node.ConfigurationJSON()["assemblies"] as JArray)?.OfType<JObject>().ToArray() ?? [];
+                var names  = lines.Select(line => line.Value<String>("name")).ToArray();
+
+                Assert.Multiple(() => {
+                    Assert.That(lines, Is.Not.Empty, "the lines of the configuration");
+                    Assert.That(lines.Where (line => names.Count(name => name == line.Value<String>("name")) == 1 &&
+                                                     line.ContainsKey("assembly")).
+                                      Select(line => line.Value<String>("name")),
+                                Is.Empty,
+                                "repositories of a name of their own, said with an assembly");
+                });
+
+            }
+            finally
+            {
+                TestNodes.Remove(directory);
+            }
+
+        }
+
+        #endregion
+
+        #region TwoRepositoriesOfOneNameAreToldApartByTheirAssemblies()
+
+        /// <summary>
+        /// Where two repositories share a directory's name - the energy meter's
+        /// tool and its library - the configuration names the assembly of each,
+        /// as the banner does, and the others go by their names alone.
+        /// </summary>
+        [Test]
+        public void TwoRepositoriesOfOneNameAreToldApartByTheirAssemblies()
+        {
+
+            var lines = BuiltFrom.ConfigurationLinesOf([
+                            new LoadedAssembly("Hermod",                   "1.0", "Hermod",                "1111111111111111111111111111111111111111"),
+                            new LoadedAssembly("ModbusTLSEnergyMeter",     "1.0", "ModbusTLSEnergyMeter",  "2222222222222222222222222222222222222222"),
+                            new LoadedAssembly("ModbusTLSEnergyMeterCLI",  "1.0", "ModbusTLSEnergyMeter",  "3333333333333333333333333333333333333333")
+                        ]).OfType<JObject>().Select(line => line.ToString(Formatting.None));
+
+            Assert.That(lines, Is.EqualTo(new[] {
+                """{"name":"Hermod","version":"1.0","commit":"1111111111111111111111111111111111111111"}""",
+                """{"name":"ModbusTLSEnergyMeter","assembly":"ModbusTLSEnergyMeter","version":"1.0","commit":"2222222222222222222222222222222222222222"}""",
+                """{"name":"ModbusTLSEnergyMeter","assembly":"ModbusTLSEnergyMeterCLI","version":"1.0","commit":"3333333333333333333333333333333333333333"}"""
+            }));
 
         }
 

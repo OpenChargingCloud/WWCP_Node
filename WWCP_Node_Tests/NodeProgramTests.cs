@@ -131,6 +131,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region (helper) Flat(Said)
+
+        /// <summary>
+        /// What was said, with its lines put back together: what it says,
+        /// wherever it was broken.
+        /// </summary>
+        private static String Flat(String Said)
+
+            => String.Join(" ", Said.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+
+        #endregion
+
 
         #region TheBannerSaysWhereTheNodeAnswersAndWhereItsFilesAre()
 
@@ -252,10 +264,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 var exit = await node.Started(Verbose: false, Error: said);
 
                 Assert.Multiple(() => {
-                    Assert.That(exit,            Is.EqualTo(1));
-                    Assert.That(said.ToString(), Does.StartWith($"The WWCP node could not start: The web interface could not be given port {port}"));
-                    Assert.That(said.ToString(), Does.Contain("Another copy of this WWCP node already running is the usual answer. " +
-                                                              "Stop it, or give this one another port with --port <number>."));
+                    Assert.That(exit,                   Is.EqualTo(1));
+                    Assert.That(Flat(said.ToString()),  Does.StartWith($"The WWCP node could not start: The web interface could not be given port {port}"));
+                    Assert.That(Flat(said.ToString()),  Does.Contain("Another copy of this WWCP node already running is the usual answer. " +
+                                                                     "Stop it, or give this one another port with --port <number>."));
+                    Assert.That(said.ToString().Split(Environment.NewLine).Where(line => line.Length > NodeUsage.Width), Is.Empty,
+                                "lines wider than a terminal of 80 columns");
                 });
 
             }
@@ -391,11 +405,81 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var verbose  = await again.Started(Verbose: true,  Error: whole);
 
             Assert.Multiple(() => {
-                Assert.That(exit,              Is.EqualTo(1));
-                Assert.That(brief.ToString(),  Does.StartWith("The WWCP node could not start: The charging station server's certificate could not be read."));
-                Assert.That(brief.ToString(),  Does.Not.Contain("System.InvalidOperationException"));
-                Assert.That(verbose,           Is.EqualTo(1));
-                Assert.That(whole.ToString(),  Does.Contain("System.InvalidOperationException"), "the whole exception with --verbose");
+                Assert.That(exit,                  Is.EqualTo(1));
+                Assert.That(Flat(brief.ToString()), Does.StartWith("The WWCP node could not start: The charging station server's certificate could not be read."));
+                Assert.That(brief.ToString(),      Does.Not.Contain("System.InvalidOperationException"));
+                Assert.That(verbose,               Is.EqualTo(1));
+                Assert.That(whole.ToString(),      Does.Contain("System.InvalidOperationException"), "the whole exception with --verbose");
+            });
+
+        }
+
+        #endregion
+
+        #region ACommandToCopyStaysWhole()
+
+        /// <summary>
+        /// A line of advice that begins with a space is a command to copy -
+        /// setcap's - and stays as it is, however long, where every other line
+        /// is broken at 80 columns: broken, or without its indent, it would be
+        /// no command any more.
+        /// </summary>
+        [Test]
+        public async Task ACommandToCopyStaysWhole()
+        {
+
+            var squatter = new TcpListener(System.Net.IPAddress.Loopback, 0);
+            squatter.Start();
+
+            try
+            {
+
+                var port     = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+                var said     = new StringWriter();
+                var command  = "  sudo setcap cap_net_bind_service=+ep /opt/somewhere/far/below/the/root/of/it/all/TestNodeCLI";
+
+                await using var node = Node(IPPort.Parse(port));
+
+                await node.Started(Verbose: false, AdviceOfTheKind: _ => command, Error: said);
+
+                Assert.That(said.ToString().Split(Environment.NewLine), Does.Contain(command));
+
+            }
+            finally
+            {
+                squatter.Stop();
+            }
+
+        }
+
+        #endregion
+
+        #region WhyAStartFailedIsSaidInLinesOfEightyColumns()
+
+        /// <summary>
+        /// Why a start failed is broken between words at 80 columns, as the
+        /// advice below it is: the EMSP's line was 115 columns wide, and a
+        /// terminal of 80 broke it in the middle of "operating" (found by the
+        /// EMSP).
+        /// </summary>
+        [Test]
+        public async Task WhyAStartFailedIsSaidInLinesOfEightyColumns()
+        {
+
+            var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
+            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+
+            var said = new StringWriter();
+
+            await using var node = new NodeThatCannotListen(IPPort.Parse(TestPorts.Free()), Path.Combine(directory, "accounts"), new WWCPConfigFile(configuration));
+
+            await node.Started(Verbose: false, Error: said);
+
+            Assert.Multiple(() => {
+                Assert.That(said.ToString().Split(Environment.NewLine).Where(line => line.Length > NodeUsage.Width), Is.Empty,
+                            "lines wider than a terminal of 80 columns");
+                Assert.That(Flat(said.ToString()), Does.StartWith("The WWCP node could not start: The charging station server's certificate could not be read."),
+                            "the words, however broken");
             });
 
         }
