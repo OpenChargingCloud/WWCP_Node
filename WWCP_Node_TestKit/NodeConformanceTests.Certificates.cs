@@ -47,13 +47,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     public abstract partial class NodeConformanceTests
     {
 
-        #region (private static helpers) RootPem(Name) / Identity(Name, WithKey)
+        #region (private static helpers) RootPem(Name) / RootAndItsHandle(Name) / Identity(Name, WithKey)
 
         /// <summary>
         /// A self-signed root, as the text of a PEM file base64-encoded - which
         /// is what an upload from the browser turns into.
         /// </summary>
         private static String RootPem(String Name)
+
+            => RootAndItsHandle(Name).Content;
+
+        /// <summary>
+        /// A self-signed root as <see cref="RootPem"/> makes one, and the handle
+        /// the store will give it - for a test that has to be where its file
+        /// goes before it is there.
+        /// </summary>
+        private static (String Content, String Handle) RootAndItsHandle(String Name)
         {
 
             using var key  = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -63,7 +72,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var root = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
 
-            return Convert.ToBase64String(Encoding.ASCII.GetBytes(root.ExportCertificatePem()));
+            return (Convert.ToBase64String(Encoding.ASCII.GetBytes(root.ExportCertificatePem())),
+                    CertificateEntry.ThumbprintOf(root)[..CertificateEntry.IdLength]);
 
         }
 
@@ -104,6 +114,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         private String[] InTheStore()
 
             => [.. Node.Certificates.Entries.Select(entry => entry.Id)];
+
+        #endregion
+
+        #region (private) TheIndexCannotBeWritten() / WhatIsSaidOf(Entry)
+
+        /// <summary>
+        /// Where the store writes its index before moving it over the old one,
+        /// a directory: every change that is written into the index fails, as on
+        /// a full disk, and nothing else does. Returns where it is, to be taken
+        /// away again.
+        /// </summary>
+        private String TheIndexCannotBeWritten()
+        {
+
+            var blocked = Path.Combine(Node.Certificates.Directory, CertificateStore.IndexFileName + ".new");
+
+            System.IO.Directory.CreateDirectory(blocked);
+
+            return blocked;
+
+        }
+
+        /// <summary>
+        /// What a change of a certificate can change of it, in one line: its
+        /// label, whether it is on, and what it is for.
+        /// </summary>
+        private static String WhatIsSaidOf(JObject Entry)
+
+            => $"'{Entry.Value<String>("label")}', " +
+               $"{(Entry.Value<Boolean>("active") ? "on" : "off")}, " +
+               $"for {(Entry["usages"] is JArray usages ? String.Join(" and ", usages.Values<String>()) : "every use")}";
 
         #endregion
 
@@ -634,6 +675,174 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(bogus,                           Is.EqualTo(HttpStatusCode.BadRequest));
                 Assert.That(kept.Value<String>("label"),     Is.EqualTo("A Root Nobody Renames"), "a refused request renamed it");
                 Assert.That(kept.Value<Boolean>("active"),   Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region AChangeTheStoreCannotWriteIsAServerError(Change)
+
+        /// <summary>
+        /// A change of the store that is fine in itself, and that the store's
+        /// files cannot be written with, is answered 500 with why - and changes
+        /// nothing, now or when the store is read again. A certificate whose
+        /// file could not be written was a 400, as if something had been wrong
+        /// with it; a label, on or off and what a certificate is for were
+        /// answered as done while the index could not keep them, and were gone
+        /// at the next start.
+        /// </summary>
+        [TestCase("POST, its file")]
+        [TestCase("POST, the index")]
+        [TestCase("POST again, with a label")]
+        [TestCase("PATCH label")]
+        [TestCase("PATCH active")]
+        [TestCase("PATCH usages")]
+        public async Task AChangeTheStoreCannotWriteIsAServerError(String Change)
+        {
+
+            Keeps(CertificateKind.TLSRoot);
+
+            using var http              = await SignedIn();
+
+            // One that is there, for the changes of one that is there...
+            var (thereContent, handle)  = RootAndItsHandle("A Root That Is There");
+            var (made, there)           = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
+                                                         new JProperty("kind",     "tlsRoot"),
+                                                         new JProperty("content",  thereContent),
+                                                         new JProperty("usages",   new JArray("dns"))
+                                                     ));
+
+            Assert.That(made, Is.EqualTo(HttpStatusCode.Created), there.ToString());
+
+            var path                    = $"api/v1/certificates/{handle}";
+
+            // ...and one that is not yet, with where its file would go.
+            var (content, itsHandle)    = RootAndItsHandle("A Root That Is Not There Yet");
+            var itsFile                 = Node.Certificates.FullPath($"{CertificateKind.TLSRoot.Directory()}/{itsHandle}{CertificateKind.TLSRoot.Extension()}");
+            var index                   = Path.Combine(Node.Certificates.Directory, CertificateStore.IndexFileName);
+
+            var before                  = InTheStore();
+            var (_, was)                = await Send(http, HttpMethod.Get, path);
+
+            // Where the new one's file goes is a directory, or where the index
+            // is written first is.
+            String blocked;
+
+            if (Change == "POST, its file")
+                System.IO.Directory.CreateDirectory(blocked = itsFile);
+            else
+                blocked = TheIndexCannotBeWritten();
+
+            var (status, said) = Change switch {
+                "POST, its file"            => await Send(http, HttpMethod.Post,  "api/v1/certificates", new JObject(new JProperty("kind", "tlsRoot"), new JProperty("content", content))),
+                "POST, the index"           => await Send(http, HttpMethod.Post,  "api/v1/certificates", new JObject(new JProperty("kind", "tlsRoot"), new JProperty("content", content))),
+                "POST again, with a label"  => await Send(http, HttpMethod.Post,  "api/v1/certificates", new JObject(new JProperty("kind", "tlsRoot"), new JProperty("content", thereContent), new JProperty("label", "A Root Renamed On Its Way In"))),
+                "PATCH label"               => await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label",  "A Root Renamed"))),
+                "PATCH active"              => await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("active", false))),
+                "PATCH usages"              => await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("usages", new JArray("nts")))),
+                _                           => throw new ArgumentException($"No change '{Change}' here.", nameof(Change))
+            };
+
+            var inTheStore              = InTheStore();
+            var (_, now)                = await Send(http, HttpMethod.Get, path);
+
+            // And as at the next start: the directory read again, with nothing
+            // in the way any more.
+            System.IO.Directory.Delete(blocked);
+
+            var (reread, _)             = await Send(http, HttpMethod.Post, "api/v1/certificates/reload", new JObject());
+            var readAgain               = InTheStore();
+            var (_, thereReadAgain)     = await Send(http, HttpMethod.Get, path);
+
+            Assert.Multiple(() => {
+
+                Assert.That(status,                          Is.EqualTo(HttpStatusCode.InternalServerError), said.ToString());
+                Assert.That(said.Value<String>("error"),     Does.StartWith(Change == "POST, its file"
+                                                                                ? "That certificate could not be written to the store: "
+                                                                                : $"'{index}' could not be written: "));
+
+                Assert.That(inTheStore,                      Is.EquivalentTo(before),             "what is in the store");
+                Assert.That(WhatIsSaidOf(now),               Is.EqualTo(WhatIsSaidOf(was)),       "what is said of the one that was there");
+
+                Assert.That(reread,                          Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(readAgain,                       Is.EquivalentTo(before),             "what is in the store, read again: a file left behind is adopted");
+                Assert.That(WhatIsSaidOf(thereReadAgain),    Is.EqualTo(WhatIsSaidOf(was)),       "what is said of the one that was there, read again");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ADeletionItsFileDoesNotLetHappenIsAServerError()
+
+        /// <summary>
+        /// A certificate whose file cannot be deleted stays in the store, and
+        /// the request is answered 500 with why. It was a 404, as if there had
+        /// been no such certificate.
+        /// </summary>
+        [Test]
+        [Platform("Win", Reason = "A file somebody holds open is deleted all the same on Linux, and a test run as root there deletes what it likes: nothing but Windows keeps a file from being deleted.")]
+        public async Task ADeletionItsFileDoesNotLetHappenIsAServerError()
+        {
+
+            Keeps(CertificateKind.TLSRoot);
+
+            using var http   = await SignedIn();
+
+            var handle       = (await ARootIn(http, "A Root Somebody Holds Open"))["id"]!.Value<String>()!;
+            var file         = Node.Certificates.FullPath(Node.Certificates.Get(handle)!);
+
+            HttpStatusCode  status;
+            JObject         said;
+
+            using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+                (status, said) = await Send(http, HttpMethod.Delete, $"api/v1/certificates/{handle}");
+
+            Assert.Multiple(() => {
+                Assert.That(status,                       Is.EqualTo(HttpStatusCode.InternalServerError), said.ToString());
+                Assert.That(said.Value<String>("error"),  Does.Contain("could not be deleted: "));
+                Assert.That(InTheStore(),                 Does.Contain(handle), "it is still in the store");
+                Assert.That(File.Exists(file),            Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region ARefusalIsWhatItWasWhileTheStoreCannotWrite()
+
+        /// <summary>
+        /// What was wrong with a change is answered as it was while the store
+        /// cannot write: a 500 is the files', and only where it was the files
+        /// that refused.
+        /// </summary>
+        [Test]
+        public async Task ARefusalIsWhatItWasWhileTheStoreCannotWrite()
+        {
+
+            Keeps(CertificateKind.TLSRoot);
+
+            using var http          = await SignedIn();
+
+            var handle              = (await ARootIn(http, "A Root Refused Around"))["id"]!.Value<String>()!;
+
+            TheIndexCannotBeWritten();
+
+            var (notOne,   _)       = await Send(http, HttpMethod.Post,   "api/v1/certificates", new JObject(
+                                                     new JProperty("kind",     "tlsRoot"),
+                                                     new JProperty("content",  Convert.ToBase64String(Encoding.ASCII.GetBytes("not a certificate")))
+                                                 ));
+            var (tooLong,  _)       = await Send(http, HttpMethod.Patch,  $"api/v1/certificates/{handle}", new JObject(
+                                                     new JProperty("label",    new String('x', CertificateEntry.MaxLabelLength + 1))
+                                                 ));
+            var (notThere, _)       = await Send(http, HttpMethod.Delete, "api/v1/certificates/nothing-by-this-handle");
+
+            Assert.Multiple(() => {
+                Assert.That(notOne,    Is.EqualTo(HttpStatusCode.BadRequest), "a file that holds no certificate");
+                Assert.That(tooLong,   Is.EqualTo(HttpStatusCode.BadRequest), "a label too long");
+                Assert.That(notThere,  Is.EqualTo(HttpStatusCode.NotFound),   "a certificate the store does not have");
             });
 
         }

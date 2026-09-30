@@ -114,6 +114,54 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnArticleAtTheEndOfALineBeforeANameIsFound(First, Second)
+
+        /// <summary>
+        /// An article at the end of a line whose string goes on in the next one
+        /// with a name is found as well, and said with both lines. The EV's said
+        /// "is a oemRoot" that way, one line at a time unseen (found by the EV).
+        /// </summary>
+        [TestCase("""Error = $"'{SessionConfiguration.SectionName}.{field}': '{entry.Label}' is a " +""", """$"{entry.Kind.AsText()} and this names a contract certificate.";""")]
+        [TestCase("""$"session.{Field}: '{entry.Label}' is an OEM root and this names a " +""",     """$"{Kind.AsText()}.");""")]
+        [TestCase("""Error = "That is a " +""",                                                  """$"{Kind.Describe(NodeName)}, which this store does not keep.";""")]
+        [TestCase("$\"{owner}.{property} has @type '{parsed.GetType().Name}', which is not a \"",   """+ $"{typeof(T).Name}.");""")]
+        public void AnArticleAtTheEndOfALineBeforeANameIsFound(String First, String Second)
+        {
+
+            File.WriteAllText(Path.Combine(directory, "Some.cs"), $"namespace Some\n{{\n    {First}\n        {Second}\n}}\n");
+
+            Assert.That(SourceRules.ArticlesBeforeANameIn(directory),
+                        Is.EqualTo(new[] { $"{Path.GetFileName(directory)}/Some.cs:3: {First} {Second}" }));
+
+        }
+
+        #endregion
+
+        #region WhatGoesOnInTheNextLineWithoutANameIsNotFound(First, Second)
+
+        /// <summary>
+        /// What is not found: a string that goes on without a hole, or with a
+        /// hole that is not the first thing in it, a line that does not end
+        /// with an article, a name two lines below one that does, and a comment
+        /// on either line.
+        /// </summary>
+        [TestCase("""Error = "This is a " +""",                  "\"plain sentence, and no name in it.\";")]
+        [TestCase("""Error = $"'{entry.Label}' is a " +""",      "\"certificate, and \" +\n        $\"{Kind.AsText()} is what it is.\";")]
+        [TestCase("""Error = $"'{entry.Label}' is a " +""",      """$"certificate of {entry.Kind.AsText()}.";""")]
+        [TestCase("""Error = $"'{entry.Label}' is a " + what +""", """$"{Kind.AsText()}.";""")]
+        [TestCase("""// Error = "is a " +""",                    """$"{Kind.AsText()} - after a comment.";""")]
+        [TestCase("""Error = $"'{entry.Label}' is a " +""",      """// $"{Kind.AsText()}" - a comment.""")]
+        public void WhatGoesOnInTheNextLineWithoutANameIsNotFound(String First, String Second)
+        {
+
+            File.WriteAllText(Path.Combine(directory, "Some.cs"), $"namespace Some\n{{\n    {First}\n        {Second}\n}}\n");
+
+            Assert.That(SourceRules.ArticlesBeforeANameIn(directory), Is.Empty);
+
+        }
+
+        #endregion
+
         #region WhatIsBuiltIsNotRead()
 
         /// <summary>
@@ -154,7 +202,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void NoTextOfThisNodePutsAnArticleBeforeAName()
         {
 
-            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "WWCP_Node", "WWCP_Node_TestKit");
+            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "WWCP_Node/WWCP_Node.csproj", "WWCP_Node_TestKit/WWCP_Node_TestKit.csproj");
 
             Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(repository, "WWCP_Node"),
                                                           Path.Combine(repository, "WWCP_Node_TestKit")),
@@ -175,13 +223,71 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void TheRepositoryIsFoundAboveWhereItsTestsRun()
         {
 
-            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "WWCP_Node", "WWCP_Node_TestKit");
+            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "WWCP_Node/WWCP_Node.csproj", "WWCP_Node_TestKit/WWCP_Node_TestKit.csproj");
 
             Assert.Multiple(() => {
                 Assert.That(File.Exists(Path.Combine(repository, "WWCP_Node_TestKit", "SourceRules.cs")), Is.True, repository);
                 Assert.That(() => SourceRules.RepositoryAbove(directory, "no-such-" + Guid.NewGuid().ToString("N")),
                             Throws.TypeOf<DirectoryNotFoundException>());
             });
+
+        }
+
+        #endregion
+
+        #region TheRepositoryIsNotABuildsArtifacts()
+
+        /// <summary>
+        /// Named by their projects' files, the repository is where the sources
+        /// are, even where its tests run below a build's artifacts/bin - which
+        /// holds a directory named after every project, and was taken for the
+        /// repository while the projects were named by their directories (found
+        /// by the charging station, built with --artifacts-path).
+        /// </summary>
+        [Test]
+        public void TheRepositoryIsNotABuildsArtifacts()
+        {
+
+            foreach (var project in new[] { "Node", "NodeKit", "NodeTests" })
+            {
+                Directory.CreateDirectory(Path.Combine(directory, project));
+                File.WriteAllText(Path.Combine(directory, project, project + ".csproj"), "<Project />");
+                Directory.CreateDirectory(Path.Combine(directory, "artifacts", "bin", project, "debug"));
+            }
+
+            var runningIn = Path.Combine(directory, "artifacts", "bin", "NodeTests", "debug");
+
+            Assert.Multiple(() => {
+
+                Assert.That(SourceRules.RepositoryAbove(runningIn, "Node/Node.csproj", "NodeKit/NodeKit.csproj"),
+                            Is.EqualTo(Path.GetFullPath(directory)));
+
+                // What naming the directories finds instead.
+                Assert.That(SourceRules.RepositoryAbove(runningIn, "Node", "NodeKit"),
+                            Is.EqualTo(Path.GetFullPath(Path.Combine(directory, "artifacts", "bin"))));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARuleAskedOfNoSourceSaysSo()
+
+        /// <summary>
+        /// A directory with no C# file below it is refused, rather than found
+        /// clean: the rule, asked of a build's artifacts/bin, read nothing and
+        /// passed.
+        /// </summary>
+        [Test]
+        public void ARuleAskedOfNoSourceSaysSo()
+        {
+
+            Directory.CreateDirectory(Path.Combine(directory, "Node", "debug"));
+            File.WriteAllText(Path.Combine(directory, "Node", "debug", "Node.dll"), "");
+
+            Assert.That(() => SourceRules.ArticlesBeforeANameIn(Path.Combine(directory, "Node")),
+                        Throws.InvalidOperationException.With.Message.Contains("There is no C# file below"));
 
         }
 

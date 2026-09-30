@@ -26,10 +26,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
     /// <summary>
     /// What the code of every kind of node is held to, asked of its C# source -
-    /// as Frontend/test/pages.ts asks the pages'. A kind of node asks its own:
+    /// as Frontend/test/pages.ts asks the pages'. A kind of node asks its own,
+    /// its repository found by a file of each project rather than by their
+    /// directories:
     /// <code>
-    /// Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(SourceRules.RepositoryAbove(AppContext.BaseDirectory, "EV", "EVTests"), "EV")),
-    ///             Is.Empty);
+    /// var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "LocalController/LocalController.csproj",
+    ///                                                                        "LocalControllerTests/LocalControllerTests.csproj");
+    ///
+    /// Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(repository, "LocalController")), Is.Empty);
     /// </code>
     /// </summary>
     public static class SourceRules
@@ -38,12 +42,28 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #region Data
 
         /// <summary>
-        /// "a" or "an" as a word of its own, right before a hole that holds a
-        /// name: anything called ...Name, a kind's AsText() or Describe(), a
-        /// label, a title.
+        /// A hole that holds a name: anything called ...Name, a kind's AsText()
+        /// or Describe(), a label, a title.
         /// </summary>
-        private static readonly Regex articleBeforeAName = new (@"(?<!\w)[Aa]n? \{[^{}]*\b(?:\w*Name|AsText\(\)|Describe\([^{}]*\)|Label|Title)\}",
-                                                               RegexOptions.Compiled);
+        private const String aName = @"\{[^{}]*\b(?:\w*Name|AsText\(\)|Describe\([^{}]*\)|Label|Title)\}";
+
+        /// <summary>
+        /// "a" or "an" as a word of its own, right before a hole that holds a
+        /// name.
+        /// </summary>
+        private static readonly Regex articleBeforeAName  = new (@"(?<!\w)[Aa]n? " + aName, RegexOptions.Compiled);
+
+        /// <summary>
+        /// "a" or "an" as a word of its own at the end of a string that goes on
+        /// in the next line: "... is a " + - or with the + in front of the next.
+        /// </summary>
+        private static readonly Regex articleAtTheEnd     = new (@"(?<!\w)[Aa]n? ""\s*\+?$", RegexOptions.Compiled);
+
+        /// <summary>
+        /// A string that begins with a hole that holds a name, where it goes on
+        /// from the line before: $"{Kind.AsText()} ..." - or + $"{Kind.AsText()} ...".
+        /// </summary>
+        private static readonly Regex beginsWithAName     = new (@"^(?:\+\s*)?\$@?""" + aName, RegexOptions.Compiled);
 
         #endregion
 
@@ -68,10 +88,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <para>
         /// Only lines that interpolate are read, and neither comments nor what
         /// is below bin, obj and node_modules - what a build or npm put there.
+        /// An article at the end of a line whose string goes on in the next one
+        /// is read with that one, where it begins with a name: "is a " + and
+        /// $"{entry.Kind.AsText()} ..." below it read "is a oemRoot", one line
+        /// at a time unseen (found by the EV). A directory with no C# file below
+        /// it is refused rather than found clean: asked of nothing, the rule
+        /// says nothing, and a repository taken to be a build's artifacts/bin
+        /// passed that way (found by the charging station).
         /// </para>
         /// </remarks>
         /// <param name="Directories">Where the sources are.</param>
-        /// <returns>For each such line "directory/file:line: the line", a directory's files before those below it.</returns>
+        /// <returns>For each such line "directory/file:line: the line" - the line with the article, and the next one after it where the name is there - a directory's files before those below it.</returns>
+        /// <exception cref="InvalidOperationException">A directory holds no C# file.</exception>
         public static IReadOnlyList<String> ArticlesBeforeANameIn(params String[] Directories)
         {
 
@@ -80,32 +108,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             foreach (var directory in Directories)
             {
 
+                var read = 0;
+
                 foreach (var file in SourcesBelow(directory))
                 {
 
-                    var relative = Path.GetRelativePath(directory, file).Replace('\\', '/');
+                    read++;
+
+                    var where    = $"{Path.GetFileName(Path.TrimEndingDirectorySeparator(directory))}/{Path.GetRelativePath(directory, file).Replace('\\', '/')}";
                     var number   = 0;
+                    var before   = (String?) null;
 
                     foreach (var line in File.ReadLines(file))
                     {
 
                         number++;
 
-                        var code = line.Trim();
+                        var code     = line.Trim();
+                        var ended    = before;
 
-                        if (code.StartsWith("//", StringComparison.Ordinal) ||
-                            !code.Contains("$\"",  StringComparison.Ordinal) &&
+                        before       = null;
+
+                        if (code.StartsWith("//", StringComparison.Ordinal))
+                            continue;
+
+                        if (ended is not null && beginsWithAName.IsMatch(code))
+                            found.Add($"{where}:{number - 1}: {ended} {code}");
+
+                        if (articleAtTheEnd.IsMatch(code))
+                            before = code;
+
+                        if (!code.Contains("$\"",  StringComparison.Ordinal) &&
                             !code.Contains("$@\"", StringComparison.Ordinal))
                         {
                             continue;
                         }
 
                         if (articleBeforeAName.IsMatch(code))
-                            found.Add($"{Path.GetFileName(Path.TrimEndingDirectorySeparator(directory))}/{relative}:{number}: {code}");
+                            found.Add($"{where}:{number}: {code}");
 
                     }
 
                 }
+
+                if (read == 0)
+                    throw new InvalidOperationException($"There is no C# file below '{directory}' to ask: a rule asked of nothing says nothing. " +
+                                                         "Is it where the sources are?");
 
             }
 
@@ -141,19 +189,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         /// <summary>
         /// The nearest directory at or above the given one that holds all of the
-        /// given directories: a repository's own, found from where its tests
-        /// run - "RepositoryAbove(AppContext.BaseDirectory, "WWCP_Node",
-        /// "WWCP_Node_TestKit")".
+        /// given files or directories, each named by its path below it: a
+        /// repository's own, found from where its tests run -
+        /// "RepositoryAbove(AppContext.BaseDirectory, "WWCP_Node/WWCP_Node.csproj",
+        /// "WWCP_Node_TestKit/WWCP_Node_TestKit.csproj")".
         /// </summary>
+        /// <remarks>
+        /// Name a file of each project, not its directory. Built with
+        /// --artifacts-path, a build's artifacts/bin holds a directory named
+        /// after every project, and was taken for the repository its tests ran
+        /// in when directories were named (found by the charging station).
+        /// </remarks>
         /// <param name="Start">Where to begin, usually AppContext.BaseDirectory.</param>
-        /// <param name="Holding">The directories it has to hold.</param>
+        /// <param name="Holding">The files or directories it has to hold, by their paths below it.</param>
         /// <exception cref="DirectoryNotFoundException">No directory above holds them all.</exception>
         public static String RepositoryAbove(String           Start,
                                              params String[]  Holding)
         {
 
             for (var directory = new DirectoryInfo(Start); directory is not null; directory = directory.Parent)
-                if (Holding.All(name => Directory.Exists(Path.Combine(directory.FullName, name))))
+                if (Holding.All(name => File.     Exists(Path.Combine(directory.FullName, name)) ||
+                                        Directory.Exists(Path.Combine(directory.FullName, name))))
                     return directory.FullName;
 
             throw new DirectoryNotFoundException($"No directory at or above '{Start}' holds {String.Join(" and ", Holding)}.");

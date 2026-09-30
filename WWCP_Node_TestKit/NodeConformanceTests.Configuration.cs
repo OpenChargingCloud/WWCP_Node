@@ -472,6 +472,80 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AChangeTheFileCannotTakeIsAServerError(Section, Cannot)
+
+        /// <summary>
+        /// A change of the name resolution or of the time source that is fine
+        /// in itself, and that the configuration file cannot be read or written
+        /// with, is answered 500 with why - and changes nothing. It was a 400,
+        /// as if something had been wrong with the change.
+        /// </summary>
+        [TestCase("dns", "written")]
+        [TestCase("dns", "read")]
+        [TestCase("nts", "written")]
+        [TestCase("nts", "read")]
+        public async Task AChangeTheFileCannotTakeIsAServerError(String Section, String Cannot)
+        {
+
+            using var http  = await SignedIn();
+
+            var path        = $"api/v1/configuration/{Section}";
+            var before      = await GetJSON(http, path);
+
+            // Where the file's next version is written first is a directory -
+            // or the file is no longer JSON, as after an edit by hand that went
+            // wrong.
+            if (Cannot == "written")
+                System.IO.Directory.CreateDirectory(Node.ConfigFile.Path + ".tmp");
+
+            else
+                File.WriteAllText(Node.ConfigFile.Path, "{ \"dns\": ");
+
+            var change      = Section == "dns"
+                                  ? JSONBody(new JProperty("dnssecOK",    !(before["settings"]?.Value<Boolean>("dnssecOK") ?? false)))
+                                  : JSONBody(new JProperty("minServers",  3));
+
+            var response    = await http.PutAsync(path, change);
+            var said        = JObject.Parse(await response.Content.ReadAsStringAsync());
+            var after       = await GetJSON(http, path);
+
+            Assert.Multiple(() => {
+                Assert.That(response.StatusCode,            Is.EqualTo(HttpStatusCode.InternalServerError), said.ToString());
+                Assert.That(said.Value<String>("error"),    Does.StartWith($"'{Node.ConfigFile.Path}' could not be {Cannot}: "));
+                Assert.That(after["settings"]?.ToString(),  Is.EqualTo(before["settings"]?.ToString()), "what the page shows as saved");
+            });
+
+        }
+
+        #endregion
+
+        #region ARefusalIsWhatItWasWhileTheFileCannotBeWritten()
+
+        /// <summary>
+        /// What was wrong with a change is answered as it was while the
+        /// configuration file cannot be written: a 500 is the file's, and only
+        /// where it was the file that refused.
+        /// </summary>
+        [Test]
+        public async Task ARefusalIsWhatItWasWhileTheFileCannotBeWritten()
+        {
+
+            using var http  = await SignedIn();
+
+            System.IO.Directory.CreateDirectory(Node.ConfigFile.Path + ".tmp");
+
+            var noServers   = await http.PutAsync("api/v1/configuration/dns", JSONBody(new JProperty("servers", new JArray())));
+            var noPort      = await http.PutAsync("api/v1/configuration/nts", JSONBody(new JProperty("ntpPort", "onetwothree")));
+
+            Assert.Multiple(() => {
+                Assert.That(noServers.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a list of no name servers");
+                Assert.That(noPort.   StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a port that is not a number");
+            });
+
+        }
+
+        #endregion
+
 
         #region TheNTSConfigurationIsReadable()
 

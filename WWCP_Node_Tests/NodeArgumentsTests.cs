@@ -17,6 +17,9 @@
 
 #region Usings
 
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
@@ -63,11 +66,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     CertificatesSays:      CertificatesSays);
 
         /// <summary>
-        /// A file that is there whenever these tests run: their own assembly.
+        /// A root certificate in a PEM file of its own, made for the test that
+        /// asks for it and taken away after it.
         /// </summary>
-        private static String ThisFile()
+        private String ARoot()
+        {
 
-            => typeof(NodeArgumentsTests).Assembly.Location;
+            using var key     = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var       request = new CertificateRequest("CN=A Root For The Command Line", key, HashAlgorithmName.SHA256);
+
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+
+            using var root    = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+
+            return Kept(".pem", System.Text.Encoding.ASCII.GetBytes(root.ExportCertificatePem()));
+
+        }
+
+        /// <summary>
+        /// A file of this content in the temporary directory, taken away after
+        /// the test.
+        /// </summary>
+        private String Kept(String Extension, Byte[] Content)
+        {
+            var file = Path.Combine(Path.GetTempPath(), $"command-line-{Guid.NewGuid():N}{Extension}");
+            File.WriteAllBytes(file, Content);
+            kept.Add(file);
+            return file;
+        }
+
+        private readonly List<String> kept = [];
+
+        [TearDown]
+        public void TakeTheFilesAway()
+        {
+            foreach (var file in kept)
+                File.Delete(file);
+            kept.Clear();
+        }
+
+        /// <summary>
+        /// What the error stream was told, its lines joined as one.
+        /// </summary>
+        private static String Flat(StringWriter Said)
+
+            => String.Join(" ", Said.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+
+        /// <summary>
+        /// The lines of what the error stream was told that are wider than a
+        /// terminal, but for a word too long for any line - a path - which has
+        /// one of its own.
+        /// </summary>
+        private static IEnumerable<String> TooWide(StringWriter Said)
+
+            => Said.ToString().Split(Environment.NewLine).Where(line => line.Length > NodeUsage.Width && line.Contains(' '));
 
         #endregion
 
@@ -443,13 +495,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(NodeArguments.Parse([ "--import-certificate", "v2gRoot=root.pem" ]).Refused(Usage(tls), TextWriter.Null, another),
                             Is.EqualTo(2));
-                Assert.That(another.ToString().TrimEnd(),
+                Assert.That(Flat(another),
                             Is.EqualTo("'v2gRoot' is not a kind of certificate this test node keeps. Use one of tlsRoot, tlsServer, tlsIdentity."));
+                Assert.That(TooWide(another), Is.Empty);
                 Assert.That(NodeArguments.Parse([ "--import-certificate", "nothing=root.pem" ]).Refused(Usage(tls), TextWriter.Null, nothing),
                             Is.EqualTo(2));
-                Assert.That(nothing.ToString().TrimEnd(),
+                Assert.That(Flat(nothing),
                             Is.EqualTo("'nothing' is not a kind of certificate this test node keeps. Use one of tlsRoot, tlsServer, tlsIdentity."));
-                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={ThisFile()}" ]).Refused(Usage(tls)),
+                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={ARoot()}" ]).Refused(Usage(tls)),
                             Is.Null);
             });
 
@@ -475,12 +528,116 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var said     = new StringWriter();
 
             Assert.Multiple(() => {
-                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={ThisFile()}",
+                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={ARoot()}",
                                                   "--import-certificate", $"tlsServer={missing}" ]).Refused(Usage(tls), TextWriter.Null, said),
                             Is.EqualTo(2));
-                Assert.That(said.ToString().TrimEnd(),
+                Assert.That(Flat(said),
                             Is.EqualTo($"--import-certificate: there is no file '{missing}'."));
             });
+
+        }
+
+        #endregion
+
+        #region AFileThatWouldNotGoInIsRefusedBeforeTheNodeIsMade(What)
+
+        /// <summary>
+        /// A file to import that is there and would not go in as the kind it is
+        /// given as - no certificate at all, a PKCS#12 whose password was not
+        /// given, a certificate without the key its kind needs - is refused
+        /// with the command line too, before the node is made, in the words the
+        /// import would have said it in, and in lines of 80 columns. Refused
+        /// once the node was made, it left behind a certificate store, a log
+        /// with the log book's signing key and an empty directory of accounts
+        /// (found by the charging station and the hub), and it was one line of
+        /// 355 columns (found by the hub).
+        /// </summary>
+        [TestCase("no certificate")]
+        [TestCase("no password")]
+        [TestCase("no key")]
+        public void AFileThatWouldNotGoInIsRefusedBeforeTheNodeIsMade(String What)
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            var (kind, file) = What switch {
+                "no certificate"  => ("tlsRoot",      Kept(".pem", System.Text.Encoding.ASCII.GetBytes("This is a note, and no certificate at all.\n"))),
+                "no password"     => ("tlsIdentity",  AnIdentityWithAPassword()),
+                "no key"          => ("tlsIdentity",  ARoot()),
+                _                 => throw new ArgumentException(What)
+            };
+
+            var said = new StringWriter();
+
+            Assert.Multiple(() => {
+
+                Assert.That(NodeArguments.Parse([ "--import-certificate", $"{kind}={file}" ]).Refused(Usage(tls), TextWriter.Null, said),
+                            Is.EqualTo(2));
+
+                Assert.That(Flat(said), Does.StartWith($"--import-certificate: {file} could not be imported as {kind}: "));
+
+                if (What == "no key")
+                    Assert.That(Flat(said), Does.EndWith("could not be imported as tlsIdentity: A TLS identity has to carry its private key, " +
+                                                         "and that file has none. It is probably a PKCS#12 that needs a password, " +
+                                                         "or the public half of the pair."));
+
+                Assert.That(TooWide(said), Is.Empty);
+
+            });
+
+        }
+
+        /// <summary>
+        /// A TLS identity with its key, in a PKCS#12 that a password opens.
+        /// </summary>
+        private String AnIdentityWithAPassword()
+        {
+
+            using var key       = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var       request   = new CertificateRequest("CN=An Identity For The Command Line", key, HashAlgorithmName.SHA256);
+            using var identity  = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+
+            return Kept(".p12", identity.Export(X509ContentType.Pkcs12, "opensesame")!);
+
+        }
+
+        #endregion
+
+        #region AFileWhosePasswordIsGivenIsNotRefused(Given)
+
+        /// <summary>
+        /// A PKCS#12 whose password is given - with --certificate-password, or
+        /// in the kind's environment variable where the switch gives none - is
+        /// not refused: it is asked with the password the import is handed.
+        /// </summary>
+        [TestCase("--certificate-password")]
+        [TestCase("the environment")]
+        public void AFileWhosePasswordIsGivenIsNotRefused(String Given)
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            var file      = AnIdentityWithAPassword();
+            var variable  = NodeProgram.CertificatePasswordVariable(TestKind);
+            var was       = Environment.GetEnvironmentVariable(variable);
+            var said      = new StringWriter();
+
+            String[] arguments = Given == "--certificate-password"
+                                     ? [ "--import-certificate", $"tlsIdentity={file}", "--certificate-password", "opensesame" ]
+                                     : [ "--import-certificate", $"tlsIdentity={file}" ];
+
+            try
+            {
+
+                Environment.SetEnvironmentVariable(variable, Given == "the environment" ? "opensesame" : null);
+
+                Assert.That(NodeArguments.Parse(arguments).Refused(Usage(tls), TextWriter.Null, said), Is.Null, said.ToString());
+
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(variable, was);
+            }
 
         }
 
@@ -505,6 +662,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(lines.Where(line => line.TrimStart().StartsWith("- ")),  Is.Empty);
                 Assert.That(lines.Where(line => line.Length > NodeUsage.Width),     Is.Empty);
                 Assert.That(String.Join(" ", lines),                                Is.EqualTo(text));
+            });
+
+        }
+
+        #endregion
+
+        #region ANumberNeverBeginsALine()
+
+        /// <summary>
+        /// A number stays with the word before it: broken before it, "could
+        /// not be given port" ended a line and "18261: something else is
+        /// already listening on it" began the next (found by the hub and the
+        /// CSMS).
+        /// </summary>
+        [Test]
+        public void ANumberNeverBeginsALine()
+        {
+
+            var text   = "The roaming hub could not start: The web interface could not be given port 18261: " +
+                         "something else is already listening on it.";
+
+            var lines  = NodeUsage.Wrap(text, "", "").ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(lines.Where(line => Char.IsAsciiDigit(line.TrimStart()[0])),  Is.Empty);
+                Assert.That(lines[0],                                                    Does.EndWith("could not be given"));
+                Assert.That(lines.Where(line => line.Length > NodeUsage.Width),          Is.Empty);
+                Assert.That(String.Join(" ", lines),                                     Is.EqualTo(text));
+            });
+
+        }
+
+        #endregion
+
+        #region ANumberThatBeginsAParagraphStaysWhereItIs()
+
+        /// <summary>
+        /// A number with no word before it - the first of a paragraph - begins
+        /// the first line, and a dash kept with its word keeps a number after
+        /// it as well.
+        /// </summary>
+        [Test]
+        public void ANumberThatBeginsAParagraphStaysWhereItIs()
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(NodeUsage.Wrap("443 is the port the web interface listens on.", "", "").Single(),
+                            Is.EqualTo("443 is the port the web interface listens on."));
+                Assert.That(String.Join("|", NodeUsage.Wrap(new String('x', 70) + " again - 30 seconds later", "", "")),
+                            Is.EqualTo(new String('x', 70) + "|again - 30 seconds later"));
             });
 
         }

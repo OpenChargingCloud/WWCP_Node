@@ -167,9 +167,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                                           json.Value<String>("label"),
                                           usages,
                                           out var entry,
-                                          out var error))
+                                          out var error,
+                                          out var notSaved))
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
             }
 
             Log.Notice($"'{user.Id}' put '{entry.Label}' into the certificate store as {entry.Kind.WithArticle()} ({entry.Id}).",
@@ -283,17 +284,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
             }
 
+            // Each of the three is written into the index, and put back where
+            // that cannot be done - answered with 500, where it had been
+            // answered as done and was gone at the next start.
             if (json.TryGetValue("label", out var label) && label.Type != JTokenType.Undefined)
             {
-                if (!Node.Certificates.Relabel(handle, label.Value<String>(), out _, out var relabelError))
-                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, relabelError));
+                if (!Node.Certificates.Relabel(handle, label.Value<String>(), out _, out var relabelError, out var relabelNotSaved))
+                    return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, relabelError, relabelNotSaved));
             }
 
-            if (active is Boolean on && !Node.Certificates.SetActive(handle, on, out _, out var activeError))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, activeError));
+            if (active is Boolean on && !Node.Certificates.SetActive(handle, on, out _, out var activeError, out var activeNotSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, activeError, activeNotSaved));
 
-            if (newUsages && !Node.Certificates.SetUsages(handle, usages, out _, out var usagesNotSet))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesNotSet));
+            if (newUsages && !Node.Certificates.SetUsages(handle, usages, out _, out var usagesNotSet, out var usagesNotSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, usagesNotSet, usagesNotSaved));
 
             var changed = Node.Certificates.Get(handle) ?? entry;
 
@@ -337,8 +341,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
             }
 
-            if (!Node.Certificates.Remove(handle, out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, error));
+            if (!Node.Certificates.Remove(handle, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.NotFound, error, notSaved));
 
             Log.Notice($"'{user.Id}' took the certificate '{entry?.Label}' ({handle}) out of the certificate store.",
                        "certificates", "web");

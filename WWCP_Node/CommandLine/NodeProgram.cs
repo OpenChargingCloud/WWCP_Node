@@ -187,17 +187,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region (private static) Say(Error, Line)
+        #region (internal static) Say(Error, Line)
 
         /// <summary>
         /// A line of what a start that failed says, broken between words at
         /// <see cref="NodeUsage.Width"/>: at 115 columns, the EMSP's broke in the
         /// middle of "operating" in a terminal of 80 (found by the EMSP). A line
         /// that begins with a space is a command to copy, setcap's, and stays
-        /// whole.
+        /// whole. What the command line refuses is said the same way - a file to
+        /// import that would not go in was said in one line of 355 columns
+        /// (found by the hub).
         /// </summary>
-        private static void Say(TextWriter  Error,
-                                String      Line)
+        internal static void Say(TextWriter  Error,
+                                 String      Line)
         {
 
             if (Line.StartsWith(' '))
@@ -361,14 +363,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                 if (!Node.Certificates.Kinds.Contains(kind))
                 {
-                    Error.WriteLine($"'{kind.AsText()}' is not a kind of certificate this {Node.Kind.Name} keeps. " +
-                                    $"Use one of {String.Join(", ", Node.Certificates.Kinds.Select(one => one.AsText()))}.");
+                    Say(Error, $"'{kind.AsText()}' is not a kind of certificate this {Node.Kind.Name} keeps. " +
+                               $"Use one of {String.Join(", ", Node.Certificates.Kinds.Select(one => one.AsText()))}.");
                     return 2;
                 }
 
                 if (!File.Exists(file))
                 {
-                    Error.WriteLine(NodeArguments.NoFile(file));
+                    Say(Error, NodeArguments.NoFile(file));
                     return 2;
                 }
 
@@ -380,7 +382,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 }
                 catch (Exception problem)
                 {
-                    Error.WriteLine($"--import-certificate: '{file}' could not be read: {problem.Message}");
+                    Say(Error, NodeArguments.NotRead(file, problem));
                     return 2;
                 }
 
@@ -391,7 +393,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                               out var entry,
                                               out var refused))
                 {
-                    Error.WriteLine($"--import-certificate: {file} could not be imported as {kind.AsText()}: {refused}");
+                    Say(Error, NodeArguments.NotImported(file, kind, refused));
                     return 2;
                 }
 

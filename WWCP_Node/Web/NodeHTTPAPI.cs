@@ -750,6 +750,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                );
 
         /// <summary>
+        /// The answer to a change that was not made: the status of what was
+        /// wrong with it - or 500, where nothing was, and the file it is kept in
+        /// could not be written, the change undone. Both came as the status of
+        /// what was wrong, and a full disk was a station "not found" on the
+        /// local controller.
+        /// </summary>
+        /// <param name="Request">What asked for the change.</param>
+        /// <param name="WhatWasWrong">The status where the change itself was refused.</param>
+        /// <param name="Error">Why, in a sentence.</param>
+        /// <param name="NotSaved">Whether it was the file that refused.</param>
+        protected static HTTPResponse NotChanged(HTTPRequest     Request,
+                                                 HTTPStatusCode  WhatWasWrong,
+                                                 String          Error,
+                                                 Boolean         NotSaved)
+
+            => ErrorJSON(Request, NotSaved ? HTTPStatusCode.InternalServerError : WhatWasWrong, Error);
+
+        /// <summary>
         /// An answer in JSON, never cached.
         /// </summary>
         protected static HTTPResponse JSONResponse(HTTPRequest     Request,

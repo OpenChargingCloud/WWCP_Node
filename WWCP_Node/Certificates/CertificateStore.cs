@@ -464,7 +464,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 foreach (var entry in found)
                     entries.Add(entry.Key, entry.Value);
 
-                WriteIndex();
+                // What was read is what the directory holds, whether or not
+                // the index can say so: that it could not is logged.
+                TryWriteIndex(out _);
 
                 log.Info($"Certificates: {entries.Count} in '{Directory}'" +
                          $"{(adopted > 0 ? $", {adopted} of them newly adopted" : "")}" +
@@ -520,6 +522,105 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #endregion
 
 
+        #region (static) CouldImport(Content, Kind, Password, out Error)
+
+        /// <summary>
+        /// Whether a file would go into a store as the given kind, as far as the
+        /// file alone can say: not empty, a certificate, opened by the password
+        /// where it needs one, with a private key where its kind needs one and
+        /// none where it may have none - asked before there is a store, by a
+        /// command line that is to import it.
+        /// </summary>
+        /// <remarks>
+        /// Refused only once the node had been made, a TLS identity without its
+        /// key left the store, the log with the log book's signing key and an
+        /// empty directory of accounts behind (found by the charging station and
+        /// the hub). What only a store can say - that it keeps the kind, or has
+        /// the certificate already as another - its Import says.
+        /// </remarks>
+        /// <param name="Content">The file as it is.</param>
+        /// <param name="Kind">What it is to be used for.</param>
+        /// <param name="Password">What opens it, where it is a protected PKCS#12.</param>
+        public static Boolean CouldImport(Byte[]                            Content,
+                                          CertificateKind                   Kind,
+                                          String?                           Password,
+                                          [NotNullWhen(false)] out String?  Error)
+        {
+
+            if (!TryReadLeaf(Content, Kind, Password, out var collection, out _, out Error))
+                return false;
+
+            Dispose(collection);
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryReadLeaf(Content, Kind, Password, out Collection, out Leaf, out Error)
+
+        /// <summary>
+        /// What a file holds, and its leaf, where the file suits the kind by
+        /// itself: what Import and CouldImport both ask before there is a store
+        /// to ask anything of.
+        /// </summary>
+        private static Boolean TryReadLeaf(Byte[]                                              Content,
+                                           CertificateKind                                     Kind,
+                                           String?                                             Password,
+                                           [NotNullWhen(true)]  out X509Certificate2Collection?  Collection,
+                                           [NotNullWhen(true)]  out X509Certificate2?            Leaf,
+                                           [NotNullWhen(false)] out String?                      Error)
+        {
+
+            Collection  = null;
+            Leaf        = null;
+            Error       = null;
+
+            if (Content.Length == 0)
+            {
+                Error = "There is nothing in that file.";
+                return false;
+            }
+
+            X509Certificate2Collection collection;
+
+            try
+            {
+                collection = ReadCollection(Content, Password);
+            }
+            catch (Exception exception)
+            {
+                Error = exception.Message;
+                return false;
+            }
+
+            if (collection.Count == 0)
+            {
+                Error = "That file holds no certificate.";
+                return false;
+            }
+
+            // The leaf is the one with the private key where there is one, and
+            // otherwise the first: the same rule the session's own loaders use,
+            // so that what the store calls the leaf is what they will.
+            var leaf = collection.FirstOrDefault(certificate => certificate.HasPrivateKey) ?? collection[0];
+
+            if (!Suits(leaf, Kind, out Error))
+            {
+                Dispose(collection);
+                return false;
+            }
+
+            Collection  = collection;
+            Leaf        = leaf;
+
+            return true;
+
+        }
+
+        #endregion
+
         #region Import(Content, Kind, Password, Label, out Entry, out Error)
 
         /// <summary>
@@ -537,7 +638,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                               [NotNullWhen(true)]  out CertificateEntry?  Entry,
                               [NotNullWhen(false)] out String?            Error)
 
-            => Import(Content, Kind, Password, Label, null, out Entry, out Error);
+            => Import(Content, Kind, Password, Label, null, out Entry, out Error, out _);
 
         #endregion
 
@@ -580,10 +681,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                               IEnumerable<String>?                        Usages,
                               [NotNullWhen(true)]  out CertificateEntry?  Entry,
                               [NotNullWhen(false)] out String?            Error)
+
+            => Import(Content, Kind, Password, Label, Usages, out Entry, out Error, out _);
+
+        /// <summary>
+        /// Put a certificate into the store, copying it in - and say whether a
+        /// refusal was the store's files' rather than the certificate's.
+        /// </summary>
+        /// <param name="Content">The file as it arrived.</param>
+        /// <param name="Kind">What it is to be used for.</param>
+        /// <param name="Password">What opens it, where it is a protected PKCS#12.</param>
+        /// <param name="Label">What to call it; its common name where this is not given.</param>
+        /// <param name="Usages">What it may be used for; null for every use.</param>
+        /// <param name="Entry">What went in.</param>
+        /// <param name="Error">Why nothing did.</param>
+        /// <param name="NotSaved">True where the certificate's file or the index could not be written: nothing about the certificate was wrong, and nothing went in.</param>
+        public Boolean Import(Byte[]                                      Content,
+                              CertificateKind                             Kind,
+                              String?                                     Password,
+                              String?                                     Label,
+                              IEnumerable<String>?                        Usages,
+                              [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                              [NotNullWhen(false)] out String?            Error,
+                              out Boolean                                 NotSaved)
         {
 
-            Entry  = null;
-            Error  = null;
+            Entry     = null;
+            Error     = null;
+            NotSaved  = false;
 
             // Before anything is read or written, so that a kind this store does
             // not keep is not half-imported, and a store that keeps nothing is
@@ -609,34 +734,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            X509Certificate2Collection collection;
-
-            try
-            {
-                collection = ReadCollection(Content, Password);
-            }
-            catch (Exception exception)
-            {
-                Error = exception.Message;
+            if (!TryReadLeaf(Content, Kind, Password, out var collection, out var leaf, out Error))
                 return false;
-            }
-
-            if (collection.Count == 0)
-            {
-                Error = "That file holds no certificate.";
-                return false;
-            }
-
-            // The leaf is the one with the private key where there is one, and
-            // otherwise the first: the same rule the session's own loaders use,
-            // so that what the store calls the leaf is what they will.
-            var leaf = collection.FirstOrDefault(certificate => certificate.HasPrivateKey) ?? collection[0];
-
-            if (!Suits(leaf, Kind, out Error))
-            {
-                Dispose(collection);
-                return false;
-            }
 
             var storeChanged = false;
 
@@ -668,37 +767,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                         return false;
                     }
 
-                    var changed = false;
-
-                    if (Label?.Trim() is { Length: > 0 } relabel && relabel != existing.Label)
-                    {
-                        existing  = existing with { Label = relabel };
-                        changed   = true;
-                        log.Info($"Certificates: '{existing.FileName}' is now called '{relabel}'.", "certificates");
-                    }
+                    var before   = existing;
+                    var relabel  = Label?.Trim() is { Length: > 0 } given && given != existing.Label ? given : null;
 
                     // Usages given are the usages from now on; none given leaves
                     // the ones it has, because an import that said nothing about
                     // them said nothing about them.
-                    if (Usages is not null && !SameUsages(existing.Usages, usages))
+                    var reuse    = Usages is not null && !SameUsages(existing.Usages, usages);
+
+                    if (relabel is null && !reuse)
                     {
-                        var were  = existing.Usages;
-                        existing  = existing with { Usages = usages };
-                        changed   = true;
-                        log.Metrological(LogLevel.Notice,
-                                         $"Certificates: {existing.Label} ({existing.Kind.AsText()}) is now {CertificateUsages.Describe(usages)}, " +
-                                         $"where it was {CertificateUsages.Describe(were)}.",
-                                         "certificates", "security");
+                        log.Info($"Certificates: {existing.Label} was already in the store; nothing changed.", "certificates");
+                        Entry = existing;
+                        return true;
                     }
 
-                    if (changed)
+                    if (relabel is not null)
+                        existing = existing with { Label = relabel };
+
+                    if (reuse)
+                        existing = existing with { Usages = usages };
+
+                    entries[id] = existing;
+
+                    // What changed is nothing but the index: where that cannot
+                    // be written, the change is put back rather than answered as
+                    // done and gone at the next start.
+                    if (!TryWriteIndex(out Error))
                     {
-                        entries[id]   = existing;
-                        WriteIndex();
-                        storeChanged  = true;
+                        entries[id] = before;
+                        NotSaved    = true;
+                        return false;
                     }
-                    else
-                        log.Info($"Certificates: {existing.Label} was already in the store; nothing changed.", "certificates");
+
+                    storeChanged = true;
+
+                    if (relabel is not null)
+                        log.Info($"Certificates: '{existing.FileName}' is now called '{relabel}'.", "certificates");
+
+                    if (reuse)
+                        log.Metrological(LogLevel.Notice,
+                                         $"Certificates: {existing.Label} ({existing.Kind.AsText()}) is now {CertificateUsages.Describe(usages)}, " +
+                                         $"where it was {CertificateUsages.Describe(before.Usages)}.",
+                                         "certificates", "security");
 
                     Entry = existing;
                     return true;
@@ -717,23 +828,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 }
                 catch (Exception exception)
                 {
-                    Error = $"That certificate could not be written to the store: {exception.Message}";
+                    Error     = $"That certificate could not be written to the store: {exception.Message}";
+                    NotSaved  = true;
                     return false;
                 }
 
-                Entry = CertificateEntry.From(
-                            leaf,
-                            Kind,
-                            fileName,
-                            Label,
-                            collection.Count - 1,
-                            IsActive:  true,
-                            Usages:    usages
-                        );
+                var imported = CertificateEntry.From(
+                                   leaf,
+                                   Kind,
+                                   fileName,
+                                   Label,
+                                   collection.Count - 1,
+                                   IsActive:  true,
+                                   Usages:    usages
+                               );
 
-                entries.Add(Entry.Id, Entry);
-                WriteIndex();
-                storeChanged = true;
+                entries.Add(imported.Id, imported);
+
+                // The index says what it is called, that it is on, and what it
+                // is for. Without it the file would come back at the next start
+                // under its own name, switched on, for every use - so it goes
+                // back out rather than in.
+                if (!TryWriteIndex(out Error))
+                {
+                    entries.Remove(imported.Id);
+                    NotSaved = true;
+                    Forget(fullPath);
+                    return false;
+                }
+
+                Entry         = imported;
+                storeChanged  = true;
 
                 log.Metrological(LogLevel.Notice,
                                  $"Certificates: imported {Entry.Label} as {Kind.Describe(NodeName)}, " +
@@ -783,10 +908,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                  Boolean                                     Active,
                                  [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                  [NotNullWhen(false)] out String?            Error)
+
+            => SetActive(Id, Active, out Entry, out Error, out _);
+
+        /// <summary>
+        /// Switch one certificate on or off - and say whether a refusal was the
+        /// index's rather than the change's.
+        /// </summary>
+        /// <param name="NotSaved">True where the index could not be written: the certificate stays as it was.</param>
+        public Boolean SetActive(String                                      Id,
+                                 Boolean                                     Active,
+                                 [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                 [NotNullWhen(false)] out String?            Error,
+                                 out Boolean                                 NotSaved)
         {
 
-            Entry  = null;
-            Error  = null;
+            Entry     = null;
+            Error     = null;
+            NotSaved  = false;
 
             var storeChanged = false;
 
@@ -804,10 +943,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 if (entry.IsActive != Active)
                 {
 
-                    Entry        = entry with { IsActive = Active };
-                    entries[Id]  = Entry;
+                    var switched = entry with { IsActive = Active };
+                    entries[Id]  = switched;
 
-                    WriteIndex();
+                    if (!TryWriteIndex(out Error))
+                    {
+                        entries[Id] = entry;
+                        NotSaved    = true;
+                        return false;
+                    }
+
+                    Entry        = switched;
                     storeChanged = true;
 
                     log.Metrological(LogLevel.Notice,
@@ -844,10 +990,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                String?                                     Label,
                                [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                [NotNullWhen(false)] out String?            Error)
+
+            => Relabel(Id, Label, out Entry, out Error, out _);
+
+        /// <summary>
+        /// Change what a certificate is called - and say whether a refusal was
+        /// the index's rather than the label's.
+        /// </summary>
+        /// <param name="NotSaved">True where the index could not be written: the certificate keeps the name it had.</param>
+        public Boolean Relabel(String                                      Id,
+                               String?                                     Label,
+                               [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                               [NotNullWhen(false)] out String?            Error,
+                               out Boolean                                 NotSaved)
         {
 
-            Entry  = null;
-            Error  = null;
+            Entry     = null;
+            Error     = null;
+            NotSaved  = false;
 
             if (Label is { Length: > CertificateEntry.MaxLabelLength })
             {
@@ -874,11 +1034,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                   ? given
                                   : NameFromFile(entry);
 
-                Entry        = entry with { Label = settled };
-                entries[Id]  = Entry;
+                var relabelled = entry with { Label = settled };
+                entries[Id]    = relabelled;
 
-                WriteIndex();
-                storeChanged = Entry.Label != entry.Label;
+                if (!TryWriteIndex(out Error))
+                {
+                    entries[Id] = entry;
+                    NotSaved    = true;
+                    return false;
+                }
+
+                Entry        = relabelled;
+                storeChanged = relabelled.Label != entry.Label;
 
                 return true;
 
@@ -917,10 +1084,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                  IEnumerable<String>?                        Usages,
                                  [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                  [NotNullWhen(false)] out String?            Error)
+
+            => SetUsages(Id, Usages, out Entry, out Error, out _);
+
+        /// <summary>
+        /// Say what one certificate may be used for - and say whether a refusal
+        /// was the index's rather than the usages'.
+        /// </summary>
+        /// <param name="NotSaved">True where the index could not be written: the certificate is for what it was for.</param>
+        public Boolean SetUsages(String                                      Id,
+                                 IEnumerable<String>?                        Usages,
+                                 [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                 [NotNullWhen(false)] out String?            Error,
+                                 out Boolean                                 NotSaved)
         {
 
-            Entry  = null;
-            Error  = null;
+            Entry     = null;
+            Error     = null;
+            NotSaved  = false;
 
             var storeChanged = false;
 
@@ -944,10 +1125,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     return true;
                 }
 
-                Entry        = entry with { Usages = usages };
-                entries[Id]  = Entry;
+                var reused   = entry with { Usages = usages };
+                entries[Id]  = reused;
 
-                WriteIndex();
+                if (!TryWriteIndex(out Error))
+                {
+                    entries[Id] = entry;
+                    NotSaved    = true;
+                    return false;
+                }
+
+                Entry        = reused;
                 storeChanged = true;
 
                 log.Metrological(LogLevel.Notice,
@@ -984,9 +1172,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// </remarks>
         public Boolean Remove(String                            Id,
                               [NotNullWhen(false)] out String?  Error)
+
+            => Remove(Id, out Error, out _);
+
+        /// <summary>
+        /// Take a certificate out of the store and delete its file - and say
+        /// whether a refusal was the file's rather than the request's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file could not be deleted: the certificate stays in the store.</param>
+        public Boolean Remove(String                            Id,
+                              [NotNullWhen(false)] out String?  Error,
+                              out Boolean                       NotSaved)
         {
 
-            Error = null;
+            Error     = null;
+            NotSaved  = false;
 
             var storeChanged = false;
 
@@ -1010,12 +1210,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 }
                 catch (Exception exception)
                 {
-                    Error = $"'{entry.FileName}' could not be deleted: {exception.Message}";
+                    Error     = $"'{entry.FileName}' could not be deleted: {exception.Message}";
+                    NotSaved  = true;
                     return false;
                 }
 
                 entries.Remove(Id);
-                WriteIndex();
+
+                // The file is gone, and the entry with it, whether or not the
+                // index can say so: an entry whose file is not there is dropped
+                // at the next reading. That it could not be written is logged.
+                TryWriteIndex(out _);
+
                 storeChanged = true;
 
                 log.Metrological(LogLevel.Notice,
@@ -1934,8 +2140,32 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region (private static) Forget(FullPath)
 
-        #region (private) ReadIndex() / WriteIndex()
+        /// <summary>
+        /// Take a file this store wrote away again, where what it was written
+        /// for did not go in - as far as that goes: one that cannot be taken
+        /// away either is left, and adopted as what it is at the next reading.
+        /// </summary>
+        private static void Forget(String FullPath)
+        {
+
+            try
+            {
+                if (File.Exists(FullPath))
+                    File.Delete(FullPath);
+            }
+            catch (Exception)
+            {
+                // Left where it is, see above.
+            }
+
+        }
+
+        #endregion
+
+
+        #region (private) ReadIndex() / TryWriteIndex(out Error)
 
         /// <summary>
         /// What the index remembers, by handle. A missing index is an empty
@@ -1989,8 +2219,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// Write the index. Called from inside <see cref="storeLock"/> by
         /// everything that changes the store.
         /// </summary>
-        private void WriteIndex()
+        /// <remarks>
+        /// Where it cannot be written, that is logged, and said: a change that
+        /// is nothing but the index - a label, on or off, what a certificate is
+        /// for - is put back and refused, where it had been answered as done
+        /// and was gone at the next start.
+        /// </remarks>
+        private Boolean TryWriteIndex([NotNullWhen(false)] out String? Error)
         {
+
+            Error = null;
 
             var path = Path.Combine(Directory, IndexFileName);
 
@@ -2017,12 +2255,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 Protect(path);
 
+                return true;
+
             }
             catch (Exception exception)
             {
+
                 log.Error($"Certificates: '{IndexFileName}' could not be written, so labels and on/off will not " +
                           $"survive a restart - {exception.Message}",
                           "certificates");
+
+                Error = $"'{path}' could not be written: {exception.Message}";
+                return false;
+
             }
 
         }

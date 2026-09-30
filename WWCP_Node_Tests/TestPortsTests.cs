@@ -17,6 +17,9 @@
 
 #region Usings
 
+using System.Net;
+using System.Net.Sockets;
+
 using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
@@ -139,6 +142,116 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(taken.Port,  Is.EqualTo(5004));
                 Assert.That(events,      Is.EqualTo(new[] { "offered turned down", "offered taken", "let go of turned down" }));
+            });
+
+        }
+
+        #endregion
+
+
+        #region NoRoomForASocketIsAskedAgain()
+
+        /// <summary>
+        /// Where the operating system has no buffer space left for a socket -
+        /// WSAENOBUFS, 10055 - the socket is asked for again: the charging
+        /// station's run of this suite lost a test in its set-up at Free that
+        /// way, while the whole suites of other runs filled the machine.
+        /// </summary>
+        [Test]
+        public void NoRoomForASocketIsAskedAgain()
+        {
+
+            var asked = 0;
+            var made  = TestPorts.OnceThereIsRoom(() => ++asked < 3 ? throw new SocketException((Int32) SocketError.NoBufferSpaceAvailable) : "a socket",
+                                                  TimeSpan.Zero);
+
+            Assert.Multiple(() => {
+                Assert.That(made,   Is.EqualTo("a socket"));
+                Assert.That(asked,  Is.EqualTo(3));
+            });
+
+        }
+
+        #endregion
+
+        #region NoRoomEveryTimeStands()
+
+        /// <summary>
+        /// Where there is no room every time, the refusal stands after
+        /// <see cref="TestPorts.RoomAttempts"/> attempts.
+        /// </summary>
+        [Test]
+        public void NoRoomEveryTimeStands()
+        {
+
+            var asked   = 0;
+            var waited  = new List<TimeSpan>();
+            var full    = Assert.Throws<SocketException>(() => TestPorts.OnceThereIsRoom<String>(() => { asked++; throw new SocketException((Int32) SocketError.NoBufferSpaceAvailable); },
+                                                                                               TimeSpan.FromMilliseconds(200),
+                                                                                               waited.Add));
+
+            Assert.Multiple(() => {
+                Assert.That(full!.SocketErrorCode,  Is.EqualTo(SocketError.NoBufferSpaceAvailable));
+                Assert.That(asked,                  Is.EqualTo(TestPorts.RoomAttempts));
+                Assert.That(waited.Select(pause => pause.TotalMilliseconds),
+                            Is.EqualTo(Enumerable.Range(1, TestPorts.RoomAttempts - 1).Select(attempt => 200.0 * attempt)),
+                            "each pause longer than the one before, as the room comes back, and none after the last");
+            });
+
+        }
+
+        #endregion
+
+        #region AnyOtherRefusalStandsAtOnce()
+
+        /// <summary>
+        /// Any other refusal of a socket stands at once: asking again is for a
+        /// machine short of room, not for a port somebody has.
+        /// </summary>
+        [Test]
+        public void AnyOtherRefusalStandsAtOnce()
+        {
+
+            var asked = 0;
+            var taken = Assert.Throws<SocketException>(() => TestPorts.OnceThereIsRoom<String>(() => { asked++; throw new SocketException((Int32) SocketError.AddressAlreadyInUse); },
+                                                                                              TimeSpan.Zero));
+
+            Assert.Multiple(() => {
+                Assert.That(taken!.SocketErrorCode,  Is.EqualTo(SocketError.AddressAlreadyInUse));
+                Assert.That(asked,                   Is.EqualTo(1));
+            });
+
+        }
+
+        #endregion
+
+        #region AFreePortOutlastsNoRoom()
+
+        /// <summary>
+        /// Free hands out a port where the first listeners it asked for found
+        /// no room.
+        /// </summary>
+        [Test]
+        public void AFreePortOutlastsNoRoom()
+        {
+
+            var asked = 0;
+            var port  = TestPorts.Free(Listening: () => {
+
+                                                      if (++asked < 3)
+                                                          throw new SocketException((Int32) SocketError.NoBufferSpaceAvailable);
+
+                                                      var listener = new TcpListener(IPAddress.Loopback, 0);
+                                                      listener.Start();
+                                                      return listener;
+
+                                                  },
+                                       Pause:     TimeSpan.Zero);
+
+            Assert.Multiple(() => {
+                Assert.That(port,                     Is.GreaterThan(0));
+                Assert.That(asked,                    Is.GreaterThanOrEqualTo(3));
+                Assert.That(TestPorts.TryClaim(port), Is.False, "handed out, and so claimed");
             });
 
         }

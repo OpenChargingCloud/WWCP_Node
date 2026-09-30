@@ -59,6 +59,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public const Int32 StartAttempts = 3;
 
         /// <summary>
+        /// How often a socket is asked for where the operating system had no
+        /// buffer space left for one - WSAENOBUFS, 10055 - before that stands.
+        /// </summary>
+        public const Int32 RoomAttempts = 5;
+
+        /// <summary>
         /// Every port this test run has been handed, one way or another.
         /// </summary>
         private static readonly HashSet<UInt16>  claimed  = [];
@@ -86,13 +92,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// </remarks>
         /// <exception cref="InvalidOperationException">The operating system offered nothing but ports this test run already has.</exception>
         public static UInt16 Free()
+
+            => Free(Listening: () => {
+                                   var probe = new TcpListener(IPAddress.Loopback, 0);
+                                   probe.Start();
+                                   return probe;
+                               },
+                    Pause:     TimeSpan.FromMilliseconds(200));
+
+        /// <summary>
+        /// A port from what Listening started - asked again, after a pause,
+        /// where the operating system had no buffer space left for a socket.
+        /// </summary>
+        /// <param name="Listening">A listener, started, on a port of the operating system's choice.</param>
+        /// <param name="Pause">How long to wait before asking again the first time; the second waits twice as long, and so on.</param>
+        internal static UInt16 Free(Func<TcpListener>  Listening,
+                                    TimeSpan           Pause)
         {
 
-            var listener = Take(Offer:   () => {
-                                             var probe = new TcpListener(IPAddress.Loopback, 0);
-                                             probe.Start();
-                                             return probe;
-                                         },
+            var listener = Take(Offer:   () => OnceThereIsRoom(Listening, Pause),
                                 PortOf:  probe => (UInt16) ((IPEndPoint) probe.LocalEndpoint).Port,
                                 LetGo:   probe => probe.Stop());
 
@@ -106,6 +124,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region (internal) OnceThereIsRoom(Make, Pause, Wait = null)
+
+        /// <summary>
+        /// What Make makes, made again after a pause where the operating system
+        /// had no buffer space left for a socket - WSAENOBUFS (10055): up to
+        /// <see cref="RoomAttempts"/> times, and then what it said stands.
+        /// </summary>
+        /// <remarks>
+        /// Seen while the whole suites of several test runs ran on one machine
+        /// at once: WWCP_Node's lost a test in its set-up, at Free's
+        /// TcpListener.Start, and passed on the next run (found by the charging
+        /// station). The room comes back as closed connections leave
+        /// TIME_WAIT, so each pause is longer than the one before. Any other
+        /// refusal stands at once.
+        /// </remarks>
+        /// <param name="Make">A socket, or what holds one.</param>
+        /// <param name="Pause">How long to wait before asking again the first time; the second waits twice as long, and so on.</param>
+        /// <param name="Wait">What waits; Thread.Sleep where none is given.</param>
+        internal static T OnceThereIsRoom<T>(Func<T>             Make,
+                                             TimeSpan            Pause,
+                                             Action<TimeSpan>?   Wait = null)
+        {
+
+            for (var attempt = 1; ; attempt++)
+            {
+
+                try
+                {
+                    return Make();
+                }
+                catch (SocketException full) when (full.SocketErrorCode == SocketError.NoBufferSpaceAvailable && attempt < RoomAttempts)
+                {
+                    TestContext.Progress.WriteLine($"No buffer space for a socket: {full.Message} - asked again in {(Pause * attempt).TotalMilliseconds:0} ms, " +
+                                                   $"attempt {attempt + 1} of {RoomAttempts}.");
+                    (Wait ?? Thread.Sleep)(Pause * attempt);
+                }
+
+            }
+
+        }
+
+        #endregion
+
         #region TryClaim(Port)
 
         /// <summary>
@@ -114,9 +175,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// </summary>
         /// <remarks>
         /// For a helper that binds a port of its own and holds it, so that
-        /// <see cref="Free"/> does not hand the same number to somebody else
+        /// <see cref="Free()"/> does not hand the same number to somebody else
         /// once the helper has let go of it - and so that the helper learns
-        /// when the operating system gave it a port that <see cref="Free"/>
+        /// when the operating system gave it a port that <see cref="Free()"/>
         /// has just handed out, to somebody who has not bound it yet.
         /// </remarks>
         public static Boolean TryClaim(UInt16 Port)
@@ -136,7 +197,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The gap between <see cref="Free"/> letting a port go and a node
+        /// The gap between <see cref="Free()"/> letting a port go and a node
         /// binding it is one nothing here can close, and a test run of another
         /// assembly or another checkout on the same machine falls into it now
         /// and then. A test that ends in "something else is already listening
@@ -145,7 +206,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// </para>
         /// <para>
         /// Make is asked again at every attempt, and hands the node fresh ports,
-        /// as <see cref="Free"/> does. A start makes its accounts before it
+        /// as <see cref="Free()"/> does. A start makes its accounts before it
         /// comes to its port: those a failed start made - it made up a password,
         /// so they were not there before - go with it, so that the next start
         /// is a first start as the failed one was, and a test that asks for the
@@ -201,6 +262,78 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             }
 
         }
+
+        #endregion
+
+        #region StartedOnAFreshPort(Make, Start)
+
+        /// <summary>
+        /// A server that is no node - a stub of a peer a test needs answered -
+        /// made on a port <see cref="Free()"/> hands out and started, and where
+        /// that port was taken before it could be bound, made again on a fresh
+        /// one: up to <see cref="StartAttempts"/> times, as
+        /// <see cref="StartedOnFreshPorts"/> does for a node.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A port counts as taken where starting ends in a SocketException
+        /// that says so: AddressAlreadyInUse, or AccessDenied, which is what
+        /// Windows says of a port another socket holds for itself - a
+        /// <see cref="ClosedPort"/>'s. The hub's stub OCPI peers had a loop of
+        /// their own for this, and the hub proposed that every kind have one.
+        /// </para>
+        /// <para>
+        /// A server given up on, or whose start failed for another reason, is
+        /// let go of before the start ends in what it failed with.
+        /// </para>
+        /// </remarks>
+        /// <typeparam name="TServer">What is made and started.</typeparam>
+        /// <param name="Make">A new server on the given port, not started yet.</param>
+        /// <param name="Start">What starts it.</param>
+        /// <exception cref="SocketException">The port was taken <see cref="StartAttempts"/> times in a row.</exception>
+        public static async Task<TServer> StartedOnAFreshPort<TServer>(Func<UInt16, TServer>  Make,
+                                                                       Func<TServer, Task>    Start)
+
+            where TServer : IAsyncDisposable
+
+        {
+
+            for (var attempt = 1; ; attempt++)
+            {
+
+                var server = Make(Free());
+
+                try
+                {
+                    await Start(server);
+                    return server;
+                }
+                catch (SocketException taken) when (IsTaken(taken) && attempt < StartAttempts)
+                {
+                    TestContext.Progress.WriteLine($"{taken.Message} - made again on a fresh port, attempt {attempt + 1} of {StartAttempts}.");
+                    await server.DisposeAsync();
+                }
+                catch
+                {
+                    await server.DisposeAsync();
+                    throw;
+                }
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private static) IsTaken(Refusal)
+
+        /// <summary>
+        /// Whether a socket was refused its port because somebody else has it.
+        /// </summary>
+        private static Boolean IsTaken(SocketException Refusal)
+
+            => Refusal.SocketErrorCode is SocketError.AddressAlreadyInUse
+                                       or SocketError.AccessDenied;
 
         #endregion
 

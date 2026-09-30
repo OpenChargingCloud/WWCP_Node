@@ -1439,7 +1439,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region TryUpdateDNSConfiguration(JSON, out Error)
+        #region TryUpdateDNSConfiguration(JSON, out Error [, out NotSaved])
 
         /// <summary>
         /// Change how this node resolves names, at once and for everything
@@ -1457,7 +1457,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         public Boolean TryUpdateDNSConfiguration(JObject                           JSON,
                                                  [NotNullWhen(false)] out String?  Error)
+
+            => TryUpdateDNSConfiguration(JSON, out Error, out _);
+
+        /// <summary>
+        /// Change how this node resolves names - and say whether a refusal was
+        /// the file's rather than the change's.
+        /// </summary>
+        /// <param name="JSON">What the page sent, in the shape of the "dns" section.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateDNSConfiguration(JObject                           JSON,
+                                                 [NotNullWhen(false)] out String?  Error,
+                                                 out Boolean                       NotSaved)
         {
+
+            NotSaved = false;
 
             if (!DNSConfiguration.TryParse(JSON, out var sent, out Error))
                 return false;
@@ -1487,8 +1502,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!TryPinsAfterAPageSaved(sent, asShown, out var configuration, out Error))
                     return false;
 
+                // Everything this refuses is the file's: read, merged, written.
                 if (!ConfigFile.TryMergeSection(DNSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out Error))
+                {
+                    NotSaved = true;
                     return false;
+                }
 
                 ApplyDNSConfiguration(configuration);
 
@@ -1762,7 +1781,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region TryUpdateNTSConfiguration(JSON, out Error)
+        #region TryUpdateNTSConfiguration(JSON, out Error [, out NotSaved])
 
         /// <summary>
         /// Change where this node reads the time.
@@ -1776,7 +1795,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         public Boolean TryUpdateNTSConfiguration(JObject                           JSON,
                                                  [NotNullWhen(false)] out String?  Error)
+
+            => TryUpdateNTSConfiguration(JSON, out Error, out _);
+
+        /// <summary>
+        /// Change where this node reads the time - and say whether a refusal
+        /// was the file's rather than the change's.
+        /// </summary>
+        /// <param name="JSON">What the page sent, in the shape of the "nts" section.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateNTSConfiguration(JObject                           JSON,
+                                                 [NotNullWhen(false)] out String?  Error,
+                                                 out Boolean                       NotSaved)
         {
+
+            NotSaved = false;
 
             if (!NTSConfiguration.TryParse(JSON, out var sent, out Error))
                 return false;
@@ -1808,7 +1842,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // section the next start refuses, and a node that does not
                 // start because of a save that was accepted.
                 if (!ConfigFile.TryPreviewSection(NTSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out var merged, out Error))
+                {
+                    NotSaved = true;
                     return false;
+                }
 
                 if (!NTSConfiguration.TryParse(merged, out _, out var mergedError))
                 {
@@ -1817,7 +1854,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
 
                 if (!ConfigFile.TryMergeSection(NTSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out Error))
+                {
+                    NotSaved = true;
                     return false;
+                }
 
                 ApplyNTSConfiguration(configuration);
 

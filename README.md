@@ -73,8 +73,8 @@ public class EV : WWCPNode
 ```
 
 The five names are five because they are read in five places and spelt for
-each. `Name` is read in a sentence - "The electric vehicle is shutting down."
-- and is lower case for that reason; it is what the node calls itself in
+each. `Name` is read in a sentence - "The electric vehicle is shutting down." -
+and is lower case for that reason; it is what the node calls itself in
 everything it says, "the clock of this charging station" rather than "the
 clock of this node". `Tag` is the word in square brackets on every entry
 about the node itself. `Product` follows "OpenChargingCloud" in the name the
@@ -595,8 +595,8 @@ being made is already in the log a browser will see later:
 
 **The metrological log** is the fourth, and the one that is evidence: what
 bears on the time a node stamps things with and on what it trusts, written
-entry by entry as metrological by whoever writes it - `Log.Metrological(...)`
-- rather than picked out by a tag or a level, because what is metrologically
+entry by entry as metrological by whoever writes it - `Log.Metrological(...)` -
+rather than picked out by a tag or a level, because what is metrologically
 relevant is a question about what happened, not about how loudly it was said.
 The node writes its start and its end there, the plan of its clock check,
 every synchronisation with what each server answered, the servers disagreeing,
@@ -720,8 +720,21 @@ what changed; only the request knows who. And a certificate's handle may be
 written in capitals, as a tool it was copied out of may have written it: the
 store spells handles in lower case, and so does the API before it asks.
 
+A change that is fine in itself, and that a file cannot take - the
+configuration file, a certificate's file in the store or its index - is
+answered 500 with why, and changes nothing, now or at the next start: `PUT`
+of `dns` and `nts`, and `POST`, `PATCH` and `DELETE` of the store. It was
+the status of a refusal - 400, or 404 for a certificate whose file could not
+be deleted - and a label, on or off and what a certificate is for were
+answered 200 while the index could not keep them, and were gone at the next
+start. What was wrong with a change is answered as it was.
+
 The helpers a kind's own routes use are the same ones: `TryAuthorize`,
-`TryGetUser`, `TryParseJSONObject`, `ErrorJSON`, `JSONResponse`. A stream
+`TryGetUser`, `TryParseJSONObject`, `ErrorJSON`, `JSONResponse` - and
+`NotChanged(Request, WhatWasWrong, Error, NotSaved)`, which answers a change
+that was not made with the status of what was wrong with it, or with 500
+where its file refused: the node's stores and its `TryUpdate...` say which
+with an `out Boolean NotSaved`, as the local controller's stores do. A stream
 opened with a password is asked about the password before every entry, as a
 new request with it is; that needs Hermod f4aa17db or newer, which believes
 Basic credentials it has verified for a while and forgets them when the
@@ -920,30 +933,29 @@ puts back what is typed into its other forms - `draw()` is for the first
 drawing only, the form it names as the one saved is one it has, and every
 form has an id or a data-id to be known by; every number typed, on every
 page, with a form or without, is read with `numberField`, or `numberFrom`
-for an input outside a form, not `Number()`, which makes an emptied field 0
-- but where a page says itself what empty means, `=== '' ? ... :` before it.
-The rule asked only the pages with a form, and the charging station's power
-fields, inputs of their own, were 0 kW once emptied. Every page links through `toURL`, since
-`href="/..."` leads past the base the node may be served under in a new tab
-or a copied link; and takes its look from the stylesheet, by a class -
-`style="..."` is dropped by the policy the pages are served with, `style-src
-'self'`, which the kit asks every kind for. `input.capitals` and a card
-heading's `.heading-action` are there for what three partner pages wrote as
-style attributes. A table sits in a `<div class="table-scroll">`, which
-scrolls it inside its card: outside one, a table wider than its card stood
-past it on a phone, and the page scrolled sideways. What somebody may not
-do, a page says through
-`mayButNot('look at the name resolution', 'change it')` - "Signed in as cpo,
-which may look at the name resolution but not change it. That needs a role
+for an input outside a form, not `Number()`, which makes an emptied field 0 -
+but where a page says itself what empty means, `=== '' ? ... :` before it. The
+rule asked only the pages with a form, and the charging station's power fields,
+inputs of their own, were 0 kW once emptied. Every page links through `toURL`,
+since `href="/..."` leads past the base the node may be served under in a new
+tab or a copied link; and takes its look from the stylesheet, by a class -
+`style="..."` is dropped by the policy the pages are served with,
+`style-src 'self'`, which the kit asks every kind for. `input.capitals` and a
+card heading's `.heading-action` are there for what three partner pages wrote as
+style attributes. A table sits in a `<div class="table-scroll">`, which scrolls
+it inside its card: outside one, a table wider than its card stood past it on a
+phone, and the page scrolled sideways. What somebody may not do, a page says
+through `mayButNot('look at the name resolution', 'change it')` - "Signed in as
+cpo, which may look at the name resolution but not change it. That needs a role
 that may change it." - and it names no role as the one that is needed: which
 roles there are, and what each may, is the configuration file's to say.
 `withForms` names the pages with a form, so that the rules are not said of
 nothing; `dialogForms` names the forms that are a dialog's, which asks for
 itself when it is closed; `notDrafts` names a page whose form is none, with
-why - signing in is the way in, and nothing typed there is the node's to
-lose. So every kind has a frontend test of its own, and the scaffolding with
-it; one whose pages have no form yet has `withForms: []`, which says so, and
-says it again the day one has.
+why - signing in is the way in, and nothing typed there is the node's to lose.
+So every kind has a frontend test of its own, and the scaffolding with it; one
+whose pages have no form yet has `withForms: []`, which says so, and says it
+again the day one has.
 
 Asked of every kind's own pages before they were shared, the rules found
 pages of five kinds that held nothing at all, or not every form - a flag of
@@ -1045,7 +1057,10 @@ public class LocalControllerConformance : NodeConformanceTests
   hands out no port twice in a test run - the operating system does: Linux
   picks one at random from some fourteen thousand, and a run that asks a
   thousand times is given the same one again. A kind's own tests take their
-  ports from the same two, so that theirs and the kit's never meet.
+  ports from the same two, so that theirs and the kit's never meet. Where
+  the machine has no buffer space left for a socket - WSAENOBUFS, 10055,
+  seen while the whole suites of several test runs ran at once - `Free()`
+  asks again, after a pause that grows, up to five times.
 - **A node is started through `TestPorts.StartedOnFreshPorts(() => ...)`**,
   the kit's own as a kind's own: made again on fresh ports and started
   again, up to three times, where another test run on the same machine took
@@ -1054,16 +1069,34 @@ public class LocalControllerConformance : NodeConformanceTests
   that the next is a first start too; accounts that were there stay. A node
   given up on, or whose start failed for another reason, is let go of
   before the start ends in what it failed with.
+- **A stub of a peer is started through
+  `TestPorts.StartedOnAFreshPort(port => ..., stub => stub.Start())`**: made
+  on a port `Free()` hands out, and made again on a fresh one where starting
+  it ends in a `SocketException` that says the port is taken -
+  `AddressAlreadyInUse`, or `AccessDenied`, which Windows says of a port
+  another socket holds for itself. The stub is `IAsyncDisposable`, and one
+  given up on is let go of (proposed by the hub, whose stub OCPI peers had a
+  loop of their own for this).
 - **What a kind's code says is held to `SourceRules`**, as its pages are to
   `test/pages.ts`: `ArticlesBeforeANameIn(...)` finds "a" or "an" put in
   front of a name that is interpolated. Which article a name takes goes by
   how it is said - "an OEM root" but "a V2G root" - and "A {Node.Kind.Name}"
   read "A electric vehicle" in the kit's own messages (found by the EV).
   A name is said with its article - `CertificateKind.WithArticle()` - or
-  without one: "this electric vehicle". A kind asks its own sources:
+  without one: "this electric vehicle". An article at the end of a line is
+  read with the next one, where the string goes on there with a name, the `+`
+  before or after the break: `"is a " +` above `$"{entry.Kind.AsText()} ..."`
+  said "is a oemRoot" (found by the EV). A kind asks its own sources - its
+  tests' too, if it likes - finding its repository by a file of each project,
+  not by their directories: built with `--artifacts-path`, a build's
+  `artifacts/bin` holds a directory named after every project, and was taken
+  for the repository (found by the charging station). A directory with no C#
+  file below it is refused rather than found clean.
   ```csharp
-  Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(SourceRules.RepositoryAbove(AppContext.BaseDirectory, "EV", "EVTests"), "EV")),
-              Is.Empty);
+  var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "LocalController/LocalController.csproj",
+                                                                         "LocalControllerTests/LocalControllerTests.csproj");
+
+  Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(repository, "LocalController")), Is.Empty);
   ```
 - **What a kind does not have is not failed.** A store that keeps no TLS root
   or identity, or a node built without its web interface, makes the tests of

@@ -89,8 +89,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Node.TryUpdateDNSConfiguration(json, out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Node.TryUpdateDNSConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             Log.Notice($"'{user.Id}' changed the name resolution of this {Node.Kind.Name}.", "dns", "web");
 
@@ -193,8 +193,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Node.TryUpdateNTSConfiguration(json, out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Node.TryUpdateNTSConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             Log.Notice($"'{user.Id}' changed the time source of this {Node.Kind.Name}.", "nts", "web");
 

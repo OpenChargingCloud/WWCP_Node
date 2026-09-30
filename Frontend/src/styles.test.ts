@@ -137,6 +137,27 @@ describe('a path, a token or an address in a sentence', () => {
 
     });
 
+    it('breaks a sentence between its words, in the test dialog as in every hint and notice', () => {
+
+        // break-all broke the words of the test dialog's sentences wherever a
+        // line ended - "nothi|ng", "answe|r" at 320 pixels (found by the
+        // charging station). What has nothing to break at, a hint breaks
+        // anywhere already, as above.
+        const every = (Rule: Rule): Rule[] => [ Rule, ...Rule.rules.flatMap(every) ];
+
+        const sentences = readdirSync(new URL('./styles/', import.meta.url)).
+                              filter(file => file.endsWith('.scss')).
+                              flatMap(file => every(rulesOf(file))).
+                              filter(rule => /(^|[\s>,])\.(hint|notice)\b/.test(rule.selector));
+
+        assert.ok(sentences.length >= 2, 'the hints and notices were found at all');
+
+        for (const sentence of sentences)
+            assert.notEqual(sentence.declarations.get('word-break'), 'break-all',
+                            `"${sentence.selector}" breaks a sentence inside its words`);
+
+    });
+
     it('keeps to one piece as code in a table, which scrolls in its card instead', () => {
 
         // Code that may break anywhere is as narrow as one letter, and a table

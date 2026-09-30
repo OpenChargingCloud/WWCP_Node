@@ -635,13 +635,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.ImportCertificates(NodeArguments.Parse([ "--import-certificate", $"tlsServer={Root("Server")}" ]),
                                                     out _, TextWriter.Null, server),
                             Is.EqualTo(2));
-                Assert.That(server.ToString().TrimEnd(),
+                Assert.That(Flat(server.ToString()),
                             Is.EqualTo("'tlsServer' is not a kind of certificate this WWCP node keeps. Use one of tlsRoot."));
                 Assert.That(node.ImportCertificates(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={missing}" ]),
                                                     out _, TextWriter.Null, nowhere),
                             Is.EqualTo(2));
-                Assert.That(nowhere.ToString().TrimEnd(),
+                Assert.That(Flat(nowhere.ToString()),
                             Is.EqualTo($"--import-certificate: there is no file '{missing}'."));
+                Assert.That(server. ToString().Split(Environment.NewLine).Where(line => line.Length > NodeUsage.Width), Is.Empty);
             });
 
         }

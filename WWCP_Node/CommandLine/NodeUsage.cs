@@ -383,7 +383,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// A paragraph broken between words at <see cref="Width"/>, its first
         /// line begun with one prefix and every other line with another. A word
         /// longer than a line - a path - is put on a line of its own rather
-        /// than cut.
+        /// than cut. A dash between words and a number stay with the word
+        /// before them.
         /// </summary>
         /// <param name="Text">The paragraph.</param>
         /// <param name="First">What its first line begins with.</param>
@@ -392,7 +393,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                                String  First,
                                                String  Next)
 
-            => WrapItems(WithTheirDashes(Text.Split(' ', StringSplitOptions.RemoveEmptyEntries)), First, Next);
+            => WrapItems(WithTheirNumbers(WithTheirDashes(Text.Split(' ', StringSplitOptions.RemoveEmptyEntries))), First, Next);
 
         #endregion
 
@@ -465,6 +466,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                     yield return held;
 
                 held = word;
+
+            }
+
+            if (held is not null)
+                yield return held;
+
+        }
+
+        #endregion
+
+        #region (private static) WithTheirNumbers(Items)
+
+        /// <summary>
+        /// The items of a paragraph, a word that begins with a digit kept with
+        /// the one before it: broken before it, "could not be given port" ended
+        /// a line and "18261: something else is already listening on it" began
+        /// the next (found by the hub and the CSMS).
+        /// </summary>
+        private static IEnumerable<String> WithTheirNumbers(IEnumerable<String> Items)
+        {
+
+            String? held = null;
+
+            foreach (var item in Items)
+            {
+
+                if (held is not null && Char.IsAsciiDigit(item[0]))
+                {
+                    held += " " + item;
+                    continue;
+                }
+
+                if (held is not null)
+                    yield return held;
+
+                held = item;
 
             }
 

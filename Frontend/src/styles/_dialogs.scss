@@ -29,9 +29,12 @@
         font-size:    1.05rem;
     }
 
+    // Its sentences break between their words; what has nothing to break at,
+    // an address or a path, breaks anywhere, as every hint does (_base.scss).
+    // break-all broke the words themselves: "nothi|ng", "answe|r" at 320
+    // pixels (found by the charging station).
     > .hint {
         margin:       0 0 0.85rem;
-        word-break:   break-all;
     }
 
 }

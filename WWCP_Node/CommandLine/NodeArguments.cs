@@ -406,16 +406,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// What Main returns when this command line is not to be run: 0 after
         /// the usage for -h, 2 after the problem for a switch that cannot be
         /// followed, for a certificate of a kind the node does not keep, or for
-        /// one in a file that is not there; null when it is to be run.
+        /// one in a file that is not there or would not go in; null when it is
+        /// to be run.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// A kind the node does not keep is said here, before the node is made,
         /// in the node's words and with its kinds. Said once the node was made,
         /// it came after nine lines of log and a mobility operator's root the
         /// EMSP had made meanwhile, and named all eleven kinds there are before
         /// that (found by the hub, the EMSP, the gateway and the CSMS). So is a
         /// file that is not there, which had left a certificate store and a log
-        /// with the signing key of the log book behind (found by the hub).
+        /// with the signing key of the log book behind (found by the hub) - and
+        /// a file that is there and would not go in, being no certificate, one
+        /// whose password was not given, or one without the key its kind needs:
+        /// those left the store, the log with its key and an empty directory of
+        /// accounts behind (found by the charging station and the hub). What
+        /// only the store can say - a certificate it has already as another
+        /// kind - is said once it is there.
+        /// </para>
+        /// <para>
+        /// Each is said in lines of <see cref="NodeUsage.Width"/> columns: a
+        /// certificate refused was one line of 355 (found by the hub).
+        /// </para>
         /// </remarks>
         /// <param name="Usage">What -h shows, with the kinds of certificate the node keeps.</param>
         /// <param name="Out">Where the usage goes; the console by default.</param>
@@ -431,26 +444,48 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 return 0;
             }
 
+            Error ??= Console.Error;
+
             if (Problem is not null)
             {
-                (Error ?? Console.Error).WriteLine(notAKind is not null
-                                                       ? NotKeptBy(Usage, notAKind)
-                                                       : Problem);
+                NodeProgram.Say(Error, notAKind is not null
+                                           ? NotKeptBy(Usage, notAKind)
+                                           : Problem);
                 return 2;
             }
+
+            var password = CertificatePassword ?? Environment.GetEnvironmentVariable(NodeProgram.CertificatePasswordVariable(Usage.Kind));
 
             foreach (var (kind, file) in imports)
             {
 
                 if (!Usage.CertificateKinds.Contains(kind))
                 {
-                    (Error ?? Console.Error).WriteLine(NotKeptBy(Usage, kind.AsText()));
+                    NodeProgram.Say(Error, NotKeptBy(Usage, kind.AsText()));
                     return 2;
                 }
 
                 if (!File.Exists(file))
                 {
-                    (Error ?? Console.Error).WriteLine(NoFile(file));
+                    NodeProgram.Say(Error, NoFile(file));
+                    return 2;
+                }
+
+                Byte[] content;
+
+                try
+                {
+                    content = File.ReadAllBytes(file);
+                }
+                catch (Exception problem)
+                {
+                    NodeProgram.Say(Error, NotRead(file, problem));
+                    return 2;
+                }
+
+                if (!CertificateStore.CouldImport(content, kind, password, out var refused))
+                {
+                    NodeProgram.Say(Error, NotImported(file, kind, refused));
                     return 2;
                 }
 
@@ -462,7 +497,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region (internal static) NoFile(File)
+        #region (internal static) NoFile(File) / NotRead(File, Problem) / NotImported(File, Kind, Refused)
 
         /// <summary>
         /// A file to import that is not there.
@@ -470,6 +505,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         internal static String NoFile(String File)
 
             => $"--import-certificate: there is no file '{File}'.";
+
+        /// <summary>
+        /// A file to import that is there and could not be read.
+        /// </summary>
+        internal static String NotRead(String     File,
+                                       Exception  Problem)
+
+            => $"--import-certificate: '{File}' could not be read: {Problem.Message}";
+
+        /// <summary>
+        /// A file to import that was read and would not go in as the kind it
+        /// was given as - in the word the command line gave it.
+        /// </summary>
+        internal static String NotImported(String           File,
+                                           CertificateKind  Kind,
+                                           String           Refused)
+
+            => $"--import-certificate: {File} could not be imported as {Kind.AsText()}: {Refused}";
 
         #endregion
 
