@@ -187,7 +187,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region (internal static) Say(Error, Line)
+        #region (static) Say(Error, Line)
 
         /// <summary>
         /// A line of what a start that failed says, broken between words at
@@ -198,8 +198,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// import that would not go in was said in one line of 355 columns
         /// (found by the hub).
         /// </summary>
-        internal static void Say(TextWriter  Error,
-                                 String      Line)
+        /// <remarks>
+        /// Public for what a kind refuses of its own switches, which it says
+        /// the same way: the electric vehicle kept a copy of it for 27
+        /// refusals of its own (asked for by the EV).
+        /// </remarks>
+        /// <param name="Error">Where it is said.</param>
+        /// <param name="Line">What is said.</param>
+        public static void Say(TextWriter  Error,
+                               String      Line)
         {
 
             if (Line.StartsWith(' '))

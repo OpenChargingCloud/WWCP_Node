@@ -18,6 +18,7 @@
 #region Usings
 
 using System.Diagnostics.CodeAnalysis;
+using System.Formats.Asn1;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -466,7 +467,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 // What was read is what the directory holds, whether or not
                 // the index can say so: that it could not is logged.
-                TryWriteIndex(out _);
+                TryWriteIndex(PutBack: false, out _);
 
                 log.Info($"Certificates: {entries.Count} in '{Directory}'" +
                          $"{(adopted > 0 ? $", {adopted} of them newly adopted" : "")}" +
@@ -545,9 +546,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                           CertificateKind                   Kind,
                                           String?                           Password,
                                           [NotNullWhen(false)] out String?  Error)
+
+            => CouldImport(Content, Kind, Password, out Error, out _);
+
+        #endregion
+
+        #region (static) CouldImport(Content, Kind, Password, out Error, out PasswordWanted)
+
+        /// <summary>
+        /// Whether a file would go into a store as the given kind, as far as the
+        /// file alone can say - and whether what kept it out was a password none
+        /// was given for.
+        /// </summary>
+        /// <remarks>
+        /// A command line says where a password goes; the store cannot. A
+        /// PKCS#12 given without one was refused with .NET's "... with the
+        /// provided password, the password may be incorrect", where no password
+        /// had been provided, and nothing said how to give one (found by the
+        /// EMSP).
+        /// </remarks>
+        /// <param name="Content">The file as it is.</param>
+        /// <param name="Kind">What it is to be used for.</param>
+        /// <param name="Password">What opens it, where it is a protected PKCS#12.</param>
+        /// <param name="PasswordWanted">True where the file was refused because it opens only with a password, and none was given: a PKCS#12, or a PEM whose private key is encrypted.</param>
+        public static Boolean CouldImport(Byte[]                            Content,
+                                          CertificateKind                   Kind,
+                                          String?                           Password,
+                                          [NotNullWhen(false)] out String?  Error,
+                                          out Boolean                       PasswordWanted)
         {
 
-            if (!TryReadLeaf(Content, Kind, Password, out var collection, out _, out Error))
+            if (!TryReadLeaf(Content, Kind, Password, out var collection, out _, out Error, out PasswordWanted))
                 return false;
 
             Dispose(collection);
@@ -558,7 +587,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
-        #region (private static) TryReadLeaf(Content, Kind, Password, out Collection, out Leaf, out Error)
+        #region (private static) TryReadLeaf(Content, Kind, Password, out Collection, out Leaf, out Error, out PasswordWanted)
 
         /// <summary>
         /// What a file holds, and its leaf, where the file suits the kind by
@@ -570,12 +599,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                            String?                                             Password,
                                            [NotNullWhen(true)]  out X509Certificate2Collection?  Collection,
                                            [NotNullWhen(true)]  out X509Certificate2?            Leaf,
-                                           [NotNullWhen(false)] out String?                      Error)
+                                           [NotNullWhen(false)] out String?                      Error,
+                                           out Boolean                                         PasswordWanted)
         {
 
-            Collection  = null;
-            Leaf        = null;
-            Error       = null;
+            Collection      = null;
+            Leaf            = null;
+            Error           = null;
+            PasswordWanted  = false;
 
             if (Content.Length == 0)
             {
@@ -591,7 +622,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             }
             catch (Exception exception)
             {
-                Error = exception.Message;
+                Error           = exception.Message;
+                PasswordWanted  = exception is PasswordWantedException;
                 return false;
             }
 
@@ -734,7 +766,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            if (!TryReadLeaf(Content, Kind, Password, out var collection, out var leaf, out Error))
+            if (!TryReadLeaf(Content, Kind, Password, out var collection, out var leaf, out Error, out _))
                 return false;
 
             var storeChanged = false;
@@ -793,7 +825,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     // What changed is nothing but the index: where that cannot
                     // be written, the change is put back rather than answered as
                     // done and gone at the next start.
-                    if (!TryWriteIndex(out Error))
+                    if (!TryWriteIndex(PutBack: true, out Error))
                     {
                         entries[id] = before;
                         NotSaved    = true;
@@ -849,7 +881,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 // is for. Without it the file would come back at the next start
                 // under its own name, switched on, for every use - so it goes
                 // back out rather than in.
-                if (!TryWriteIndex(out Error))
+                if (!TryWriteIndex(PutBack: true, out Error))
                 {
                     entries.Remove(imported.Id);
                     NotSaved = true;
@@ -946,7 +978,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     var switched = entry with { IsActive = Active };
                     entries[Id]  = switched;
 
-                    if (!TryWriteIndex(out Error))
+                    if (!TryWriteIndex(PutBack: true, out Error))
                     {
                         entries[Id] = entry;
                         NotSaved    = true;
@@ -1037,7 +1069,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 var relabelled = entry with { Label = settled };
                 entries[Id]    = relabelled;
 
-                if (!TryWriteIndex(out Error))
+                if (!TryWriteIndex(PutBack: true, out Error))
                 {
                     entries[Id] = entry;
                     NotSaved    = true;
@@ -1128,7 +1160,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 var reused   = entry with { Usages = usages };
                 entries[Id]  = reused;
 
-                if (!TryWriteIndex(out Error))
+                if (!TryWriteIndex(PutBack: true, out Error))
                 {
                     entries[Id] = entry;
                     NotSaved    = true;
@@ -1220,7 +1252,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 // The file is gone, and the entry with it, whether or not the
                 // index can say so: an entry whose file is not there is dropped
                 // at the next reading. That it could not be written is logged.
-                TryWriteIndex(out _);
+                TryWriteIndex(PutBack: false, out _);
 
                 storeChanged = true;
 
@@ -1712,19 +1744,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 if (TryReadDer(Content, collection))
                     return collection;
 
-                // And a file that is not DER either was never a candidate for
-                // any of this. Saying "wrong password?" about a text file sends
+                // And a file that is not a PKCS#12 either was never a candidate
+                // for any of this. Saying "wrong password?" about it sends
                 // somebody looking for a password that does not exist, which is
                 // a worse answer than none.
-                if (!LooksLikeDer(Content))
+                if (!LooksLikePkcs12(Content))
                     throw new ArgumentException(
                               "That file is not a certificate that can be read (PEM, DER or PKCS#12).");
 
+                // Without a password, .NET's own sentence speaks of "the provided
+                // password", and there was none.
+                if (Password is not { Length: > 0 })
+                    throw new PasswordWantedException(
+                              "That file is a PKCS#12 that could not be opened without a password.");
+
                 throw new ArgumentException(
-                          Password is null
-                              ? $"That file could not be read. If it is a password-protected PKCS#12, give the password. ({exception.Message})"
-                              : $"That file could not be read - wrong password? ({exception.Message})"
-                      );
+                          $"That file could not be read - wrong password? ({exception.Message})");
 
             }
 
@@ -1806,8 +1841,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             var encrypted = key.StartsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----", StringComparison.Ordinal);
 
             if (encrypted && Password is not { Length: > 0 })
-                throw new ArgumentException(
-                          "That file's private key is encrypted. Give the password that opens it.");
+                throw new PasswordWantedException(
+                          "That file's private key is encrypted, and no password was given.");
 
             for (var i = 0; i < Collection.Count; i++)
             {
@@ -1910,21 +1945,50 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
-        #region (private static) LooksLikeDer(Content)
+        #region (private static) LooksLikePkcs12(Content)
 
         /// <summary>
-        /// Whether a file could be DER at all - that is, whether it begins with
-        /// an ASN.1 SEQUENCE.
+        /// Whether a file is built as a PKCS#12 is: an ASN.1 SEQUENCE of a
+        /// version and of data, which a password guards (RFC 7292, 4).
         /// </summary>
         /// <remarks>
-        /// Both a PKCS#12 and a DER certificate do. Used only to decide which
-        /// sentence somebody gets back: a file that does not start this way was
-        /// never a PKCS#12, so telling them their password might be wrong is
-        /// sending them after something that does not exist.
+        /// Used only to decide which sentence somebody gets back: a file that is
+        /// not built this way was never a PKCS#12, so telling them a password
+        /// might open it, or might be wrong, is sending them after something
+        /// that does not exist. Asked of how the file is built rather than of
+        /// its first byte, which is a SEQUENCE's in a certificate, in a key and
+        /// in a PKCS#12 alike: a key in DER was told to give its password.
         /// </remarks>
-        private static Boolean LooksLikeDer(Byte[] Content)
+        private static Boolean LooksLikePkcs12(Byte[] Content)
+        {
 
-            => Content.Length > 1 && Content[0] == 0x30;
+            try
+            {
+
+                var pfx = new AsnReader(Content, AsnEncodingRules.BER).ReadSequence();
+
+                pfx.ReadInteger();
+
+                return pfx.ReadSequence().ReadObjectIdentifier() == "1.2.840.113549.1.7.1";
+
+            }
+            catch (AsnContentException)
+            {
+                return false;
+            }
+
+        }
+
+        #endregion
+
+        #region (private) PasswordWantedException
+
+        /// <summary>
+        /// A file that opens only with a password, and none was given: told
+        /// apart from every other file that could not be read, so that whoever
+        /// asked can say where a password goes.
+        /// </summary>
+        private sealed class PasswordWantedException(String Message) : ArgumentException(Message);
 
         #endregion
 
@@ -2165,7 +2229,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #endregion
 
 
-        #region (private) ReadIndex() / TryWriteIndex(out Error)
+        #region (private) ReadIndex() / TryWriteIndex(PutBack, out Error)
 
         /// <summary>
         /// What the index remembers, by handle. A missing index is an empty
@@ -2223,9 +2287,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// Where it cannot be written, that is logged, and said: a change that
         /// is nothing but the index - a label, on or off, what a certificate is
         /// for - is put back and refused, where it had been answered as done
-        /// and was gone at the next start.
+        /// and was gone at the next start. The log says which of the two it
+        /// was: that labels and on/off would not survive a restart was said of
+        /// changes that had been put back (found by the gateway).
         /// </remarks>
-        private Boolean TryWriteIndex([NotNullWhen(false)] out String? Error)
+        /// <param name="PutBack">Whether the change it is written for is put back where it cannot be.</param>
+        private Boolean TryWriteIndex(Boolean                          PutBack,
+                                      [NotNullWhen(false)] out String? Error)
         {
 
             Error = null;
@@ -2261,8 +2329,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             catch (Exception exception)
             {
 
-                log.Error($"Certificates: '{IndexFileName}' could not be written, so labels and on/off will not " +
-                          $"survive a restart - {exception.Message}",
+                log.Error(PutBack
+                              ? $"Certificates: '{IndexFileName}' could not be written, so the change was not made - " +
+                                $"{exception.Message}"
+                              : $"Certificates: '{IndexFileName}' could not be written, so labels and on/off will not " +
+                                $"survive a restart - {exception.Message}",
                           "certificates");
 
                 Error = $"'{path}' could not be written: {exception.Message}";

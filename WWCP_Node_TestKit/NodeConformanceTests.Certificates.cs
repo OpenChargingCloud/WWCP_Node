@@ -747,6 +747,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var inTheStore              = InTheStore();
             var (_, now)                = await Send(http, HttpMethod.Get, path);
 
+            // What the log says of the index: that the change was not made -
+            // not that labels and on/off would not survive a restart, which was
+            // said of changes that had been put back (found by the gateway).
+            var logged                  = Node.Log.Recent(Int32.MaxValue, Tag: "certificates").
+                                                   Select(entry => entry.Message).
+                                                   Where (message => message.StartsWith($"Certificates: '{CertificateStore.IndexFileName}' could not be written", StringComparison.Ordinal)).
+                                                   ToArray();
+
             // And as at the next start: the directory read again, with nothing
             // in the way any more.
             System.IO.Directory.Delete(blocked);
@@ -765,10 +773,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(inTheStore,                      Is.EquivalentTo(before),             "what is in the store");
                 Assert.That(WhatIsSaidOf(now),               Is.EqualTo(WhatIsSaidOf(was)),       "what is said of the one that was there");
 
+                if (Change == "POST, its file")
+                    Assert.That(logged,                      Is.Empty,                            "what the log says of the index, which was not written");
+                else
+                    Assert.That(logged,                      Has.Exactly(1).StartsWith($"Certificates: '{CertificateStore.IndexFileName}' could not be written, so the change was not made - "),
+                                                                                                  "what the log says of the index");
+
                 Assert.That(reread,                          Is.EqualTo(HttpStatusCode.OK));
                 Assert.That(readAgain,                       Is.EquivalentTo(before),             "what is in the store, read again: a file left behind is adopted");
                 Assert.That(WhatIsSaidOf(thereReadAgain),    Is.EqualTo(WhatIsSaidOf(was)),       "what is said of the one that was there, read again");
 
+            });
+
+        }
+
+        #endregion
+
+        #region ReadingTheStoreAgainIsNotAChangeThatWasNotMade()
+
+        /// <summary>
+        /// The store read again from its directory while its index cannot be
+        /// written is logged as what it is: no change of anybody's was put back
+        /// then, and "the change was not made" is said only where one was.
+        /// </summary>
+        [Test]
+        public async Task ReadingTheStoreAgainIsNotAChangeThatWasNotMade()
+        {
+
+            Keeps(CertificateKind.TLSRoot);
+
+            using var http   = await SignedIn();
+
+            await ARootIn(http, "A Root Read Again");
+
+            TheIndexCannotBeWritten();
+
+            var (reread, _)  = await Send(http, HttpMethod.Post, "api/v1/certificates/reload", new JObject());
+
+            var logged       = Node.Log.Recent(Int32.MaxValue, Tag: "certificates").
+                                        Select(entry => entry.Message).
+                                        Where (message => message.StartsWith($"Certificates: '{CertificateStore.IndexFileName}' could not be written", StringComparison.Ordinal)).
+                                        ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(reread,  Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(logged,  Is.Not.Empty,                                  "that the index could not be written");
+                Assert.That(logged,  Has.None.Contains("the change was not made"),  "a change put back, where there was none");
             });
 
         }

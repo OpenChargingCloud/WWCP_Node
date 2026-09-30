@@ -144,7 +144,13 @@ Beyond the names, a kind of node adds to the node in eight places:
   from that type - are found in its assembly beside the node's. Its
   Program.cs prints `BuiltFrom.BannerLines()` in its banner and ends in
   `RunUntilStopped()`: a prompt where somebody can type, waiting where
-  nobody can, and the log sharing the screen with the prompt.
+  nobody can, and the log sharing the screen with the prompt. What it
+  refuses of its own switches it says through `NodeProgram.Say(Error, Line)`,
+  as the node says its own: at 80 columns, a number with the word before it,
+  and a line that begins with a space whole. A banner of its own says a name
+  server through `NodeBanner.NameServer(Server)`, as the node's does. Both
+  were the node's alone, and the electric vehicle and the energy meter kept
+  copies (asked for by the EV and the meter).
 
 And the bundle: a kind of node hands in an `IStaticContentSource` - the
 files webpack built, embedded into its assembly - and the node serves it at
@@ -424,7 +430,13 @@ the kind of node's to make.
 
 The store holds private keys **unencrypted**: a PKCS#12 is opened with its
 password once, at import, and written back without one, so that any number of
-certificates per role work without any number of passwords to carry. The file
+certificates per role work without any number of passwords to carry. A file
+that opens only with a password, and was given none - a PKCS#12, or a PEM
+whose key is encrypted - is refused with just that, and the command line says
+where the password goes: `--certificate-password`, or `<PRODUCT>_CERT_PASSWORD`.
+It was refused with .NET's "with the provided password, the password may be
+incorrect", where none had been provided (found by the EMSP). A file not built
+as a PKCS#12 is not asked for a password at all. The file
 system is what guards them, and the node says so at every start and at every
 import. A file somebody copied into the right directory by hand is adopted at
 the next reload, because on a machine somebody already has a shell on that is

@@ -195,7 +195,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         #endregion
 
 
-        #region (private static) NameServer(Server)
+        #region (static) NameServer(Server)
 
         /// <summary>
         /// One name server, for a line of its own, as people write it: an IPv6
@@ -210,10 +210,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// under which a node keeps what it knows of a server is spelled out
         /// alike (see WWCPNode.NameOf). A machine's own name servers, IPv6 among
         /// them, made one line of 247 characters with it, and a timeout after a
-        /// comma among the servers read as one more of them.
+        /// comma among the servers read as one more of them. Public for a kind
+        /// that says its name servers in a banner of its own, as the energy
+        /// meter does (asked for by the meter).
         /// </remarks>
         /// <param name="Server">A name server the node asks.</param>
-        private static String NameServer(DNSServerConfig Server)
+        public static String NameServer(DNSServerConfig Server)
         {
 
             var host = Server.DomainName?.Trimmed

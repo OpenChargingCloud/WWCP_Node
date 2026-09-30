@@ -643,6 +643,133 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AFileThatOpensOnlyWithAPasswordSaysWhereThePasswordGoes(What)
+
+        /// <summary>
+        /// A file that opens only with a password, and was given none - a
+        /// PKCS#12, or a PEM whose key is encrypted - is refused with just that,
+        /// and with where the password goes: the switch, or the kind's variable.
+        /// A PKCS#12 was refused with .NET's "... with the provided password, the
+        /// password may be incorrect", where none had been provided, and nothing
+        /// said how to give one (found by the EMSP). An empty password is none.
+        /// </summary>
+        [TestCase("a PKCS#12")]
+        [TestCase("a PKCS#12, with an empty password")]
+        [TestCase("a PEM whose key is encrypted")]
+        public void AFileThatOpensOnlyWithAPasswordSaysWhereThePasswordGoes(String What)
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            var (file, refused) = What == "a PEM whose key is encrypted"
+                                      ? (AnIdentityWhoseKeyIsEncryptedInPem(), "That file's private key is encrypted, and no password was given.")
+                                      : (AnIdentityWithAPassword(),            "That file is a PKCS#12 that could not be opened without a password.");
+
+            String[] arguments = What == "a PKCS#12, with an empty password"
+                                     ? [ "--import-certificate", $"tlsIdentity={file}", "--certificate-password", "" ]
+                                     : [ "--import-certificate", $"tlsIdentity={file}" ];
+
+            var variable  = NodeProgram.CertificatePasswordVariable(TestKind);
+            var was       = Environment.GetEnvironmentVariable(variable);
+            var said      = new StringWriter();
+
+            try
+            {
+
+                Environment.SetEnvironmentVariable(variable, null);
+
+                Assert.Multiple(() => {
+                    Assert.That(NodeArguments.Parse(arguments).Refused(Usage(tls), TextWriter.Null, said), Is.EqualTo(2));
+                    Assert.That(Flat(said), Is.EqualTo($"--import-certificate: {file} could not be imported as tlsIdentity: {refused} " +
+                                                       $"Give the password with --certificate-password, or in {variable}."));
+                    Assert.That(TooWide(said), Is.Empty);
+                });
+
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(variable, was);
+            }
+
+        }
+
+        /// <summary>
+        /// A TLS identity whose key is in the same PEM, encrypted with a password.
+        /// </summary>
+        private String AnIdentityWhoseKeyIsEncryptedInPem()
+        {
+
+            using var key       = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var       request   = new CertificateRequest("CN=An Identity Whose Key Is Locked", key, HashAlgorithmName.SHA256);
+            using var identity  = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+
+            return Kept(".pem", System.Text.Encoding.ASCII.GetBytes(
+                                    identity.ExportCertificatePem() + "\n" +
+                                    key.ExportEncryptedPkcs8PrivateKeyPem("opensesame",
+                                                                          new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 1000)) + "\n"));
+
+        }
+
+        #endregion
+
+        #region AWrongPasswordIsNotToldWhereAPasswordGoes()
+
+        /// <summary>
+        /// A PKCS#12 given with a password that does not open it is refused as
+        /// it was, "wrong password?", and not told where a password goes: one
+        /// was given.
+        /// </summary>
+        [Test]
+        public void AWrongPasswordIsNotToldWhereAPasswordGoes()
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            var file  = AnIdentityWithAPassword();
+            var said  = new StringWriter();
+
+            Assert.Multiple(() => {
+                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsIdentity={file}", "--certificate-password", "not the one" ]).
+                                          Refused(Usage(tls), TextWriter.Null, said),
+                            Is.EqualTo(2));
+                Assert.That(Flat(said), Does.StartWith($"--import-certificate: {file} could not be imported as tlsIdentity: " +
+                                                       "That file could not be read - wrong password? ("));
+                Assert.That(Flat(said), Does.Not.Contain("Give the password with"));
+            });
+
+        }
+
+        #endregion
+
+        #region AFileThatIsNoPkcs12IsNotAskedForAPassword()
+
+        /// <summary>
+        /// A file that is DER and neither a certificate nor a PKCS#12 - a key -
+        /// is refused as no certificate that can be read, and not asked for a
+        /// password: its first byte, which a PKCS#12's is too, had it told "If
+        /// it is a password-protected PKCS#12, give the password".
+        /// </summary>
+        [Test]
+        public void AFileThatIsNoPkcs12IsNotAskedForAPassword()
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            using var key  = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var       file = Kept(".der", key.ExportPkcs8PrivateKey());
+            var       said = new StringWriter();
+
+            Assert.Multiple(() => {
+                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={file}" ]).Refused(Usage(tls), TextWriter.Null, said),
+                            Is.EqualTo(2));
+                Assert.That(Flat(said), Is.EqualTo($"--import-certificate: {file} could not be imported as tlsRoot: " +
+                                                   "That file is not a certificate that can be read (PEM, DER or PKCS#12)."));
+            });
+
+        }
+
+        #endregion
+
         #region ADashBetweenWordsNeverBeginsALine()
 
         /// <summary>

@@ -483,9 +483,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                     return 2;
                 }
 
-                if (!CertificateStore.CouldImport(content, kind, password, out var refused))
+                if (!CertificateStore.CouldImport(content, kind, password, out var refused, out var passwordWanted))
                 {
-                    NodeProgram.Say(Error, NotImported(file, kind, refused));
+                    NodeProgram.Say(Error, passwordWanted
+                                               ? $"{NotImported(file, kind, refused)} {GiveThePassword(Usage.Kind)}"
+                                               : NotImported(file, kind, refused));
                     return 2;
                 }
 
@@ -523,6 +525,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                            String           Refused)
 
             => $"--import-certificate: {File} could not be imported as {Kind.AsText()}: {Refused}";
+
+        #endregion
+
+        #region (internal static) GiveThePassword(Kind)
+
+        /// <summary>
+        /// Where the password goes that a file to import opens only with: the
+        /// store can say that one is wanted, and only the command line where it
+        /// goes (found by the EMSP).
+        /// </summary>
+        /// <param name="Kind">The kind of node, whose product names the variable.</param>
+        internal static String GiveThePassword(NodeKind Kind)
+
+            => $"Give the password with --certificate-password, or in {NodeProgram.CertificatePasswordVariable(Kind)}.";
 
         #endregion
 

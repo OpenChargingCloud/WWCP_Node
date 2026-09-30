@@ -288,6 +288,66 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AKindSaysANameServerAsTheBannerDoes()
+
+        /// <summary>
+        /// A kind with a banner of its own says a name server as the node's
+        /// banner does. NodeBanner.NameServer was the node's alone, and the
+        /// energy meter was about to keep a copy of it (asked for by the meter).
+        /// </summary>
+        [Test]
+        public async Task AKindSaysANameServerAsTheBannerDoes()
+        {
+
+            await using var node = Node(NameServers: """
+                                                     [ { "address": "2001:0db8:0000:0000:0000:0000:0000:0053",  "transport": "TLS"          },
+                                                       { "address": "dns.example",                              "queryTimeoutSeconds": 0.5  } ]
+                                                     """);
+
+            Assert.That(node.DNSClient.DNSServers.Select(NodeBanner.NameServer),
+                        Is.EquivalentTo(new[] {
+                            "tls://[2001:db8::53]:853",
+                            "udp://dns.example:53, timeout: 0.5 sec."
+                        }));
+
+        }
+
+        #endregion
+
+        #region AKindSaysWhatItRefusesAsTheNodeDoes()
+
+        /// <summary>
+        /// What a kind refuses of its own switches is said as the node says its
+        /// own: broken between words at 80 columns, and a line that begins with
+        /// a space - a command to copy - whole. NodeProgram.Say was the node's
+        /// alone, and the electric vehicle kept a copy of it (asked for by the
+        /// EV).
+        /// </summary>
+        [Test]
+        public void AKindSaysWhatItRefusesAsTheNodeDoes()
+        {
+
+            var refusal  = "--contract-cert: 'nosuch' is not the handle of a certificate in the store of this electric " +
+                           "vehicle, and a contract certificate has to be given by the handle the store knows it by.";
+            var command  = "  sudo setcap 'cap_net_bind_service=+ep' /usr/local/share/a-kind-of-node/" + new String('x', 60);
+            var said     = new StringWriter();
+
+            NodeProgram.Say(said, refusal);
+            NodeProgram.Say(said, command);
+
+            var lines    = said.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+
+            Assert.Multiple(() => {
+                Assert.That(lines,                                              Has.Length.GreaterThan(2),  "the refusal on one line");
+                Assert.That(lines[..^1].Where(line => line.Length > NodeUsage.Width),  Is.Empty,            "a line of the refusal wider than a terminal");
+                Assert.That(String.Join(" ", lines[..^1]),                      Is.EqualTo(refusal));
+                Assert.That(lines[^1],                                          Is.EqualTo(command),        "the command, broken");
+            });
+
+        }
+
+        #endregion
+
 
         #region ANodeWhosePortIsTakenSaysWhichAndWhatToDo()
 
