@@ -385,7 +385,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             using var snapshot = await http.GetAsync("api/v1/logs?limit=1");
 
             Assume.That(snapshot.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden),
-                        $"A {Node.Kind.Name} lets every account that is signed in read its log, so there is nothing for its stream to end over.");
+                        $"This {Node.Kind.Name} lets every account that is signed in read its log, so there is nothing for its stream to end over.");
 
             var afterwards    = "Logged after the account was taken out " + Guid.NewGuid().ToString("N")[..8];
             Node.Log.Info(afterwards, "test");

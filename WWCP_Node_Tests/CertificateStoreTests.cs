@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using cloud.charging.open.protocols.WWCP.Node;
@@ -494,6 +495,159 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ACredentialWithoutItsKeyIsRefusedInOneSentence(Kind, Named)
+
+        /// <summary>
+        /// Refused in a sentence that names the kind with its article. It named
+        /// it with the whole of Describe(), after an "A" that fitted some kinds
+        /// only: "A OEM provisioning certificate - what this vehicle was born
+        /// with has to carry its private key".
+        /// </summary>
+        [TestCase(CertificateKind.TLSIdentity,      "A TLS identity")]
+        [TestCase(CertificateKind.Vehicle,          "A vehicle certificate")]
+        [TestCase(CertificateKind.Contract,         "A contract certificate")]
+        [TestCase(CertificateKind.OEMProvisioning,  "An OEM provisioning certificate")]
+        public void ACredentialWithoutItsKeyIsRefusedInOneSentence(CertificateKind  Kind,
+                                                                   String           Named)
+        {
+
+            var store = new CertificateStore(directory, log);
+
+            using var root = Root("A Root");
+            using var leaf = Leaf("A Leaf", root);
+
+            Assert.That(store.Import(Pem(leaf), Kind, null, null, out _, out var error), Is.False);
+
+            Assert.That(error, Is.EqualTo($"{Named} has to carry its private key, and that file has none. " +
+                                           "It is probably a PKCS#12 that needs a password, or the public half of the pair."));
+
+        }
+
+        #endregion
+
+        #region AKindIsNamedWithTheArticleItIsSaidWith(Kind, Named)
+
+        /// <summary>
+        /// Every kind has its name with the article it is said with: "an OEM
+        /// root" but "a V2G root", by how the name is said and not by its first
+        /// letter.
+        /// </summary>
+        [TestCase(CertificateKind.V2GRoot,             "a V2G root")]
+        [TestCase(CertificateKind.MORoot,              "a Mobility Operator root")]
+        [TestCase(CertificateKind.OEMRoot,             "an OEM root")]
+        [TestCase(CertificateKind.Vehicle,             "a vehicle certificate")]
+        [TestCase(CertificateKind.Contract,            "a contract certificate")]
+        [TestCase(CertificateKind.OEMProvisioning,     "an OEM provisioning certificate")]
+        [TestCase(CertificateKind.TariffVerification,  "a tariff certificate")]
+        [TestCase(CertificateKind.TLSRoot,             "a TLS root")]
+        [TestCase(CertificateKind.ClientRoot,          "a client root")]
+        [TestCase(CertificateKind.TLSServer,           "a server certificate")]
+        [TestCase(CertificateKind.TLSIdentity,         "a TLS identity")]
+        public void AKindIsNamedWithTheArticleItIsSaidWith(CertificateKind  Kind,
+                                                           String           Named)
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(Kind.WithArticle(),             Is.EqualTo(Named));
+                Assert.That(Kind.CapitalisedWithArticle(),  Is.EqualTo(Char.ToUpperInvariant(Named[0]) + Named[1..]));
+            });
+
+        }
+
+        #endregion
+
+        #region AKindThatIsToldNothingSaysSoWithItsArticle(Kind, Named)
+
+        /// <summary>
+        /// A kind that is not told what it is for, told anyway, is refused in a
+        /// sentence that names it as the rest of the sentence names the others:
+        /// "An OEM root is for what its kind says", where it said "A oemRoot".
+        /// </summary>
+        [TestCase(CertificateKind.OEMRoot,  "An OEM root")]
+        [TestCase(CertificateKind.V2GRoot,  "A V2G root")]
+        public void AKindThatIsToldNothingSaysSoWithItsArticle(CertificateKind  Kind,
+                                                               String           Named)
+        {
+
+            var store = new CertificateStore(directory, log);
+
+            Assert.That(store.TrySettleUsages(Kind, [ "dns" ], out _, out var error), Is.False);
+
+            Assert.That(error, Is.EqualTo($"{Named} is for what its kind says, and is not told what it is used for: " +
+                                           "only a TLS root and a server certificate are kept for some uses and not others, " +
+                                           "and a TLS identity is shown on some listeners and not others."));
+
+        }
+
+        #endregion
+
+        #region AnIdentityWithNoListenerToBeToldOfSaysSo()
+
+        /// <summary>
+        /// A TLS identity told where it is shown, on a node that names no
+        /// listeners, is refused with the identity named as the sentence names
+        /// it further on - "A TLS identity", where it said "A tlsIdentity".
+        /// </summary>
+        [Test]
+        public void AnIdentityWithNoListenerToBeToldOfSaysSo()
+        {
+
+            var store = new CertificateStore(directory, log, NodeName: "local controller");
+
+            Assert.That(store.TrySettleUsages(CertificateKind.TLSIdentity, [ "web" ], out _, out var error), Is.False);
+
+            Assert.That(error, Is.EqualTo("A TLS identity is shown on every listener of this local controller, which names none an identity " +
+                                          "could be told of: only a TLS root and a server certificate are kept for some uses and not " +
+                                          "others, and a TLS identity is shown on the listeners a kind of node names."));
+
+        }
+
+        #endregion
+
+        #region AHandleThatIsTakenNamesTheCertificateThatHasIt()
+
+        /// <summary>
+        /// A certificate whose handle - the first sixteen digits of its
+        /// thumbprint - another certificate has already is refused with that
+        /// one's label. The second half of the sentence had no $, and said
+        /// "({existing.Label})" as it is written.
+        /// </summary>
+        /// <remarks>
+        /// Two certificates that share those sixteen digits are not something a
+        /// test can make, so the store's own index is told that the other one
+        /// holds the handle of this one.
+        /// </remarks>
+        [Test]
+        public void AHandleThatIsTakenNamesTheCertificateThatHasIt()
+        {
+
+            var store = new CertificateStore(directory, log);
+
+            using var one    = Root("One Root");
+            using var other  = Root("Another Root");
+
+            Assert.That(store.Import(Pem(other), CertificateKind.V2GRoot, null, null, out var entry, out var error), Is.True, error);
+
+            var entries  = (Dictionary<String, CertificateEntry>) typeof(CertificateStore).
+                               GetField("entries", BindingFlags.Instance | BindingFlags.NonPublic)!.
+                               GetValue(store)!;
+
+            var handle   = CertificateEntry.ThumbprintOf(one)[..CertificateEntry.IdLength];
+
+            entries.Remove(entry!.Id);
+            entries.Add(handle, entry!);
+
+            Assert.That(store.Import(Pem(one), CertificateKind.V2GRoot, null, null, out _, out var taken), Is.False);
+
+            Assert.That(taken, Is.EqualTo($"The handle '{handle}' is already taken by a different certificate ('{entry!.Label}'). " +
+                                           "Remove that one first."));
+
+            Assert.That(entry!.Label, Is.EqualTo("Another Root"));
+
+        }
+
+        #endregion
+
         #region AProtectedPkcs12IsStoredWithoutItsPassword()
 
         [Test]
@@ -624,7 +778,32 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(store.Import(Pem(root), CertificateKind.MORoot, null, null, out _, out var error2), Is.False,
                         "the same certificate cannot be two trust anchors at once");
 
-            Assert.That(error2, Does.Contain("v2gRoot"));
+            Assert.That(error2, Does.StartWith("That certificate is already in the store as a V2G root ('A Root')."));
+
+        }
+
+        #endregion
+
+        #region OneCertificateHasOnePurposeSaidWithItsArticle()
+
+        /// <summary>
+        /// Named with the article the kind is said with - "as an OEM root",
+        /// where it said "as a oemRoot".
+        /// </summary>
+        [Test]
+        public void OneCertificateHasOnePurposeSaidWithItsArticle()
+        {
+
+            var store = new CertificateStore(directory, log);
+
+            using var root = Root("A Root");
+
+            Assert.That(store.Import(Pem(root), CertificateKind.OEMRoot, null, null, out _, out var error), Is.True, error);
+
+            Assert.That(store.Import(Pem(root), CertificateKind.V2GRoot, null, null, out _, out var error2), Is.False);
+
+            Assert.That(error2, Is.EqualTo("That certificate is already in the store as an OEM root ('A Root'). " +
+                                           "One certificate has one purpose - remove it first to put it back as something else."));
 
         }
 

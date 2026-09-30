@@ -116,7 +116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         private void Keeps(CertificateKind Kind)
 
             => Assume.That(Node.Certificates.Kinds, Does.Contain(Kind),
-                           $"The store of a {Node.Kind.Name} keeps no {Kind.AsText()}.");
+                           $"The store of this {Node.Kind.Name} keeps no {Kind.AsText()}.");
 
         /// <summary>
         /// A TLS root of the given name, put into the store through the API,
@@ -180,8 +180,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                 foreach (var kind in kinds)
                 {
-                    Assert.That(store["kinds"]![kind.AsText()]!["hasUsages"]!.Value<Boolean>(),  Is.EqualTo(Node.Certificates.HasUsages(kind)),  $"whether a {kind.AsText()} is told what it is for");
-                    Assert.That(store["kinds"]![kind.AsText()]!["usages"]!.Values<String>(),     Is.EqualTo(Node.Certificates.UsagesFor(kind)),  $"what a {kind.AsText()} may be told");
+                    Assert.That(store["kinds"]![kind.AsText()]!["hasUsages"]!.Value<Boolean>(),  Is.EqualTo(Node.Certificates.HasUsages(kind)),  $"whether {kind.WithArticle()} is told what it is for");
+                    Assert.That(store["kinds"]![kind.AsText()]!["usages"]!.Values<String>(),     Is.EqualTo(Node.Certificates.UsagesFor(kind)),  $"what {kind.WithArticle()} may be told");
                 }
 
                 if (kinds.Contains(CertificateKind.TLSRoot))
@@ -219,7 +219,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                            Select(kind => (CertificateKind?) kind).
                            FirstOrDefault();
 
-            Assume.That(kind, Is.Not.Null, $"The store of a {Node.Kind.Name} keeps no root that is not told what it is for.");
+            Assume.That(kind, Is.Not.Null, $"The store of this {Node.Kind.Name} keeps no root that is not told what it is for.");
 
             using var http  = await SignedIn();
 
@@ -482,7 +482,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             // left without one - see WWCPNode.WhatWouldLose - and a node of
             // that kind is not asked here what it would do without this one.
             Assume.That(Node.WhatWouldLose(stored, false, stored.Usages), Is.Null,
-                        $"A {Node.Kind.Name} needs the identity it has just been given.");
+                        $"This {Node.Kind.Name} needs the identity it has just been given.");
 
             var path              = $"api/v1/certificates/{entry["id"]}";
             var file              = Node.Certificates.FullPath(stored);
@@ -671,7 +671,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(new[] { dns, nts, patch, reload, delete }, Is.All.EqualTo(HttpStatusCode.OK));
                 Assert.That(said, Has.One.EqualTo($"Notice: '{AdminLogin}' changed the name resolution of this {Node.Kind.Name}."));
                 Assert.That(said, Has.One.EqualTo($"Notice: '{AdminLogin}' changed the time source of this {Node.Kind.Name}."));
-                Assert.That(said, Has.One.EqualTo($"Notice: '{AdminLogin}' put 'A Root Somebody Put In' into the certificate store as a tlsRoot ({handle})."));
+                Assert.That(said, Has.One.EqualTo($"Notice: '{AdminLogin}' put 'A Root Somebody Put In' into the certificate store as a TLS root ({handle})."));
                 Assert.That(said, Has.One.EqualTo($"Notice: '{AdminLogin}' changed the certificate 'A Root Somebody Renamed' ({handle}) in the certificate store."));
                 Assert.That(said, Has.One.EqualTo($"Notice: '{AdminLogin}' had the certificate store read again from its directory."));
                 Assert.That(said, Has.One.EqualTo($"Notice: '{AdminLogin}' took the certificate 'A Root Somebody Renamed' ({handle}) out of the certificate store."));

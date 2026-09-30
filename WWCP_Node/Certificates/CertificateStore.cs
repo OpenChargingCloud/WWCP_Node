@@ -656,13 +656,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     if (existing.Thumbprint != thumbprint)
                     {
                         Error = $"The handle '{id}' is already taken by a different certificate " +
-                                 "({existing.Label}). Remove that one first.";
+                                $"('{existing.Label}'). Remove that one first.";
                         return false;
                     }
 
                     if (existing.Kind != Kind)
                     {
-                        Error = $"That certificate is already in the store as a {existing.Kind.AsText()} " +
+                        Error = $"That certificate is already in the store as {existing.Kind.WithArticle()} " +
                                 $"('{existing.Label}'). One certificate has one purpose - remove it first " +
                                  "to put it back as something else.";
                         return false;
@@ -1287,10 +1287,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (allowed.Count == 0)
             {
                 Error = isIdentity
-                            ? $"A {Kind.AsText()} is shown on every listener of this {NodeName}, which names none an identity " +
+                            ? $"{Kind.CapitalisedWithArticle()} is shown on every listener of this {NodeName}, which names none an identity " +
                                "could be told of: only a TLS root and a server certificate are kept for some uses and not " +
                                "others, and a TLS identity is shown on the listeners a kind of node names."
-                            : $"A {Kind.AsText()} is for what its kind says, and is not told what it is used for: " +
+                            : $"{Kind.CapitalisedWithArticle()} is for what its kind says, and is not told what it is used for: " +
                                "only a TLS root and a server certificate are kept for some uses and not others, " +
                                "and a TLS identity is shown on some listeners and not others.";
                 return false;
@@ -1781,7 +1781,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             if (Kind.NeedsPrivateKey() && !Leaf.HasPrivateKey)
             {
-                Error = $"A {Kind.Describe()} has to carry its private key, and that file has none. " +
+                Error = $"{Kind.CapitalisedWithArticle()} has to carry its private key, and that file has none. " +
                          "It is probably a PKCS#12 that needs a password, or the public half of the pair.";
                 return false;
             }

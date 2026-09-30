@@ -172,7 +172,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
             }
 
-            Log.Notice($"'{user.Id}' put '{entry.Label}' into the certificate store as a {entry.Kind.AsText()} ({entry.Id}).",
+            Log.Notice($"'{user.Id}' put '{entry.Label}' into the certificate store as {entry.Kind.WithArticle()} ({entry.Id}).",
                        "certificates", "web");
 
             return Task.FromResult(

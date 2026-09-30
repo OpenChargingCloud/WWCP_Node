@@ -430,6 +430,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region WithArticle(this Kind) / CapitalisedWithArticle(this Kind)
+
+        /// <summary>
+        /// This kind's name with the article it is said with, for a sentence
+        /// that names one: "an OEM root", "a TLS root".
+        /// </summary>
+        /// <remarks>
+        /// Written down with each name rather than worked out from its first
+        /// letter, because it goes by how the name is said: "an OEM root" but
+        /// "a V2G root". A sentence that put "A" in front of whatever came
+        /// next refused a keyless OEM provisioning certificate as "A OEM
+        /// provisioning certificate - what this vehicle was born with has to
+        /// carry its private key", with the whole of <see cref="Describe(CertificateKind)"/>
+        /// in the middle of it.
+        /// </remarks>
+        public static String WithArticle(this CertificateKind Kind)
+
+            => Kind switch {
+                   CertificateKind.V2GRoot             => "a V2G root",
+                   CertificateKind.MORoot              => "a Mobility Operator root",
+                   CertificateKind.OEMRoot             => "an OEM root",
+                   CertificateKind.Vehicle             => "a vehicle certificate",
+                   CertificateKind.Contract            => "a contract certificate",
+                   CertificateKind.OEMProvisioning     => "an OEM provisioning certificate",
+                   CertificateKind.TariffVerification  => "a tariff certificate",
+                   CertificateKind.TLSRoot             => "a TLS root",
+                   CertificateKind.ClientRoot          => "a client root",
+                   CertificateKind.TLSServer           => "a server certificate",
+                   CertificateKind.TLSIdentity         => "a TLS identity",
+                   _                                   => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown certificate kind.")
+               };
+
+        /// <summary>
+        /// The same at the start of a sentence: "An OEM root".
+        /// </summary>
+        public static String CapitalisedWithArticle(this CertificateKind Kind)
+        {
+
+            var named = Kind.WithArticle();
+
+            return Char.ToUpperInvariant(named[0]) + named[1..];
+
+        }
+
+        #endregion
+
         #region SortOrder(this Kind)
 
         /// <summary>

@@ -263,7 +263,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                             "The stream was not sent the line the stop begins with, so this cannot tell a stop that ends the streams from one that line rescues.");
 
                 Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                            $"A {Node.Kind.Name} with one open event stream took {elapsed.TotalSeconds:F1} s to stop. " +
+                            $"This {Node.Kind.Name} with one open event stream took {elapsed.TotalSeconds:F1} s to stop. " +
                             "The streams are not being ended before the server is.");
 
             });
@@ -309,7 +309,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                 "Not every stream was sent the line the stop begins with, so this cannot tell a stop that ends the streams from one that line rescues.");
 
                     Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                                $"A {Node.Kind.Name} with {streams.Count} open event streams took {elapsed.TotalSeconds:F1} s to stop.");
+                                $"This {Node.Kind.Name} with {streams.Count} open event streams took {elapsed.TotalSeconds:F1} s to stop.");
 
                 });
 
@@ -360,7 +360,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var elapsed      = await TimeTheStop(Node);
 
             Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                        $"A {Node.Kind.Name} whose event stream had sent a heartbeat took {elapsed.TotalSeconds:F1} s to stop. " +
+                        $"This {Node.Kind.Name}, whose event stream had sent a heartbeat, took {elapsed.TotalSeconds:F1} s to stop. " +
                         "The stream is not stopping the enumerator it waits on.");
 
         }
