@@ -137,6 +137,16 @@ describe('a path, a token or an address in a sentence', () => {
 
     });
 
+    it('keeps to one piece as code in a table, which scrolls in its card instead', () => {
+
+        // Code that may break anywhere is as narrow as one letter, and a table
+        // narrows its column to that rather than scroll: on a phone the EMSP's
+        // serial numbers stood ten lines high and 29 pixels wide, and a UID of
+        // eight letters took three lines (found by the EMSP).
+        assert.equal(rule(rulesOf('_tables.scss'), '.table-scroll', 'code').declarations.get('overflow-wrap'), 'normal');
+
+    });
+
 });
 
 

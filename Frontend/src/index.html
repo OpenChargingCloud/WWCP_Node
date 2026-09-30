@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- The one page of every kind of node, served for all of its addresses.
+         The kind's webpack names itself into it - title and description from
+         its HtmlWebpackPlugin, the version from its package.json - and the
+         node fills in every {{...}} as it serves it, which
+         html-webpack-plugin leaves alone. -->
+    <% if (!htmlWebpackPlugin.options.description) throw new Error('The page wants a description: what the kind of node is, as HtmlWebpackPlugin({ description: ... }).'); %>
+
+    <!-- Everything relative in this page - the bundle, its assets, its fonts -
+         resolves against this rather than against the page's own depth, so
+         that /logs and /configuration/dns both find the same files. -->
+    <base href="{{BasePath}}/" />
+
+    <title><%= htmlWebpackPlugin.options.title %></title>
+
+    <meta name="description"       content="<%= htmlWebpackPlugin.options.description %>" />
+    <meta name="author"            content="Achim Friedland // GraphDefined GmbH" />
+
+    <!-- Runtime configuration for the bundle: read via document.querySelector,
+         so that no inline script is needed and the CSP can stay strict. -->
+    <meta name="api-base"          content="{{APIBase}}" />
+
+    <!-- Signing in happens here and not at the API above: Hermod's HTTPExt
+         API is the only place that can check a password. -->
+    <meta name="ext-base"          content="{{ExtBase}}" />
+    <meta name="base"              content="{{BasePath}}" />
+    <meta name="frontend-version"  content="<%= htmlWebpackPlugin.options.version %>" />
+    <meta name="server-version"    content="{{ServerVersion}}" />
+
+    <!-- What the node calls itself in everything it says, for the pages every
+         kind of node shares to say it too. -->
+    <meta name="node-name"         content="{{NodeName}}" />
+
+    <!-- html-webpack-plugin injects the hashed script and stylesheet tags. -->
+
+</head>
+
+<body>
+
+    <div id="app">
+        <noscript>This page needs JavaScript.</noscript>
+    </div>
+
+</body>
+
+</html>

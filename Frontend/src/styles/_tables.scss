@@ -4,8 +4,18 @@
 // A table that is wider than the card it sits in scrolls inside the card
 // rather than pushing the whole page sideways.
 .table-scroll {
+
     overflow-x:  auto;
     margin-top:  0.75rem;
+
+    // Code that may break anywhere counts as one letter wide, and a table
+    // narrows its column to that rather than scroll: on a phone the EMSP's
+    // serial numbers stood ten lines high and 29 pixels wide (found by the
+    // EMSP). In a table it keeps to one piece, and the table scrolls.
+    code {
+        overflow-wrap: normal;
+    }
+
 }
 
 table.records {

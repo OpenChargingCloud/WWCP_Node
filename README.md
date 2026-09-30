@@ -147,12 +147,15 @@ Beyond the names, a kind of node adds to the node in eight places:
 
 And the bundle: a kind of node hands in an `IStaticContentSource` - the
 files webpack built, embedded into its assembly - and the node serves it at
-the base path as a single-page application, with four placeholders in
-`index.html` filled in on the way out: `{{ServerVersion}}`, `{{BasePath}}`,
-`{{APIBase}}` and `{{ExtBase}}`. A bundle that reads where it is and where
-its API is out of those, rather than assuming `/` and `/api/v1`, is one that
-still works once somebody mounts it below a base path. A node handed no
-bundle has no web interface, and says so once, in an ordinary line.
+the base path as a single-page application. The page itself is the node's,
+`Frontend/src/index.html`: the kind's webpack writes its title, what it is
+and the version of its frontend into it, and the node fills in five
+placeholders on the way out: `{{ServerVersion}}`, `{{NodeName}}`,
+`{{BasePath}}`, `{{APIBase}}` and `{{ExtBase}}`. A bundle that reads where
+it is and where its API is out of those, rather than assuming `/` and
+`/api/v1`, is one that still works once somebody mounts it below a base
+path. A node handed no bundle has no web interface, and says so once, in
+an ordinary line.
 
 
 ## One file, and whoever reads it
@@ -746,7 +749,8 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - the stream closed while a page waits in the browser's back/forward cache, and what a kind publishes on the same stream |
 | `auth.ts` | who is signed in, what they may do, and the guard that sends everybody else to the sign-in |
 | `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page, and on a screen too narrow for it beside the page folded away behind a button - who is signed in, and the versions; and what a page says somebody may not do, `mayButNot()` |
-| `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in |
+| `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in, and across the browser's back/forward cache - `followAcrossTheCache()`, which a kind with a stream of its own calls for that one too |
+| `index.html` | the page itself, which every kind's webpack names itself into - its title, what it is, the version of its frontend - and the node fills in as it serves it |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
 | `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |
 | `pages/certificates.ts` | the certificate store: what the node believes, presents and recognises, and what each certificate is told it is for (`certificateUsages.ts`) |
@@ -757,7 +761,7 @@ a page's changes are left behind is "…that the local controller has not been
 told about" on a local controller and "…that the charging station has not
 been told about" on a station. The node writes its `Kind.Name` into the stub
 as it serves it - `{{NodeName}}`, like `{{ServerVersion}}` - and `config.ts`
-reads it from the kind's `index.html`:
+reads it from `index.html`:
 
 ```html
 <meta name="node-name" content="{{NodeName}}" />
@@ -864,12 +868,22 @@ and says where that is in three places, each relative to its `Frontend`
 directory - `libs/<Kind>/<Kind>/Frontend`, with this repository in
 `libs/WWCP_Node`, where its `.csproj` already finds `..\..\WWCP_Node`:
 
-* `webpack.config.js`, for the bundle:
+* `webpack.config.js`, for the bundle and its page - the node's
+  `index.html`, which the kind names itself into, and which stops the build
+  where the kind does not say what it is:
   ```js
   resolve: {
       extensions: ['.ts', '.js'],
       alias:      { '@node': path.resolve(__dirname, '../../../WWCP_Node/Frontend/src') }
-  }
+  },
+  ...
+  new HtmlWebpackPlugin({
+      template:     path.resolve(__dirname, '../../../WWCP_Node/Frontend/src/index.html'),
+      title:        'Local Controller',
+      description:  'The web interface of an OpenChargingCloud local controller, served by the Hermod HTTP/1.1 server',
+      version:      appVersion,
+      ...
+  })
   ```
 * `tsconfig.json`, for the type checker, which checks the shared files as the
   kind's own - `"paths": { "@node/*": [ "../../../WWCP_Node/Frontend/src/*" ] }`

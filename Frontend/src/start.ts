@@ -188,19 +188,24 @@ export function afterASignInChange(User:  NodeMe<string> | null,
 
 
 /**
- * The stream of the log closed while the page waits in the browser's
- * back/forward cache, and opened again when the page is shown - see
- * LogStore.pause(). A page shown for the first time rather than out of the
- * cache is left alone: its stream is the sign-in's to open.
+ * A stream closed while the page waits in the browser's back/forward cache,
+ * and opened again when the page is shown - see LogStore.pause(). A page
+ * shown for the first time rather than out of the cache is left alone: its
+ * stream is the sign-in's to open.
+ *
+ * startNode() does this for the log. A kind of node with a stream of its own
+ * does it for that one too, as the hub does for its traffic: every stream a
+ * cached page holds is one of the six connections a browser gives a host
+ * (found by the hub).
  */
 export function followAcrossTheCache(Window:  EventTarget,
-                                     Log:     Pick<LogStore, 'pause' | 'resume'>): void {
+                                     Stream:  Pick<LogStore, 'pause' | 'resume'>): void {
 
-    Window.addEventListener('pagehide', () => Log.pause());
+    Window.addEventListener('pagehide', () => Stream.pause());
 
     Window.addEventListener('pageshow', event => {
         if ((event as PageTransitionEvent).persisted)
-            Log.resume();
+            Stream.resume();
     });
 
 }

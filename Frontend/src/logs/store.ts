@@ -335,6 +335,11 @@ export class LogStore {
      * and its stream with it: four or five pages typed or bookmarked one after
      * the other held the six connections a browser gives a host, and the next
      * page waited 15 to 56 seconds for one, or for ever (found by the gateway).
+     *
+     * The page is told its stream is down before it goes: unsaid, it came out
+     * of the cache saying "live", and went on saying it where the node had
+     * gone meanwhile - a stream that never opens has nothing to say (found by
+     * the meter).
      */
     pause(): void {
 
@@ -346,8 +351,12 @@ export class LogStore {
         }
 
         this.source?.close();
-        this.source           = null;
-        this.streamConnected  = false;
+        this.source = null;
+
+        if (this.streamConnected) {
+            this.streamConnected = false;
+            this.emit({ type: 'stream' });
+        }
 
     }
 
