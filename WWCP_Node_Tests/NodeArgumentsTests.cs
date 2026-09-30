@@ -570,7 +570,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var between   = String.Join(" ", lines.Skip(kinds + 1).Take(password - kinds - 1).Select(line => line.Trim()));
 
             Assert.Multiple(() => {
-                Assert.That(said,     Does.Contain("A tlsRoot or tlsServer imported here holds for every use until the Certificates page of the web interface narrows it."));
+                Assert.That(said,     Does.Contain("A tlsRoot or tlsServer imported here holds for every use until the web interface narrows it."));
                 Assert.That(between,  Does.Contain("clientRoot and tlsIdentity are kept, and used by nothing here yet."), "below the kinds, above the next switch");
                 Assert.That(String.Join(" ", Usage([ CertificateKind.V2GRoot, CertificateKind.TLSIdentity ]).Lines()),
                             Does.Not.Contain("for every use"), "a TLS identity is told its uses by its node's listeners");

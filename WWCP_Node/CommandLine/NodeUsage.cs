@@ -534,6 +534,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// listeners of its kind of node, and is left out - and what the kind
         /// says of its store itself.
         /// </summary>
+        /// <remarks>
+        /// The page is not named: it is "Certificates" on most kinds of node and
+        /// "Certificate store" on the local controller and the CSMS, as a kind's
+        /// frontend calls it (found by the CSMS).
+        /// </remarks>
         private String AfterTheKinds()
         {
 
@@ -544,8 +549,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             return String.Join(" ",
                                new[] {
                                    forEveryUse.Length > 0
-                                       ? $"A {OneOf(forEveryUse)} imported here holds for every use until the Certificates page of the " +
-                                          "web interface narrows it."
+                                       ? $"A {OneOf(forEveryUse)} imported here holds for every use until the web interface narrows it."
                                        : null,
                                    CertificatesSays
                                }.Where(said => !String.IsNullOrWhiteSpace(said)));
