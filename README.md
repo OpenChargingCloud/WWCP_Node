@@ -150,7 +150,11 @@ Beyond the names, a kind of node adds to the node in eight places:
   and a line that begins with a space whole. A banner of its own says a name
   server through `NodeBanner.NameServer(Server)`, as the node's does. Both
   were the node's alone, and the electric vehicle and the energy meter kept
-  copies (asked for by the EV and the meter).
+  copies (asked for by the EV and the meter). The node's banner says every
+  name server on a line of its own, and a band of time servers on as many
+  lines as 80 columns need, the rest below the first at the column: the
+  PTB's four, which every node asks where its file names none, made one line
+  of 83 (found by the CSMS).
 
 And the bundle: a kind of node hands in an `IStaticContentSource` - the
 files webpack built, embedded into its assembly - and the node serves it at

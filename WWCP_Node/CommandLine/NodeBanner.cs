@@ -149,7 +149,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             Add(files);
             Add(ofKind);
             Add([ nameServers ]);
-            Add(timeServers);
+            Add(TimeServers(Node, NodeUsage.Width - column));
             Add(after);
 
             lines.AddRange(FirstStartBox(Node));
@@ -234,7 +234,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region (private static) TimeServers(Node)
+        #region (private static) TimeServers(Node, Room = Int32.MaxValue)
 
         /// <summary>
         /// The time servers, one line per band - a band is what is asked at
@@ -247,7 +247,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// And the one server the group asks rather than the single client's: a
         /// list of one in the file leaves that client where it was.
         /// </remarks>
-        private static List<(String Label, String Value)> TimeServers(WWCPNode Node)
+        /// <param name="Node">The node.</param>
+        /// <param name="Room">How wide a band's line may be beside the column: one that is wider goes on below it.</param>
+        private static List<(String Label, String Value)> TimeServers(WWCPNode  Node,
+                                                                      Int32     Room = Int32.MaxValue)
         {
 
             var bands  = Node.TimeSources.Bands();
@@ -263,13 +266,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             for (var i = 0; i < bands.Count; i++)
                 lines.Add((i == 0 ? "time servers" : "",
-                           String.Join(", ", bands[i].Select(source => source.Hostname.Trimmed)) +
-                           (bands.Count > 1 ? $"   (priority {bands[i][0].Priority})" : "")));
+                           Fitted(bands[i].Select(source => source.Hostname.Trimmed).ToArray(),
+                                  bands.Count > 1 ? $"   (priority {bands[i][0].Priority})" : "",
+                                  Room)));
 
             lines.Add(("", $"at least {Node.TimeSources.MinServers} of them must answer" +
                            (Node.NTSEnabled ? "" : " - and NTS is switched off")));
 
             return lines;
+
+        }
+
+        #endregion
+
+        #region (private static) Fitted(Names, After, Room)
+
+        /// <summary>
+        /// A band's servers, as many to a line as fit in the room beside the
+        /// column and the rest on the lines below it - broken after a server's
+        /// comma, never in its name - and what is said after them on the last.
+        /// </summary>
+        /// <remarks>
+        /// The PTB's four, which every node asks where its file names none, made
+        /// one line of 83 columns (found by the CSMS).
+        /// </remarks>
+        /// <param name="Names">The servers of the band.</param>
+        /// <param name="After">What is said after the last of them.</param>
+        /// <param name="Room">How wide a line may be.</param>
+        private static String Fitted(IReadOnlyList<String>  Names,
+                                     String                 After,
+                                     Int32                  Room)
+        {
+
+            var lines  = new List<String>();
+            var line   = "";
+
+            for (var i = 0; i < Names.Count; i++)
+            {
+
+                var name = Names[i] + (i < Names.Count - 1 ? "," : After);
+
+                if (line.Length > 0 && line.Length + 1 + name.Length > Room)
+                {
+                    lines.Add(line);
+                    line = name;
+                }
+
+                else
+                    line = line.Length > 0 ? $"{line} {name}" : name;
+
+            }
+
+            lines.Add(line);
+
+            return String.Join("\n", lines);
 
         }
 

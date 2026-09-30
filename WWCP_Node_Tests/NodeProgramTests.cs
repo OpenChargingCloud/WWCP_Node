@@ -78,24 +78,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (helper) Node(Port = null, CertificateKinds = null, NameServers = null)
+        #region (helper) Node(Port = null, CertificateKinds = null, NameServers = null, TimeServers = null)
 
         /// <summary>
         /// A node of no particular kind in this test's directory, with no
         /// accounts yet: made, not started - and with DNS switched off, unless
-        /// it is given name servers.
+        /// it is given name servers, and NTS switched off, asking the PTB's four
+        /// unless it is given time servers.
         /// </summary>
         /// <param name="NameServers">The 'servers' of the file's DNS section, as JSON.</param>
+        /// <param name="TimeServers">The 'servers' of the file's NTS section, as JSON.</param>
         private WWCPNode Node(IPPort?                        Port              = null,
                               IEnumerable<CertificateKind>?  CertificateKinds  = null,
-                              String?                        NameServers       = null)
+                              String?                        NameServers       = null,
+                              String?                        TimeServers       = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
-            File.WriteAllText(configuration, NameServers is null
-                                                 ?    """{ "dns": { "enabled": false }, "nts": { "enabled": false } }"""
-                                                 : $$"""{ "dns": { "enabled": true, "servers": {{NameServers}} }, "nts": { "enabled": false } }""");
+            var dns = NameServers is null
+                          ?    """{ "enabled": false }"""
+                          : $$"""{ "enabled": true, "servers": {{NameServers}} }""";
+
+            var nts = TimeServers is null
+                          ?    """{ "enabled": false }"""
+                          : $$"""{ "enabled": false, "servers": {{TimeServers}} }""";
+
+            File.WriteAllText(configuration, $$"""{ "dns": {{dns}}, "nts": {{nts}} }""");
 
             return new WWCPNode(
                        HTTPPort:          Port ?? IPPort.Parse(TestPorts.Free()),
@@ -309,6 +318,105 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                             "tls://[2001:db8::53]:853",
                             "udp://dns.example:53, timeout: 0.5 sec."
                         }));
+
+        }
+
+        #endregion
+
+        #region ABandOfTimeServersKeepsToTheWidthOfATerminal()
+
+        /// <summary>
+        /// A band of time servers too wide for a line beside the column goes on
+        /// below it, at the column, broken after a server's comma. The PTB's
+        /// four, which every node asks where its file names none, made one line
+        /// of 83 columns (found by the CSMS).
+        /// </summary>
+        [Test]
+        public async Task ABandOfTimeServersKeepsToTheWidthOfATerminal()
+        {
+
+            await using var node = Node();
+
+            var said = TimeServersSaid(node);
+
+            Assert.Multiple(() => {
+                Assert.That(said,                                                Has.Count.GreaterThan(1),  "the band on one line");
+                Assert.That(said.Where(line => line.Length > NodeUsage.Width),   Is.Empty,                  "a line wider than a terminal");
+                Assert.That(String.Join(" ", said.Select(line => line[NodeBanner.Column..])),
+                            Is.EqualTo(String.Join(", ", NTSConfiguration.DefaultHostnames)));
+            });
+
+        }
+
+        #endregion
+
+        #region ABandIsOneLineAsFarAsTheLastColumn(Beside, Lines)
+
+        /// <summary>
+        /// A band is one line as far as the last column of a terminal, and two
+        /// one column past it.
+        /// </summary>
+        [TestCase(31, 1)]
+        [TestCase(32, 2)]
+        public async Task ABandIsOneLineAsFarAsTheLastColumn(Int32 Beside, Int32 Lines)
+        {
+
+            // 17 columns, the first and its comma 31, a space: 49, and the second beside it.
+            var first   = new String('a', 22) + ".example";
+            var second  = new String('b', Beside - ".example".Length) + ".example";
+
+            await using var node = Node(TimeServers: $$"""[ "{{first}}", "{{second}}" ]""");
+
+            var said    = TimeServersSaid(node);
+
+            Assert.Multiple(() => {
+                Assert.That(said,                                                Has.Count.EqualTo(Lines));
+                Assert.That(said.Where(line => line.Length > NodeUsage.Width),   Is.Empty,  "a line wider than a terminal");
+                Assert.That(String.Join(" ", said.Select(line => line[NodeBanner.Column..])), Is.EqualTo($"{first}, {second}"));
+            });
+
+        }
+
+        #endregion
+
+        #region TwoBandsOfTimeServersAreALineEachWithTheirPriorities()
+
+        /// <summary>
+        /// Two bands are a line each, and each says its priority after its
+        /// servers.
+        /// </summary>
+        [Test]
+        public async Task TwoBandsOfTimeServersAreALineEachWithTheirPriorities()
+        {
+
+            await using var node = Node(TimeServers: """[ "a.example", { "hostname": "b.example", "priority": 5 } ]""");
+
+            Assert.That(TimeServersSaid(node).Select(line => line[NodeBanner.Column..]),
+                        Is.EqualTo(new[] { "a.example   (priority 0)", "b.example   (priority 5)" }));
+
+        }
+
+        #endregion
+
+        #region (helper) TimeServersSaid(Node)
+
+        /// <summary>
+        /// The banner's lines of time servers: the first, and those that go on
+        /// below it at the column, up to how many of them must answer.
+        /// </summary>
+        private static List<String> TimeServersSaid(WWCPNode Node)
+        {
+
+            var banner  = Node.Banner().ToList();
+            var first   = banner.FindIndex(line => line.StartsWith("  time servers ", StringComparison.Ordinal));
+
+            Assert.That(first, Is.Positive, "no line of time servers");
+
+            return banner.Skip     (first + 1).
+                          TakeWhile(line => line.StartsWith(new String(' ', NodeBanner.Column), StringComparison.Ordinal) &&
+                                           !line.TrimStart().StartsWith("at least ", StringComparison.Ordinal)).
+                          Prepend  (banner[first]).
+                          ToList();
 
         }
 
