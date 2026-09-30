@@ -97,7 +97,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             var files = new List<(String Label, String Value)> {
                 ("configuration",  Node.ConfigFile.Path),
-                ("accounts",       $"{Node.ExtAPI.Users.Count()} user(s) in {Node.AccountsPath}"),
+                ("accounts",       $"{Node.ExtAPI.Users.Count()} user(s) in {Path.TrimEndingDirectorySeparator(Path.GetFullPath(Node.AccountsPath))}"),
                 ("sign in at",     $"{Node.WebInterfaceURL}{extPath}/login"),
                 ("log files",      Node.LogPath ?? "none (--no-log-file)")
             };
@@ -142,7 +142,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             Add(interfaces);
             Add(beside);
-            Add([ frontend ]);
+            Add([ (frontend.Label, Broken(frontend.Value, column)) ]);
 
             lines.AddRange(Node.BuiltFrom.BannerLines(column));
 
@@ -284,11 +284,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <summary>
         /// A band's servers, as many to a line as fit in the room beside the
         /// column and the rest on the lines below it - broken after a server's
-        /// comma, never in its name - and what is said after them on the last.
+        /// comma, never in its name - and what is said after them on the last,
+        /// or on a line of its own where the last and it would not fit on one.
         /// </summary>
         /// <remarks>
         /// The PTB's four, which every node asks where its file names none, made
-        /// one line of 83 columns (found by the CSMS).
+        /// one line of 83 columns (found by the CSMS). A name of 51 characters,
+        /// last of its band, and its priority made one of 83 still (found by
+        /// the EMSP).
         /// </remarks>
         /// <param name="Names">The servers of the band.</param>
         /// <param name="After">What is said after the last of them.</param>
@@ -298,28 +301,75 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                      Int32                  Room)
         {
 
+            var items = Names.Select((name, i) => i < Names.Count - 1 ? $"{name}," : name).ToArray();
+
+            if (After.Length > 0 && (items[^1] + After).Length > Room)
+                return String.Join("\n", Lines(items, Room).Append(After.TrimStart()));
+
+            items[^1] += After;
+
+            return String.Join("\n", Lines(items, Room));
+
+        }
+
+        #endregion
+
+        #region (private static) Broken(Value, Column)
+
+        /// <summary>
+        /// A value broken between its words at <see cref="NodeUsage.Width"/>,
+        /// beside the column and below it, as everything the command line says
+        /// is: a word wider than a line has one of its own, and a dash or a
+        /// number stays with the word before it.
+        /// </summary>
+        /// <remarks>
+        /// Where the web interface comes from was one line of 100 columns at
+        /// the gateway and of 90 at the electric vehicle, the resources and
+        /// the assembly they are embedded in named in full (found by the
+        /// gateway and the EV).
+        /// </remarks>
+        /// <param name="Value">What is said.</param>
+        /// <param name="Column">Where the value begins.</param>
+        private static String Broken(String  Value,
+                                     Int32   Column)
+
+            => String.Join("\n", NodeUsage.Wrap(Value, new String(' ', Column), new String(' ', Column)).
+                                           Select(line => line[Column..]));
+
+        #endregion
+
+        #region (private static) Lines(Items, Room)
+
+        /// <summary>
+        /// Items, a space between two of them, as many to a line as fit in the
+        /// room; an item wider than that has a line of its own.
+        /// </summary>
+        /// <param name="Items">What is said, in the pieces it may be broken between.</param>
+        /// <param name="Room">How wide a line may be.</param>
+        private static List<String> Lines(IEnumerable<String>  Items,
+                                          Int32                Room)
+        {
+
             var lines  = new List<String>();
             var line   = "";
 
-            for (var i = 0; i < Names.Count; i++)
+            foreach (var item in Items)
             {
 
-                var name = Names[i] + (i < Names.Count - 1 ? "," : After);
-
-                if (line.Length > 0 && line.Length + 1 + name.Length > Room)
+                if (line.Length > 0 && line.Length + 1 + item.Length > Room)
                 {
                     lines.Add(line);
-                    line = name;
+                    line = item;
                 }
 
                 else
-                    line = line.Length > 0 ? $"{line} {name}" : name;
+                    line = line.Length > 0 ? $"{line} {item}" : item;
 
             }
 
             lines.Add(line);
 
-            return String.Join("\n", lines);
+            return lines;
 
         }
 

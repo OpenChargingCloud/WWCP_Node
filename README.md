@@ -154,7 +154,12 @@ Beyond the names, a kind of node adds to the node in eight places:
   name server on a line of its own, and a band of time servers on as many
   lines as 80 columns need, the rest below the first at the column: the
   PTB's four, which every node asks where its file names none, made one line
-  of 83 (found by the CSMS).
+  of 83 (found by the CSMS). A band's priority has a line of its own where
+  it would not fit beside the last server (found by the EMSP). Where the web
+  interface comes from is broken between its words the same way - 100
+  columns at the gateway (found by the gateway and the EV) - and where the
+  accounts are is said in full, without a separator at the end, as the other
+  files are (found by the EV).
 
 And the bundle: a kind of node hands in an `IStaticContentSource` - the
 files webpack built, embedded into its assembly - and the node serves it at

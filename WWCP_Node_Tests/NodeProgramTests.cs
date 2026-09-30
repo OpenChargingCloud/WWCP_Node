@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -25,6 +26,7 @@ using System.Security.Cryptography.X509Certificates;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.CommandLine;
@@ -78,7 +80,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (helper) Node(Port = null, CertificateKinds = null, NameServers = null, TimeServers = null)
+        #region (helper) Node(Port = null, CertificateKinds = null, NameServers = null, TimeServers = null, Accounts = null, Frontend = null)
 
         /// <summary>
         /// A node of no particular kind in this test's directory, with no
@@ -88,10 +90,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// </summary>
         /// <param name="NameServers">The 'servers' of the file's DNS section, as JSON.</param>
         /// <param name="TimeServers">The 'servers' of the file's NTS section, as JSON.</param>
+        /// <param name="Accounts">Where its accounts are, as the command line would have given it; its directory's own by default.</param>
+        /// <param name="Frontend">Its web interface; none by default.</param>
         private WWCPNode Node(IPPort?                        Port              = null,
                               IEnumerable<CertificateKind>?  CertificateKinds  = null,
                               String?                        NameServers       = null,
-                              String?                        TimeServers       = null)
+                              String?                        TimeServers       = null,
+                              String?                        Accounts          = null,
+                              IStaticContentSource?          Frontend          = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
@@ -108,8 +114,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             return new WWCPNode(
                        HTTPPort:          Port ?? IPPort.Parse(TestPorts.Free()),
-                       AccountsPath:      Path.Combine(directory, "accounts"),
+                       AccountsPath:      Accounts ?? Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
+                       Frontend:          Frontend,
                        CertificatesPath:  Path.Combine(directory, "certificates"),
                        CertificateKinds:  CertificateKinds,
                        LogToConsole:      false,
@@ -181,7 +188,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(banner, Has.Some.EqualTo($"  event stream   {node.APIURL}v1/events"));
                 Assert.That(banner, Has.Some.EqualTo($"  HTTPExt API    {node.WebInterfaceURL}ext/"));
                 Assert.That(banner, Has.Some.EqualTo($"  configuration  {node.ConfigFile.Path}"));
-                Assert.That(banner, Has.Some.EqualTo($"  accounts       1 user(s) in {node.AccountsPath}"));
+                Assert.That(banner, Has.Some.EqualTo($"  accounts       1 user(s) in {Path.TrimEndingDirectorySeparator(node.AccountsPath)}"));
                 Assert.That(banner, Has.Some.EqualTo($"  sign in at     {node.WebInterfaceURL}ext/login"));
                 Assert.That(banner, Has.Some.EqualTo( "  log files      none (--no-log-file)"));
                 Assert.That(banner, Has.Some.EqualTo($"  certificates   0 in {node.Certificates.Directory}"));
@@ -393,6 +400,139 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(TimeServersSaid(node).Select(line => line[NodeBanner.Column..]),
                         Is.EqualTo(new[] { "a.example   (priority 0)", "b.example   (priority 5)" }));
+
+        }
+
+        #endregion
+
+        #region APriorityThatWouldNotFitBesideTheLastServerHasALineOfItsOwn(Length, Said)
+
+        /// <summary>
+        /// A band's priority stays with its last server as far as the last
+        /// column of a terminal, and has a line of its own past it: a name of 51
+        /// characters, last of its band, and its priority made one line of 83
+        /// (found by the EMSP).
+        /// </summary>
+        [TestCase(48, new[] { "a.example,", "{0}   (priority 0)", "b.example   (priority 5)" })]
+        [TestCase(49, new[] { "a.example, {0}", "(priority 0)", "b.example   (priority 5)" })]
+        public async Task APriorityThatWouldNotFitBesideTheLastServerHasALineOfItsOwn(Int32 Length, String[] Said)
+        {
+
+            var name = new String('x', Length - ".example".Length) + ".example";
+
+            await using var node = Node(TimeServers: $$"""[ "a.example", "{{name}}", { "hostname": "b.example", "priority": 5 } ]""");
+
+            var said = TimeServersSaid(node);
+
+            Assert.Multiple(() => {
+                Assert.That(said.Select(line => line[NodeBanner.Column..]),       Is.EqualTo(Said.Select(line => String.Format(line, name))));
+                Assert.That(said.Where(line => line.Length > NodeUsage.Width),   Is.Empty,  "a line wider than a terminal");
+            });
+
+        }
+
+        #endregion
+
+        #region AServerWiderThanALineHasOneOfItsOwnAndNothingAfterIt()
+
+        /// <summary>
+        /// A server whose name is wider than the room beside the column has a
+        /// line of its own, as a path has, and nothing is said after it where
+        /// its band has no priority to say.
+        /// </summary>
+        [Test]
+        public async Task AServerWiderThanALineHasOneOfItsOwnAndNothingAfterIt()
+        {
+
+            var name = new String('x', 56) + ".example";
+
+            await using var node = Node(TimeServers: $$"""[ "a.example", "{{name}}" ]""");
+
+            Assert.That(TimeServersSaid(node).Select(line => line[NodeBanner.Column..]),
+                        Is.EqualTo(new[] { "a.example,", name }));
+
+        }
+
+        #endregion
+
+        #region WhereTheWebInterfaceComesFromKeepsToTheWidthOfATerminal()
+
+        /// <summary>
+        /// Where the web interface comes from is broken between its words at
+        /// the width of a terminal, and goes on below at the column: the
+        /// resources and the assembly they are embedded in, named in full, were
+        /// one line of 100 columns at the gateway and of 90 at the electric
+        /// vehicle (found by the gateway and the EV).
+        /// </summary>
+        [Test]
+        public async Task WhereTheWebInterfaceComesFromKeepsToTheWidthOfATerminal()
+        {
+
+            var bundle = new ABundle("7 embedded resources 'cloud.charging.open.protocols.WWCP.Node.Tests.HTTPRoot.*' of assembly 'WWCP_Node_Tests'");
+
+            await using var node = Node(Frontend: bundle);
+
+            var banner = node.Banner().ToList();
+            var first  = banner.FindIndex(line => line.StartsWith("  frontend from ", StringComparison.Ordinal));
+
+            Assert.That(first, Is.Positive, "no line of where the web interface comes from");
+
+            var said   = banner.Skip     (first + 1).
+                                TakeWhile(line => line.StartsWith(new String(' ', NodeBanner.Column), StringComparison.Ordinal)).
+                                Prepend  (banner[first]).
+                                ToList();
+
+            Assert.Multiple(() => {
+                Assert.That(said,                                                Has.Count.GreaterThan(1),  "on one line");
+                Assert.That(said.Where(line => line.Length > NodeUsage.Width),   Is.Empty,                  "a line wider than a terminal");
+                Assert.That(String.Join(" ", said.Select(line => line[NodeBanner.Column..])), Is.EqualTo(bundle.Description));
+            });
+
+        }
+
+        /// <summary>
+        /// A web interface of one page, which says what it is in whatever words
+        /// it is given.
+        /// </summary>
+        private sealed class ABundle(String Description) : IStaticContentSource
+        {
+
+            public String   Description    { get; } = Description;
+
+            public Boolean  IsImmutable    => true;
+
+            public Boolean  TryGet(String RelativePath, [NotNullWhen(true)] out StaticFile? File)
+            {
+                File = RelativePath == WWCPNode.IndexFile
+                           ? StaticFile.Create(RelativePath, "<!doctype html><title>{{NodeName}}</title>"u8.ToArray())
+                           : null;
+                return File is not null;
+            }
+
+        }
+
+        #endregion
+
+        #region TheAccountsAreSaidWhereTheyAreAsTheOtherFilesAre()
+
+        /// <summary>
+        /// Where the accounts are is said in full and as the system writes it,
+        /// with no separator at the end, as the configuration, the log files and
+        /// the certificates are: it was said as the command line had it, and
+        /// with the separator the node puts at its end for the accounts' own
+        /// use - "C:/.../accounts\" (found by the EV).
+        /// </summary>
+        [Test]
+        public async Task TheAccountsAreSaidWhereTheyAreAsTheOtherFilesAre()
+        {
+
+            var accounts = Path.Combine(directory, "accounts");
+
+            await using var node = Node(Accounts: accounts.Replace('\\', '/') + "/");
+
+            var line = node.Banner().SingleOrDefault(line => line.StartsWith("  accounts ", StringComparison.Ordinal));
+
+            Assert.That(line, Does.EndWith($" user(s) in {Path.GetFullPath(accounts)}"));
 
         }
 
