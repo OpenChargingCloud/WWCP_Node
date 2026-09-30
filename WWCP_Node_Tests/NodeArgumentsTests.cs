@@ -62,6 +62,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     BeforeTheLog:          Before,
                     CertificatesSays:      CertificatesSays);
 
+        /// <summary>
+        /// A file that is there whenever these tests run: their own assembly.
+        /// </summary>
+        private static String ThisFile()
+
+            => typeof(NodeArgumentsTests).Assembly.Location;
+
         #endregion
 
 
@@ -442,8 +449,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                             Is.EqualTo(2));
                 Assert.That(nothing.ToString().TrimEnd(),
                             Is.EqualTo("'nothing' is not a kind of certificate this test node keeps. Use one of tlsRoot, tlsServer, tlsIdentity."));
-                Assert.That(NodeArguments.Parse([ "--import-certificate", "tlsRoot=root.pem" ]).Refused(Usage(tls)),
+                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={ThisFile()}" ]).Refused(Usage(tls)),
                             Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region AFileThatIsNotThereIsRefusedBeforeTheNodeIsMade()
+
+        /// <summary>
+        /// A file to import that is not there is refused with the command line
+        /// too, before the node is made: said once the node was made, it left
+        /// behind a certificate store and a log with the signing key of the
+        /// log book, for nothing (found by the hub).
+        /// </summary>
+        [Test]
+        public void AFileThatIsNotThereIsRefusedBeforeTheNodeIsMade()
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            var missing  = Path.Combine(Path.GetTempPath(), $"not-there-{Guid.NewGuid():N}.pem");
+            var said     = new StringWriter();
+
+            Assert.Multiple(() => {
+                Assert.That(NodeArguments.Parse([ "--import-certificate", $"tlsRoot={ThisFile()}",
+                                                  "--import-certificate", $"tlsServer={missing}" ]).Refused(Usage(tls), TextWriter.Null, said),
+                            Is.EqualTo(2));
+                Assert.That(said.ToString().TrimEnd(),
+                            Is.EqualTo($"--import-certificate: there is no file '{missing}'."));
             });
 
         }

@@ -405,15 +405,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <summary>
         /// What Main returns when this command line is not to be run: 0 after
         /// the usage for -h, 2 after the problem for a switch that cannot be
-        /// followed, or for a certificate of a kind the node does not keep;
-        /// null when it is to be run.
+        /// followed, for a certificate of a kind the node does not keep, or for
+        /// one in a file that is not there; null when it is to be run.
         /// </summary>
         /// <remarks>
         /// A kind the node does not keep is said here, before the node is made,
         /// in the node's words and with its kinds. Said once the node was made,
         /// it came after nine lines of log and a mobility operator's root the
         /// EMSP had made meanwhile, and named all eleven kinds there are before
-        /// that (found by the hub, the EMSP, the gateway and the CSMS).
+        /// that (found by the hub, the EMSP, the gateway and the CSMS). So is a
+        /// file that is not there, which had left a certificate store and a log
+        /// with the signing key of the log book behind (found by the hub).
         /// </remarks>
         /// <param name="Usage">What -h shows, with the kinds of certificate the node keeps.</param>
         /// <param name="Out">Where the usage goes; the console by default.</param>
@@ -437,18 +439,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 return 2;
             }
 
-            foreach (var (kind, _) in imports)
+            foreach (var (kind, file) in imports)
             {
+
                 if (!Usage.CertificateKinds.Contains(kind))
                 {
                     (Error ?? Console.Error).WriteLine(NotKeptBy(Usage, kind.AsText()));
                     return 2;
                 }
+
+                if (!File.Exists(file))
+                {
+                    (Error ?? Console.Error).WriteLine(NoFile(file));
+                    return 2;
+                }
+
             }
 
             return null;
 
         }
+
+        #endregion
+
+        #region (internal static) NoFile(File)
+
+        /// <summary>
+        /// A file to import that is not there.
+        /// </summary>
+        internal static String NoFile(String File)
+
+            => $"--import-certificate: there is no file '{File}'.";
 
         #endregion
 

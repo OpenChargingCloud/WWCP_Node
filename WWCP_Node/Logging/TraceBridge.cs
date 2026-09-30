@@ -104,6 +104,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
             ("rejected",    LogLevel.Warning)
         ];
 
+        /// <summary>
+        /// What the table above takes for trouble, and is not. "Could not find
+        /// database file" is what the HTTPExt API says at every first start,
+        /// whose first account is made next and said by the node itself: as a
+        /// warning, it stood on the console even with --quiet, right above the
+        /// box that says this is a first start (found by the charging station).
+        /// </summary>
+        private static readonly String[] noTrouble = [
+            "Could not find database file"
+        ];
+
         private readonly EventLog                        log;
         private readonly (String Needle, String Tag)[]  tags;
         private readonly StringBuilder                   pending = new();
@@ -314,10 +325,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
         /// <summary>
         /// How loudly a bridged line asks to be read. DebugX knows no levels,
-        /// so a line that says it is about a failure is taken at its word.
+        /// so a line that says it is about a failure is taken at its word -
+        /// unless it is one that only sounds like one.
         /// </summary>
         private static LogLevel LevelFor(String Line)
         {
+
+            if (noTrouble.Any(phrase => Line.Contains(phrase, StringComparison.OrdinalIgnoreCase)))
+                return LogLevel.Debug;
 
             foreach (var (needle, level) in levelTable)
             {

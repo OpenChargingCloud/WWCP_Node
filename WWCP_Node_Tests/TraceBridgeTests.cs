@@ -98,6 +98,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region (helper) LevelOf(Line)
+
+        /// <summary>
+        /// How loudly a line is logged: written into a bridge of its own, and
+        /// read back from that bridge's log.
+        /// </summary>
+        private static LogLevel LevelOf(String Line)
+        {
+
+            var log = new EventLog();
+
+            using (var bridge = TraceBridge.Attach(log))
+                bridge.WriteLine(Line);
+
+            return log.Recent(100).Single(entry => entry.Message == Line).Level;
+
+        }
+
+        #endregion
+
+
+        #region AFirstStartsMissingAccountsAreNoWarning()
+
+        /// <summary>
+        /// "Could not find database file" is what the HTTPExt API says at every
+        /// first start, whose first account is made next and said by the node
+        /// itself. As a warning it stood on the console even with --quiet,
+        /// right above the box that says this is a first start (found by the
+        /// charging station). A database file that could not be read stays one.
+        /// </summary>
+        [Test]
+        public void AFirstStartsMissingAccountsAreNoWarning()
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(LevelOf(@"Could not find database file 'C:\Node\accounts\UsersAPI\users.db'!"),
+                            Is.EqualTo(LogLevel.Debug));
+                Assert.That(LevelOf(@"Could not (re-)load database file 'C:\Node\accounts\UsersAPI\users.db': Access to the path is denied."),
+                            Is.EqualTo(LogLevel.Warning));
+            });
+
+        }
+
+        #endregion
+
 
         #region AWordThatOnlyEndsInAProtocolNameIsNotAboutIt()
 

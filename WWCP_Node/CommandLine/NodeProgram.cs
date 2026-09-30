@@ -251,8 +251,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                     yield return $"Port {port} is privileged. Either start this as root, or publish it and, once:";
                     yield return  "  sudo setcap cap_net_bind_service=+ep <the published program>";
                     yield return $"or pick a port above 1024{(option is not null ? $" with {option}" : "")}.";
-                    yield return  "Not on dotnet itself, which runs this now: that would give the ports below";
-                    yield return  "1024 to every .NET program on this machine.";
+                    yield return  "Not on dotnet itself, which runs this now: that would give the ports";
+                    yield return  "below 1024 to every .NET program on this machine.";
                     yield break;
                 }
 
@@ -344,7 +344,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                 if (!File.Exists(file))
                 {
-                    Error.WriteLine($"--import-certificate: there is no file '{file}'.");
+                    Error.WriteLine(NodeArguments.NoFile(file));
                     return 2;
                 }
 

@@ -444,7 +444,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// Started as "dotnet LocalControllerCLI.dll", the program is the dotnet
         /// host, and setcap on it would give the ports below 1024 to every .NET
         /// program on the machine (found by the hub and the gateway): the right
-        /// goes to a published program, or the node to a port above 1024.
+        /// goes to a published program, or the node to a port above 1024. And
+        /// "below 1024" stays on one line: broken after "below", the next line
+        /// began with the number (found by the meter).
         /// </summary>
         [TestCase("/usr/share/dotnet/dotnet")]
         [TestCase("/home/someone/.dotnet/dotnet")]
@@ -462,6 +464,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(advice.Where(line => line.Contains("setcap") && line.Contains(Dotnet)), Is.Empty, String.Join("\n", advice));
                 Assert.That(advice, Does.Contain("  sudo setcap cap_net_bind_service=+ep <the published program>"));
                 Assert.That(advice, Does.Contain("or pick a port above 1024 with --port."));
+                Assert.That(String.Join(" ", advice),
+                            Does.Contain("Not on dotnet itself, which runs this now: that would give the ports below 1024 to every .NET program on this machine."));
+                Assert.That(advice.Where(line => line.EndsWith(" below") || line.EndsWith(" above")), Is.Empty,
+                            String.Join("\n", advice));
             });
 
         }
