@@ -17,6 +17,10 @@
 
 #region Usings
 
+using System.Globalization;
+
+using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 #endregion
@@ -102,7 +106,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 files.Add(("certificates", $"{Node.Certificates.Entries.Count} in {Node.Certificates.Directory}"));
 
             (String Label, String Value) nameServers = ("name servers", Node.DNSEnabled
-                                                   ? String.Join(", ", Node.DNSClient.DNSServers)
+                                                   ? String.Join("\n", Node.DNSClient.DNSServers.Select(NameServer))
                                                    : "switched off");
 
             var timeServers = TimeServers(Node);
@@ -190,6 +194,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
+
+        #region (private static) NameServer(Server)
+
+        /// <summary>
+        /// One name server, for a line of its own, as people write it: an IPv6
+        /// address in the short form of RFC 5952, as the page shows it -
+        /// "tls://[2001:db8::53]:853" - a name without the root's dot, and the
+        /// server's own timeout, if it has one, as the file says it: 0.5
+        /// seconds, not 0.
+        /// </summary>
+        /// <remarks>
+        /// Not Hermod's ToString(), which spells every group of an IPv6 address
+        /// out and keeps doing so: the log says a server that way, and the name
+        /// under which a node keeps what it knows of a server is spelled out
+        /// alike (see WWCPNode.NameOf). A machine's own name servers, IPv6 among
+        /// them, made one line of 247 characters with it, and a timeout after a
+        /// comma among the servers read as one more of them.
+        /// </remarks>
+        /// <param name="Server">A name server the node asks.</param>
+        private static String NameServer(DNSServerConfig Server)
+        {
+
+            var host = Server.DomainName?.Trimmed
+                           ?? Server.IPAddress switch {
+                                  null                   => "<unknown>",
+                                  { IsIPv6: true } ipv6  => $"[{ipv6.ToString(IPv6Format.Short)}]",
+                                  var ipv4               => ipv4.ToString()
+                              };
+
+            return $"{Server.Transport.ToString().ToLowerInvariant()}://{host}:{Server.Port}" +
+                   (Server.QueryTimeout is TimeSpan timeout
+                        ? $", timeout: {timeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} sec."
+                        : "");
+
+        }
+
+        #endregion
 
         #region (private static) TimeServers(Node)
 

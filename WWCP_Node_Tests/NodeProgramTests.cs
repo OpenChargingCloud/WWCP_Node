@@ -78,19 +78,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (helper) Node(Port = null, CertificateKinds = null)
+        #region (helper) Node(Port = null, CertificateKinds = null, NameServers = null)
 
         /// <summary>
         /// A node of no particular kind in this test's directory, with no
-        /// accounts yet: made, not started.
+        /// accounts yet: made, not started - and with DNS switched off, unless
+        /// it is given name servers.
         /// </summary>
+        /// <param name="NameServers">The 'servers' of the file's DNS section, as JSON.</param>
         private WWCPNode Node(IPPort?                        Port              = null,
-                              IEnumerable<CertificateKind>?  CertificateKinds  = null)
+                              IEnumerable<CertificateKind>?  CertificateKinds  = null,
+                              String?                        NameServers       = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
-            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+            File.WriteAllText(configuration, NameServers is null
+                                                 ?    """{ "dns": { "enabled": false }, "nts": { "enabled": false } }"""
+                                                 : $$"""{ "dns": { "enabled": true, "servers": {{NameServers}} }, "nts": { "enabled": false } }""");
 
             return new WWCPNode(
                        HTTPPort:          Port ?? IPPort.Parse(TestPorts.Free()),
@@ -234,6 +239,50 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(index("  V2G"),           Is.GreaterThan(index("  time server")));
                 Assert.That(banner[index("  meter cert") + 1], Is.EqualTo("                 valid until 2027"));
             });
+
+        }
+
+        #endregion
+
+        #region EveryNameServerIsSaidOnALineOfItsOwnAsPeopleWriteIt()
+
+        /// <summary>
+        /// Every name server on a line of its own, below the first, and each as
+        /// people write it: an IPv6 address in the short form of RFC 5952, as
+        /// the page shows it, and a name without the root's dot. All on one line
+        /// and spelled out, the name servers of a machine with IPv6 were a line
+        /// of 247 characters; and a server's own timeout, after a comma among
+        /// the servers, read as one more of them.
+        /// </summary>
+        [Test]
+        public async Task EveryNameServerIsSaidOnALineOfItsOwnAsPeopleWriteIt()
+        {
+
+            await using var node = Node(NameServers: """
+                                                     [ { "address": "192.0.2.53",                               "queryTimeoutSeconds": 3   },
+                                                       { "address": "2001:0db8:0000:0000:0000:0000:0000:0053",  "transport": "TLS"         },
+                                                       { "address": "::1",  "port": 5353,                       "queryTimeoutSeconds": 0.5 },
+                                                       { "address": "dns.example",                              "transport": "TLS"         } ]
+                                                     """);
+
+            var banner  = node.Banner().ToList();
+            var first   = banner.FindIndex(line => line.StartsWith("  name servers   "));
+
+            Assert.That(first, Is.Positive, "no line of name servers");
+
+            // Its line, and the lines below it that go on at the column.
+            var said    = banner.Skip     (first + 1).
+                                 TakeWhile(line => line.StartsWith(new String(' ', NodeBanner.Column))).
+                                 Prepend  (banner[first]).
+                                 Select   (line => line[NodeBanner.Column..]).
+                                 ToList();
+
+            Assert.That(said, Is.EquivalentTo(new[] {
+                                  "udp://192.0.2.53:53, timeout: 3 sec.",
+                                  "tls://[2001:db8::53]:853",
+                                  "udp://[::1]:5353, timeout: 0.5 sec.",
+                                  "tls://dns.example:853"
+                              }));
 
         }
 
