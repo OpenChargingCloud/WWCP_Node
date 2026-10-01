@@ -24,6 +24,7 @@ using System.Diagnostics;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
@@ -122,6 +123,59 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region (helper) QuestionsAsked(NameServer)
+
+        /// <summary>
+        /// What a silent name server was asked, by record type and how often:
+        /// "A: 1, AAAA: 1".
+        /// </summary>
+        /// <remarks>
+        /// Every question is sent before the node gives up waiting for its
+        /// answer. They are read until none has come for a quarter of a
+        /// second, which only makes sure that one still on its way through the
+        /// loopback interface is counted as well.
+        /// </remarks>
+        private static async Task<String> QuestionsAsked(UdpClient NameServer)
+        {
+
+            var asked = new SortedDictionary<DNSResourceRecordTypes, Int32>();
+
+            while (true)
+            {
+
+                using var quiet = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+
+                Byte[] question;
+
+                try
+                {
+                    question = (await NameServer.ReceiveAsync(quiet.Token)).Buffer;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                // Twelve bytes of header, then the name asked for, label by
+                // label up to the empty one, then its type (RFC 1035, sections
+                // 4.1.1 and 4.1.2).
+                var at = 12;
+
+                while (question[at] != 0)
+                    at += question[at] + 1;
+
+                var type = (DNSResourceRecordTypes) ((question[at + 1] << 8) | question[at + 2]);
+
+                asked[type] = asked.GetValueOrDefault(type) + 1;
+
+            }
+
+            return String.Join(", ", asked.Select(count => $"{count.Key}: {count.Value}"));
+
+        }
+
+        #endregion
+
         #region (helper) Node(DNS)
 
         /// <summary>
@@ -165,24 +219,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// A node told not to ask again asks a name server on its own once:
-        /// its timeout, and not twice its timeout.
+        /// one question for each record type, and not two.
         /// </summary>
+        /// <remarks>
+        /// Counted at the name server, not timed. Taken against 1.75 times the
+        /// server's timeout, the test failed after 1.94 seconds in a nightly
+        /// that ran every test project of its solution at once, saying the
+        /// node had asked again. With the thread pool held up the same way
+        /// here, it failed 3 times in 3 runs, where counting finds one A and
+        /// one AAAA every time.
+        /// </remarks>
         [Test]
         public async Task ANameServerOnItsOwnIsAskedOnceWhenTheNodeSaysSo()
         {
 
-            SilentNameServer(out var port);
+            var nameServer = SilentNameServer(out var port);
 
             await using var node = Node($$"""{ "enabled": true, "servers": [ {{Server(port)}} ], "maxRetries": 0 }""");
 
-            var stopwatch = Stopwatch.StartNew();
-            var answer    = await node.ResolveAsync("once.example", Server: 0);
-            stopwatch.Stop();
+            var answer = await node.ResolveAsync("once.example", Server: 0);
+            var asked  = await QuestionsAsked(nameServer);
 
             Assert.Multiple(() => {
                 Assert.That(answer.Value<Boolean>("ok"),  Is.False);
-                Assert.That(stopwatch.Elapsed,            Is.LessThan(OwnTimeout * 1.75),
-                            "a name server the node asks once was asked again");
+                Assert.That(asked,                        Is.EqualTo("A: 1, AAAA: 1"),
+                            "a name server the node asks once was not asked once for each record type");
             });
 
         }
@@ -192,26 +253,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region AndAsOftenAsItSays()
 
         /// <summary>
-        /// And one told to ask again asks it again - so that the test above
-        /// is about the node's setting, and not about a node that has
-        /// stopped trying twice.
+        /// And one told to ask again asks it again, two questions for each
+        /// record type - so that the test above is about the node's setting,
+        /// and not about a node that has stopped trying twice.
         /// </summary>
         [Test]
         public async Task AndAsOftenAsItSays()
         {
 
-            SilentNameServer(out var port);
+            var nameServer = SilentNameServer(out var port);
 
             await using var node = Node($$"""{ "enabled": true, "servers": [ {{Server(port)}} ], "maxRetries": 1 }""");
 
-            var stopwatch = Stopwatch.StartNew();
-            var answer    = await node.ResolveAsync("twice.example", Server: 0);
-            stopwatch.Stop();
+            var answer = await node.ResolveAsync("twice.example", Server: 0);
+            var asked  = await QuestionsAsked(nameServer);
 
             Assert.Multiple(() => {
                 Assert.That(answer.Value<Boolean>("ok"),  Is.False);
-                Assert.That(stopwatch.Elapsed,            Is.GreaterThanOrEqualTo(OwnTimeout * 2),
-                            "a name server the node asks twice was asked once");
+                Assert.That(asked,                        Is.EqualTo("A: 2, AAAA: 2"),
+                            "a name server the node asks twice was not asked twice for each record type");
             });
 
         }
