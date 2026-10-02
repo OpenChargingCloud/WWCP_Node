@@ -20,12 +20,15 @@
 using System.Collections.Concurrent;
 using System.Net.Sockets;
 
+using org.GraphDefined.Vanaheimr.CLI;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.CommandLine;
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
@@ -335,25 +338,216 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region CommandLines
+
+        /// <summary>
+        /// Makes the command line a session over SSH gets: the kind's own, with
+        /// its own commands, where the program says so; the node's otherwise.
+        /// </summary>
+        /// <remarks>
+        /// The program's to say, because the command line of a kind is the
+        /// program's vocabulary and not the library's: the vehicle's
+        /// "discover" is in EVCLI, not in EV. Set before the node starts.
+        /// </remarks>
+        public Func<ICLITerminal, CLICaller, NodeCLI>?  CommandLines  { get; set; }
+
+        #endregion
+
+        #region CommandLineSessions
+
+        /// <summary>
+        /// One session over SSH: who, from where, with which key, since when.
+        /// </summary>
+        /// <param name="Id">The session's id - its connection's.</param>
+        /// <param name="Account">The account.</param>
+        /// <param name="From">Where from.</param>
+        /// <param name="Key">The fingerprint of the key it signed in with, if one.</param>
+        /// <param name="Since">When the session began.</param>
+        public sealed record CommandLineSession(String          Id,
+                                                String          Account,
+                                                String          From,
+                                                String?         Key,
+                                                DateTimeOffset  Since);
+
+        private readonly ConcurrentDictionary<String, CommandLineSession>  commandLineSessions = new ();
+
+        /// <summary>
+        /// The command line's sessions over SSH, open now, the oldest first.
+        /// </summary>
+        public IReadOnlyList<CommandLineSession>  CommandLineSessions
+            => [.. commandLineSessions.Values.OrderBy(session => session.Since)];
+
+        #endregion
+
+        #region MayReadTheLog(User)
+
+        /// <summary>
+        /// Whether the given account may read this node's log - as its Logs page
+        /// and its event stream ask it.
+        /// </summary>
+        public Boolean MayReadTheLog(IUser User)
+
+            => JSONAPI?.MayReadTheLogFor(User) ?? true;
+
+        #endregion
+
         #region (protected virtual) ServeShellAsync(Context, CancellationToken)
 
         /// <summary>
-        /// What somebody signed in over SSH gets: this node's command line.
+        /// What somebody signed in over SSH gets: this node's command line, on
+        /// their terminal, as the account they signed in as - until they leave,
+        /// close their window, or the node stops.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The command line is the console's: the same commands, Tab, the history,
+        /// the log above the line being typed. What differs is what ends it -
+        /// 'quit', 'exit' and Ctrl+D leave the session and the node keeps running -
+        /// and who is asking: an account, whose roles say what it may do, and
+        /// whom the log names.
+        /// </para>
+        /// <para>
+        /// Without a terminal there is nothing to type at: a session asked for
+        /// without one - ssh -T, or a program feeding it from a pipe - is told
+        /// so and ends.
+        /// </para>
+        /// <para>
+        /// A node that stops says so on every session while its channel is still
+        /// open, and then ends it.
+        /// </para>
+        /// </remarks>
         /// <param name="Context">The session.</param>
         /// <param name="CancellationToken">Fires when the session is over, or the node is stopping.</param>
         protected virtual async ValueTask<Int32> ServeShellAsync(SshShellContext    Context,
                                                                  CancellationToken  CancellationToken)
         {
 
-            await Context.WriteAsync($"This {Kind.Name}'s command line is not served over SSH yet.\r\n", CancellationToken);
+            var session = Context.Session;
 
-            return 1;
+            if (User_Id.TryParse(session.Username) is not User_Id userId ||
+                !ExtAPI.TryGetUser(userId, out var account) ||
+                account is null)
+            {
+                await Context.WriteAsync($"There is no account '{session.Username}' on this {Kind.Name} any more.\r\n", CancellationToken);
+                return 1;
+            }
+
+            if (Context.Size is not SshWindowSize size)
+            {
+                await Context.WriteAsync($"This is the command line of the {Kind.Name}, and it wants a terminal to be typed at: " +
+                                          "connect with ssh -t, or with PuTTY.\r\n",
+                                         CancellationToken);
+                return 1;
+            }
+
+            var since     = TimeProvider.GetUtcNow();
+            var from      = session.Peer?.ToString() ?? "somewhere";
+            var caller    = new CLICaller(account, session);
+
+            await using var terminal = new VT100Terminal((bytes, ct) => Context.WriteAsync(bytes, ct),
+                                                         Width:         Columns(size),
+                                                         TimeProvider:  TimeProvider);
+
+            Context.WindowChanged += changed => terminal.Width = Columns(changed);
+            Context.Signalled     += signal  => { if (signal is "INT" or "TERM") terminal.Interrupt(); };
+
+            using var cli = (CommandLines ?? ((t, c) => new NodeCLI(this, t, c)))(terminal, caller);
+
+            // The log from where the console shows it, where the account may read it.
+            cli.SessionLog = MayReadTheLog(account)
+                                 ? new SessionLog(Log, cli, consoleLog?.MinimumLevel ?? LogLevel.Info, () => MayReadTheLog(account))
+                                 : null;
+
+            commandLineSessions[session.ConnectionId] = new CommandLineSession(session.ConnectionId,
+                                                                               account.Id.ToString(),
+                                                                               from,
+                                                                               session.PublicKeyFingerprint,
+                                                                               since);
+
+            var reading = terminal.ReadFromAsync(Context.Input, CancellationToken);
+
+            try
+            {
+
+                terminal.WriteLine($"{Kind.CapitalisedName} v{Version}: signed in as '{account.Id}' from {from}.");
+                terminal.WriteLine($"Type 'help' for what can be typed here; 'quit' or Ctrl+D leaves, and the {Kind.Name} keeps running.");
+                terminal.WriteLine();
+
+                await cli.Run(CancellationToken);
+
+                if (Context.Stopping.IsCancellationRequested && !Context.Closed.IsCancellationRequested)
+                {
+                    terminal.WriteLine();
+                    terminal.WriteLine($"The {Kind.Name} is shutting down.");
+                }
+
+                if (!Context.Closed.IsCancellationRequested)
+                    await terminal.FlushAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+            }
+            catch (Exception) when (Context.Closed.IsCancellationRequested || CancellationToken.IsCancellationRequested)
+            {
+                // The window was closed in the middle of something.
+            }
+            catch (IOException)
+            {
+                // The far end stopped taking what it was sent.
+            }
+            catch (TimeoutException)
+            {
+                // The goodbye did not get through in time; the session ends regardless.
+            }
+            finally
+            {
+
+                if (cli.SessionLog is SessionLog sessionLog)
+                    await sessionLog.DisposeAsync();
+
+                commandLineSessions.TryRemove(session.ConnectionId, out _);
+
+                var lasted = TimeProvider.GetUtcNow() - since;
+
+                Log.Info($"'{account.Id}' left the command line over SSH after {Lasted(lasted)}" +
+                         (Context.Stopping.IsCancellationRequested ? $", as the {Kind.Name} stopped." : "."),
+                         "ssh", "cli");
+
+            }
+
+            _ = reading.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
+
+            return 0;
 
         }
 
         #endregion
 
+        #region (private static) Columns(Size)
+
+        /// <summary>
+        /// How wide the terminal is: what the client said - and 80 where it said
+        /// 0, which OpenSSH does when its own output is not a terminal, and which
+        /// would leave the line being typed one column to be shown in.
+        /// </summary>
+        private static Int32 Columns(SshWindowSize Size)
+
+            => Size.Columns == 0
+                   ? 80
+                   : (Int32) Math.Min(Size.Columns, 1000);
+
+        #endregion
+
+        #region (private static) Lasted(Duration)
+
+        /// <summary>
+        /// How long something lasted, as somebody says it: "12 s", "4 min", "3 h 5 min".
+        /// </summary>
+        private static String Lasted(TimeSpan Duration)
+
+            => Duration.TotalSeconds < 60   ? $"{Math.Max(0, (Int32) Duration.TotalSeconds)} s"
+             : Duration.TotalMinutes < 60   ? $"{(Int32) Duration.TotalMinutes} min"
+             :                                $"{(Int32) Duration.TotalHours} h {Duration.Minutes} min";
+
+        #endregion
         #region (private) Audited(Event)
 
         /// <summary>

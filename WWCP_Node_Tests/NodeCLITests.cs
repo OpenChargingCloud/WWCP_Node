@@ -351,6 +351,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             {
                 RegisterCLIType(typeof(KindCLI));
             }
+            public KindCLI(WWCPNode Node, ICLITerminal Terminal, CLICaller Caller)
+                : base(Node, Terminal, Caller)
+            {
+                RegisterCLIType(typeof(KindCLI));
+            }
         }
 
         /// <summary>

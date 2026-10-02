@@ -78,7 +78,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// which may change it as well - see
         /// <see cref="NodeConformanceTests.RolesTheFileAdds"/>.
         /// </summary>
-        RolesFromTheFile
+        RolesFromTheFile,
+
+        /// <summary>
+        /// The command line served over SSH, on a port of its own: the file
+        /// switches it on, whatever the kind's program would say.
+        /// </summary>
+        SSH
 
     }
 
@@ -328,6 +334,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 case NodeSetup.RolesFromTheFile:
 
                     configuration["roles"] = RolesTheFileAdds.DeepClone();
+                    break;
+
+                case NodeSetup.SSH:
+
+                    configuration["ssh"] = new JObject(
+                                               new JProperty("enabled",  true),
+                                               new JProperty("port",     TestPorts.Free())
+                                           );
                     break;
 
                 case NodeSetup.TimeClientOn:

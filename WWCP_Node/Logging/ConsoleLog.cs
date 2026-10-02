@@ -159,9 +159,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
         #endregion
 
-        #region (private static) ColourOf(Level)
+        #region (internal static) ColourOf(Level)
 
-        private static ConsoleColor ColourOf(LogLevel Level)
+        /// <summary>
+        /// The colour of a level, wherever the log is shown in colour: on the
+        /// console, and in a session over SSH.
+        /// </summary>
+        internal static ConsoleColor ColourOf(LogLevel Level)
 
             => Level switch {
                    LogLevel.Debug     => ConsoleColor.DarkGray,

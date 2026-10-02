@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.CLI;
 using org.GraphDefined.Vanaheimr.Illias;
 
+using cloud.charging.open.protocols.WWCP.Node.Web;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
@@ -159,6 +161,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             if (Arguments.Length > 2)
                 return [ $"Usage: {Help()}" ];
 
+            // What 'Sync now' and the Test button need on the page: running the
+            // time servers. The console may do everything; an account over SSH
+            // what its roles let it.
+            if (!cli.MayDo(Permission.Run(NodeResources.NTS), CommandName, out var refused))
+                return [ refused ];
+
             #region One server, in detail
 
             if (Arguments.Length == 2)
@@ -182,8 +190,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 var host = server.Hostname.Trimmed;
 
                 cli.Node.Log.Info(
-                    $"Somebody at the command line asked this {cli.Node.Kind.Name} to test the time server '{host}'.",
-                    "nts", "test", "cli"
+                    $"{cli.Caller.Asker} asked this {cli.Node.Kind.Name} to test the time server '{host}'.",
+                    cli.Caller.Tags("nts", "test")
                 );
 
                 return Tested(await cli.Node.TestTimeServerAsync(host, CancellationToken));
@@ -194,14 +202,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             // The line the web interface writes when 'Sync now' is pressed, in
             // the same words, at the same level and with the tags it carries
-            // there - "cli" where it says "web". There it names the account
-            // that pressed the button; here it is whoever is at the console,
-            // which the node cannot tell apart. Said before anything is
+            // there - "cli" where it says "web", and "ssh" beside it over SSH.
+            // There it names the account that pressed the button; over SSH it
+            // names the account signed in, and at the console it is whoever is
+            // there, which the node cannot tell apart. Said before anything is
             // asked, because the entries that follow record which servers were
             // asked and what came of it, and nothing in them says who wanted it.
             cli.Node.Log.Notice(
-                $"Somebody at the command line asked this {cli.Node.Kind.Name} to synchronise its time.",
-                "nts", "test", "cli"
+                $"{cli.Caller.Asker} asked this {cli.Node.Kind.Name} to synchronise its time.",
+                cli.Caller.Tags("nts", "test")
             );
 
             var result = await cli.Node.SyncTimeAsync(CancellationToken);

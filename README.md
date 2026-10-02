@@ -34,9 +34,10 @@ a port of their own to connect to.
 | `NodeKind.cs` | the five names a kind of node goes by |
 | `BuiltFrom.cs` | what the node was built from: every assembly of ours it runs, and the commit each was built from - for the banner, the Configuration page and a bug report |
 | `CommandLine/` | `NodeCLI`, the command line every kind of node has: its commands, `syncNTS` among them, and the console from the first prompt until 'quit', Ctrl+C, SIGTERM or the end of a task it is given, after which the log has the screen to itself again. And what a kind's program does before it: the switches every node has, the certificate store's among them, with the rest left for the kind (`NodeArguments`), what -h says of them (`NodeUsage`), why a node could not be set up or could not start and what the command line puts into the store (`NodeProgram`), and the banner, the kind's lines in their places (`NodeBanner`) |
+| `WWCPNode.SSH.cs`, `SecureShell/` | the command line over SSH: the server, its host key, who may sign in with which key (`AuthorizedKeysStore`, `NodeSSHAuthenticator`), and what the program says about it (`SSHSettings`) - see "The command line over SSH" below |
 | `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
-| `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles` |
+| `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles`, `ssh` |
 | `Logging/` | one log for everything: in memory, on the console, in a file, what the libraries below say through it - and, signed, what bears on the time and the trust |
 | `WWCPNode.Certificates.cs` | what the node says about its store, and what a kind of node adds to it or needs a certificate for |
 | `Web/` | who may do what: the resources of a node, the three operations on them, and the roles that carry them - and `NodeHTTPAPI`, the JSON API every node has |
@@ -141,7 +142,11 @@ Beyond the names, a kind of node adds to the node in eight places:
   kind adds its own on top.
 * **Its command line:** a kind derives its own from `NodeCLI`, gives it the
   prompt it wants and registers its type, so that its own commands - built
-  from that type - are found in its assembly beside the node's. Its
+  from that type - are found in its assembly beside the node's. It has a
+  second constructor taking a terminal and a caller, and the program sets
+  `CommandLines` to it before the start, so that a session over SSH gets the
+  kind's commands and not only the node's; it hands its switches' `SSH` to
+  the node, which is what serves the command line over SSH at all. Its
   Program.cs prints `BuiltFrom.BannerLines()` in its banner and ends in
   `RunUntilStopped()`: a prompt where somebody can type, waiting where
   nobody can, and the log sharing the screen with the prompt. What it
@@ -582,6 +587,72 @@ makes land in the same set - an account in `systemadmin` is an administrator
 of every one of them. Told apart by the first path segment rather than by
 the port: everything of a node sits below its `BasePath`, which is the root
 for a node on a port of its own.
+
+
+## The command line over SSH
+
+What somebody at the console types at, somebody signed in with PuTTY or
+`ssh` can type at too: the same prompt, the same commands, Tab and the
+history, and the log above the line being typed. Nothing else is served -
+no shell of the machine, no `exec`, no SFTP, no tunnels: the session is the
+command line, and the command line is all there is.
+
+It is Hermod's SSH server, on the address the web interface listens on - the
+loopback, or every address with `--any`, which is one decision about who may
+reach the node and not two - and on a port twenty thousand above the web
+interface's: the vehicle's 22347 beside its 2347. The web ports of the kinds
+lie close together, and one above each would be the next kind's. Whether it
+runs at all is the program's to say: every program hands in its switches'
+`SSH`, which is on unless `--no-ssh` says otherwise, while a node made in a
+test serves no SSH unless the test asks for it - twenty thousand above a
+port of the dynamic range is no port, and a test has no business opening a
+second one. Between the two sits the file:
+
+```json
+"ssh": { "enabled": true, "port": 22347, "passwords": false }
+```
+
+A switch wins over the file, the file over the program's default.
+
+Who signs in is an account of the node, under its name, with a key of its
+own: one file per account below the accounts, `accounts/ssh/<account>`, in
+the format of OpenSSH's `authorized_keys` - so that a key can be put in by
+hand, and `from="..."` or `expiry-time="..."` in front of it hold. The file
+is read at every sign-in: a key taken out lets nobody in from that moment
+on. `--authorize-ssh-key <account>=<file>` puts one in - an OpenSSH `.pub`,
+or what PuTTYgen saves - once the accounts are read and before a port opens,
+so at a first start too. An account that is switched off, or holds none of
+the node's roles, is not let in; a password only where the file says
+`"passwords": true`, and never for an account with a second factor on the
+web interface, for which SSH would be the way around it.
+
+What an account may do there is what its roles let it do on the web
+interface: a command asks `MayDo` the question its route asks, and is
+refused with the roles that would do. The log names it as the web
+interface names the account that pressed a button - "'root' at the command
+line over SSH asked this vehicle to synchronise its time." - tagged `cli`
+and `ssh` where the page says `web`. The console may do everything: whoever
+is at it has the process.
+
+Each session has a log of its own, from the level the console shows, which
+`log debug` or `log off` changes for that session alone. An entry is queued
+for it and written by a task of its own, because the log calls its listeners
+on the thread that is logging and a session is at the far end of a network:
+a client that reads slowly never holds up the node, and what does not fit
+in the queue is said to have been left out. `quit`, `exit` and Ctrl+D leave
+the session and the node keeps running; Ctrl+C stops the command that is
+running, or abandons the line; `who` says who else is there. A node that
+stops says so on every session while its channel is still open, and then
+ends it.
+
+The node presents a host key of its own, made at the first start that
+serves SSH, written into the log book as a certificate is, and kept in
+`ssh/` beside the configuration file. The banner says where the server is
+and the key's fingerprint, to compare PuTTY's first question with - and,
+while no account has a key, how to give one one. A key that is there and
+cannot be read stops the start: a new one would be another machine to every
+client that knew this one. Who signed in, from where and with which key, who
+could not, and what was refused are in the log, tagged `ssh`.
 
 
 ## The log

@@ -17,8 +17,13 @@
 
 #region Usings
 
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
+
+using org.GraphDefined.Vanaheimr.CLI;
+
+using cloud.charging.open.protocols.WWCP.Node.Web;
 
 #endregion
 
@@ -65,7 +70,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <summary>
         /// The node these commands are about.
         /// </summary>
-        public WWCPNode  Node  { get; }
+        public WWCPNode     Node        { get; }
+
+        /// <summary>
+        /// Who is typing here: whoever is at the node's console, or an account
+        /// signed in over SSH.
+        /// </summary>
+        public CLICaller    Caller      { get; }
+
+        /// <summary>
+        /// The log as this command line shows it, where it is a session of its
+        /// own; null at the console, whose log is the node's console log.
+        /// </summary>
+        public SessionLog?  SessionLog  { get; set; }
 
         #endregion
 
@@ -85,7 +102,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         {
 
-            this.Node = Node;
+            this.Node    = Node;
+            this.Caller  = CLICaller.Console;
+
+            RegisterCLIType(typeof(NodeCLI));
+
+        }
+
+        /// <summary>
+        /// Create the command line of the given node on the given terminal, for
+        /// the given caller - a session over SSH. A kind of node that derives
+        /// its own registers its type for its own commands.
+        /// </summary>
+        /// <param name="Node">The running node.</param>
+        /// <param name="Terminal">What the command line is typed at and written on.</param>
+        /// <param name="Caller">Who is typing at it.</param>
+        /// <param name="AssembliesWithCLICommands">Further assemblies to search for commands.</param>
+        public NodeCLI(WWCPNode           Node,
+                       ICLITerminal       Terminal,
+                       CLICaller          Caller,
+                       params Assembly[]  AssembliesWithCLICommands)
+
+            : base(Terminal, AssembliesWithCLICommands)
+
+        {
+
+            this.Node    = Node;
+            this.Caller  = Caller;
 
             RegisterCLIType(typeof(NodeCLI));
 
@@ -104,6 +147,47 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         protected override String GetPrompt()
 
             => $"{Node.Kind.Name}> ";
+
+        #endregion
+
+
+        #region MayDo(Required, What, out Refused)
+
+        /// <summary>
+        /// Whether whoever is typing here may do what the given command needs -
+        /// the same question the web interface asks of the same account, with the
+        /// same answer - or the sentence that says why not.
+        /// </summary>
+        /// <remarks>
+        /// The console may do everything: whoever is at it has the process. A
+        /// refusal is written down as the web interface writes one, with the
+        /// roles that would have been enough.
+        /// </remarks>
+        /// <param name="Required">What the command needs.</param>
+        /// <param name="What">The command, as it was typed.</param>
+        /// <param name="Refused">Why not.</param>
+        public Boolean MayDo(Permission                        Required,
+                             String                            What,
+                             [NotNullWhen(false)] out String?  Refused)
+        {
+
+            Refused = null;
+
+            if (Caller.Account is not { } account || Node.IsAllowed(account, [ Required ]))
+                return true;
+
+            var allowed = Node.Access.RolesAllowing([ Required ]).Select(role => role.Name);
+
+            Node.Log.Warning(
+                $"'{account.Id}' was refused {Required} on '{What}' at the command line over SSH; " +
+                $"signed in as {String.Join(", ", Node.RolesOf(account).Select(role => role.Name))}.",
+                "cli", "ssh", "auth"
+            );
+
+            Refused = $"'{account.Id}' may not do that here: it needs the {String.Join(" or ", allowed)} role.";
+            return false;
+
+        }
 
         #endregion
 

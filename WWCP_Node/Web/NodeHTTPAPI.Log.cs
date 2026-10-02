@@ -89,6 +89,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
+        #region (internal) MayReadTheLogFor(User)
+
+        /// <summary>
+        /// Whether the given account may read the log now - for a command line
+        /// over SSH, which shows it as the event stream does.
+        /// </summary>
+        internal Boolean MayReadTheLogFor(IUser User)
+
+            => MayReadTheLog(User);
+
+        #endregion
+
         #region (private) MayReadTheLog(User)
 
         /// <summary>
