@@ -2398,6 +2398,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// waiting for the next log entry - a node with one browser on its Logs
         /// page never finished stopping otherwise - and whatever else a node of
         /// a particular kind holds open by its <see cref="OnStopping"/>.
+        ///
+        /// A stop that fails has stopped all the same. What failed is thrown
+        /// to whoever stopped the node, its port is closed nevertheless, and
+        /// the node counts as stopped from the first step on: it used to be
+        /// marked stopped after the last, so a stop whose kind failed to end
+        /// what it holds left the port open, and the next stop - the one that
+        /// letting go of the node does - began again and failed again.
         /// </remarks>
         public async Task Stop()
         {
@@ -2405,21 +2412,30 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!started)
                 return;
 
+            started = false;
+
             Log.Metrological(LogLevel.Notice, $"The {Kind.Name} is shutting down.", Kind.Tag);
 
             timeCheckTimer?.Dispose();
             timeCheckTimer = null;
 
-            JSONAPI?.CloseEventStreams();
+            try
+            {
 
-            await OnStopping();
+                JSONAPI?.CloseEventStreams();
 
-            // The socket is closed only where it is this node's own: a shared
-            // server is stopped by whoever made it.
-            if (OwnsHTTPServer)
-                await HTTPServer.Stop();
+                await OnStopping();
 
-            started = false;
+            }
+            finally
+            {
+
+                // The socket is closed only where it is this node's own: a shared
+                // server is stopped by whoever made it.
+                if (OwnsHTTPServer)
+                    await HTTPServer.Stop();
+
+            }
 
         }
 
@@ -2486,20 +2502,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// A node of a particular kind that has something of its own to let go
         /// of does so and then calls this. Stopping is done here, and doing it
         /// there as well, first, does no harm.
+        ///
+        /// Let go of even where stopping fails, which is thrown on afterwards:
+        /// a node whose stop threw used to keep its log file open, and went on
+        /// writing it.
         /// </remarks>
         public virtual async ValueTask DisposeAsync()
         {
 
-            await Stop();
+            try
+            {
+                await Stop();
+            }
+            finally
+            {
 
-            traceBridge?.   Dispose();
-            consoleLog?.    Dispose();
-            fileLog?.       Dispose();
-            MetrologicalLog?.Dispose();
+                traceBridge?.   Dispose();
+                consoleLog?.    Dispose();
+                fileLog?.       Dispose();
+                MetrologicalLog?.Dispose();
 
-            reconfigureLock.Dispose();
+                reconfigureLock.Dispose();
 
-            GC.SuppressFinalize(this);
+                GC.SuppressFinalize(this);
+
+            }
 
         }
 
