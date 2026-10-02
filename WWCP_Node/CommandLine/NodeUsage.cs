@@ -24,6 +24,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
 #endregion
 
@@ -178,6 +179,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             var usage = $"Usage: {Program} ";
 
             foreach (var line in WrapItems([ "[--port <number>]", "[--any]", "[--frontend <dist directory>]",
+                                             "[--ssh-port <number>]", "[--no-ssh]", "[--authorize-ssh-key <account>=<file>]",
                                              "[--accounts <dir>]", "[--config <file>]",
                                              "[--verbose | --quiet]", "[--no-trace]",
                                              "[--log-file <dir>]", "[--no-log-file]",
@@ -210,6 +212,32 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             foreach (var line in afterTheWebInterface)
                 yield return line;
+
+            #endregion
+
+            #region The command line over SSH
+
+            yield return "SSH:";
+
+            var sshPort = SSHSettings.DefaultPortFor(DefaultPort);
+
+            foreach (var line in Switch("--ssh-port <number>", $"TCP port the command line is served on over SSH (default: " +
+                                                                (sshPort is not null ? $"{sshPort}, " : "") +
+                                                                $"{SSHSettings.DefaultPortOffset} above the web interface's port), on the addresses " +
+                                                                 "the web interface listens on"))
+                yield return line;
+
+            foreach (var line in Switch("--no-ssh",           "do not serve the command line over SSH"))
+                yield return line;
+
+            foreach (var line in Switch("--authorize-ssh-key <account>=<file>",
+                                        $"let the account in over SSH with the public key in the file - an OpenSSH .pub, or what " +
+                                        $"PuTTYgen saves - kept in {WWCPNode.DefaultAccountsPath}/{AuthorizedKeysStore.DefaultDirectoryName}/<account>, " +
+                                         "one file per account in the format of OpenSSH's authorized_keys. May be given several times. " +
+                                         "Whoever signs in is that account, and may do what its roles let it do on the web interface."))
+                yield return line;
+
+            yield return "";
 
             #endregion
 
@@ -325,7 +353,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             foreach (var line in Wrap("Once it is up, the console is a prompt: 'help' lists what can be typed there, Tab completes it, " +
                                      $"and 'quit' or Ctrl+C stops the {Kind.Name}. Started where there is no terminal - from a script, " +
                                       "under a service manager, in CI, or with the output going into a file - there is no prompt and it " +
-                                      "simply runs, until Ctrl+C or the SIGTERM of a service manager stops it.", "", ""))
+                                      "simply runs, until Ctrl+C or the SIGTERM of a service manager stops it. The same prompt is " +
+                                     $"served over SSH, where 'quit' leaves the session and the {Kind.Name} keeps running.", "", ""))
                 yield return line;
 
             #endregion

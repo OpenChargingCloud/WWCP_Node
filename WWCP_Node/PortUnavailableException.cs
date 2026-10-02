@@ -48,6 +48,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public static readonly NodePort WebInterface = new ("The web interface");
 
+        /// <summary>
+        /// The command line over SSH.
+        /// </summary>
+        public static readonly NodePort SSH          = new ("The SSH server");
+
         public override String ToString()
             => Name;
 

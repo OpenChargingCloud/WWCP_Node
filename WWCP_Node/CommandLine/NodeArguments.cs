@@ -24,6 +24,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
@@ -58,6 +59,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         #region Data
 
         private readonly List<(CertificateKind Kind, String File)>  imports  = [];
+        private readonly List<(String Account, String File)>        sshKeys  = [];
         private readonly List<String>                               rest     = [];
 
         /// <summary>
@@ -145,6 +147,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             => imports;
 
         /// <summary>
+        /// The port of the SSH server (--ssh-port), or null for twenty thousand above the web interface's.
+        /// </summary>
+        public IPPort?   SSHPort              { get; private set; }
+
+        /// <summary>
+        /// Whether the command line is not served over SSH (--no-ssh), whatever the configuration file says.
+        /// </summary>
+        public Boolean   NoSSH                { get; private set; }
+
+        /// <summary>
+        /// The keys accounts are let in with over SSH (--authorize-ssh-key account=file), in the order given.
+        /// </summary>
+        public IReadOnlyList<(String Account, String File)> SSHKeyAuthorizations
+            => sshKeys;
+
+        /// <summary>
         /// Whether the usage was asked for (-h, --help).
         /// </summary>
         public Boolean   WantsHelp            { get; private set; }
@@ -168,6 +186,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             => AnyAddress
                    ? IPvXAddress.Any
                    : IPv4Address.Localhost;
+
+        /// <summary>
+        /// What the switches say about the SSH server, for the node to weigh
+        /// against its configuration file: on unless something says otherwise,
+        /// because a program of a node serves its command line over SSH.
+        /// </summary>
+        public SSHSettings SSH
+            => new (Enabled:      NoSSH ? false : SSHPort is not null ? true : null,
+                    Port:         SSHPort,
+                    OnByDefault:  true,
+                    Authorize:    sshKeys);
 
         /// <summary>
         /// How much of the log the console shows.
@@ -225,6 +254,36 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                     case "--any":
                         parsed.AnyAddress = true;
+                        break;
+
+                    case "--ssh-port":
+                        if (i + 1 < Arguments.Count && UInt16.TryParse(Arguments[i + 1], out var sshPort) && sshPort > 0)
+                        {
+                            parsed.SSHPort = IPPort.Parse(sshPort);
+                            i++;
+                        }
+                        else
+                            return parsed.Refusing("Missing or invalid port number after --ssh-port!");
+                        break;
+
+                    case "--no-ssh":
+                        parsed.NoSSH = true;
+                        break;
+
+                    case "--authorize-ssh-key":
+
+                        if (!TryTakeValue(Arguments, ref i, out var authorize))
+                            return parsed.Refusing("Missing <account>=<file> after --authorize-ssh-key!");
+
+                        var at = authorize.IndexOf('=');
+
+                        if (at <= 0 || at == authorize.Length - 1)
+                            return parsed.Refusing($"--authorize-ssh-key wants <account>=<file>, and '{authorize}' is not that.");
+
+                        if (!AuthorizedKeysStore.IsAccountName(authorize[..at]))
+                            return parsed.Refusing($"--authorize-ssh-key: '{authorize[..at]}' cannot be the name of an account.");
+
+                        parsed.sshKeys.Add((authorize[..at], authorize[(at + 1)..]));
                         break;
 
                     case "--frontend":
@@ -330,6 +389,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             if (parsed.FrontendDirectory is not null && !Directory.Exists(parsed.FrontendDirectory))
                 return parsed.Refusing($"The frontend directory '{parsed.FrontendDirectory}' does not exist!");
+
+            if (parsed.NoSSH && parsed.SSHPort is not null)
+                return parsed.Refusing("--no-ssh and --ssh-port ask for opposite things!");
 
             return parsed;
 
@@ -488,6 +550,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                     NodeProgram.Say(Error, passwordWanted
                                                ? $"{NotImported(file, kind, refused)} {GiveThePassword(Usage.Kind)}"
                                                : NotImported(file, kind, refused));
+                    return 2;
+                }
+
+            }
+
+            foreach (var (_, file) in sshKeys)
+            {
+
+                if (!AuthorizedKeysStore.TryReadFile(file, out _, out var refused))
+                {
+                    NodeProgram.Say(Error, $"--authorize-ssh-key: {refused}");
                     return 2;
                 }
 

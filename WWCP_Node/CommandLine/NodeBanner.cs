@@ -84,12 +84,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             #region The node's lines, in their places
 
-            var interfaces = new (String Label, String Value)[] {
+            var interfaces = new List<(String Label, String Value)> {
                 ("web interface",  Node.WebInterfaceURL.ToString()),
                 ("JSON API",       $"{Node.APIURL}v1/status"),
                 ("event stream",   $"{Node.APIURL}v1/events"),
                 ("HTTPExt API",    $"{Node.WebInterfaceURL}{extPath}/")
             };
+
+            // The command line over SSH, with what PuTTY shows the first time to
+            // compare it with - and, while no account has a key, how one gets one.
+            if (Node.SSHURL is String sshURL)
+            {
+
+                var accounts = Node.SSHKeys.AccountsWithKeys();
+
+                interfaces.Add(("SSH",  $"{sshURL}\n{Node.SSHHostKey}\n" +
+                                        (accounts.Count == 0
+                                             ? $"no account has a key yet: --authorize-ssh-key {WWCPNode.DefaultAdminUser}=<file.pub>"
+                                             : $"accounts with a key: {String.Join(", ", accounts)}")));
+
+            }
 
             (String Label, String Value) frontend = ("frontend from", Node.WebInterface is not null
                                                  ? Node.Frontend.Description

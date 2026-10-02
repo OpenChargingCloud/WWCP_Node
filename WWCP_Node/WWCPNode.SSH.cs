@@ -1,0 +1,435 @@
+/*
+ * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
+ * This file is part of WWCP_Node <https://github.com/OpenChargingCloud/WWCP_Node>
+ *
+ * Licensed under the Affero GPL license, Version 3.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.gnu.org/licenses/agpl.html
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#region Usings
+
+using System.Collections.Concurrent;
+using System.Net.Sockets;
+
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.SSH;
+using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
+
+using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+
+#endregion
+
+namespace cloud.charging.open.protocols.WWCP.Node
+{
+
+    /// <summary>
+    /// The node's command line over SSH: what somebody signed in with PuTTY or
+    /// ssh gets, and nothing else - no shell of the machine, no files, no
+    /// tunnels.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Hermod's SSH server, on the address the web interface listens on - the
+    /// loopback unless --any says every address - and on a port of its own,
+    /// twenty thousand above the web interface's unless something says
+    /// otherwise: the vehicle's is 22347.
+    /// </para>
+    /// <para>
+    /// Whoever signs in is an account of the node, under its name, with one of
+    /// the keys in its file below the accounts - see <see cref="AuthorizedKeysStore"/>
+    /// - and may do there what its roles let it do on the web interface. A node
+    /// none of whose accounts has a key yet listens, and lets nobody in.
+    /// </para>
+    /// <para>
+    /// The node presents itself with a host key of its own, made at the first
+    /// start that serves SSH and kept beside the configuration file: what PuTTY
+    /// shows the first time it connects, and what the banner says to compare
+    /// it with. Losing it is not repaired by making another one quietly: a
+    /// node with a new key is, to every client that knew the old one, a
+    /// machine pretending to be this node.
+    /// </para>
+    /// </remarks>
+    public partial class WWCPNode
+    {
+
+        #region Data
+
+        /// <summary>
+        /// Where the host key is kept, beside the configuration file.
+        /// </summary>
+        public const String  DefaultSSHDirectory     = "ssh";
+
+        /// <summary>
+        /// What the host key's file is called.
+        /// </summary>
+        public const String  SSHHostKeyFileName      = "ssh_host_ed25519_key";
+
+        /// <summary>
+        /// How long somebody has to sign in once connected.
+        /// </summary>
+        public static readonly TimeSpan  SSHLoginGraceTime  = TimeSpan.FromSeconds(30);
+
+        private          SshServer?    sshServer;
+        private readonly IIPAddress    listenAddress;
+        private readonly SSHSettings?  sshSettings;
+
+        /// <summary>
+        /// The fingerprint of the key each connection authenticated with, by
+        /// connection, until the sign-in is said - the audit events name one
+        /// and then the other.
+        /// </summary>
+        private readonly ConcurrentDictionary<String, String>  sshSignInKeys  = new ();
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Whether the command line is served over SSH.
+        /// </summary>
+        public Boolean              SSHEnabled              { get; private set; }
+
+        /// <summary>
+        /// The port the SSH server listens on, where it does.
+        /// </summary>
+        public IPPort?              SSHPort                 { get; private set; }
+
+        /// <summary>
+        /// Whether an account's password opens it as well as its keys.
+        /// </summary>
+        public Boolean              SSHPasswords            { get; private set; }
+
+        /// <summary>
+        /// Where the host key is kept: beside the configuration file.
+        /// </summary>
+        public String               SSHHostKeyPath
+            => Beside(ConfigFile.Path, Path.Combine(DefaultSSHDirectory, SSHHostKeyFileName));
+
+        /// <summary>
+        /// The host key's type and SHA-256 fingerprint - "ssh-ed25519
+        /// SHA256:..." - as PuTTY shows them the first time; null until the SSH
+        /// server has started.
+        /// </summary>
+        public String?              SSHHostKey              { get; private set; }
+
+        /// <summary>
+        /// The keys each account may sign in with.
+        /// </summary>
+        public AuthorizedKeysStore  SSHKeys                 { get; }
+
+        /// <summary>
+        /// Where the SSH server is reached, "ssh://127.0.0.1:22347"; null where
+        /// there is none.
+        /// </summary>
+        public String?              SSHURL
+            => SSHEnabled && SSHPort is IPPort port
+                   ? $"ssh://{(listenAddress.IsIPv6 && !listenAddress.IsIPv4 ? $"[{listenAddress}]" : listenAddress.ToString())}:{port}"
+                   : null;
+
+        /// <summary>
+        /// How many SSH connections are open now.
+        /// </summary>
+        public Int32                SSHConnections
+            => sshServer?.ConnectionCount ?? 0;
+
+        #endregion
+
+
+        #region (private) ResolveSSH(Settings, File, WebInterfacePort)
+
+        /// <summary>
+        /// Whether, where and how the command line is served over SSH: a switch,
+        /// then the file, then the program's default - see <see cref="SSHSettings"/>.
+        /// </summary>
+        private void ResolveSSH(SSHSettings?       Settings,
+                                SSHConfiguration?  File,
+                                IPPort             WebInterfacePort)
+        {
+
+            SSHEnabled    = Settings?.Enabled ?? File?.Enabled ?? Settings?.OnByDefault == true;
+            SSHPort       = Settings?.Port    ?? File?.Port    ?? SSHSettings.DefaultPortFor(WebInterfacePort);
+            SSHPasswords  = File?.Passwords   ?? false;
+
+            if (SSHEnabled && SSHPort is null)
+            {
+
+                SSHEnabled = false;
+
+                Log.Warning($"The command line is not served over SSH: the web interface's port {WebInterfacePort} plus {SSHSettings.DefaultPortOffset} " +
+                             "is no port. Give the SSH server one with --ssh-port, or the configuration file's ssh.port.",
+                            "ssh");
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private) AuthorizeSSHKeys(Authorize)
+
+        /// <summary>
+        /// Let in over SSH whom the program named, with the keys in the files it
+        /// named - and stop the start where an account is not this node's, or a
+        /// file holds no key, rather than start with somebody locked out who was
+        /// meant to be let in.
+        /// </summary>
+        private void AuthorizeSSHKeys(IReadOnlyList<(String Account, String File)>? Authorize)
+        {
+
+            foreach (var (account, file) in Authorize ?? [])
+            {
+
+                if (User_Id.TryParse(account) is not User_Id userId || !ExtAPI.TryGetUser(userId, out _))
+                    throw new InvalidOperationException(
+                              $"--authorize-ssh-key: this {Kind.Name} has no account '{account}'. Its accounts are " +
+                              $"{String.Join(", ", ExtAPI.Users.Select(user => user.Id.ToString()).Order(StringComparer.Ordinal))}."
+                          );
+
+                if (!AuthorizedKeysStore.TryReadFile(file, out var text, out var refused) ||
+                    !SSHKeys.TryAuthorize(account, text, out var added, out refused))
+                    throw new InvalidOperationException($"--authorize-ssh-key: {refused}");
+
+                foreach (var fingerprint in added)
+                    Log.Notice($"The command line let '{account}' in over SSH with the key {fingerprint}.", "ssh", "auth", "security");
+
+                if (added.Count == 0)
+                    Log.Info($"'{account}' had the key in '{file}' already.", "ssh", "auth");
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private) StartSSH()
+
+        /// <summary>
+        /// Start the SSH server, with the host key of this node - made now if
+        /// there is none yet.
+        /// </summary>
+        private async Task StartSSH()
+        {
+
+            if (!SSHEnabled || SSHPort is not IPPort port)
+                return;
+
+            var hostKey = await LoadOrCreateSSHHostKey();
+
+            SSHHostKey  = $"{hostKey.AlgorithmNames[0]} {SshFingerprint.Sha256(hostKey.PublicKeyBlob)}";
+
+            var server  = new SshServer(new SshServerOptions {
+                              HostKeys             = [ hostKey ],
+                              Authenticator        = new NodeSSHAuthenticator(this, SSHKeys, SSHPasswords),
+                              ShellHandler         = ServeShellAsync,
+                              AuditSink            = new DelegateAuditSink(Audited),
+                              ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
+                              Limits               = new SshServerLimits {
+                                                         LoginGraceTime       = SSHLoginGraceTime,
+                                                         MaxSessions          = 4,
+                                                         ClientAliveInterval  = TimeSpan.FromSeconds(60),
+                                                         ClientAliveCountMax  = 3
+                                                     }
+                          });
+
+            try
+            {
+                await server.StartAsync(new IPSocket(listenAddress, port));
+            }
+            catch (SocketException problem)
+            {
+                await server.DisposeAsync();
+                throw new PortUnavailableException(port, problem, NodePort.SSH);
+            }
+
+            sshServer = server;
+
+            var accounts = SSHKeys.AccountsWithKeys();
+
+            Log.Notice($"The command line is served over SSH on {SSHURL}, host key {SSHHostKey}; " +
+                       (accounts.Count == 0
+                            ? $"no account has a key yet, so nobody can sign in."
+                            : $"{accounts.Count} account(s) can sign in with a key: {String.Join(", ", accounts)}.") +
+                       (SSHPasswords ? " Passwords open it as well." : ""),
+                       "ssh");
+
+        }
+
+        #endregion
+
+        #region (private) StopSSH()
+
+        /// <summary>
+        /// Stop the SSH server: every session is told and given a moment to say
+        /// goodbye, then its connection ends.
+        /// </summary>
+        private async Task StopSSH()
+        {
+
+            var server = Interlocked.Exchange(ref sshServer, null);
+
+            if (server is not null)
+                await server.DisposeAsync();
+
+        }
+
+        #endregion
+
+        #region (private) LoadOrCreateSSHHostKey()
+
+        /// <summary>
+        /// The host key of this node: read where it is, made where there is none.
+        /// </summary>
+        /// <remarks>
+        /// One that is there and cannot be read stops the start, as a
+        /// configuration file that cannot be read does. Making a new one
+        /// instead would be a new identity, which every client that knew the
+        /// old one rightly takes for an impostor.
+        /// </remarks>
+        private async Task<ISshHostKey> LoadOrCreateSSHHostKey()
+        {
+
+            var path = SSHHostKeyPath;
+
+            if (File.Exists(path))
+            {
+                try
+                {
+                    return SshKeyGenerator.LoadPrivateKey(await File.ReadAllTextAsync(path)).Key;
+                }
+                catch (Exception problem)
+                {
+                    throw new InvalidOperationException(
+                              $"The SSH host key in '{path}' could not be read: {problem.Message} " +
+                              $"Repair it, or remove it for a new one - which every client that knows this {Kind.Name} will take for another machine.",
+                              problem
+                          );
+                }
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+            var key = SshHostKey.GenerateEd25519();
+
+            await SshKeyGenerator.WriteKeyPairAsync(key, path, Comment: $"{Kind.Tag}@{Environment.MachineName}");
+
+            Log.Metrological(LogLevel.Notice,
+                             $"A host key was made for this {Kind.Name}'s SSH server: {key.AlgorithmNames[0]} {SshFingerprint.Sha256(key.PublicKeyBlob)}, " +
+                             $"kept in '{path}'.",
+                             Kind.Tag, "ssh", "security");
+
+            return key;
+
+        }
+
+        #endregion
+
+        #region (protected virtual) ServeShellAsync(Context, CancellationToken)
+
+        /// <summary>
+        /// What somebody signed in over SSH gets: this node's command line.
+        /// </summary>
+        /// <param name="Context">The session.</param>
+        /// <param name="CancellationToken">Fires when the session is over, or the node is stopping.</param>
+        protected virtual async ValueTask<Int32> ServeShellAsync(SshShellContext    Context,
+                                                                 CancellationToken  CancellationToken)
+        {
+
+            await Context.WriteAsync($"This {Kind.Name}'s command line is not served over SSH yet.\r\n", CancellationToken);
+
+            return 1;
+
+        }
+
+        #endregion
+
+        #region (private) Audited(Event)
+
+        /// <summary>
+        /// What the SSH server says happened, in the node's log: who signed in
+        /// and from where with which key, who could not, which limit was
+        /// reached, what was refused - and the rest for the debug log.
+        /// </summary>
+        private void Audited(SshAuditEvent Event)
+        {
+
+            var from = Event.PeerEndpoint is not null ? $" from {Event.PeerEndpoint}" : "";
+
+            switch (Event)
+            {
+
+                case AuthMethodSucceededEvent succeeded:
+                    if (succeeded.Identity is not null && Event.ConnectionId is not null)
+                        sshSignInKeys[Event.ConnectionId] = succeeded.Identity;
+                    break;
+
+                case AuthenticationSucceededEvent signedIn:
+                    sshSignInKeys.TryRemove(Event.ConnectionId ?? "", out var key);
+                    Log.Notice($"'{signedIn.Username}' signed in over SSH{from}" +
+                               (key is not null ? $" with the key {key}." : $" with {String.Join(" and ", signedIn.Methods)}."),
+                               "ssh", "auth", "security");
+                    break;
+
+                case AuthMethodFailedEvent failed:
+                    Log.Info($"Somebody{from} could not sign in over SSH as '{failed.Username}' with {failed.Method}" +
+                             (failed.Identity is not null ? $" ({failed.Identity})." : "."),
+                             "ssh", "auth", "security");
+                    break;
+
+                case AuthenticationFailedEvent gaveUp:
+                    Log.Warning(gaveUp.FailedAttempts > 0
+                                    ? $"Somebody{from} failed to sign in over SSH as '{gaveUp.Username}' {gaveUp.FailedAttempts} time(s), and was disconnected."
+                                    : $"'{gaveUp.Username}' signed in over SSH{from}, with a credential that may not be used from there, and was disconnected.",
+                                "ssh", "auth", "security");
+                    break;
+
+                case LimitExceededEvent limit:
+                    Log.Warning($"The SSH server refused{from}: {limit.Limit} - {limit.Detail}.", "ssh", "security");
+                    break;
+
+                case PolicyDeniedEvent denied:
+                    Log.Info($"Refused over SSH{from}: {denied.PolicyType}{(denied.Target.Length > 0 ? $" '{denied.Target}'" : "")} - only the command line is served.",
+                             "ssh", "security");
+                    break;
+
+                case DisconnectedEvent { Code: (UInt32) DisconnectReason.ProtocolError } broken:
+                    Log.Info($"An SSH connection{from} ended in a protocol error: {broken.Description}", "ssh");
+                    break;
+
+                case ConnectionClosedEvent:
+                    sshSignInKeys.TryRemove(Event.ConnectionId ?? "", out _);
+                    Log.Debug($"An SSH connection{from} ended.", "ssh");
+                    break;
+
+                case KexCompletedEvent kex:
+                    Log.Debug($"An SSH connection{from}: {kex.KeyExchange}, {kex.Cipher}{(kex.PostQuantum ? ", post-quantum" : "")}.", "ssh");
+                    break;
+
+                case VersionExchangedEvent version:
+                    Log.Debug($"An SSH client{from}: {version.RemoteVersion}.", "ssh");
+                    break;
+
+                default:
+                    Log.Debug($"SSH{from}: {Event.EventType}.", "ssh");
+                    break;
+
+            }
+
+        }
+
+        #endregion
+
+    }
+
+}

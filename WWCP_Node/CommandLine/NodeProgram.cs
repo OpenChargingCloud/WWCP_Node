@@ -274,7 +274,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             // The meter's web interface is --http-port, its Modbus/TLS server
             // --port; the web interface of every other kind is --port.
             var option  = SwitchOf?.Invoke(Problem)
-                              ?? (Problem.Whose == NodePort.WebInterface ? "--port" : null);
+                              ?? (Problem.Whose == NodePort.WebInterface ? "--port"
+                                : Problem.Whose == NodePort.SSH          ? "--ssh-port"
+                                :                                          null);
 
             if (Problem.Because == SocketError.AccessDenied && port < 1024 && !OnWindows)
             {
@@ -297,9 +299,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             }
 
             if (Problem.Because == SocketError.AddressAlreadyInUse)
-                yield return AdviceOfTheKind?.Invoke(Problem)
+                yield return (Problem.Whose == NodePort.SSH ? null : AdviceOfTheKind?.Invoke(Problem))
                                  ?? $"Another copy of this {Kind.Name} already running is the usual answer. Stop it, " +
-                                    $"or give this one another port{(option is not null ? $" with {option} <number>" : "")}.";
+                                    $"or give this one another port{(option is not null ? $" with {option} <number>" : "")}" +
+                                    (Problem.Whose == NodePort.SSH ? ", or start it with --no-ssh." : ".");
 
         }
 

@@ -37,6 +37,7 @@ using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
 #endregion
 
@@ -598,6 +599,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX is picked up.</param>
         /// <param name="TraceTags">What a line picked up that way has to contain to be tagged, needle and tag: the kind of node's own table, or null for <see cref="TraceBridge.DefaultTags"/>.</param>
         /// <param name="TimeProvider">The clock, or null for the system one.</param>
+        /// <param name="SSH">What the program says about serving the command line over SSH: nothing by default, and then only the configuration file can switch it on - see <see cref="SSHSettings"/>.</param>
         public WWCPNode(NodeKind?                                  Kind               = null,
                         String?                                    Version            = null,
                         IPPort?                                    HTTPPort           = null,
@@ -627,7 +629,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         String?                                    MetrologicalLogPath  = null,
                         Boolean                                    BridgeDebugLog     = true,
                         IEnumerable<(String Needle, String Tag)>?  TraceTags          = null,
-                        TimeProvider?                              TimeProvider       = null)
+                        TimeProvider?                              TimeProvider       = null,
+                        SSHSettings?                               SSH                = null)
 
         {
 
@@ -940,6 +943,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
             this.HTTPRootPath  = HTTPRootPath ?? this.BasePath + DefaultAPIPath;
 
             this.HTTPPort        = port;
+
+            // The SSH server listens where the web interface does: on the
+            // loopback unless --any says every address, which is one decision
+            // about who may reach this node and not two.
+            this.listenAddress   = address;
+            this.SSHKeys         = new AuthorizedKeysStore(Path.Combine(this.AccountsPath, AuthorizedKeysStore.DefaultDirectoryName), this.TimeProvider);
+
+            this.sshSettings     = SSH;
+
+            ResolveSSH(SSH, configuration.SSH, port);
+
             this.WebInterfaceURL = URL.Parse($"{(this.HTTPS ? "https" : "http")}://{address}:{port}{this.BasePath.ToString().TrimEnd('/')}/");
 
             // From the server rather than from the web interface's URL: the API's
@@ -2304,6 +2318,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // nobody behind it.
             await EnsureAccounts();
 
+            // The keys the command line brought, now that the accounts are
+            // known and before anybody can connect: the SSH server's first
+            // word about who can sign in is then already true.
+            AuthorizeSSHKeys(sshSettings?.Authorize);
+
             if (OwnsHTTPServer)
             {
                 try
@@ -2318,10 +2337,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+                await StartSSH();
                 await OnListening();
             }
             catch
             {
+
+                await StopSSH();
 
                 // The node's own port is had by now. Nothing is left behind by
                 // a process that is about to end anyway, but a caller that
@@ -2421,6 +2443,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+
+                // Before everything else: a session is somebody at a terminal,
+                // and the moment to tell them is while the node is still there.
+                await StopSSH();
 
                 JSONAPI?.CloseEventStreams();
 
