@@ -630,8 +630,8 @@ What an account may do there is what its roles let it do on the web
 interface: a command asks `MayDo` the question its route asks, and is
 refused with the roles that would do. The log names it as the web
 interface names the account that pressed a button - "'root' at the command
-line over SSH asked this vehicle to synchronise its time." - tagged `cli`
-and `ssh` where the page says `web`. The console may do everything: whoever
+line over SSH asked this electric vehicle to synchronise its time." - tagged
+`cli` and `ssh` where the page says `web`. The console may do everything: whoever
 is at it has the process.
 
 Each session has a log of its own, from the level the console shows, which
