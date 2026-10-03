@@ -358,8 +358,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(added,  Is.EqualTo(new[] { fingerprint }));
                 Assert.That(said,
-                            Has.Some.Matches<String>(message => message.StartsWith($"'{WWCPNode.DefaultAdminUser}' signed in over SSH from 127.0.0.1:") &&
-                                                                message.EndsWith($"with the key {fingerprint}.")));
+                            Has.Some.Matches<String>(message => message is not null && message.StartsWith($"'{WWCPNode.DefaultAdminUser}' signed in over SSH from 127.0.0.1:") &&
+                                                                                       message.EndsWith($"with the key {fingerprint}.")));
             });
 
         }
@@ -551,7 +551,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(at, Is.GreaterThan(0), String.Join("\n", lines));
 
             Assert.Multiple(() => {
-                Assert.That(lines[at],      Does.EndWith(node.SSHURL));
+                Assert.That(lines[at],      Does.EndWith(node.SSHURL!));
                 Assert.That(lines[at + 1].Trim(),  Is.EqualTo(node.SSHHostKey));
                 Assert.That(lines[at + 2].Trim(),  Is.EqualTo($"no account has a key yet: --authorize-ssh-key {WWCPNode.DefaultAdminUser}=<file.pub>"));
                 Assert.That(lines.Take(at + 3).Skip(at), Has.All.Length.LessThanOrEqualTo(NodeUsage.Width));

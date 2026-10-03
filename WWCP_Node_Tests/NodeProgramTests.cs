@@ -222,7 +222,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(banner, Has.Some.EqualTo($"  web interface   {node.WebInterfaceURL}"));
                 Assert.That(banner, Has.Some.EqualTo( "  traffic stream  somewhere"));
                 Assert.That(banner.Where(line => line.StartsWith("  built from")),
-                            Has.All.Matches<String>(line => line[18] != ' ' && line[17] == ' '),
+                            Has.All.Matches<String>(line => line is not null && line[18] != ' ' && line[17] == ' '),
                             "the first repository at 18");
             });
 
