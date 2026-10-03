@@ -751,7 +751,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var root = Root("An Old Root", ValidForDays: 1, StartsInDays: -10);
 
             Assert.That(store.Import(Pem(root), CertificateKind.V2GRoot, null, null, out var entry, out var error),
-                        Is.True, error, "an expired certificate may be imported - knowing it is there is the point");
+                        Is.True, $"an expired certificate may be imported - knowing it is there is the point: {error}");
 
             Assert.Multiple(() => {
                 Assert.That(entry!.IsActive,  Is.True,  "somebody switches a certificate on; time switches it off");

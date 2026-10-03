@@ -171,6 +171,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             if (node is not null)
                 await node.DisposeAsync();
 
+            console.Dispose();
+
             try
             {
                 if (Directory.Exists(directory))
