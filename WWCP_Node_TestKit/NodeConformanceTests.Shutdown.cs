@@ -381,7 +381,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             await Node.Stop();
 
-            Assert.DoesNotThrowAsync(async () => {
+            await Assert.DoesNotThrowAsync(async () => {
                 await Node.Stop();
                 await Node.DisposeAsync();
             });

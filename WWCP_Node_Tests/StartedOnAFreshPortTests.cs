@@ -144,12 +144,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// stub is let go of before the refusal stands.
         /// </summary>
         [Test]
-        public void ASocketRefusedForAnotherReasonIsNotTriedAgain()
+        public async Task ASocketRefusedForAnotherReasonIsNotTriedAgain()
         {
 
             var made     = new List<Stub>();
 
-            var refused  = Assert.ThrowsAsync<SocketException>(() => TestPorts.StartedOnAFreshPort(Make:   port => Made(made, port),
+            var refused  = await Assert.ThrowsAsync<SocketException>(() => TestPorts.StartedOnAFreshPort(Make:   port => Made(made, port),
                                                                                                    Start:  stub => throw new SocketException((Int32) SocketError.NetworkUnreachable)));
 
             Assert.Multiple(() => {
@@ -170,13 +170,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// let go of.
         /// </summary>
         [Test]
-        public void AStubWhosePortsStayTakenIsGivenUpOn()
+        public async Task AStubWhosePortsStayTakenIsGivenUpOn()
         {
 
             var taken    = Squatted();
             var made     = new List<Stub>();
 
-            var refused  = Assert.ThrowsAsync<SocketException>(() => TestPorts.StartedOnAFreshPort(Make:   port => Made(made, taken),
+            var refused  = await Assert.ThrowsAsync<SocketException>(() => TestPorts.StartedOnAFreshPort(Make:   port => Made(made, taken),
                                                                                                    Start:  stub => stub.Start()));
 
             Assert.Multiple(() => {
@@ -196,12 +196,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// tried again, and the stub is let go of before the failure stands.
         /// </summary>
         [Test]
-        public void AStubWhoseStartFailsOtherwiseIsLetGo()
+        public async Task AStubWhoseStartFailsOtherwiseIsLetGo()
         {
 
             var made = new List<Stub>();
 
-            Assert.ThrowsAsync<InvalidOperationException>(() => TestPorts.StartedOnAFreshPort(Make:   port => Made(made, port),
+            await Assert.ThrowsAsync<InvalidOperationException>(() => TestPorts.StartedOnAFreshPort(Make:   port => Made(made, port),
                                                                                               Start:  stub => throw new InvalidOperationException("not today")));
 
             Assert.Multiple(() => {

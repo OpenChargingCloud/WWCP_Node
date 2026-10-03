@@ -230,7 +230,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                            BridgeDebugLog:    false
                                        );
 
-                var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await node.Start())!;
+                var problem = (await Assert.ThrowsAsync<PortUnavailableException>(async () => await node.Start()))!;
 
                 Assert.Multiple(() => {
                     Assert.That(problem.Port,     Is.EqualTo(port));
@@ -298,7 +298,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var node = new NodeWithASecondPort(directory, FreePort(), SecondPortIsTaken: true);
 
-            var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await node.Start())!;
+            var problem = (await Assert.ThrowsAsync<PortUnavailableException>(async () => await node.Start()))!;
 
             Assert.Multiple(() => {
 

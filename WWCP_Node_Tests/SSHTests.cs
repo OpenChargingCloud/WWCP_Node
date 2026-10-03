@@ -519,7 +519,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var port         = IPPort.Parse((UInt16) ((IPEndPoint) taken.LocalEndpoint).Port);
             var node         = Node(new SSHSettings(Enabled: true, Port: port));
 
-            var problem      = Assert.ThrowsAsync<PortUnavailableException>(async () => await node.Start())!;
+            var problem      = (await Assert.ThrowsAsync<PortUnavailableException>(async () => await node.Start()))!;
 
             Assert.Multiple(() => {
                 Assert.That(problem.Whose,                                Is.EqualTo(NodePort.SSH));

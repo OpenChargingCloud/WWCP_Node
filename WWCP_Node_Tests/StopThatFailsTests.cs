@@ -166,7 +166,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             using var client  = new TcpClient();
 
-            var refused = Assert.CatchAsync<SocketException>(async () => await client.ConnectAsync(System.Net.IPAddress.Loopback, port),
+            var refused = await Assert.CatchAsync<SocketException>(async () => await client.ConnectAsync(System.Net.IPAddress.Loopback, port),
                                                               "the node still listens on its port");
 
             Assert.That(refused?.SocketErrorCode, Is.EqualTo(SocketError.ConnectionRefused));
