@@ -22,6 +22,10 @@ const told: NTSUpdate[] = [];
 
 /** What the stand-in node says of its clock, over aClock(). */
 let clockSays: Partial<Clock> = {};
+
+/** The certificate the first server showed, and a root the store keeps for NTS: 64 digits each. */
+const shownPrint = 'ab'.repeat(32);
+const rootPrint  = 'cd'.repeat(32);
 let synced = 0;
 
 function aConfiguration(): NTSConfiguration {
@@ -58,6 +62,11 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     if (url.endsWith('/clock'))
         return answer({ ...aClock(), ...clockSays });
 
+    if (url.endsWith('/certificates'))
+        return answer({ certificates: { tlsRoot: [ { id: rootPrint.slice(0, 16), label: 'PTB Root', thumbprint: rootPrint,
+                                                     usable: true, usages: [ 'nts' ] } ],
+                                        tlsServer: [] } });
+
     if (url.endsWith('/configuration/nts/sync')) {
         synced++;
         return answer({ ...held, result: { ok: true, at: '2026-10-04T12:00:01Z', servers: [],
@@ -90,15 +99,17 @@ async function until(what: () => boolean, said: string): Promise<void> {
     assert.ok(what(), said);
 }
 
-async function opened(clock: Partial<Clock> = {}): Promise<HTMLElement> {
+async function opened(clock:  Partial<Clock> = {},
+                      shape:  (configuration: NTSConfiguration) => void = () => undefined): Promise<HTMLElement> {
 
     clockSays   = clock;
     held        = aConfiguration();
+    shape(held);
     told.length = 0;
     synced      = 0;
 
     configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
-    auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [ 'nts:edit', 'nts:run' ], mayReadTheLog: false } as never);
+    auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [ 'nts:edit', 'nts:run', 'certificates:read' ], mayReadTheLog: false } as never);
 
     const root = document.createElement('div');
     document.body.replaceChildren(root);
@@ -121,6 +132,48 @@ const submit = (root: HTMLElement, form: string) =>
 describe('the NTS page', () => {
 
     const verdict = (root: HTMLElement) => root.querySelector('#nts-clock p.hint')!.textContent!.replace(/\s+/g, ' ').trim();
+
+    it('adds what the dialog offers to what a server is held to, once each, and saves it', async () => {
+
+        const root = await opened({}, configuration => {
+            const first = configuration.timeSources![0]!;
+            first.certificate = shownPrint;
+            first.heldTo      = { certificate: null, root: null, certificates: [], roots: [], onMismatch: 'record', trustOnFirstUse: null };
+        });
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog        = document.querySelector('dialog')!;
+        const certificates  = dialog.querySelector<HTMLTextAreaElement>('textarea[name="pinCertificates"]')!;
+        const roots         = dialog.querySelector<HTMLTextAreaElement>('textarea[name="pinRoots"]')!;
+        const shown         = dialog.querySelector<HTMLButtonElement>('[data-pin-add="pinCertificates"]')!;
+        const kept          = dialog.querySelector<HTMLSelectElement>('[data-pin-pick="pinRoots"]')!;
+
+        assert.equal(dialog.querySelector<HTMLSelectElement>('select[name="pinMismatch"]')!.value, 'record', 'what a mismatch comes to is not what it is held to');
+
+        shown.click();
+        assert.equal(certificates.value, shownPrint, 'the certificate the server showed was not added');
+        assert.equal(shown.hidden, true, 'the offer of what is added already is still there');
+
+        kept.value = rootPrint;
+        kept.dispatchEvent(new Event('change', { bubbles: true }));
+        kept.value = rootPrint;
+        kept.dispatchEvent(new Event('change', { bubbles: true }));
+        assert.equal(roots.value, rootPrint, 'the root the store keeps was not added, or added twice');
+        assert.equal(kept.value, '', 'the chooser does not ask again');
+
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        const saved = JSON.stringify(told.find(update => update.servers !== undefined)!.servers![0]);
+        assert.match(saved, new RegExp(shownPrint), 'the certificate added was not saved');
+        assert.match(saved, new RegExp(rootPrint),  'the root added was not saved');
+        assert.match(saved, /"onMismatch":"record"/);
+
+        document.querySelector('dialog')?.remove();
+
+    });
 
     it('says whose time a legal clock carries, as the node names it', async () => {
 

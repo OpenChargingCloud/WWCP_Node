@@ -27,8 +27,10 @@
 //
 // A fragment of html.ts in a template of this one is taken as the markup it
 // is - it was escaped when it was made - so that what the kinds hand a shared
-// page (a hint, a card, a fieldset of pins) can stay html.ts's until they draw
-// with this one too.
+// page (a hint, a card) can stay html.ts's until they draw with this one too.
+// A Configuration page's cards are drawn with this one by cardViews.ts; the
+// frame, shell.ts, stays html.ts's: it is drawn once for every page, and the
+// kinds' tests load it without a document, which lit-html wants as it loads.
 
 import { html as litHTML, render as litRender, nothing, type TemplateResult } from 'lit-html';
 import { keyed }       from 'lit-html/directives/keyed.js';

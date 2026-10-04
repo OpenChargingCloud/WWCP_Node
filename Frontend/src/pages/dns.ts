@@ -9,7 +9,7 @@ import { typedSinceDrawn, unsaved } from '../unsaved';
 import { html, live, nothing, render, repeat, type TemplateResult } from '../view';
 import { allServersTake, entryOf, isEncrypted, oneServerTakes, sentOf } from './dnsServers';
 import { keysOf, pinsIn, saysAnything, withPins, type StoreOffers } from './pins';
-import { certificateVerdictView, heldToView, judgementView, pinsFieldset, readPinsFieldset, shownView, storeOffers, wirePinsFieldset } from './pinViews';
+import { certificateVerdictView, heldToView, judgementView, pinsFieldset, readPinsFieldset, shownView, storeOffers } from './pinViews';
 
 /**
  * How this node resolves names.
@@ -454,7 +454,6 @@ export const dnsPage: Page = {
 
             `);
 
-            wirePinsFieldset(dialog);
 
             dialog.addEventListener('close',  dismiss);
             dialog.addEventListener('cancel', dismiss);

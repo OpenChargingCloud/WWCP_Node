@@ -1,8 +1,9 @@
 import { nodeAPI, type KnownServer, type ServerJudgement } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
-import { html, must, type HTMLFragment } from '../html';
+import { must } from '../html';
 import { formatValue } from '../ui';
+import { html, nothing, type TemplateResult } from '../view';
 import { offersOf, outcomeText, outcomeTone, pinsText, readPins, shortFingerprint, type PinsDraft, type StoreOffers } from './pins';
 
 
@@ -19,6 +20,9 @@ const api = nodeAPI();
  * The decisions are in pins.ts; this only draws them. The vehicle's pages draw
  * them the same way, from a module the vehicle calls serverCertificates.ts -
  * which here is the page of the charging station port's own certificates.
+ *
+ * Drawn by view.ts, as the two pages are: the offers in the dialog add what
+ * they offer through listeners of their own, bound where they are drawn.
  */
 
 
@@ -75,7 +79,7 @@ export async function storeOffers(service: 'nts' | 'dns'): Promise<StoreOffers |
 
 
 /** A fingerprint in a row: its first digits, the whole of it where the pointer rests. */
-function fingerprintView(fingerprint: string, nameOf?: (fingerprint: string) => string | undefined): HTMLFragment {
+function fingerprintView(fingerprint: string, nameOf?: (fingerprint: string) => string | undefined): TemplateResult {
 
     const name = nameOf?.(fingerprint);
 
@@ -90,7 +94,7 @@ function fingerprintView(fingerprint: string, nameOf?: (fingerprint: string) => 
  * since it started, what it was last believed with before.
  */
 export function certificateVerdictView(judgement: ServerJudgement | null | undefined,
-                                       known:     KnownServer     | null | undefined): HTMLFragment {
+                                       known:     KnownServer     | null | undefined): TemplateResult {
 
     if (judgement === null || judgement === undefined)
         return known
@@ -106,13 +110,13 @@ export function certificateVerdictView(judgement: ServerJudgement | null | undef
               ? html`<span class="chip warn" title="It showed ${judgement.previously.certificate} before">
                          another certificate than since ${dayOf(judgement.previously.since)}
                      </span>`
-              : ''}
+              : nothing}
         ${judgement.learned
               ? html`<span class="chip ok">held to this ${judgement.learned} from now on</span>`
-              : ''}
+              : nothing}
         ${judgement.anchoredBy
               ? html`<span class="muted">validated by this ${config.nodeName}'s root ${judgement.anchoredBy}</span>`
-              : ''}
+              : nothing}
     `;
 
 }
@@ -125,7 +129,7 @@ export function certificateVerdictView(judgement: ServerJudgement | null | undef
  */
 export function shownView(judgement: ServerJudgement | null | undefined,
                           known:     KnownServer     | null | undefined,
-                          nameOf?:   (fingerprint: string) => string | undefined): HTMLFragment {
+                          nameOf?:   (fingerprint: string) => string | undefined): TemplateResult {
 
     const certificate  = judgement?.certificate ?? known?.certificate ?? null;
     const root         = judgement?.root        ?? known?.root        ?? null;
@@ -135,7 +139,7 @@ export function shownView(judgement: ServerJudgement | null | undefined,
 
     return html`
         <span class="muted">
-            certificate ${fingerprintView(certificate, nameOf)}${root ? html`, root ${fingerprintView(root, nameOf)}` : ''}
+            certificate ${fingerprintView(certificate, nameOf)}${root ? html`, root ${fingerprintView(root, nameOf)}` : nothing}
         </span>
     `;
 
@@ -151,14 +155,14 @@ export function shownView(judgement: ServerJudgement | null | undefined,
  */
 export function heldToView(draft:    PinsDraft,
                            nameOf?:  (fingerprint: string) => string | undefined,
-                           unsaved = false): HTMLFragment {
+                           unsaved = false): TemplateResult {
 
     const text = pinsText(draft, nameOf);
 
     if (text === null)
         return unsaved ? html`<span class="muted">held to no fingerprint <em>once saved</em></span>` : html``;
 
-    return html`<span class="held-to">Held to ${text}${unsaved ? html` <em>once saved</em>` : ''}</span>`;
+    return html`<span class="held-to">Held to ${text}${unsaved ? html` <em>once saved</em>` : nothing}</span>`;
 
 }
 
@@ -173,7 +177,7 @@ export function heldToView(draft:    PinsDraft,
  * time server's certificate is evidence for the time this node
  * keeps, so the list of what a mismatch comes to says where each goes.
  */
-export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragment {
+export function pinsFieldset(draft: PinsDraft, context: PinsContext): TemplateResult {
 
     const what     = context.service === 'nts' ? 'time server' : 'name server';
     const evidence = context.service === 'nts';
@@ -193,7 +197,8 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
 
             <label>Certificates it may show
                 <textarea name="pinCertificates" rows="2" spellcheck="false" autocomplete="off"
-                          placeholder="SHA-256 fingerprints, one to a line">${draft.certificates.join('\n')}</textarea>
+                          placeholder="SHA-256 fingerprints, one to a line"
+                          .defaultValue=${draft.certificates.join('\n')}></textarea>
                 <span class="hint">Any one of them: a second one is a renewal written down before it happens.</span>
             </label>
 
@@ -203,7 +208,8 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
 
             <label>Roots its chain may end at
                 <textarea name="pinRoots" rows="2" spellcheck="false" autocomplete="off"
-                          placeholder="SHA-256 fingerprints, one to a line">${draft.roots.join('\n')}</textarea>
+                          placeholder="SHA-256 fingerprints, one to a line"
+                          .defaultValue=${draft.roots.join('\n')}></textarea>
                 <span class="hint">
                     Any one of them. A root outlives the certificates it issues, so it is the pin a renewal
                     does not break.
@@ -216,9 +222,9 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
 
             <label>When it shows another one
                 <select name="pinMismatch">
-                    <option value="refuse" ${draft.onMismatch === 'refuse' ? html`selected` : ''}>refuse it</option>
-                    <option value="record" ${draft.onMismatch === 'record' ? html`selected` : ''}>use it all the same, and write that into the metrological log</option>
-                    <option value="accept" ${draft.onMismatch === 'accept' ? html`selected` : ''}>${evidence
+                    <option value="refuse" ?selected=${draft.onMismatch === 'refuse'}>refuse it</option>
+                    <option value="record" ?selected=${draft.onMismatch === 'record'}>use it all the same, and write that into the metrological log</option>
+                    <option value="accept" ?selected=${draft.onMismatch === 'accept'}>${evidence
                         ? 'use it all the same - for a time server, that goes into the metrological log either way'
                         : 'use it all the same, and write that into the log'}</option>
                 </select>
@@ -230,9 +236,9 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
 
             <label>Trust on first use
                 <select name="pinLearn">
-                    <option value=""            ${draft.trustOnFirstUse === null          ? html`selected` : ''}>no</option>
-                    <option value="root"        ${draft.trustOnFirstUse === 'root'        ? html`selected` : ''}>hold it to the root its chain first ends at</option>
-                    <option value="certificate" ${draft.trustOnFirstUse === 'certificate' ? html`selected` : ''}>hold it to the first certificate it is believed with</option>
+                    <option value=""            ?selected=${draft.trustOnFirstUse === null}>no</option>
+                    <option value="root"        ?selected=${draft.trustOnFirstUse === 'root'}>hold it to the root its chain first ends at</option>
+                    <option value="certificate" ?selected=${draft.trustOnFirstUse === 'certificate'}>hold it to the first certificate it is believed with</option>
                 </select>
                 <span class="hint">
                     Learned the first time it is believed while it is held to none of that kind, and written into
@@ -255,25 +261,39 @@ function offerView(list:          'pinCertificates' | 'pinRoots',
                    already:       string[],
                    shownLabel:    string,
                    kept:          { thumbprint: string; label: string; id: string }[],
-                   keptLabel:     string): HTMLFragment {
+                   keptLabel:     string): TemplateResult {
 
     const offerShown = shown !== null && shownLabel.length > 0 && !already.includes(shown);
 
     if (!offerShown && kept.length === 0)
         return html``;
 
+    // What they offer goes to the end of their list, once: the button, which
+    // has nothing more to offer then, goes; the chooser goes back to asking.
+    const addShown = (event: Event): void => {
+        const button = event.currentTarget as HTMLButtonElement;
+        addTo(button, list, shown ?? '');
+        button.hidden = true;
+    };
+
+    const addKept = (event: Event): void => {
+        const select = event.currentTarget as HTMLSelectElement;
+        addTo(select, list, select.value);
+        select.value = '';
+    };
+
     return html`
         <div class="pin-offers">
             ${offerShown
                   ? html`<button type="button" class="btn small" data-pin-add="${list}" data-fingerprint="${shown}"
-                                 title="${shown}">${shownLabel}</button>`
-                  : ''}
+                                 title="${shown}" @click=${addShown}>${shownLabel}</button>`
+                  : nothing}
             ${kept.length > 0
-                  ? html`<select data-pin-pick="${list}" aria-label="${keptLabel}">
+                  ? html`<select data-pin-pick="${list}" aria-label="${keptLabel}" @change=${addKept}>
                              <option value="">${keptLabel}</option>
                              ${kept.map(entry => html`<option value="${entry.thumbprint}">${entry.label} (${entry.id})</option>`)}
                          </select>`
-                  : ''}
+                  : nothing}
         </div>
     `;
 
@@ -281,50 +301,20 @@ function offerView(list:          'pinCertificates' | 'pinRoots',
 
 
 /**
- * Make the offers of a dialog's pin fields add what they offer: to the end of
- * their list, once.
+ * Add a fingerprint to the end of one of the fieldset's lists, unless it is
+ * in it already: the list of the fieldset the offer that was used stands in.
  */
-export function wirePinsFieldset(dialog: HTMLElement): void {
+function addTo(offer: HTMLElement, list: 'pinCertificates' | 'pinRoots', fingerprint: string): void {
 
-    const add = (list: string, fingerprint: string): void => {
+    const area = offer.closest('fieldset')?.querySelector<HTMLTextAreaElement>(`textarea[name="${list}"]`) ?? null;
 
-        const area = dialog.querySelector<HTMLTextAreaElement>(`textarea[name="${list}"]`);
+    if (area === null || fingerprint.length === 0)
+        return;
 
-        if (area === null || fingerprint.length === 0)
-            return;
+    const lines = area.value.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        const lines = area.value.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-
-        if (!lines.some(line => line.toLowerCase() === fingerprint.toLowerCase()))
-            area.value = [ ...lines, fingerprint ].join('\n');
-
-    };
-
-    dialog.addEventListener('click', event => {
-
-        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-pin-add]');
-
-        if (button === null)
-            return;
-
-        add(button.dataset.pinAdd!, button.dataset.fingerprint ?? '');
-
-        button.hidden = true;
-
-    });
-
-    dialog.addEventListener('change', event => {
-
-        const select = (event.target as HTMLElement).closest<HTMLSelectElement>('[data-pin-pick]');
-
-        if (select === null)
-            return;
-
-        add(select.dataset.pinPick!, select.value);
-
-        select.value = '';
-
-    });
+    if (!lines.some(line => line.toLowerCase() === fingerprint.toLowerCase()))
+        area.value = [ ...lines, fingerprint ].join('\n');
 
 }
 
@@ -347,7 +337,7 @@ export function readPinsFieldset(form: HTMLFormElement): { draft: PinsDraft; err
  * it showed, and every step that led there.
  */
 export function judgementView(judgement: ServerJudgement,
-                              nameOf?:   (fingerprint: string) => string | undefined): HTMLFragment {
+                              nameOf?:   (fingerprint: string) => string | undefined): TemplateResult {
 
     const root = judgement.root === null ? '-' : `${nameOf?.(judgement.root) ?? ''}${nameOf?.(judgement.root) ? ' - ' : ''}${judgement.root}`;
 
@@ -364,11 +354,11 @@ export function judgementView(judgement: ServerJudgement,
                 <div class="kv"><span class="k">Root</span><span class="v">${root}</span></div>
                 ${judgement.anchoredBy
                       ? html`<div class="kv"><span class="k">Validated by</span><span class="v">this ${config.nodeName}'s root ${judgement.anchoredBy}</span></div>`
-                      : ''}
+                      : nothing}
             </div>
 
             ${(judgement.steps ?? []).length === 0
-                  ? ''
+                  ? nothing
                   : html`
                       <ol class="test-log">
                           ${(judgement.steps ?? []).map(step => html`

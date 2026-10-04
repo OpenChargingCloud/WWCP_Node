@@ -9,7 +9,7 @@ import { typedSinceDrawn, unsaved } from '../unsaved';
 import { html, live, nothing, render, repeat, type TemplateResult } from '../view';
 import { nameTaken, readable, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
 import { asShown, draftOf, withPins, type StoreOffers } from './pins';
-import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers, wirePinsFieldset } from './pinViews';
+import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers } from './pinViews';
 
 /**
  * What the NTS client allows itself when the node has not been told.
@@ -793,7 +793,6 @@ export const ntsPage: Page = {
 
             `);
 
-            wirePinsFieldset(dialog);
 
             dialog.addEventListener('close',  dismiss);
             dialog.addEventListener('cancel', dismiss);

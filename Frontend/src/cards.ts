@@ -11,6 +11,11 @@
  * "cloud.charging.open.protocols.ISO15118.SDP" were all there was of it; the
  * vehicle's page was the first to name one only where it tells two lines
  * apart.
+ *
+ * cardViews.ts draws the same cards with view.ts, for a page that draws by
+ * comparing; what a card shows is decided here, for both. This module stays
+ * free of lit-html, which wants a document as it is loaded: the kinds'
+ * Configuration pages, and their tests, load it without one.
  */
 
 import { html, type HTMLFragment } from './html';
@@ -94,7 +99,7 @@ function fields(values: Record<string, unknown>): HTMLFragment[] {
  * that is said in a line - a number, a word, a list of words, and an empty
  * thing, which the line says as "{}" rather than as a name over nothing.
  */
-function thingsIn(value: unknown): Record<string, unknown>[] | null {
+export function thingsIn(value: unknown): Record<string, unknown>[] | null {
 
     if (Array.isArray(value))
         return value.some(item => typeof item === 'object' && item !== null)
@@ -110,6 +115,19 @@ function thingsIn(value: unknown): Record<string, unknown>[] | null {
 
 
 /**
+ * The names of the Libraries card's lines, and those of them that more than
+ * one line shares - which are told apart by their assembly.
+ */
+export function libraryNames(lines: Record<string, unknown>[]): { names: string[]; shared: Set<string> } {
+
+    const names = lines.map(line => formatValue(line.name));
+
+    return { names, shared: new Set(names.filter((name, index) => names.indexOf(name) !== index)) };
+
+}
+
+
+/**
  * The Libraries card: one line per repository the node was built from, as
  * the node sends them, with its version and the whole commit - never
  * shortened, since it is read out of a bug report and pasted into a checkout.
@@ -119,8 +137,7 @@ function thingsIn(value: unknown): Record<string, unknown>[] | null {
  */
 export function librariesCard(lines: Record<string, unknown>[]): HTMLFragment {
 
-    const names   = lines.map(line => formatValue(line.name));
-    const shared  = new Set(names.filter((name, index) => names.indexOf(name) !== index));
+    const { names, shared } = libraryNames(lines);
 
     return html`
         <section class="card">
@@ -158,10 +175,16 @@ export function librariesCard(lines: Record<string, unknown>[]): HTMLFragment {
  */
 export function breakable(name: string): HTMLFragment {
 
-    const parts = name.split(/(?<=\.)(?=\D)|(?<=_)/);
+    const parts = breakingParts(name);
 
     return html`${parts.map((part, index) => index < parts.length - 1
                                                  ? html`${part}<wbr>`
                                                  : html`${part}`)}`;
 
+}
+
+
+/** The parts of a dotted name, cut where breakable() lets it break. */
+export function breakingParts(name: string): string[] {
+    return name.split(/(?<=\.)(?=\D)|(?<=_)/);
 }
