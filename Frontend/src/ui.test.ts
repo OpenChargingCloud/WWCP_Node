@@ -118,6 +118,36 @@ describe('a page while the node is being told', () => {
 
     });
 
+    it('gives the focus back to the control that had it, which a browser takes from a control switched off', async () => {
+
+        const document  = { activeElement: null as unknown, body: {} };
+        const typed     = { disabled: false, isConnected: true, focus() { document.activeElement = typed; } };
+        const held      = { querySelectorAll: () => [ typed ], ownerDocument: document } as unknown as HTMLElement;
+
+        document.activeElement = typed;
+
+        // As Chrome does: switched off, the control has the focus no more.
+        await whileSaving(held, null, async () => { document.activeElement = document.body; });
+
+        assert.ok(document.activeElement === typed, 'the focus was not given back');
+
+    });
+
+    it('leaves the focus where somebody put it meanwhile', async () => {
+
+        const document  = { activeElement: null as unknown, body: {} };
+        const typed     = { disabled: false, isConnected: true, focus() { document.activeElement = typed; } };
+        const elsewhere = { focus() { document.activeElement = elsewhere; } };
+        const held      = { querySelectorAll: () => [ typed ], ownerDocument: document } as unknown as HTMLElement;
+
+        document.activeElement = typed;
+
+        await whileSaving(held, null, async () => { elsewhere.focus(); });
+
+        assert.ok(document.activeElement === elsewhere, 'the focus was taken back from where it had been put');
+
+    });
+
 });
 
 

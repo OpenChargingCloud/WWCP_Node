@@ -241,6 +241,73 @@ export function attributesSaidAsText(Page: Page): string[] {
 }
 
 /**
+ * Where a page drawn by view.ts says what a textarea holds as an expression
+ * between its tags - <textarea>${lines}</textarea> - which lit-html does not
+ * support: its development build warns of it, the build a page is bundled
+ * with says nothing, and that it still drew in happy-dom is no promise.
+ * .defaultValue=${lines} is the binding lit-html says to use instead (the
+ * charging station server's names it is reachable as, on the local
+ * controller). Asked of the code: a ${ between a textarea's tag and its end.
+ */
+export function expressionsInATextarea(Page: Page): string[] {
+
+    const code = Page.source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    return [ ...code.matchAll(/<textarea\b[\s\S]*?<\/textarea>/g) ].
+               map(match => match[0]).
+               filter(area => area.slice(endOfTag(area)).includes('${')).
+               map(area => area.replace(/\s+/g, ' '));
+
+}
+
+/**
+ * Where the tag a piece of a template begins with ends: after the first >
+ * that is outside a ${...} - the arrow of a listener bound in the tag is
+ * inside one.
+ */
+function endOfTag(Text: string): number {
+
+    let depth = 0;
+
+    for (let i = 0; i < Text.length; i++) {
+        if (Text.startsWith('${', i))   { depth++; i++; }
+        else if (depth > 0 && Text[i] === '{')   depth++;
+        else if (depth > 0 && Text[i] === '}')   depth--;
+        else if (depth === 0 && Text[i] === '>') return i + 1;
+    }
+
+    return Text.length;
+
+}
+
+/**
+ * The patterns of a page that a browser refuses, and with them every check
+ * of what is typed into their fields: Chrome reads a pattern as a regular
+ * expression with the v flag, in which a hyphen in a class is escaped
+ * wherever it stands - [a-z0-9-]+ is no expression at all there, and the
+ * group's id on the local controller was asked nothing (found in Chrome's
+ * console). Asked of each pattern="..." written out, as the template hands
+ * it on: a \\ in the source is one \ in the attribute.
+ */
+export function patternsABrowserRefuses(Page: Page): string[] {
+
+    return [ ...Page.source.matchAll(/\spattern="([^"]*)"/g) ].
+               map(match => match[1]!).
+               filter(pattern => !pattern.includes('${')).
+               map(pattern => pattern.replace(/\\\\/g, '\\')).
+               filter(pattern => {
+                   try {
+                       new RegExp(`^(?:${pattern})$`, 'v');
+                       return false;
+                   }
+                   catch {
+                       return true;
+                   }
+               });
+
+}
+
+/**
  * How many forms of a page have neither an id nor a data-id: keepDrafts cannot
  * tell such a form from its neighbours after a drawing anew, and drops what
  * was typed into it without a word - the forms drawn for each login and each
@@ -391,6 +458,12 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
                                  `bind it; lit-html refuses the other when the page is drawn`);
             });
 
+            it(`${page.name} binds what a textarea holds as its defaultValue, not as an expression between its tags`, () => {
+                assert.deepEqual(expressionsInATextarea(page), [],
+                                 `${page.name} draws with view.ts and puts an expression into a textarea, which lit-html does not support - ` +
+                                 `.defaultValue=\${...} does`);
+            });
+
             it(`${page.name} needs neither keepDrafts nor innerHTML`, () => {
                 assert.doesNotMatch(page.source, /keepDrafts\(/,
                                     `${page.name} draws with view.ts, which keeps what is typed by itself - keepDrafts would put back a value over the node's answer`);
@@ -411,6 +484,17 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
             it(`${page.name} reads its numbers with numberField, so that an emptied field is not 0`, () => {
                 const read = numbersReadAsZeroWhenEmptied(page);
                 assert.deepEqual(read, [], `${page.name} reads ${read.join(', ')} with Number(), which makes an emptied field 0`);
+            });
+
+    });
+
+    describe('a pattern on a page', () => {
+
+        for (const page of pages)
+            it(`${page.name} writes every pattern as a browser reads it`, () => {
+                const refused = patternsABrowserRefuses(page);
+                assert.deepEqual(refused, [], `${page.name} has a pattern a browser refuses, and with it every check of its field: ` +
+                                              `${refused.join(', ')} - in a class, a hyphen is escaped (\\\\-), as the v flag wants it`);
             });
 
     });

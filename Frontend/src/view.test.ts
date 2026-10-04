@@ -9,7 +9,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it }      from 'node:test';
 
 import { html as stringHTML, render as stringRender } from './html.ts';
-import { html, live, nothing, render, repeat }      from './view.ts';
+import { html, keyed, live, nothing, render, repeat } from './view.ts';
 
 
 function page(): HTMLElement {
@@ -38,9 +38,9 @@ describe('view', () => {
         draw(2);
 
         assert.equal(root.querySelector('p')!.textContent, '2 of them');
-        assert.equal(root.querySelector('#a input'), name,          'the same element, not a new one');
+        assert.ok(root.querySelector('#a input') === name, 'the same element, not a new one');
         assert.equal(name.value,                     'typed, not saved');
-        assert.equal(document.activeElement,         name);
+        assert.ok(document.activeElement === name, 'the focus went');
 
     });
 
@@ -98,8 +98,47 @@ describe('view', () => {
         draw(['two']);
 
         assert.equal(root.querySelectorAll('input').length, 1);
-        assert.equal(root.querySelector('input'), two);
+        assert.ok(root.querySelector('input') === two, 'the row of two was made anew');
         assert.equal(two.value, 'typed into two');
+
+    });
+
+    it('draws a form for another key anew, and keeps it for the same one', () => {
+
+        const root = page();
+        const draw = (group: string) => render(root, html`
+            ${keyed(group, html`<form id="group-form"><input name="name" value=${group} /></form>`)}`);
+
+        draw('a');
+        const forA = root.querySelector<HTMLInputElement>('input')!;
+        forA.value = 'typed for a';
+
+        draw('a');
+        assert.ok(root.querySelector('input') === forA, 'the form for the same key was made anew');
+        assert.equal(forA.value, 'typed for a');
+
+        draw('b');
+        assert.ok(root.querySelector('input') !== forA, 'the form for b is the one typed into for a');
+        assert.equal(root.querySelector<HTMLInputElement>('input')!.value, 'b');
+
+    });
+
+    it('fills a textarea through its defaultValue, which what is typed into it outlives', () => {
+
+        const root = page();
+        const draw = (said: string) => render(root, html`<textarea .defaultValue=${said}></textarea>`);
+
+        draw('one');
+        const area = root.querySelector('textarea')!;
+        assert.equal(area.value, 'one');
+
+        draw('two');
+        assert.equal(area.value, 'two', 'untouched, it shows what it is drawn with');
+
+        area.value = 'typed';
+        draw('three');
+        assert.equal(area.value, 'typed');
+        assert.equal(area.defaultValue, 'three');
 
     });
 
@@ -110,7 +149,7 @@ describe('view', () => {
         render(root, html`<p>${'<b>not bold</b>'}</p><div>${stringHTML`<b>${'a & b'}</b>`}</div><ul>${[stringHTML`<li>x</li>`, 'y']}</ul>`);
 
         assert.equal(root.querySelector('p')!.textContent,       '<b>not bold</b>');
-        assert.equal(root.querySelector('p b'),                  null);
+        assert.ok(root.querySelector('p b') === null, 'a value was taken as markup');
         assert.equal(root.querySelector('div b')!.textContent,   'a & b');
         assert.equal(root.querySelector('ul li')!.textContent,   'x');
         assert.equal(root.querySelector('ul')!.textContent,      'xy');
@@ -124,7 +163,7 @@ describe('view', () => {
         stringRender(root, stringHTML`<div class="loading">Loading ...</div>`);
         render(root, html`<p>here</p>`);
 
-        assert.equal(root.querySelector('.loading'), null);
+        assert.ok(root.querySelector('.loading') === null, 'what html.ts drew is still there');
         assert.equal(root.children.length, 1);
 
         render(root, nothing);
@@ -141,7 +180,7 @@ describe('view', () => {
         stringRender(root, stringHTML`<main>another page</main>`);
         render(root, sign('second'));
 
-        assert.equal(root.querySelector('main'), null);
+        assert.ok(root.querySelector('main') === null, 'the other page is still there');
         assert.equal(root.querySelector('.login p')?.textContent, 'second');
         assert.equal(root.querySelectorAll('.login').length, 1);
 

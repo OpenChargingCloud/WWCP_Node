@@ -44,6 +44,14 @@ export async function whileSaving<T>(Page:    HTMLElement,
     const controls      = [...Page.querySelectorAll<Control>('input, select, textarea, button')];
     const alreadyOff    = new Set(controls.filter(control => control.disabled));
 
+    // A browser takes the focus away from a control as it is switched off,
+    // and Chrome gives it to nothing when the control is switched on again:
+    // the field somebody was typing into, kept with its text by a page drawn
+    // by view.ts, had lost its focus all the same once the DNS switch had
+    // saved (found by the gateway, in Chrome).
+    const focused       = Page.ownerDocument?.activeElement ?? null;
+    const hadFocus      = controls.find(control => control === focused) ?? null;
+
     for (const control of controls)
         control.disabled = true;
 
@@ -59,6 +67,13 @@ export async function whileSaving<T>(Page:    HTMLElement,
         for (const control of controls)
             if (!alreadyOff.has(control))
                 control.disabled = false;
+
+        // Back to the control that had it - unless somebody has put it
+        // somewhere else meanwhile.
+        const now = Page.ownerDocument?.activeElement ?? null;
+
+        if (hadFocus !== null && hadFocus.isConnected && (now === null || now === Page.ownerDocument?.body))
+            hadFocus.focus();
 
         // Whatever happened, it is no longer happening. What it turned into -
         // "Saved", or a sentence about why not - is the page's to say.

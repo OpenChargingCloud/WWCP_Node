@@ -18,19 +18,27 @@
 // - A draw does not empty a form any more. A form whose save went through
 //   says it is done itself: form.reset().
 //
+// lit-html does not support an expression inside a <textarea>: what one
+// starts with is bound as its .defaultValue=${...}, which it shows until
+// somebody types into it.
+// And a form that is drawn for one thing and then for another in its place -
+// the settings of one group, then of the next - is drawn with keyed(), so
+// that the second does not keep what was typed into the first.
+//
 // A fragment of html.ts in a template of this one is taken as the markup it
 // is - it was escaped when it was made - so that what the kinds hand a shared
 // page (a hint, a card, a fieldset of pins) can stay html.ts's until they draw
 // with this one too.
 
 import { html as litHTML, render as litRender, nothing, type TemplateResult } from 'lit-html';
+import { keyed }       from 'lit-html/directives/keyed.js';
 import { live }        from 'lit-html/directives/live.js';
 import { repeat }      from 'lit-html/directives/repeat.js';
 import { unsafeHTML }  from 'lit-html/directives/unsafe-html.js';
 
 import { HTMLFragment } from './html';
 
-export { live, nothing, repeat, type TemplateResult };
+export { keyed, live, nothing, repeat, type TemplateResult };
 
 
 function bridged(value: unknown): unknown {

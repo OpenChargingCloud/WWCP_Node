@@ -235,7 +235,7 @@ describe('the certificates page, drawn', () => {
         assert.equal(label(root),            typed,            'the field was made anew');
         assert.equal(typed.value,            'half filled in', 'what was typed into the import is gone');
         assert.equal(kind(root).value,       'tlsIdentity',    'the kind chosen for the import is gone');
-        assert.equal(document.activeElement, typed,            'the focus went');
+        assert.ok(document.activeElement === typed, 'the focus went');
 
     });
 

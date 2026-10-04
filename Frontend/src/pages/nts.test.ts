@@ -130,9 +130,9 @@ describe('the NTS page', () => {
         root.querySelector<HTMLButtonElement>('#sync')!.click();
         await until(() => synced === 1 && root.querySelector('.sync-verdict') !== null, '"Sync now" was not answered');
 
-        assert.equal(field(root, 'legal-form', 'legalTimeAuthority'), authority, 'the field was made anew');
+        assert.ok(field(root, 'legal-form', 'legalTimeAuthority') === authority, 'the field was made anew');
         assert.equal(authority.value,           'PTB',     'what was typed is gone');
-        assert.equal(document.activeElement,    authority, 'the focus went');
+        assert.ok(document.activeElement === authority, 'the focus went');
         assert.deepEqual(told.map(update => Object.keys(update).includes('legalTimeAuthority')), [ false ],
                          'the policy carried what is typed into the other form');
 

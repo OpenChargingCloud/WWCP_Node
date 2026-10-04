@@ -10,7 +10,7 @@ import { spawnSync }         from 'node:child_process';
 import { describe, it }      from 'node:test';
 import { fileURLToPath }     from 'node:url';
 
-import { asksBeforeItsReload, drawnAnewWithoutItsDrafts, formsKnownByNothing, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
+import { asksBeforeItsReload, attributesSaidAsText, drawnAnewWithoutItsDrafts, expressionsInATextarea, formsKnownByNothing, patternsABrowserRefuses, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -275,6 +275,43 @@ describe('a role', () => {
                                                   That needs the role that changes how this station connects.
                                                   A partner needs the token it was given to call any of them.
                                                   Which roles there are, and what the role of an account may, is the configuration file's to say.`)),
+                         []);
+    });
+
+});
+
+
+describe('a page drawn by comparing', () => {
+
+    it('saying an attribute as text in a tag is found, and one bound passes', () => {
+        assert.deepEqual(attributesSaidAsText(page(`<input name="url" \${mayChange ? '' : html\`disabled\`} />
+                                                    <input name="port" ?disabled=\${!mayChange} value="\${port}" />`)),
+                         [ "${mayChange ? '' : html`disabled`}" ]);
+    });
+
+    it('putting an expression between the tags of a textarea is found, and a defaultValue bound passes', () => {
+        assert.deepEqual(expressionsInATextarea(page(`<textarea name="reachableAs" rows="4"
+                                                          \${mayChange ? '' : html\`disabled\`}>\${names.join('\\n')}</textarea>
+                                                      <textarea name="pem" .defaultValue=\${pem} @input=\${(event) => typed(event)}
+                                                                ?disabled=\${!may}></textarea>
+                                                      <textarea name="note"></textarea>`)),
+                         [ "<textarea name=\"reachableAs\" rows=\"4\" ${mayChange ? '' : html`disabled`}>${names.join('\\n')}</textarea>" ]);
+    });
+
+});
+
+
+describe('a pattern', () => {
+
+    it('that the v flag refuses is found, as Chrome then checks nothing', () => {
+        assert.deepEqual(patternsABrowserRefuses(page(`<input name="id" pattern="[a-z0-9-]+" />  <input name="cc" pattern="[A-Za-z]{2}" />`)),
+                         [ '[a-z0-9-]+' ]);
+    });
+
+    it('with its hyphen escaped passes, as the template hands it on, and one with an expression in it is not asked', () => {
+        assert.deepEqual(patternsABrowserRefuses(page(`<input name="id" pattern="[a-z0-9\\\\-]+" />
+                                                      <input name="user" pattern="[A-Za-z0-9]([A-Za-z0-9._\\\\-]*[A-Za-z0-9])?" />
+                                                      <input name="code" pattern="\${codePattern}" />`)),
                          []);
     });
 
