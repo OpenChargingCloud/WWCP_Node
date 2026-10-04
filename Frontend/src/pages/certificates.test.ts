@@ -20,6 +20,7 @@ const { believedHint, certificatesPage, marksOf, stateOf } = await import('./cer
 const { auth }             = await import('../auth.ts');
 const { configureShell }   = await import('../shell.ts');
 const { html }             = await import('../view.ts');
+const { unsaved }          = await import('../unsaved.ts');
 
 
 const now  = Date.parse('2026-09-29T12:00:00Z');
@@ -469,6 +470,74 @@ describe('the certificates page, as a kind of node adds to it', () => {
         root.querySelector<HTMLButtonElement>('#rescan')!.click();
         await until(() => loads === 4 && (root.querySelector('#store-note')?.textContent ?? '').startsWith('The directory was read again'),
                     'the section was not asked again when the directory was read again');
+
+    });
+
+    it('holds what is typed into a section\'s form as a draft, and empties it, and the section\'s choices, on Reload', async () => {
+
+        let chosen: string | undefined;
+
+        const root = await opened({
+            sections: context => [ {
+                below:  'presents',
+                reset:  () => { chosen = undefined; },
+                draw:   () => html`
+                    <section class="card" id="requests">
+                        <form id="request-form">
+                            <select name="listener" @change=${(event: Event) => { chosen = (event.target as HTMLSelectElement).value; context.draw(); }}>
+                                <option value="modbus" selected>Modbus/TLS</option>
+                                <option value="web">web interface</option>
+                            </select>
+                            <p class="hint" id="listener-note">${chosen ?? 'modbus'}</p>
+                            <input name="subject" />
+                        </form>
+                    </section>`
+            } ]
+        });
+
+        assert.equal(unsaved.any(), false, 'a page nobody typed into is held');
+
+        const subject = root.querySelector<HTMLInputElement>('#request-form [name="subject"]')!;
+        subject.value = 'CN=meter7.lan';
+        const listener = root.querySelector<HTMLSelectElement>('#request-form [name="listener"]')!;
+        listener.value = 'web';
+        listener.dispatchEvent(new Event('change', { bubbles: true }));
+
+        assert.equal(root.querySelector('#listener-note')!.textContent, 'web');
+        assert.equal(unsaved.any(), true, 'what is typed into a section\'s form is let go without a question');
+
+        const confirmed = globalThis.confirm;
+        globalThis.confirm = () => true;
+        try
+        {
+            root.querySelector<HTMLButtonElement>('#reload')!.click();
+            await until(() => subject.value === '' && root.querySelector('#listener-note')!.textContent === 'modbus',
+                        'Reload did not empty the section\'s form, or did not forget its choice');
+        }
+        finally
+        {
+            globalThis.confirm = confirmed;
+        }
+
+        assert.equal(listener.value, 'modbus');
+        assert.equal(unsaved.any(), false, 'the page is still held after Reload');
+
+    });
+
+    it('says a hint from the store where it is given as one, under a group and under the import, and hands a section the page', async () => {
+
+        let page: HTMLElement | undefined;
+
+        const root = await opened({
+            hints:     { presents:   store => html`Shown on ${(store as CertificateStore & { listeners: string[] }).listeners.length} listener(s).`,
+                         importing:  html`A certificate for a key made here goes in <em>under Signing requests</em>.` },
+            sections:  context => { page = context.page; return []; }
+        });
+
+        assert.ok([ ...root.querySelectorAll('p.hint') ].some(said => said.textContent!.trim() === 'Shown on 1 listener(s).'),
+                  'the hint from the store is not said');
+        assert.ok([ ...root.querySelectorAll('#import-form p.hint em') ].some(em => em.textContent === 'under Signing requests'), 'the import\'s hint is not said');
+        assert.ok(page !== undefined && page === root.querySelector('#content-body'), 'the section was not handed the element the page draws into');
 
     });
 

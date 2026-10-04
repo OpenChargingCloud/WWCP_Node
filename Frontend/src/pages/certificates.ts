@@ -6,7 +6,7 @@ import { html as stringHTML, must, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { mayButNot, shell } from '../shell';
 import { errorMessage, humanizeKey, whileSaving } from '../ui';
-import { typedSinceDrawn, unsaved } from '../unsaved';
+import { anyFormTypedSinceDrawn, unsaved } from '../unsaved';
 import { html, nothing, render, repeat, type TemplateResult } from '../view';
 import { hasUsages, usageName, usagesOf } from './certificateUsages';
 
@@ -24,6 +24,9 @@ const largestImport = 1024 * 1024;
 
 /** What a kind of node says in a place of the page: a fragment of html.ts, or a template of view.ts. */
 export type Said = HTMLFragment | TemplateResult;
+
+/** What a kind of node says, or says from what the store says: a sentence that holds only while the web interface is served over plain HTTP, say. */
+export type SaidOf<S> = Said | ((store: S) => Said);
 
 /** What a kind of node says about one kind of certificate: its card's heading, icon and hint, and what a certificate of it is for. */
 export interface KindWords {
@@ -43,6 +46,8 @@ export interface SectionContext<S extends CertificateStore = CertificateStore> {
     store():     S;
     /** Whether the person signed in may change the store. */
     mayChange:   boolean;
+    /** The element the page draws into - to hold still with whileSaving() while a section's change is made. */
+    page:        HTMLElement;
     /** Draw the page again from what is known, after something of the section's own changed. */
     draw():      void;
     /** Ask the node for the store, and every section for its own, again - and draw. */
@@ -65,6 +70,12 @@ export interface CertificatesSection<S extends CertificateStore = CertificateSto
     load?():  Promise<unknown>;
     /** The section, drawn with the page - by comparing, so that what is typed into it outlives the rest being drawn. */
     draw(store: S):  TemplateResult;
+    /**
+     * Forget what it was told on the page - a choice that picks a hint, say -
+     * as the page is loaded anew: Reload empties every form, and a section's
+     * own choices go with them. Its forms are emptied by the page.
+     */
+    reset?():  void;
 }
 
 /** What a kind of node says on its certificates page beyond what every node says. */
@@ -74,12 +85,17 @@ export interface CertificatesOptions<S extends CertificateStore = CertificateSto
     title?:         string;
     subtitle?:      string;
 
-    /** What a kind says under each of the three groups, and what an unencrypted key lets somebody do. */
+    /**
+     * What a kind says under each of the three groups, what an unencrypted key
+     * lets somebody do, and what the import adds under its file - each said,
+     * or said from the store.
+     */
     hints?:         {
-                        believes?:     Said;
-                        presents?:     Said;
-                        recognises?:   Said;
-                        unencrypted?:  Said;
+                        believes?:     SaidOf<S>;
+                        presents?:     SaidOf<S>;
+                        recognises?:   SaidOf<S>;
+                        unencrypted?:  SaidOf<S>;
+                        importing?:    SaidOf<S>;
                     };
 
     /** What a kind of node calls each kind of certificate, the icon and hint of its card, and what one of it is for. */
@@ -235,9 +251,16 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             const sections = Options.sections?.({
                                  store:      () => current!,
                                  mayChange,
+                                 page:       content,
                                  draw:       () => draw(),
                                  reload:     () => reloadKinds()
                              }) ?? [];
+
+            /** What a kind of node says in a place of the page, from the store where it says it from the store. */
+            function hint(name: keyof NonNullable<CertificatesOptions<S>['hints']>, store: S): Said | undefined {
+                const said = Options.hints?.[name];
+                return typeof said === 'function' ? said(store) : said;
+            }
 
             /** The store, and what every section needs beside it - asked together. */
             async function fetched(): Promise<S> {
@@ -265,7 +288,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         <div class="notice">
                             The private keys in this store are <strong>not encrypted</strong>. Anybody who can read
                             <code>${store.directory}</code>
-                            ${Options.hints?.unencrypted ?? html`can take this ${config.nodeName}'s identity.`}
+                            ${hint('unencrypted', store) ?? html`can take this ${config.nodeName}'s identity.`}
                         </div>` : nothing}
 
                     ${mayChange ? nothing : html`
@@ -309,14 +332,14 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                     <h2>What this ${config.nodeName} believes</h2>
                     <p class="hint">
-                        ${Options.hints?.believes ?? believedHint(config.nodeName, store.trustAnchors)}
+                        ${hint('believes', store) ?? believedHint(config.nodeName, store.trustAnchors)}
                     </p>
                     ${repeat(store.trustAnchors, kind => kind, kind => kindCard(kind))}
                     ${sectionsBelow('believes', store)}
 
                     <h2>What this ${config.nodeName} presents</h2>
                     <p class="hint">
-                        ${Options.hints?.presents ?? html`
+                        ${hint('presents', store) ?? html`
                             What it shows of itself in TLS, with its private key, where a server asks it for a
                             certificate.
                         `}
@@ -327,7 +350,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                     ${store.recognised.length === 0 ? nothing : html`
                         <h2>What this ${config.nodeName} recognises</h2>
                         <p class="hint">
-                            ${Options.hints?.recognises ?? html`
+                            ${hint('recognises', store) ?? html`
                                 Neither believed nor presented: the certificates of servers this ${config.nodeName}
                                 connects to, kept so that a time server or a name server can be held to one of them
                                 by its fingerprint - on the <a href="${toURL('/configuration/nts')}">NTS</a> and the
@@ -402,6 +425,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                 A certificate this ${config.nodeName} <em>presents</em> has to bring its private key,
                                 so a PEM for one holds the key beside the certificate - which is how
                                 <code>openssl</code> writes a whole credential into one file.
+                                ${hint('importing', store) ?? nothing}
                             </p>
 
                             <label>What it is for
@@ -870,10 +894,11 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                     if (!cancelled) {
                         current    = loaded;
                         importKind = undefined;
+                        sections.forEach(section => section.reset?.());
                         draw();
-                        // Loaded anew - Reload - is an empty import, as the
-                        // node's store is.
-                        content.querySelector<HTMLFormElement>('#import-form')?.reset();
+                        // Loaded anew - Reload - is what the node has: every
+                        // form empty, the import and a section's alike.
+                        content.querySelectorAll('form').forEach(form => form.reset());
                     }
                 }
                 catch (problem)
@@ -887,8 +912,10 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             }
 
             // A file chosen, or a name typed, for an import not yet made is a
-            // draft like any other page's: leaving asks first.
-            const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#import-form')));
+            // draft like any other page's: leaving asks first - and so is what
+            // is typed into a section's form, a request half filled in or a
+            // certificate pasted for one (the energy meter's).
+            const release = unsaved.heldBy(() => anyFormTypedSinceDrawn(content));
 
             void load();
 
