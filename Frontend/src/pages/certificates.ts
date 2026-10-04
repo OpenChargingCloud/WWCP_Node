@@ -2,12 +2,12 @@ import { nodeAPI, type Certificate, type CertificateStore } from '../api/client'
 import { auth } from '../auth';
 import { toURL } from '../basePath';
 import { config } from '../config';
-import { keepDrafts } from '../drafts';
-import { html, must, render, type HTMLFragment } from '../html';
+import { html as stringHTML, must, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { mayButNot, shell } from '../shell';
 import { errorMessage, humanizeKey, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
+import { html, nothing, render, repeat, type TemplateResult } from '../view';
 import { hasUsages, usageName, usagesOf } from './certificateUsages';
 
 const api = nodeAPI();
@@ -95,11 +95,11 @@ export function marksOf(Entry:   Certificate,
 export function believedHint(NodeName:      string,
                              TrustAnchors:  readonly string[]): HTMLFragment {
 
-    return html`
+    return stringHTML`
         Trust anchors: the roots a certificate shown to this ${NodeName} has to chain to, each kind for
         what its card says it is for. Every switched-on root of a kind is believed at once.
         ${TrustAnchors.includes('tlsRoot')
-              ? html`A server's certificate may chain to the roots this machine trusts as well.`
+              ? stringHTML`A server's certificate may chain to the roots this machine trusts as well.`
               : ''}
     `;
 
@@ -127,9 +127,10 @@ export function believedHint(NodeName:      string,
  * put there by hand. Either way the store ends up the same, because the store
  * is the directory.
  *
- * A change to one certificate redraws the store's cards and nothing else: the
- * import above them may be half filled in, and a switch clicked below it used
- * to take the file, the kind and the label with it.
+ * Drawn by view.ts: a change to one certificate draws the page again and
+ * changes only what differs, so that the import above the cards, half filled
+ * in, keeps its file, its kind and its label - a switch clicked below it used
+ * to take them with it.
  */
 export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
@@ -146,7 +147,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                 active:    '/configuration/certificates',
                 title,
                 subtitle:  Options.subtitle ?? `The roots this ${config.nodeName} believes, what it presents, and the servers it recognises.`,
-                actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+                actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
             });
 
             render(content, html`<div class="loading">Loading ...</div>`);
@@ -164,8 +165,11 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
             let cancelled = false;
             let current: CertificateStore | null = null;
 
+            /** The kind the import is for; undefined for the first one, as the form is drawn. */
+            let importKind: string | undefined;
 
-            /** The whole page: once when it is loaded, and after an import. */
+
+            /** The whole page, from what the node last said. */
             function draw(): void {
 
                 if (current === null)
@@ -180,9 +184,9 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                             The private keys in this store are <strong>not encrypted</strong>. Anybody who can read
                             <code>${store.directory}</code>
                             ${Options.hints?.unencrypted ?? html`can take this ${config.nodeName}'s identity.`}
-                        </div>` : ''}
+                        </div>` : nothing}
 
-                    ${mayChange ? '' : html`
+                    ${mayChange ? nothing : html`
                         <div class="notice">
                             ${mayButNot('look at the store', 'change it')}
                         </div>
@@ -197,7 +201,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                             again at every start, so copying one in is a way to install it.
                         </p>
                         <div class="form-actions">
-                            <button type="button" id="rescan" class="btn" ${mayChange ? '' : html`disabled`}>
+                            <button type="button" id="rescan" class="btn" ?disabled=${!mayChange} @click=${() => void rescan()}>
                                 Re-read the directory
                             </button>
                             <span id="store-note"  class="form-notice" role="status"></span>
@@ -205,32 +209,25 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                         </div>
                     </section>
 
-                    ${mayChange ? importCard() : ''}
+                    ${mayChange ? importCard() : nothing}
 
-                    <div id="kinds"></div>
+                    <div id="kinds">${kindsView(store)}</div>
 
                 `);
-
-                drawKinds();
-                wireImport();
-
-                must<HTMLButtonElement>(content, '#rescan').addEventListener('click', () => { void rescan(); });
 
             }
 
 
-            /** The three groups of the store, each kind a card - redrawn after every change of one certificate. */
-            function drawKinds(): void {
+            /** The three groups of the store, each kind a card. */
+            function kindsView(store: CertificateStore): TemplateResult {
 
-                const store = current!;
-
-                render(must<HTMLElement>(content, '#kinds'), html`
+                return html`
 
                     <h2>What this ${config.nodeName} believes</h2>
                     <p class="hint">
                         ${Options.hints?.believes ?? believedHint(config.nodeName, store.trustAnchors)}
                     </p>
-                    ${store.trustAnchors.map(kind => kindCard(kind))}
+                    ${repeat(store.trustAnchors, kind => kind, kind => kindCard(kind))}
 
                     <h2>What this ${config.nodeName} presents</h2>
                     <p class="hint">
@@ -239,9 +236,9 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                             certificate.
                         `}
                     </p>
-                    ${store.credentials.map(kind => kindCard(kind))}
+                    ${repeat(store.credentials, kind => kind, kind => kindCard(kind))}
 
-                    ${store.recognised.length === 0 ? '' : html`
+                    ${store.recognised.length === 0 ? nothing : html`
                         <h2>What this ${config.nodeName} recognises</h2>
                         <p class="hint">
                             ${Options.hints?.recognises ?? html`
@@ -252,12 +249,10 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                                 offers the ones kept for it.
                             `}
                         </p>
-                        ${store.recognised.map(kind => kindCard(kind))}
+                        ${repeat(store.recognised, kind => kind, kind => kindCard(kind))}
                     `}
 
-                `);
-
-                wireRows();
+                `;
 
             }
 
@@ -276,15 +271,15 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
              * kept before there were usages is as well, and what the node
              * would refuse to be told as an empty list.
              */
-            function usagesFields(kind: string, ticked: readonly string[] | null | undefined): HTMLFragment {
+            function usagesFields(kind: string, ticked: readonly string[] | null | undefined): TemplateResult {
 
                 const listeners = current!.credentials.includes(kind);
 
                 return html`
                     <legend>${listeners ? 'Where it is shown' : 'What it is kept for'}</legend>
-                    ${usagesOf(current!, kind).map(usage => html`
+                    ${repeat(usagesOf(current!, kind), usage => `${kind} ${usage}`, usage => html`
                         <label class="checkbox">
-                            <input type="checkbox" name="usage" value="${usage}" ${ticked?.includes(usage) ? html`checked` : ''} />
+                            <input type="checkbox" name="usage" value="${usage}" ?checked=${ticked?.includes(usage) ?? false} />
                             ${usageName(usage, Options.usageNames)}
                         </label>
                     `)}
@@ -295,7 +290,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
 
             /** The card that puts a new certificate on this node. */
-            function importCard(): HTMLFragment {
+            function importCard(): TemplateResult {
 
                 const store = current!;
 
@@ -305,11 +300,12 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                 // typedSinceDrawn - and leaving the page asked about a draft
                 // nobody had begun.
                 const first = kindsShown()[0];
+                const kind  = importKind ?? first;
 
                 return html`
                     <section class="card">
                         <h2><i class="fa-solid fa-file-import"></i> Import a certificate</h2>
-                        <form id="import-form" class="form-stack">
+                        <form id="import-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void doImport(event.currentTarget as HTMLFormElement); }}>
 
                             <label>The file
                                 <input type="file" name="file" id="import-file" accept=".pem,.crt,.cer,.der,.p12,.pfx" />
@@ -322,15 +318,15 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                             </p>
 
                             <label>What it is for
-                                <select name="kind" id="import-kind">
-                                    ${kindsShown().map(kind => html`
-                                        <option value="${kind}" ${kind === first ? html`selected` : ''}>${store.kinds[kind]!.description}</option>
+                                <select name="kind" id="import-kind" @change=${(event: Event) => { importKind = (event.target as HTMLSelectElement).value; draw(); }}>
+                                    ${kindsShown().map(offered => html`
+                                        <option value="${offered}" ?selected=${offered === first}>${store.kinds[offered]!.description}</option>
                                     `)}
                                 </select>
                             </label>
 
-                            <fieldset class="usages" id="import-usages" ${first !== undefined && hasUsages(store, first) ? '' : html`hidden`}>
-                                ${first === undefined ? '' : usagesFields(first, null)}
+                            <fieldset class="usages" id="import-usages" ?hidden=${kind === undefined || !hasUsages(store, kind)}>
+                                ${kind === undefined ? nothing : usagesFields(kind, null)}
                             </fieldset>
 
                             <label>What opens it, if it is a protected PKCS#12
@@ -364,7 +360,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
              * refusal is said where the button was that asked, and not at the
              * top of a long page.
              */
-            function kindCard(kind: string): HTMLFragment {
+            function kindCard(kind: string): TemplateResult {
 
                 const store    = current!;
                 const entries  = store.certificates[kind] ?? [];
@@ -394,7 +390,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${entries.map(entry => row(entry))}
+                                        ${repeat(entries, entry => entry.id, entry => row(entry))}
                                     </tbody>
                                 </table>
                               </div>
@@ -407,11 +403,11 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
 
             /** One certificate. */
-            function row(entry: Certificate): HTMLFragment {
+            function row(entry: Certificate): TemplateResult {
 
                 const state  = stateOf(entry, expiringSoon);
                 const usages = hasUsages(current!, entry.kind);
-                const off    = mayChange ? '' : html`disabled`;
+                const off    = !mayChange;
 
                 return html`
                     <tr>
@@ -427,78 +423,38 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                                                    ? html`<span class="chip">for every use</span>`
                                                    : entry.usages.map(usage => html`<span class="chip">${usageName(usage, Options.usageNames)}</span>`)}
                                          </span>`
-                                  : ''}
+                                  : nothing}
                         </td>
                         <td>
                             ${entry.subject}
-                            ${entry.chainLength > 0 ? html`<br /><span class="muted">+${entry.chainLength} sub-CA(s)</span>` : ''}
+                            ${entry.chainLength > 0 ? html`<br /><span class="muted">+${entry.chainLength} sub-CA(s)</span>` : nothing}
                         </td>
                         <td>
                             ${entry.keyAlgorithm}
-                            ${entry.hasPrivateKey ? html`<br /><span class="muted">with private key</span>` : ''}
+                            ${entry.hasPrivateKey ? html`<br /><span class="muted">with private key</span>` : nothing}
                         </td>
                         <td>${new Date(entry.notAfter).toISOString().slice(0, 10)}</td>
                         <td><span class="chip ${state.tone}">${state.text}</span></td>
                         <td>
-                            <button type="button" class="btn small" data-toggle="${entry.id}" ${off}>
+                            <button type="button" class="btn small" data-toggle="${entry.id}" ?disabled=${off}
+                                    @click=${() => void toggle(entry.id)}>
                                 ${entry.active ? 'Switch off' : 'Switch on'}
                             </button>
-                            <button type="button" class="btn small" data-rename="${entry.id}" ${off}>
+                            <button type="button" class="btn small" data-rename="${entry.id}" ?disabled=${off}
+                                    @click=${() => void rename(entry.id)}>
                                 Rename
                             </button>
                             ${usages
-                                  ? html`<button type="button" class="btn small" data-usages="${entry.id}" ${off}>Uses</button>`
-                                  : ''}
-                            <button type="button" class="btn small danger" data-remove="${entry.id}" ${off}>
+                                  ? html`<button type="button" class="btn small" data-usages="${entry.id}" ?disabled=${off}
+                                                 @click=${() => editUsages(entry.id)}>Uses</button>`
+                                  : nothing}
+                            <button type="button" class="btn small danger" data-remove="${entry.id}" ?disabled=${off}
+                                    @click=${() => void remove(entry.id)}>
                                 Delete
                             </button>
                         </td>
                     </tr>
                 `;
-
-            }
-
-
-            function wireImport(): void {
-
-                const form = content.querySelector<HTMLFormElement>('#import-form');
-
-                form?.addEventListener('submit', event => {
-                    event.preventDefault();
-                    void doImport(form);
-                });
-
-                // What it is kept for is asked only of the kinds that are told
-                // it, and with what that kind may be told: a root and an
-                // identity are offered different things.
-                content.querySelector<HTMLSelectElement>('#import-kind')?.addEventListener('change', event => {
-
-                    const kind    = (event.target as HTMLSelectElement).value;
-                    const usages  = must<HTMLElement>(content, '#import-usages');
-
-                    render(usages, usagesFields(kind, null));
-
-                    usages.hidden = !hasUsages(current!, kind);
-
-                });
-
-            }
-
-            function wireRows(): void {
-
-                const kinds = must<HTMLElement>(content, '#kinds');
-
-                for (const button of kinds.querySelectorAll<HTMLButtonElement>('[data-usages]'))
-                    button.addEventListener('click', () => { editUsages(button.dataset.usages!); });
-
-                for (const button of kinds.querySelectorAll<HTMLButtonElement>('[data-toggle]'))
-                    button.addEventListener('click', () => { void toggle(button.dataset.toggle!); });
-
-                for (const button of kinds.querySelectorAll<HTMLButtonElement>('[data-rename]'))
-                    button.addEventListener('click', () => { void rename(button.dataset.rename!); });
-
-                for (const button of kinds.querySelectorAll<HTMLButtonElement>('[data-remove]'))
-                    button.addEventListener('click', () => { void remove(button.dataset.remove!); });
 
             }
 
@@ -560,8 +516,15 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                 if (cancelled)
                     return;
 
-                current = await api.certificates.get();
-                keepDrafts(content, 'import-form', draw);
+                current    = await api.certificates.get();
+                importKind = undefined;
+
+                draw();
+
+                // A draw leaves a form as it is typed into; this one was
+                // imported, so it goes back to an empty one - the first kind,
+                // no file, no label.
+                form.reset();
 
                 must<HTMLElement>(content, '#import-note').textContent = `Imported ${imported.label}, and switched on.`;
 
@@ -624,43 +587,11 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                 // pages were tried in fired no close event at all.
                 const dismiss = (): void => { dialog.close(); dialog.remove(); };
 
-                render(dialog, html`
-
-                    <h2><i class="fa-solid fa-certificate"></i> ${entry.label}</h2>
-
-                    <form id="usages-form" class="form-stack">
-
-                        <fieldset class="usages">
-                            ${usagesFields(entry.kind, entry.usages)}
-                        </fieldset>
-
-                        ${!services ? '' : html`
-                            <p class="hint">
-                                ${current!.trustAnchors.includes(entry.kind)
-                                      ? html`A root kept for the time servers alone vouches for no name server, and the
-                                             other way round - except for a server whose own entry names it: naming it
-                                             there says the same, and more narrowly.`
-                                      : html`Offered in the dialog of the servers it is kept for, on the NTS and the DNS page.`}
-                            </p>
-                        `}
-
-                        <div class="form-actions">
-                            <button type="submit" class="btn primary">Save</button>
-                            <button type="button" class="btn" id="usages-cancel">Cancel</button>
-                            <span id="usages-error" class="form-error" role="alert"></span>
-                        </div>
-
-                    </form>
-
-                `);
-
-                const form = must<HTMLFormElement>(dialog, '#usages-form');
-
-                form.addEventListener('submit', event => {
+                function save(event: SubmitEvent): void {
 
                     event.preventDefault();
 
-                    const ticked = new FormData(form).getAll('usage').map(String);
+                    const ticked = new FormData(event.currentTarget as HTMLFormElement).getAll('usage').map(String);
 
                     void (async () => {
 
@@ -683,9 +614,37 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
                     })();
 
-                });
+                }
 
-                must<HTMLButtonElement>(dialog, '#usages-cancel').addEventListener('click', dismiss);
+                render(dialog, html`
+
+                    <h2><i class="fa-solid fa-certificate"></i> ${entry.label}</h2>
+
+                    <form id="usages-form" class="form-stack" @submit=${save}>
+
+                        <fieldset class="usages">
+                            ${usagesFields(entry.kind, entry.usages)}
+                        </fieldset>
+
+                        ${!services ? nothing : html`
+                            <p class="hint">
+                                ${current!.trustAnchors.includes(entry.kind)
+                                      ? html`A root kept for the time servers alone vouches for no name server, and the
+                                             other way round - except for a server whose own entry names it: naming it
+                                             there says the same, and more narrowly.`
+                                      : html`Offered in the dialog of the servers it is kept for, on the NTS and the DNS page.`}
+                            </p>
+                        `}
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn primary">Save</button>
+                            <button type="button" class="btn" id="usages-cancel" @click=${dismiss}>Cancel</button>
+                            <span id="usages-error" class="form-error" role="alert"></span>
+                        </div>
+
+                    </form>
+
+                `);
 
                 dialog.addEventListener('close',  dismiss);
                 dialog.addEventListener('cancel', dismiss);
@@ -754,7 +713,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
             }
 
 
-            /** The store again, and its cards drawn again - the import above them left as it is. */
+            /** The store again, and the page drawn again - the import above the cards left as it is. */
             async function reloadKinds(): Promise<void> {
 
                 try
@@ -765,7 +724,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                         return;
 
                     current = loaded;
-                    drawKinds();
+                    draw();
                 }
                 catch (problem)
                 {
@@ -793,7 +752,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                         return;
 
                     current = loaded;
-                    drawKinds();
+                    draw();
 
                     must<HTMLElement>(content, '#store-note').textContent =
                         `The directory was read again: ${everything().length} certificate(s).`;
@@ -813,8 +772,12 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                     const loaded = await api.certificates.get();
 
                     if (!cancelled) {
-                        current = loaded;
+                        current    = loaded;
+                        importKind = undefined;
                         draw();
+                        // Loaded anew - Reload - is an empty import, as the
+                        // node's store is.
+                        content.querySelector<HTMLFormElement>('#import-form')?.reset();
                     }
                 }
                 catch (problem)

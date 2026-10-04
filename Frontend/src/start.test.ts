@@ -7,6 +7,8 @@
  * are loaded, so the page is there before they are imported.
  */
 
+import '../test/dom.ts';
+
 import { strict as assert }  from 'node:assert';
 import { readFileSync }      from 'node:fs';
 import { describe, it }      from 'node:test';
@@ -14,9 +16,7 @@ import { describe, it }      from 'node:test';
 import type { NodeMe }       from './api/client.ts';
 import type { Page }         from './router.ts';
 
-(globalThis as unknown as { document: unknown }).document = {
-    querySelector: (selector: string) => selector === 'meta[name="base"]' ? { content: '/EV' } : null
-};
+document.head.innerHTML = '<meta name="base" content="/EV">';
 
 const { auth }                                                        = await import('./auth.ts');
 const { configureShell }                                              = await import('./shell.ts');

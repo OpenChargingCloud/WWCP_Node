@@ -1,11 +1,12 @@
 import { nodeAPI, type Clock, type NTSConfiguration, type NTSServerEntry, type NTSServerResult, type NTSSyncResult, type NTSTimeSource, type NTSUpdate, type TimeServerTest } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
-import { html, must, render, type HTMLFragment } from '../html';
+import { html as stringHTML, must } from '../html';
 import type { Page } from '../router';
 import { mayButNot, shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, numberField, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
+import { html, live, nothing, render, repeat, type TemplateResult } from '../view';
 import { nameTaken, readable, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
 import { asShown, draftOf, withPins, type StoreOffers } from './pins';
 import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers, wirePinsFieldset } from './pinViews';
@@ -46,10 +47,10 @@ const api = nodeAPI();
  * at a time, from a dialog, and why a change the node refuses leaves the
  * page as it was.
  *
- * The parts are drawn separately. "Sync now" redraws its own card, the clock
- * and the list, and a server saved the list, and nothing else - so that what
- * somebody was typing into the group's policy is still there when the answer
- * arrives.
+ * Drawn by view.ts: a draw changes only what differs, so that what somebody
+ * is typing into the group's policy, or into what counts as legal time, is
+ * still there - with its focus - when "Sync now" answers, a server is saved or
+ * the other form is.
  */
 export const ntsPage: Page = {
 
@@ -61,7 +62,7 @@ export const ntsPage: Page = {
             active:    '/configuration/nts',
             title:     'NTS client',
             subtitle:  `Where this ${config.nodeName} reads the time, and how it knows the answer is real.`,
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -117,7 +118,7 @@ export const ntsPage: Page = {
 
             render(content, html`
 
-                ${mayChange ? '' : html`
+                ${mayChange ? nothing : html`
                     <div class="notice">
                         ${mayButNot('look at the time servers', 'change them')}
                     </div>
@@ -125,15 +126,15 @@ export const ntsPage: Page = {
 
                 <div class="cards stacked">
 
-                    <section class="card" id="nts-clock"></section>
+                    <section class="card" id="nts-clock" ?hidden=${clock === null}>${clock === null ? nothing : clockView(clock)}</section>
 
-                    <section class="card" id="nts-switch"></section>
+                    <section class="card" id="nts-switch">${switchView(configuration)}</section>
 
-                    <section class="card" id="nts-servers"></section>
+                    <section class="card" id="nts-servers">${serversView(configuration)}</section>
 
-                    <section class="card" id="nts-policy"></section>
+                    <section class="card" id="nts-policy">${policyView(configuration)}</section>
 
-                    <section class="card" id="nts-legal"></section>
+                    <section class="card" id="nts-legal">${legalView(configuration)}</section>
 
                     <section class="card">
                         <h2><i class="fa-solid fa-scale-balanced"></i> Cookie pool policy</h2>
@@ -151,20 +152,11 @@ export const ntsPage: Page = {
                         </div>
                     </section>
 
-                    <section class="card" id="nts-sync"></section>
+                    <section class="card" id="nts-sync">${syncView()}</section>
 
                 </div>
 
             `);
-
-            drawClock();
-            drawSwitch();
-            drawServers();
-            drawPolicy();
-            drawLegal();
-            drawSync();
-
-            wire();
 
         }
 
@@ -178,16 +170,7 @@ export const ntsPage: Page = {
          * would sooner or later say "legal" where the node says nothing
          * of the kind.
          */
-        function drawClock(): void {
-
-            const card = must<HTMLElement>(content, '#nts-clock');
-
-            card.hidden = clock === null;
-
-            if (clock === null)
-                return;
-
-            const now = clock;
+        function clockView(now: Clock): TemplateResult {
 
             const why: Record<string, string> = {
                 notClaimed:   'nobody has said whose time these servers disseminate',
@@ -197,7 +180,7 @@ export const ntsPage: Page = {
                 offBy:        'the clock is further out than the tolerance allows'
             };
 
-            render(card, html`
+            return html`
 
                 <h2>
                     <i class="fa-solid fa-hourglass-half"></i> The clock
@@ -252,24 +235,23 @@ export const ntsPage: Page = {
                             `}
                 </p>
 
-            `);
+            `;
 
         }
 
 
         /** Whether this node asks anybody at all. */
-        function drawSwitch(): void {
+        function switchView(configuration: NTSConfiguration): TemplateResult {
 
-            const configuration = current!;
-
-            render(must<HTMLElement>(content, '#nts-switch'), html`
+            return html`
 
                 <h2><i class="fa-solid fa-power-off"></i> Time synchronisation</h2>
 
                 <label class="switch">
                     <input type="checkbox" id="enabled"
-                           ${configuration.enabled ? html`checked` : ''}
-                           ${mayChange ? '' : html`disabled`} />
+                           .checked=${live(configuration.enabled)}
+                           ?disabled=${!mayChange}
+                           @change=${(event: Event) => void switchTo((event.target as HTMLInputElement).checked)} />
                     <span>${configuration.enabled ? 'switched on' : 'switched off'}</span>
                 </label>
 
@@ -280,7 +262,7 @@ export const ntsPage: Page = {
 
                 <span id="switch-error" class="form-error" role="alert"></span>
 
-            `);
+            `;
 
         }
 
@@ -298,26 +280,26 @@ export const ntsPage: Page = {
 
 
         /** The time servers, and what each of them said. */
-        function drawServers(): void {
+        function serversView(configuration: NTSConfiguration): TemplateResult {
 
-            const configuration = current!;
             const sources       = configuration.timeSources ?? [];
             const sync          = shownSync();
             const switchedOn    = sources.filter(source => source.enabled).length;
 
-            render(must<HTMLElement>(content, '#nts-servers'), html`
+            return html`
 
                 <h2><i class="fa-solid fa-users"></i> Time servers</h2>
 
                 <div class="time-server-list">
                     ${sources.length === 0
                           ? html`<p class="muted small">No time server configured.</p>`
-                          : sources.map((source, index) => serverView(source, index, whatItSaid(sync, source), sync !== null))}
+                          : repeat(sources, source => readable(source.hostname).toLowerCase(),
+                                   (source, index) => serverView(source, index, whatItSaid(sync, source), sync !== null))}
                 </div>
 
                 <div class="form-actions">
                     <button type="button" id="add-server" class="btn" title="Add a time server"
-                            aria-label="Add a time server" ${mayChange ? '' : html`disabled`}>
+                            aria-label="Add a time server" ?disabled=${!mayChange} @click=${() => editServer(null)}>
                         <i class="fa-solid fa-plus"></i>
                     </button>
                     <span class="hint">
@@ -328,33 +310,32 @@ export const ntsPage: Page = {
                                     written down. Servers sharing a priority are asked together; a lower priority is
                                     asked first.
                                 `
-                              : ''}
+                              : nothing}
                     </span>
                 </div>
 
-            `);
+            `;
 
         }
 
 
         /** What the group is held to, as a form. */
-        function drawPolicy(): void {
+        function policyView(configuration: NTSConfiguration): TemplateResult {
 
-            const configuration = current!;
             const settings      = configuration.settings;
             const limits        = configuration.limits;
             const held          = configuration.group?.minServers ?? settings.minServers;
-            const off           = mayChange ? '' : html`disabled`;
+            const off           = !mayChange;
 
-            render(must<HTMLElement>(content, '#nts-policy'), html`
+            return html`
 
                 <h2><i class="fa-solid fa-sliders"></i> Group policy</h2>
 
-                <form id="policy-form" class="form-stack">
+                <form id="policy-form" class="form-stack" @submit=${savePolicy}>
 
                     <label>Servers that must answer
                         <input type="number" name="minServers" min="1" max="255" step="1"
-                               value="${settings.minServers}" ${off} />
+                               value="${settings.minServers}" ?disabled=${off} />
                         <span class="hint">
                             ${held < settings.minServers
                                   ? html`Held to ${held} for as long as only ${held} ${held === 1 ? 'is' : 'are'} switched on.`
@@ -365,24 +346,24 @@ export const ntsPage: Page = {
                     <label>Agreed deviation in seconds
                         <input type="number" name="maxDeviationSeconds" step="0.001"
                                min="${limits.minDeviation}" max="${limits.maxDeviation}"
-                               value="${settings.maxDeviationSeconds}" ${off} />
+                               value="${settings.maxDeviationSeconds}" ?disabled=${off} />
                         <span class="hint">How far apart their answers may be before the disagreement is written into the log.</span>
                     </label>
 
                     <label>Check the clock every ... seconds
                         <input type="number" name="checkEverySeconds" step="1"
                                min="${limits.minCheckEvery}" max="${limits.maxCheckEvery}"
-                               value="${settings.checkEverySeconds}" ${off} />
+                               value="${settings.checkEverySeconds}" ?disabled=${off} />
                     </label>
 
                     <label>Timeout of a test in seconds
                         <input type="number" name="timeoutSeconds" step="0.1" min="0.1" max="${limits.maxTimeout}"
-                               value="${settings.timeoutSeconds ?? ''}" placeholder="${theClientsOwnTimeout}" ${off} />
+                               value="${settings.timeoutSeconds ?? ''}" placeholder="${theClientsOwnTimeout}" ?disabled=${off} />
                         <span class="hint">What a server's Test allows each step. "Sync now" asks the way the clock check does, with timeouts of its own.</span>
                     </label>
 
                     <div class="form-actions">
-                        <button type="submit" class="btn primary" ${off}>Save</button>
+                        <button type="submit" class="btn primary" ?disabled=${off}>Save</button>
                         <span id="policy-note"  class="form-notice" role="status"></span>
                         <span id="policy-error" class="form-error"  role="alert"></span>
                     </div>
@@ -391,7 +372,7 @@ export const ntsPage: Page = {
 
                 </form>
 
-            `);
+            `;
 
         }
 
@@ -405,40 +386,39 @@ export const ntsPage: Page = {
          * legal time" mean anything at all. The node's answer said a page edits
          * these beside the servers, and only the energy meter's did.
          */
-        function drawLegal(): void {
+        function legalView(configuration: NTSConfiguration): TemplateResult {
 
-            const configuration = current!;
             const settings      = configuration.settings;
             const limits        = configuration.limits;
-            const off           = mayChange ? '' : html`disabled`;
+            const off           = !mayChange;
 
-            render(must<HTMLElement>(content, '#nts-legal'), html`
+            return html`
 
                 <h2><i class="fa-solid fa-scale-balanced"></i> What counts as legal time</h2>
 
-                <form id="legal-form" class="form-stack">
+                <form id="legal-form" class="form-stack" @submit=${saveLegal}>
 
                     <label>Authority
                         <input type="text" name="legalTimeAuthority" maxlength="${limits.maxAuthorityLength}"
-                               value="${settings.legalTimeAuthority ?? ''}" placeholder="PTB" ${off} />
+                               value="${settings.legalTimeAuthority ?? ''}" placeholder="PTB" ?disabled=${off} />
                         <span class="hint">Who stands behind the time these servers disseminate. Emptied and saved, nobody is named, and this ${config.nodeName}'s time is never legal time.</span>
                     </label>
 
                     <label>Tolerance in seconds
                         <input type="number" name="legalTimeToleranceSeconds" step="0.001"
                                min="${limits.minTolerance}" max="${limits.maxTolerance}"
-                               value="${settings.legalTimeToleranceSeconds}" ${off} />
+                               value="${settings.legalTimeToleranceSeconds}" ?disabled=${off} />
                         <span class="hint">How far off this ${config.nodeName}'s clock may be found and still keep legal time.</span>
                     </label>
 
                     <label>Max age of a check in seconds
                         <input type="number" name="legalTimeMaxAgeSeconds" step="1"
                                min="${limits.minMaxAge}" max="${limits.maxMaxAge}"
-                               value="${settings.legalTimeMaxAgeSeconds}" ${off} />
+                               value="${settings.legalTimeMaxAgeSeconds}" ?disabled=${off} />
                     </label>
 
                     <div class="form-actions">
-                        <button type="submit" class="btn primary" ${off}>Save</button>
+                        <button type="submit" class="btn primary" ?disabled=${off}>Save</button>
                         <span id="legal-note"  class="form-notice" role="status"></span>
                         <span id="legal-error" class="form-error"  role="alert"></span>
                     </div>
@@ -447,7 +427,7 @@ export const ntsPage: Page = {
 
                 </form>
 
-            `);
+            `;
 
         }
 
@@ -458,16 +438,16 @@ export const ntsPage: Page = {
          * A card of its own at the end of the page, below everything it puts
          * to work: the servers, and the rules they are held to.
          */
-        function drawSync(): void {
+        function syncView(): TemplateResult {
 
             const sync = shownSync();
 
-            render(must<HTMLElement>(content, '#nts-sync'), html`
+            return html`
 
                 <h2><i class="fa-solid fa-rotate"></i> Synchronisation</h2>
 
                 <div class="sync-bar">
-                    <button type="button" id="sync" class="btn primary large" ${mayTest && !syncing ? '' : html`disabled`}>
+                    <button type="button" id="sync" class="btn primary large" ?disabled=${!mayTest || syncing} @click=${() => void runSync()}>
                         <i class="fa-solid fa-rotate ${syncing ? 'fa-spin' : ''}"></i>
                         ${syncing ? 'Asking the servers ...' : 'Sync now'}
                     </button>
@@ -484,9 +464,9 @@ export const ntsPage: Page = {
 
                 <span id="sync-error" class="form-error" role="alert"></span>
 
-                ${sync === null ? '' : verdictView(sync)}
+                ${sync === null ? nothing : verdictView(sync)}
 
-            `);
+            `;
 
         }
 
@@ -504,7 +484,7 @@ export const ntsPage: Page = {
         function serverView(source:  NTSTimeSource,
                             index:   number,
                             said:    NTSServerResult | undefined,
-                            synced:  boolean): HTMLFragment {
+                            synced:  boolean): TemplateResult {
 
             const usual  = usualPorts();
             const ports  = source.ntsKEPort !== usual.ntsKE || source.ntpPort !== usual.ntp
@@ -517,7 +497,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.enabled ? '' : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 
@@ -525,7 +505,7 @@ export const ntsPage: Page = {
                         ${said === undefined
                               ? synced && source.enabled
                                     ? html`<span class="muted">not asked in the last synchronisation</span>`
-                                    : ''
+                                    : nothing
                               : said.ok
                                     ? html`<span class="answer ok">${ms(said.offset_ms, true)}, round trip ${ms(said.roundTrip_ms)}</span>`
                                     : html`<span class="answer bad">${said.error ?? (said.authenticated === false
@@ -551,16 +531,18 @@ export const ntsPage: Page = {
                             ${heldToView(draftOf(source.heldTo), offers?.nameOf)}
                             ${source.judgement || source.known && !source.rootCA
                                   ? certificateVerdictView(source.judgement, source.known)
-                                  : ''}
+                                  : nothing}
                         </span>
                     </div>
 
                     <div class="actions">
                         <button type="button" class="btn small" data-test="${index}"
-                                title="Ask this server, and only this one" ${mayTest ? '' : html`disabled`}>
+                                title="Ask this server, and only this one" ?disabled=${!mayTest}
+                                @click=${() => void testServer(readable(source.hostname))}>
                             <i class="fa-solid fa-list-check"></i> Test
                         </button>
-                        <button type="button" class="btn small" data-edit="${index}" ${mayChange ? '' : html`disabled`}>
+                        <button type="button" class="btn small" data-edit="${index}" ?disabled=${!mayChange}
+                                @click=${() => editServer(index)}>
                             <i class="fa-solid fa-pen"></i> Edit
                         </button>
                     </div>
@@ -579,13 +561,13 @@ export const ntsPage: Page = {
          * the column has, they are the same two halves. The break is a <wbr>
          * rather than a space, so that copying it copies the fingerprint.
          */
-        function fingerprintView(fingerprint: string): HTMLFragment {
+        function fingerprintView(fingerprint: string): TemplateResult {
             return html`${(fingerprint.match(/.{1,32}/g) ?? [fingerprint]).map(part => html`${part}<wbr>`)}`;
         }
 
 
         /** What the group concluded, in one line under the button that asked. */
-        function verdictView(sync: NTSSyncResult): HTMLFragment {
+        function verdictView(sync: NTSSyncResult): TemplateResult {
 
             const group = sync.group;
 
@@ -602,7 +584,7 @@ export const ntsPage: Page = {
                     </span>
                     ${group?.deviationExceeded
                           ? html`<div class="small">The servers disagree by more than the agreed deviation - the log says by how much.</div>`
-                          : ''}
+                          : nothing}
                 </div>
             `;
 
@@ -654,11 +636,104 @@ export const ntsPage: Page = {
             /** Shut it and take it away - both, as not every browser fires "close". */
             const dismiss = (): void => { dialog.close(); dialog.remove(); };
 
+            const error  = (): HTMLElement => must<HTMLElement>(dialog, '#server-error');
+
+            /**
+             * Tell the node the list with the one change in it, and close
+             * only when it took it. What it refuses - a server below the
+             * quorum, the last one - is said in the dialog, and the list the
+             * page shows is still the one the node has.
+             */
+            async function tell(servers: NTSServerEntry[]): Promise<void> {
+
+                error().textContent = '';
+
+                try
+                {
+                    current = await whileSaving(dialog, null, () => api.nts.save({ servers }));
+                }
+                catch (problem)
+                {
+                    error().textContent = errorMessage(problem);
+                    return;
+                }
+
+                dismiss();
+
+                if (!cancelled)
+                    draw();
+
+                // The clock names the group and what it rests on.
+                await refreshClock();
+
+            }
+
+            function take(event: SubmitEvent): void {
+
+                event.preventDefault();
+
+                const form      = event.currentTarget as HTMLFormElement;
+                const data      = new FormData(form);
+                const hostname  = readable(String(data.get('hostname') ?? '').trim());
+                const ntsKE     = String(data.get('ntsKEPort') ?? '').trim();
+                const ntp       = String(data.get('ntpPort')   ?? '').trim();
+                const priority  = Number(data.get('priority')  ?? 0);
+
+                if (hostname.length === 0) {
+                    error().textContent = 'A host name is needed.';
+                    return;
+                }
+
+                if (nameTaken(list, hostname, index)) {
+                    error().textContent = `${hostname} is in the list already.`;
+                    return;
+                }
+
+                // What it is held to is in the dialog as well, so that it is
+                // saved as it is shown - kept where nobody touched it, which is
+                // what the entry lost before this was here, and kept under a
+                // new name too, where it is to be seen and emptied.
+                const pins = readPinsFieldset(form);
+
+                if (pins.error !== undefined) {
+                    error().textContent = pins.error;
+                    return;
+                }
+
+                const entry: NTSServerEntry = { hostname };
+
+                if (priority !== 0)                                      entry.priority   = priority;
+                if (ntsKE.length > 0 && Number(ntsKE) !== usual.ntsKE)  entry.ntsKEPort  = Number(ntsKE);
+                if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
+                if (data.get('enabled') === null)                        entry.enabled    = false;
+
+                // And what the dialog showed it held to, so that the
+                // node changes only what was changed here - see asShown.
+                if (shown !== null)
+                    entry.pinsAsShown = asShown(shown.heldTo);
+
+                void tell(withServer(list, index, withPins(entry, pins.draft)));
+
+            }
+
+            function remove(): void {
+
+                if (shown === null || index === null)
+                    return;
+
+                if (!confirm(`Delete ${readable(shown.hostname)}?\n\n` +
+                             `It is taken out of the list, and out of ${configuration.file}.`))
+                    return;
+
+                void tell(withoutServer(list, index));
+
+            }
+
             render(dialog, html`
 
                 <h2><i class="fa-solid fa-clock"></i> ${shown === null ? 'A new time server' : readable(shown.hostname)}</h2>
 
-                <form id="server-form" class="form-stack">
+                <form id="server-form" class="form-stack" @submit=${take}>
 
                     <label>Host name
                         <input type="text" name="hostname" placeholder="ptbtime1.ptb.de"
@@ -687,7 +762,7 @@ export const ntsPage: Page = {
                     </label>
 
                     <label class="checkbox">
-                        <input type="checkbox" name="enabled" ${shown === null || shown.enabled ? html`checked` : ''} />
+                        <input type="checkbox" name="enabled" ?checked=${shown === null || shown.enabled} />
                         Ask this server
                         <span class="hint">Switched off, it stays in the list and is not asked.</span>
                     </label>
@@ -706,10 +781,10 @@ export const ntsPage: Page = {
 
                     <div class="form-actions">
                         <button type="submit" class="btn primary">Save</button>
-                        <button type="button" class="btn" id="server-cancel">Cancel</button>
+                        <button type="button" class="btn" id="server-cancel" @click=${dismiss}>Cancel</button>
                         ${shown === null
-                              ? ''
-                              : html`<button type="button" class="btn danger" id="server-delete">
+                              ? nothing
+                              : html`<button type="button" class="btn danger" id="server-delete" @click=${remove}>
                                          <i class="fa-solid fa-trash"></i> Delete
                                      </button>`}
                         <span id="server-error" class="form-error" role="alert"></span>
@@ -718,99 +793,6 @@ export const ntsPage: Page = {
                 </form>
 
             `);
-
-            const form   = must<HTMLFormElement>(dialog, '#server-form');
-            const error  = must<HTMLElement>    (dialog, '#server-error');
-
-            /**
-             * Tell the node the list with the one change in it, and close
-             * only when it took it. What it refuses - a server below the
-             * quorum, the last one - is said in the dialog, and the list the
-             * page shows is still the one the node has.
-             */
-            async function tell(servers: NTSServerEntry[]): Promise<void> {
-
-                error.textContent = '';
-
-                try
-                {
-                    current = await whileSaving(dialog, null, () => api.nts.save({ servers }));
-                }
-                catch (problem)
-                {
-                    error.textContent = errorMessage(problem);
-                    return;
-                }
-
-                dismiss();
-
-                if (!cancelled)
-                    drawServers();
-
-                // The clock names the group and what it rests on.
-                await refreshClock();
-
-            }
-
-            form.addEventListener('submit', event => {
-
-                event.preventDefault();
-
-                const data      = new FormData(form);
-                const hostname  = readable(String(data.get('hostname') ?? '').trim());
-                const ntsKE     = String(data.get('ntsKEPort') ?? '').trim();
-                const ntp       = String(data.get('ntpPort')   ?? '').trim();
-                const priority  = Number(data.get('priority')  ?? 0);
-
-                if (hostname.length === 0) {
-                    error.textContent = 'A host name is needed.';
-                    return;
-                }
-
-                if (nameTaken(list, hostname, index)) {
-                    error.textContent = `${hostname} is in the list already.`;
-                    return;
-                }
-
-                // What it is held to is in the dialog as well, so that it is
-                // saved as it is shown - kept where nobody touched it, which is
-                // what the entry lost before this was here, and kept under a
-                // new name too, where it is to be seen and emptied.
-                const pins = readPinsFieldset(form);
-
-                if (pins.error !== undefined) {
-                    error.textContent = pins.error;
-                    return;
-                }
-
-                const entry: NTSServerEntry = { hostname };
-
-                if (priority !== 0)                                      entry.priority   = priority;
-                if (ntsKE.length > 0 && Number(ntsKE) !== usual.ntsKE)  entry.ntsKEPort  = Number(ntsKE);
-                if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
-                if (data.get('enabled') === null)                        entry.enabled    = false;
-
-                // And what the dialog showed it held to, so that the
-                // node changes only what was changed here - see asShown.
-                if (shown !== null)
-                    entry.pinsAsShown = asShown(shown.heldTo);
-
-                void tell(withServer(list, index, withPins(entry, pins.draft)));
-
-            });
-
-            must<HTMLButtonElement>(dialog, '#server-cancel').addEventListener('click', dismiss);
-
-            if (shown !== null && index !== null)
-                must<HTMLButtonElement>(dialog, '#server-delete').addEventListener('click', () => {
-
-                    if (!confirm(`Delete ${readable(shown.hostname)}?\n\n` +
-                                 `It is taken out of the list, and out of ${configuration.file}.`))
-                        return;
-
-                    void tell(withoutServer(list, index));
-
-                });
 
             wirePinsFieldset(dialog);
 
@@ -850,7 +832,7 @@ export const ntsPage: Page = {
                     <div class="loading">Name, key exchange, authenticated time request ...</div>
                 </div>
                 <div class="form-actions">
-                    <button type="button" class="btn" id="test-close" disabled>Close</button>
+                    <button type="button" class="btn" id="test-close" disabled @click=${() => dismiss()}>Close</button>
                 </div>
             `);
 
@@ -865,8 +847,6 @@ export const ntsPage: Page = {
             dialog.addEventListener('cancel', dismiss);
 
             const close = must<HTMLButtonElement>(dialog, '#test-close');
-
-            close.addEventListener('click', dismiss);
 
             let result: TimeServerTest;
 
@@ -906,98 +886,45 @@ export const ntsPage: Page = {
         }
 
 
-        /**
-         * Listen on the parts rather than on what is in them, because the
-         * parts are redrawn one at a time and a listener on a button that was
-         * redrawn away would be listening to nothing.
-         */
-        function wire(): void {
+        function savePolicy(event: SubmitEvent): void {
 
-            must<HTMLElement>(content, '#nts-switch').addEventListener('change', event => {
+            event.preventDefault();
 
-                const box = event.target as HTMLInputElement;
+            const form     = event.currentTarget as HTMLFormElement;
+            const timeout  = numberField(form, 'timeoutSeconds');
 
-                if (box.id === 'enabled')
-                    void switchTo(box.checked);
+            // An emptied field is not given, which the node reads as
+            // "keep what you have" - not 0, which it refuses, and the
+            // whole save with it (the energy meter's).
+            const update: NTSUpdate = {
+                minServers:           numberField(form, 'minServers'),
+                maxDeviationSeconds:  numberField(form, 'maxDeviationSeconds'),
+                checkEverySeconds:    numberField(form, 'checkEverySeconds')
+            };
 
-            });
+            // Left empty, the client's own is what a test allows.
+            if (!Number.isNaN(timeout))
+                update.timeoutSeconds = timeout;
 
-            must<HTMLElement>(content, '#nts-servers').addEventListener('click', event => {
+            void saveForm(form, '#nts-policy', '#policy-note', '#policy-error', update);
 
-                const target  = event.target as HTMLElement;
-                const button  = target.closest<HTMLButtonElement>('button');
+        }
 
-                if (button === null || button.disabled)
-                    return;
 
-                if (button.id === 'add-server')
-                    editServer(null);
+        function saveLegal(event: SubmitEvent): void {
 
-                else if (button.dataset.edit !== undefined)
-                    editServer(Number(button.dataset.edit));
+            event.preventDefault();
 
-                else if (button.dataset.test !== undefined) {
+            const form       = event.currentTarget as HTMLFormElement;
+            const authority  = String(new FormData(form).get('legalTimeAuthority') ?? '').trim();
 
-                    const source = current?.timeSources?.[Number(button.dataset.test)];
-
-                    if (source !== undefined)
-                        void testServer(readable(source.hostname));
-
-                }
-
-            });
-
-            must<HTMLElement>(content, '#nts-sync').addEventListener('click', event => {
-
-                const button = (event.target as HTMLElement).closest<HTMLButtonElement>('#sync');
-
-                if (button !== null && !button.disabled)
-                    void runSync();
-
-            });
-
-            must<HTMLElement>(content, '#nts-policy').addEventListener('submit', event => {
-
-                event.preventDefault();
-
-                const form     = event.target as HTMLFormElement;
-                const timeout  = numberField(form, 'timeoutSeconds');
-
-                // An emptied field is not given, which the node reads as
-                // "keep what you have" - not 0, which it refuses, and the
-                // whole save with it (the energy meter's).
-                const update: NTSUpdate = {
-                    minServers:           numberField(form, 'minServers'),
-                    maxDeviationSeconds:  numberField(form, 'maxDeviationSeconds'),
-                    checkEverySeconds:    numberField(form, 'checkEverySeconds')
-                };
-
-                // Left empty, the client's own is what a test allows.
-                if (!Number.isNaN(timeout))
-                    update.timeoutSeconds = timeout;
-
-                void saveForm('#nts-policy', '#policy-note', '#policy-error', update,
-                              // The list as well: what the group is held to is said under it.
-                              () => { drawPolicy(); drawServers(); });
-
-            });
-
-            must<HTMLElement>(content, '#nts-legal').addEventListener('submit', event => {
-
-                event.preventDefault();
-
-                const form       = event.target as HTMLFormElement;
-                const authority  = String(new FormData(form).get('legalTimeAuthority') ?? '').trim();
-
-                // Only what this form says, which the node lays over the rest.
-                void saveForm('#nts-legal', '#legal-note', '#legal-error', {
-                    // An emptied field takes the authority away rather than
-                    // naming one called "".
-                    legalTimeAuthority:         authority.length > 0 ? authority : null,
-                    legalTimeToleranceSeconds:  numberField(form, 'legalTimeToleranceSeconds'),
-                    legalTimeMaxAgeSeconds:     numberField(form, 'legalTimeMaxAgeSeconds')
-                }, drawLegal);
-
+            // Only what this form says, which the node lays over the rest.
+            void saveForm(form, '#nts-legal', '#legal-note', '#legal-error', {
+                // An emptied field takes the authority away rather than
+                // naming one called "".
+                legalTimeAuthority:         authority.length > 0 ? authority : null,
+                legalTimeToleranceSeconds:  numberField(form, 'legalTimeToleranceSeconds'),
+                legalTimeMaxAgeSeconds:     numberField(form, 'legalTimeMaxAgeSeconds')
             });
 
         }
@@ -1019,12 +946,12 @@ export const ntsPage: Page = {
             {
                 // Back to what the node has, which is not what the box
                 // says now that somebody has clicked it.
-                drawSwitch();
+                draw();
                 must<HTMLElement>(content, '#switch-error').textContent = errorMessage(problem);
                 return;
             }
 
-            drawSwitch();
+            draw();
 
             // Whether the time may be called legal depends on it.
             await refreshClock();
@@ -1034,14 +961,15 @@ export const ntsPage: Page = {
 
         /**
          * Tell the node what one of the two forms says - what the group is
-         * held to, or what counts as legal time - and redraw what shows it.
-         * Only what that form says: the node lays it over the rest.
+         * held to, or what counts as legal time - and show what it took.
+         * Only what that form says: the node lays it over the rest, and the
+         * other form keeps what is typed into it.
          */
-        async function saveForm(Card:     string,
+        async function saveForm(Form:     HTMLFormElement,
+                                Card:     string,
                                 NoteAt:   string,
                                 ErrorAt:  string,
-                                Update:   NTSUpdate,
-                                Redraw:   () => void): Promise<void> {
+                                Update:   NTSUpdate): Promise<void> {
 
             must<HTMLElement>(content, NoteAt). textContent = '';
             must<HTMLElement>(content, ErrorAt).textContent = '';
@@ -1060,7 +988,11 @@ export const ntsPage: Page = {
             if (cancelled)
                 return;
 
-            Redraw();
+            draw();
+
+            // A draw leaves a form as it is typed into; this one was saved,
+            // so it goes back to what it says now - the node's answer.
+            Form.reset();
 
             must<HTMLElement>(content, NoteAt).textContent = 'Saved, and in effect.';
 
@@ -1076,8 +1008,7 @@ export const ntsPage: Page = {
             // Its own card for the button and the verdict, and the list for
             // what each server said.
             syncing = true;
-            drawSync();
-            drawServers();
+            draw();
 
             try
             {
@@ -1089,8 +1020,7 @@ export const ntsPage: Page = {
             catch (problem)
             {
                 syncing = false;
-                drawSync();
-                drawServers();
+                draw();
                 must<HTMLElement>(content, '#sync-error').textContent = errorMessage(problem);
                 return;
             }
@@ -1099,8 +1029,7 @@ export const ntsPage: Page = {
                 return;
 
             syncing = false;
-            drawSync();
-            drawServers();
+            draw();
 
             // And the clock: an exchange is exactly the thing that turns
             // "never checked" into a number.
@@ -1128,7 +1057,7 @@ export const ntsPage: Page = {
             }
 
             if (!cancelled)
-                drawClock();
+                draw();
 
         }
 
@@ -1150,6 +1079,9 @@ export const ntsPage: Page = {
                     clock   = now;
                     offers  = kept;
                     draw();
+                    // Loaded anew - Reload - is what the node has, the forms
+                    // too, which a draw on its own would leave as typed.
+                    content.querySelectorAll('form').forEach(form => form.reset());
                 }
             }
             catch (problem)

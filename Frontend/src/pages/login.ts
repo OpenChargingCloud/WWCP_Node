@@ -1,6 +1,7 @@
 import { auth } from '../auth';
 import { config } from '../config';
-import { html, must, render, type HTMLFragment } from '../html';
+import { must, type HTMLFragment } from '../html';
+import { html, nothing, render } from '../view';
 import type { Page } from '../router';
 import { brand, versions } from '../shell';
 import { errorMessage, field, safeNext } from '../ui';
@@ -53,7 +54,7 @@ export function loginPage(Words: SignInWords = {}): Page {
                     <h1><i class="fa-solid ${icon}"></i> ${name}</h1>
                     <p class="muted">${signInLine(Words)}</p>
 
-                    <form id="login-form" class="form-stack">
+                    <form id="login-form" class="form-stack" @submit=${signIn}>
                         <label>Username
                             <input name="username" required autocomplete="username" autofocus />
                         </label>
@@ -68,20 +69,21 @@ export function loginPage(Words: SignInWords = {}): Page {
 
                     <p class="small muted login-hint">${signInHint(Words)}</p>
 
-                    ${Words.below?.() ?? ''}
+                    ${Words.below?.() ?? nothing}
 
                     <p class="small muted">${versions()}</p>
 
                 </section>
             `);
 
-            const form    = must<HTMLFormElement>(root, '#login-form');
-            const error   = must<HTMLElement>(root, '#form-error');
-            const button  = must<HTMLButtonElement>(form, 'button[type="submit"]');
-
-            form.addEventListener('submit', event => {
+            function signIn(event: SubmitEvent): void {
 
                 event.preventDefault();
+
+                const form    = event.currentTarget as HTMLFormElement;
+                const error   = must<HTMLElement>(form, '#form-error');
+                const button  = must<HTMLButtonElement>(form, 'button[type="submit"]');
+
                 error.textContent = '';
                 button.disabled   = true;
 
@@ -101,7 +103,7 @@ export function loginPage(Words: SignInWords = {}): Page {
                     }
                 })();
 
-            });
+            }
 
         }
 

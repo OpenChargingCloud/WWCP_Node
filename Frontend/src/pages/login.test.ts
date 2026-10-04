@@ -3,12 +3,12 @@
  * its own.
  */
 
+import '../../test/dom.ts';
+
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-(globalThis as unknown as { document: unknown }).document = {
-    querySelector: (selector: string) => selector === 'meta[name="node-name"]' ? { content: 'gateway' } : null
-};
+document.head.innerHTML = '<meta name="node-name" content="gateway">';
 
 const { signInHint, signInLine } = await import('./login.ts');
 

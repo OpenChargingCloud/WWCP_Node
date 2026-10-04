@@ -178,7 +178,7 @@ describe('what the DNS page does with what a name server is held to', () => {
 
     it('takes it from the server\'s dialog into the list on screen, which Save sends', () => {
 
-        assert.match(page, /servers\[index\] = withPins\(servers\[index\], pins\.draft\);/,
+        assert.match(page, /const held = withPins\(server, pins\.draft\);[\s\S]{0,80}servers\[index\] = held;/,
                      'the DNS page does not take a server\'s pins from its dialog into the list');
 
     });

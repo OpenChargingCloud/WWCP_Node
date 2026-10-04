@@ -188,9 +188,55 @@ export function numbersReadAsZeroWhenEmptied(Page: Page): string[] {
  */
 export function drawnAnewWithoutItsDrafts(Page: Page): number {
 
+    if (drawsByComparing(Page))
+        return 0;
+
     const code = Page.source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
     return Math.max(0, (code.match(/(?<![\w.])draw\(\);/g) ?? []).length - 1);
+
+}
+
+/**
+ * Whether a page draws through view.ts - lit-html, which compares a draw with
+ * what is on the page and leaves what a draw does not change, typed text and
+ * focus and all - rather than through html.ts's innerHTML. Such a page needs
+ * no keepDrafts, and is held to the rules of its own below instead.
+ */
+export function drawsByComparing(Page: Page): boolean {
+    return /\bfrom\s+'(@node|\.\.?)\/view'/.test(Page.source);
+}
+
+/**
+ * Where a page drawn by view.ts says an attribute as text inside a tag -
+ * ${may ? '' : html`disabled`} - where lit-html wants it bound:
+ * ?disabled=${!may}. lit-html refuses one at the moment the page is drawn,
+ * which no test that only reads the source would see. Asked of the code: a
+ * ${...} that stands where an attribute would, outside quotes, in a tag.
+ */
+export function attributesSaidAsText(Page: Page): string[] {
+
+    const code  = Page.source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const found = [] as string[];
+
+    for (const match of code.matchAll(/\s\$\{/g)) {
+
+        const before = code.slice(0, match.index);
+        const opened = before.lastIndexOf('<');
+
+        if (opened < 0 || before.lastIndexOf('>') > opened || !/^<[a-zA-Z]/.test(before.slice(opened)))
+            continue;
+
+        const inTag = before.slice(opened);
+
+        if ((inTag.match(/"/g) ?? []).length % 2 === 1)
+            continue;
+
+        found.push(code.slice(match.index + 1, code.indexOf('}', match.index) + 1).replace(/\s+/g, ' '));
+
+    }
+
+    return found;
 
 }
 
@@ -329,6 +375,27 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
                 const unknown = formsKnownByNothing(page);
                 assert.equal(unknown, 0, `${page.name} has ${unknown} form(s) with neither an id nor a data-id, whose drafts ` +
                                          `keepDrafts cannot tell from their neighbours and drops`);
+            });
+
+        }
+
+    });
+
+    describe('a page drawn by comparing', () => {
+
+        for (const page of pages.filter(drawsByComparing)) {
+
+            it(`${page.name} binds an attribute that is there or not, rather than saying it as text in a tag`, () => {
+                assert.deepEqual(attributesSaidAsText(page), [],
+                                 `${page.name} draws with view.ts and says an attribute as text - ?disabled=\${...}, ?checked=\${...} ` +
+                                 `bind it; lit-html refuses the other when the page is drawn`);
+            });
+
+            it(`${page.name} needs neither keepDrafts nor innerHTML`, () => {
+                assert.doesNotMatch(page.source, /keepDrafts\(/,
+                                    `${page.name} draws with view.ts, which keeps what is typed by itself - keepDrafts would put back a value over the node's answer`);
+                assert.doesNotMatch(page.source, /\.innerHTML\s*=/,
+                                    `${page.name} draws with view.ts and replaces a part of itself with innerHTML, which throws away what it was keeping`);
             });
 
         }

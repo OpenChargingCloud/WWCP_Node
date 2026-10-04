@@ -1,5 +1,6 @@
 /**
- * What a shared file may import: another shared file, and nothing else.
+ * What a shared file may import: another shared file, and nothing else - but
+ * lit-html, in view.ts.
  *
  * Every kind of node bundles these files as its own, from its own checkout of
  * WWCP_Node. A shared file that reached into a product - "../../../EV/..." - or
@@ -74,6 +75,13 @@ describe('a shared file', () => {
         it(`imports only other shared files: ${relative(src, path).replaceAll('\\', '/')}`, () => {
 
             for (const specifier of importsOf(path)) {
+
+                // lit-html is the one package a shared file names, and view.ts
+                // the one file that names it: every kind installs it, at the
+                // version this directory's package.json pins, and the other
+                // shared files draw through view.ts.
+                if (relative(src, path) === 'view.ts' && (specifier === 'lit-html' || specifier.startsWith('lit-html/')))
+                    continue;
 
                 assert.ok(specifier.startsWith('./') || specifier.startsWith('../'),
                           `"${specifier}" is not a shared file - a package, or a product's alias`);

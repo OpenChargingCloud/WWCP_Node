@@ -1,7 +1,7 @@
 import { auth } from '../auth';
 import { toURL } from '../basePath';
 import { config } from '../config';
-import { html, render, type HTMLFragment } from '../html';
+import { html, render, type TemplateResult } from '../view';
 import type { Page } from '../router';
 import { shell, visibleMenu, type MenuEntry } from '../shell';
 
@@ -11,7 +11,7 @@ import { shell, visibleMenu, type MenuEntry } from '../shell';
  * is what their role says and nobody has one yet. Links that would all have
  * bounced to the sign-in are one link to it.
  */
-export function whatThereIs(Pages: readonly MenuEntry[] | null): HTMLFragment {
+export function whatThereIs(Pages: readonly MenuEntry[] | null): TemplateResult {
 
     if (Pages === null)
         return html`<a href="${toURL('/login')}">Sign in</a> to see what this ${config.nodeName} has.`;
