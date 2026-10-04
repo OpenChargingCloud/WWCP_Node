@@ -1,66 +1,7 @@
-// A tiny tagged template for building HTML strings safely: every interpolated
-// value is escaped unless it is itself an html`...` fragment (or raw(...)).
-
-// A field rather than a parameter property: Node runs the tests with the types
-// stripped, and a parameter property is code to be generated, not a type to
-// strip - with it, no test could load a page, since every page loads this.
-export class HTMLFragment {
-    readonly value: string;
-    constructor(value: string) {
-        this.value = value;
-    }
-    toString(): string {
-        return this.value;
-    }
-}
-
-export function raw(value: string): HTMLFragment {
-    return new HTMLFragment(value);
-}
-
-export function escapeHTML(text: string): string {
-    return text.replace(/[&<>"']/g, character => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-    }[character] ?? character));
-}
-
-function toHTML(value: unknown): string {
-
-    if (value === null || value === undefined || value === false)
-        return '';
-
-    if (value instanceof HTMLFragment)
-        return value.value;
-
-    if (Array.isArray(value))
-        return value.map(toHTML).join('');
-
-    return escapeHTML(String(value));
-
-}
-
-export function html(strings: TemplateStringsArray, ...values: unknown[]): HTMLFragment {
-
-    let out = '';
-
-    strings.forEach((part, index) => {
-        out += part;
-        if (index < values.length)
-            out += toHTML(values[index]);
-    });
-
-    return new HTMLFragment(out);
-
-}
-
-/** Replace the content of an element with a fragment. */
-export function render(target: HTMLElement, fragment: HTMLFragment): void {
-    target.innerHTML = fragment.value;
-}
+// What is left of the tagged template every page of every kind of node was
+// written in, html`...`, which built a string and drew it with innerHTML: it
+// was the one file all eight kinds had alike. Every page and the frame draw
+// with view.ts now, and what was html.ts's is gone but this.
 
 /** querySelector that throws instead of returning null. */
 export function must<T extends Element>(root: ParentNode, selector: string): T {

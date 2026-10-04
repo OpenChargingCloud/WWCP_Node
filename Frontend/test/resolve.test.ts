@@ -17,7 +17,7 @@ describe('resolve', () => {
 
         const viaAlias = await import('@node/html');
 
-        assert.equal(viaAlias.html, direct.html, 'another module, or none');
+        assert.equal(viaAlias.must, direct.must, 'another module, or none');
 
     });
 
@@ -25,7 +25,7 @@ describe('resolve', () => {
 
         const viaRelative = await import('../src/html');
 
-        assert.equal(viaRelative.html, direct.html);
+        assert.equal(viaRelative.must, direct.must);
 
     });
 

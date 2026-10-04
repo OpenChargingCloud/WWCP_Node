@@ -847,7 +847,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | | |
 |---|---|
 | `view.ts` | how every page and the frame draw: `html` and `render`, with lit-html, which compares a draw with what is on the page and leaves what it does not change - what is typed into another form, the focus, how far a list is scrolled |
-| `html.ts` | the tagged template every page was written in - the one file all eight had alike - which a kind's Reload button or hint may still be, taken by `view.ts` as the markup it is; and `must()` |
+| `html.ts` | `must()`: an element, or an error naming the one that is not there - what is left of the tagged template every page was written in, the one file all eight had alike |
 | `config.ts` | what the node wrote into the page's `<meta>` tags: where the page and its APIs are, the versions, and the node's name |
 | `basePath.ts` | where the page is mounted, added to a route on the way into the address bar and taken off on the way out |
 | `router.ts` | which page a path is, and the way from one page to the next |
@@ -1038,8 +1038,9 @@ it has - by name, `typedSinceDrawn(content.querySelector('#…'))`, or all at
 once, `anyFormTypedSinceDrawn(content)` - and asks before its Reload throws
 one away; it draws by comparing, with `html` and `render` from `view.ts`,
 which leave what is typed into its other forms where it is when it draws
-again after a save, a removal or a row opened for editing - `html.ts`'s
-`render()` drew every form anew and threw it away; every number typed, on every
+again after a save, a removal or a row opened for editing - drawn with
+innerHTML, every form was drawn anew and what was typed thrown away; its
+Reload is `reloadButton()`, which asks for it; every number typed, on every
 page, with a form or without, is read with `numberField`, or `numberFrom`
 for an input outside a form, not `Number()`, which makes an emptied field 0 -
 but where a page says itself what empty means, `=== '' ? ... :` before it. The

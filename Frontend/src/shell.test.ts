@@ -27,7 +27,6 @@ for (const [ name, content ] of [ [ 'base', '/EV' ], [ 'node-name', 'electric ve
 const { auth }                                                             = await import('./auth.ts');
 const { configureShell, mayButNot, mayOpen, menuView, reloadButton, shell, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
 const { unsaved }                                                          = await import('./unsaved.ts');
-const { html: stringHTML }                                                 = await import('./html.ts');
 const { html, render }                                                     = await import('./view.ts');
 
 /** A template drawn into an element of its own. */
@@ -403,15 +402,6 @@ describe('the frame of a page', () => {
         reload.click();
 
         assert.equal(reloaded, 1);
-
-    });
-
-    it('shows a fragment of html.ts beside the heading as the markup it is, for a kind that still says it so', () => {
-
-        const { root } = framed(stringHTML`<button type="button" id="reload" class="btn small">Reload ${'<b>all</b>'}</button>`);
-
-        assert.equal(root.querySelector('.page-actions #reload')!.textContent, 'Reload <b>all</b>');
-        assert.ok(root.querySelector('.page-actions b') === null, 'what the fragment escaped was taken as markup');
 
     });
 

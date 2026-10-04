@@ -1,7 +1,7 @@
 import { auth } from './auth';
 import { toURL } from './basePath';
 import { config } from './config';
-import { must, type HTMLFragment } from './html';
+import { must } from './html';
 import { unsaved } from './unsaved';
 import { html, nothing, render, type TemplateResult } from './view';
 import type { NodeMe } from './api/client';
@@ -17,8 +17,7 @@ import type { NodeMe } from './api/client';
  * to say, once, when it starts - see start.ts.
  *
  * Drawn with view.ts, as the pages are: what a page puts beside its heading
- * is a template of view.ts, with its listeners bound in it - or, until every
- * kind draws it so, a fragment of html.ts, taken as the markup it is.
+ * is a template of view.ts, with its listeners bound in it.
  */
 
 export interface MenuEntry {
@@ -63,7 +62,7 @@ export interface ShellOptions {
     /** One line under the heading, or nothing. */
     subtitle?:  string;
     /** Buttons and such, shown at the right of the heading. */
-    actions?:   TemplateResult | HTMLFragment;
+    actions?:   TemplateResult;
 }
 
 

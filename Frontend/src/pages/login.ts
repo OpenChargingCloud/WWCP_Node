@@ -1,6 +1,6 @@
 import { auth } from '../auth';
 import { config } from '../config';
-import { must, type HTMLFragment } from '../html';
+import { must } from '../html';
 import { html, nothing, render, type TemplateResult } from '../view';
 import type { Page } from '../router';
 import { brand, versions } from '../shell';
@@ -12,11 +12,8 @@ export interface SignInWords {
     line?:   string;
     /** Where the first password comes from. */
     hint?:   string;
-    /**
-     * Anything else under the form: an e-mobility provider's "Sign up". A
-     * template of view.ts, or a fragment of html.ts until the kinds draw it so.
-     */
-    below?:  () => TemplateResult | HTMLFragment;
+    /** Anything else under the form: an e-mobility provider's "Sign up". */
+    below?:  () => TemplateResult;
 }
 
 /** The sentence under the heading, unless a kind of node says its own. */

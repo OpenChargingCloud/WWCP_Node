@@ -391,7 +391,8 @@ describe('the certificates page, as a kind of node adds to it', () => {
         assert.ok([ ...root.querySelectorAll('.notice') ].some(notice => notice.textContent!.trim() === 'The modbus listener has nothing to show.'),
                   'the notice is not at the top');
         assert.equal(card(root, 'tlsIdentity').querySelector('.row-chips .chip.ok')?.textContent, 'shown on Modbus/TLS');
-        assert.equal(card(root, 'tlsRoot').querySelector('.row-chips'), null, 'a row with nothing to add has a line for it');
+        // ok() and not equal(): a message of equal() would print the element, and with it all of happy-dom's window.
+        assert.ok(card(root, 'tlsRoot').querySelector('.row-chips') === null, 'a row with nothing to add has a line for it');
         assert.equal(card(root, 'tlsIdentity').querySelector('.usages-of .chip')?.textContent, 'on every listener',
                      'an identity for every listener is said to be for every use');
 
@@ -519,11 +520,11 @@ describe('the certificates page, as a kind of node adds to it', () => {
         });
 
         assert.match(root.querySelector('.error-box')?.textContent ?? '', /could not be loaded: no requests/);
-        assert.equal(root.querySelector('#never'), null);
+        assert.ok(root.querySelector('#never') === null, 'a section whose load failed was drawn');
 
     });
 
-    it('takes a template of view.ts for what it says under a group, as well as a fragment of html.ts', async () => {
+    it('takes a template of view.ts for what it says under a group, drawn as markup', async () => {
 
         const root = await opened({ hints: { believes: html`Roots <em>this meter</em> believes.` } });
 

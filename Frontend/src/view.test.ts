@@ -8,7 +8,6 @@ import '../test/dom.ts';
 import { strict as assert } from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import { html as stringHTML, render as stringRender } from './html.ts';
 import { html, keyed, live, nothing, render, repeat } from './view.ts';
 
 
@@ -142,11 +141,11 @@ describe('view', () => {
 
     });
 
-    it('escapes a value, and takes a fragment of html.ts as the markup it is', () => {
+    it('escapes a value, and takes a template in it as the markup it is', () => {
 
         const root = page();
 
-        render(root, html`<p>${'<b>not bold</b>'}</p><div>${stringHTML`<b>${'a & b'}</b>`}</div><ul>${[stringHTML`<li>x</li>`, 'y']}</ul>`);
+        render(root, html`<p>${'<b>not bold</b>'}</p><div>${html`<b>${'a & b'}</b>`}</div><ul>${[html`<li>x</li>`, 'y']}</ul>`);
 
         assert.equal(root.querySelector('p')!.textContent,       '<b>not bold</b>');
         assert.ok(root.querySelector('p b') === null, 'a value was taken as markup');
@@ -156,14 +155,14 @@ describe('view', () => {
 
     });
 
-    it('draws over what html.ts put into the element before, not next to it', () => {
+    it('draws over what was in the element before, not next to it', () => {
 
         const root = page();
 
-        stringRender(root, stringHTML`<div class="loading">Loading ...</div>`);
+        root.innerHTML = '<div class="loading">Loading ...</div>';
         render(root, html`<p>here</p>`);
 
-        assert.ok(root.querySelector('.loading') === null, 'what html.ts drew is still there');
+        assert.ok(root.querySelector('.loading') === null, 'what was there is still there');
         assert.equal(root.children.length, 1);
 
         render(root, nothing);
@@ -171,13 +170,13 @@ describe('view', () => {
 
     });
 
-    it('draws again into an element whose content html.ts replaced since - the router root, the next page in it', () => {
+    it('draws again into an element whose content was replaced since - the router root, emptied for the next page', () => {
 
         const root = page();
         const sign = (who: string) => html`<section class="login"><p>${who}</p></section>`;
 
         render(root, sign('first'));
-        stringRender(root, stringHTML`<main>another page</main>`);
+        root.innerHTML = '<main>another page</main>';
         render(root, sign('second'));
 
         assert.ok(root.querySelector('main') === null, 'the other page is still there');

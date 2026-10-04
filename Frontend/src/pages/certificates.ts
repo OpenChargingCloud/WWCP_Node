@@ -2,7 +2,7 @@ import { nodeAPI, type Certificate, type CertificateStore } from '../api/client'
 import { auth } from '../auth';
 import { toURL } from '../basePath';
 import { config } from '../config';
-import { must, type HTMLFragment } from '../html';
+import { must } from '../html';
 import type { Page } from '../router';
 import { mayButNot, reloadButton, shell } from '../shell';
 import { errorMessage, humanizeKey, whileSaving } from '../ui';
@@ -22,8 +22,8 @@ const api = nodeAPI();
 const largestImport = 1024 * 1024;
 
 
-/** What a kind of node says in a place of the page: a fragment of html.ts, or a template of view.ts. */
-export type Said = HTMLFragment | TemplateResult;
+/** What a kind of node says in a place of the page: a template of view.ts. */
+export type Said = TemplateResult;
 
 /** What a kind of node says, or says from what the store says: a sentence that holds only while the web interface is served over plain HTTP, say. */
 export type SaidOf<S> = Said | ((store: S) => Said);
