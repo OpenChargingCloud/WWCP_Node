@@ -10,7 +10,7 @@ import { spawnSync }         from 'node:child_process';
 import { describe, it }      from 'node:test';
 import { fileURLToPath }     from 'node:url';
 
-import { asksBeforeItsReload, attributesSaidAsText, drawnAnewWithoutItsDrafts, expressionsInATextarea, formsKnownByNothing, patternsABrowserRefuses, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
+import { asksBeforeItsReload, attributesSaidAsText, drawnAnewWithoutItsDrafts, expressionsInATextarea, formsKnownByNothing, patternsABrowserRefuses, stepsMissingTheirMin, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -312,6 +312,30 @@ describe('a pattern', () => {
         assert.deepEqual(patternsABrowserRefuses(page(`<input name="id" pattern="[a-z0-9\\\\-]+" />
                                                       <input name="user" pattern="[A-Za-z0-9]([A-Za-z0-9._\\\\-]*[A-Za-z0-9])?" />
                                                       <input name="code" pattern="\${codePattern}" />`)),
+                         []);
+    });
+
+});
+
+
+describe('a number field', () => {
+
+    it('whose min is not on its steps is found, also where the step is the browser\'s own 1', () => {
+        assert.deepEqual(stepsMissingTheirMin(page(`<input type="number" name="tolerance" min="0.001" step="0.1" />
+                                                    <input type="number" name="half" min="0.5" />
+                                                    <input name="power" step="0.5" min="0.25" type="range" />`)),
+                         [ 'min="0.001" step="0.1"', 'min="0.5" step="1"', 'min="0.25" step="0.5"' ]);
+    });
+
+    it('whose min is on its steps passes, and so do step="any", an expression, and a field that is no number', () => {
+        assert.deepEqual(stepsMissingTheirMin(page(`<input type="number" name="timeout" min="0.1" step="0.1" max="30" />
+                                                    <input type="number" name="deviation" min="0.001" step="0.001" />
+                                                    <input type="number" name="port" min="1" max="65535" />
+                                                    <input type="number" name="checkEvery" min="0" step="0.25" />
+                                                    <input type="number" name="offset" min="0.3" step="0.1" />
+                                                    <input type="number" name="free" min="0.001" step="any" />
+                                                    <input type="number" name="limit" min="\${limits.min}" step="0.1" @input=\${(event) => typed(event)} />
+                                                    <input type="text" name="label" min="0.5" />`)),
                          []);
     });
 

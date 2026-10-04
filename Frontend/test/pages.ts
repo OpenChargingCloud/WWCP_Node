@@ -308,6 +308,50 @@ export function patternsABrowserRefuses(Page: Page): string[] {
 }
 
 /**
+ * The number fields of a page whose min is not on their own steps: a browser
+ * counts the steps from min, so min="0.001" step="0.1" lets 12.401 through
+ * and refuses 12.4 - which nobody can type in, and nobody is told why (found
+ * by the vehicle). Without a step it is 1, so min="0.5" alone allows 1.5 and
+ * not 2. Asked of every number or range field whose min and step are written
+ * out; one said by an expression, or step="any", is not asked.
+ */
+export function stepsMissingTheirMin(Page: Page): string[] {
+
+    const found = [] as string[];
+
+    for (const match of Page.source.matchAll(/<input\b/g)) {
+
+        const tag  = Page.source.slice(match.index, match.index + endOfTag(Page.source.slice(match.index)));
+        const type = /\stype="([^"]*)"/.exec(tag)?.[1] ?? 'text';
+        const min  = /\smin="([^"$]*)"/.exec(tag)?.[1];
+        const step = /\sstep="([^"$]*)"/.exec(tag)?.[1] ?? (/\sstep=/.test(tag) ? undefined : '1');
+
+        if ((type !== 'number' && type !== 'range') || min === undefined || step === undefined || step === 'any')
+            continue;
+
+        if (!onTheSteps(min, step))
+            found.push(`min="${min}" step="${step}"`);
+
+    }
+
+    return found;
+
+}
+
+/** Whether a decimal number is a whole multiple of a step, counted in decimals rather than in floating point. */
+function onTheSteps(Value: string, Step: string): boolean {
+
+    const places  = (number: string) => number.includes('.') ? number.length - number.indexOf('.') - 1 : 0;
+    const scale   = Math.max(places(Value), places(Step));
+    const scaled  = (number: string) => BigInt(number.replace('.', '') + '0'.repeat(scale - places(number)));
+
+    const step = scaled(Step);
+
+    return step === 0n || scaled(Value) % step === 0n;
+
+}
+
+/**
  * How many forms of a page have neither an id nor a data-id: keepDrafts cannot
  * tell such a form from its neighbours after a drawing anew, and drops what
  * was typed into it without a word - the forms drawn for each login and each
@@ -495,6 +539,18 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
                 const refused = patternsABrowserRefuses(page);
                 assert.deepEqual(refused, [], `${page.name} has a pattern a browser refuses, and with it every check of its field: ` +
                                               `${refused.join(', ')} - in a class, a hyphen is escaped (\\\\-), as the v flag wants it`);
+            });
+
+    });
+
+    describe('a number field on a page', () => {
+
+        for (const page of pages)
+            it(`${page.name} lets its number fields step from their min`, () => {
+                const missing = stepsMissingTheirMin(page);
+                assert.deepEqual(missing, [], `${page.name} has a number field whose min is not on its steps - ${missing.join(', ')} - ` +
+                                              `and a browser refuses every value on the steps the step says: a min that is a multiple ` +
+                                              `of the step, or a step as fine as the min, lets them through`);
             });
 
     });
