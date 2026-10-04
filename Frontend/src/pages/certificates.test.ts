@@ -6,7 +6,7 @@
  * leaves an empty one.
  */
 
-import '../../test/dom.ts';
+import { chromeTakesTheFocus } from '../../test/dom.ts';
 
 import { strict as assert }  from 'node:assert';
 import { readFileSync }      from 'node:fs';
@@ -232,10 +232,31 @@ describe('the certificates page, drawn', () => {
         await until(() => root.querySelector('[data-toggle="aaaaaaaaaaaaaaaa"]')?.textContent?.trim() === 'Switch on',
                     'the certificate was not switched off');
 
-        assert.equal(label(root),            typed,            'the field was made anew');
+        assert.ok(label(root) === typed,                       'the field was made anew');
         assert.equal(typed.value,            'half filled in', 'what was typed into the import is gone');
         assert.equal(kind(root).value,       'tlsIdentity',    'the kind chosen for the import is gone');
         assert.ok(document.activeElement === typed, 'the focus went');
+
+    });
+
+    it('gives the focus back to the label typed into once a certificate is switched off, as a browser takes it away', async () => {
+
+        const root    = await opened();
+        const browser = chromeTakesTheFocus(root);
+
+        choose(root, 'tlsIdentity');
+        const typed = label(root);
+        typed.value = 'half filled in';
+        typed.focus();
+
+        root.querySelector<HTMLButtonElement>('[data-toggle="aaaaaaaaaaaaaaaa"]')!.click();
+        await until(() => root.querySelector('[data-toggle="aaaaaaaaaaaaaaaa"]')?.textContent?.trim() === 'Switch on',
+                    'the certificate was not switched off');
+        browser.disconnect();
+
+        assert.ok(label(root) === typed,             'the field was made anew');
+        assert.equal(typed.value, 'half filled in');
+        assert.ok(document.activeElement === typed,  'the focus went, and was not given back');
 
     });
 

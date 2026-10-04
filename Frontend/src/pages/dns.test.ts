@@ -5,7 +5,7 @@
  * the node took.
  */
 
-import '../../test/dom.ts';
+import { chromeTakesTheFocus } from '../../test/dom.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
@@ -120,20 +120,7 @@ describe('the DNS page', () => {
         const root    = await opened();
         const retries = field(root, 'maxRetries');
 
-        // What Chrome does and happy-dom does not: a control switched off
-        // while it has the focus loses it, and nothing has it afterwards.
-        // happy-dom's blur() leaves a disabled control as it is, so the focus
-        // goes to a button that is then taken away.
-        const browser = new MutationObserver(changes => {
-            for (const { target } of changes)
-                if (target === document.activeElement && (target as HTMLInputElement).disabled) {
-                    const away = document.createElement('button');
-                    document.body.append(away);
-                    away.focus();
-                    away.remove();
-                }
-        });
-        browser.observe(root, { subtree: true, attributes: true, attributeFilter: [ 'disabled' ] });
+        const browser = chromeTakesTheFocus(root);
 
         retries.value = '7';
         retries.focus();
