@@ -73,6 +73,15 @@ export interface Expected {
     /** The pages whose form is not a draft, each with why. */
     readonly notDrafts?:    Readonly<Record<string, string>>;
 
+    /**
+     * The pages whose forms are drafts that another page holds, each with
+     * why: sections a kind hands the node's certificates page, which holds
+     * every form it draws and empties them on Reload (the energy meter's
+     * signing requests). Asked that they hand them on, and do not hold them
+     * as well, instead of how they hold them.
+     */
+    readonly heldElsewhere?:  Readonly<Record<string, string>>;
+
 }
 
 
@@ -93,6 +102,16 @@ export function formsOf(Page: Page): (string | null)[] {
 /** Whether a page says, for as long as it is open, whether it is holding anything. */
 export function saysWhetherItHolds(Page: Page): boolean {
     return Page.source.includes('unsaved.heldBy(');
+}
+
+/**
+ * Whether a page hands its forms to a page that holds them: as sections of
+ * the node's certificates page - sections: context => [ ... ] - and does not
+ * hold them itself as well.
+ */
+export function handsItsFormsOn(Page: Page): boolean {
+    const code = Page.source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    return /\bsections\s*[:(]/.test(code) && !saysWhetherItHolds(Page);
 }
 
 /** Whether a page's Reload, where it has one, asks before it throws a draft away. */
@@ -414,9 +433,10 @@ export function rolesNamedAsNeeded(Page: Page): string[] {
  */
 export function everyPageIn(Directory: URL, Expected: Expected): void {
 
-    const pages        = pagesIn(Directory);
-    const notDrafts    = Expected.notDrafts   ?? {};
-    const dialogForms  = Expected.dialogForms ?? [];
+    const pages          = pagesIn(Directory);
+    const notDrafts      = Expected.notDrafts     ?? {};
+    const heldElsewhere  = Expected.heldElsewhere ?? {};
+    const dialogForms    = Expected.dialogForms   ?? [];
     const withForms    = pages.filter(page => page.source.includes('<form') && !Object.hasOwn(notDrafts, page.name));
 
     describe('every page with a form', () => {
@@ -442,7 +462,16 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
                 assert.deepEqual(dialogForms.filter(id => !there.has(id)), [], 'said to be a dialog\'s form, and no form at all');
             });
 
-        for (const page of withForms) {
+        for (const [ name, why ] of Object.entries(heldElsewhere))
+            it(`${name} hands its forms to the page that holds them: ${why}`, () => {
+                const page = pages.find(one => one.name === name);
+                assert.ok(page !== undefined && page.source.includes('<form'),
+                          `${name} is said to hand its forms on, and has no form - or is not there`);
+                assert.ok(handsItsFormsOn(page),
+                          `${name} is said to hand its forms to a page that holds them, and hands it none as sections - or holds them itself as well`);
+            });
+
+        for (const page of withForms.filter(page => !Object.hasOwn(heldElsewhere, page.name))) {
 
             it(`${page.name} says whether it is holding anything`, () => {
                 assert.ok(saysWhetherItHolds(page),

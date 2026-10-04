@@ -340,3 +340,48 @@ describe('a number field', () => {
     });
 
 });
+
+
+describe('a page whose forms another page holds', () => {
+
+    /** What failed where the rules of a fixture's rules file ran, in a runner of their own as for the numbers. */
+    function failedIn(rules: string): string[] {
+
+        const env = { ...process.env };
+        delete env.NODE_TEST_CONTEXT;
+
+        const child = spawnSync(process.execPath,
+                                [ '--test', '--test-reporter=tap', fileURLToPath(new URL(`./fixtures/${rules}`, import.meta.url)) ],
+                                { env, encoding: 'utf-8' });
+
+        return child.stdout.split('\n').
+                            filter(line => /^\s*not ok \d+ - /.test(line)).
+                            map   (line => line.replace(/^\s*not ok \d+ - /, ''));
+
+    }
+
+    it('is asked that it hands them on as sections and does not hold them itself, instead of how it holds them', () => {
+
+        const failed = failedIn('held.rules.ts');
+
+        assert.ok(!failed.some(name => name.startsWith('certificates.ts hands its forms')),
+                  `a page that hands its forms on as sections was found not to - failed: ${failed.join(', ')}`);
+        assert.ok(failed.some(name => name.startsWith('nosections.ts hands its forms')),
+                  `a page said to hand its forms on, with no sections, passed - failed: ${failed.join(', ') || 'nothing'}`);
+        assert.ok(failed.some(name => name.startsWith('selfheld.ts hands its forms')),
+                  `a page said to hand its forms on that holds them itself passed - failed: ${failed.join(', ') || 'nothing'}`);
+        assert.ok(!failed.some(name => /holding anything|holds every form/.test(name)),
+                  `a page said to hand its forms on was asked how it holds them - failed: ${failed.join(', ')}`);
+
+    });
+
+    it('is asked how it holds them where it is not said to hand them on', () => {
+
+        const failed = failedIn('unlisted.rules.ts');
+
+        assert.ok(failed.some(name => name === 'certificates.ts says whether it is holding anything'),
+                  `a page with forms it neither holds nor is said to hand on passed - failed: ${failed.join(', ') || 'nothing'}`);
+
+    });
+
+});
