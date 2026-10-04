@@ -3,8 +3,9 @@
 // by comparing it with what is there and changing only what differs. What a
 // draw does not change stays: the text somebody typed into another form, the
 // field that has the focus and where its cursor is, how far a list is
-// scrolled. With innerHTML every draw made all of it anew, and drafts.ts put
-// back what it could - the text, but not the focus, the cursor or the scroll.
+// scrolled. With innerHTML every draw made all of it anew, and keepDrafts,
+// which the pages had for it, put back what it could - the text, but not the
+// focus, the cursor or the scroll.
 //
 // Three things are written differently from html.ts:
 //
@@ -27,10 +28,10 @@
 //
 // A fragment of html.ts in a template of this one is taken as the markup it
 // is - it was escaped when it was made - so that what the kinds hand a shared
-// page (a hint, a card) can stay html.ts's until they draw with this one too.
-// A Configuration page's cards are drawn with this one by cardViews.ts; the
-// frame, shell.ts, stays html.ts's: it is drawn once for every page, and the
-// kinds' tests load it without a document, which lit-html wants as it loads.
+// page (a hint, a Reload) can stay html.ts's until they draw with this one
+// too. A Configuration page's cards are drawn with this one, by cardViews.ts;
+// the frame, shell.ts, stays html.ts's: it is drawn once for every page, and
+// the kinds' tests load it without a document, which lit-html wants as it loads.
 
 import { html as litHTML, render as litRender, nothing, type TemplateResult } from 'lit-html';
 import { keyed }       from 'lit-html/directives/keyed.js';

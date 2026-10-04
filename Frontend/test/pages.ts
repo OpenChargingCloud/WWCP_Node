@@ -8,9 +8,9 @@
  *   holding anything; that it holds every form it has; and that its Reload
  *   asks first - five pages of the local controller threw a typed address,
  *   port, station, subject or authority away on one click of Reload or of the
- *   menu, without a word; and that it draws itself anew through keepDrafts,
- *   which puts back what was typed into its other forms (the vehicle's pages
- *   did, the local controller's threw it away);
+ *   menu, without a word; and that it draws by comparing, with view.ts,
+ *   which leaves what was typed into its other forms where it is (drawn anew
+ *   with innerHTML, the local controller's pages threw it away);
  * - that a number is read as one - an emptied field is not given, where
  *   Number("") made it 0, which the node refuses for a timeout, the whole save
  *   with it (found on the energy meter, and on the local controller's DNS and
@@ -195,32 +195,13 @@ export function numbersReadAsZeroWhenEmptied(Page: Page): string[] {
 }
 
 /**
- * How often a page with a form draws itself anew with draw() - the whole of
- * it, from what the node said - beyond the first time: every form on it
- * drawn again as the node has it, and what somebody had typed into one and
- * not saved yet gone, without a word, as the page itself threw it away.
- * Saving the connection took the credentials typed below it with it, and
- * removing an entry the address typed beside the list (on the local
- * controller). keepDrafts(content, the form saved or null, draw) draws the
- * page anew and puts back what was typed into every other form, as the
- * vehicle's pages did first. Asked of the code, not of what a comment says.
- */
-export function drawnAnewWithoutItsDrafts(Page: Page): number {
-
-    if (drawsByComparing(Page))
-        return 0;
-
-    const code = Page.source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-
-    return Math.max(0, (code.match(/(?<![\w.])draw\(\);/g) ?? []).length - 1);
-
-}
-
-/**
  * Whether a page draws through view.ts - lit-html, which compares a draw with
  * what is on the page and leaves what a draw does not change, typed text and
- * focus and all - rather than through html.ts's innerHTML. Such a page needs
- * no keepDrafts, and is held to the rules of its own below instead.
+ * focus and all - rather than through html.ts's innerHTML, which draws every
+ * form anew from what the node said: what somebody had typed into one and not
+ * saved yet was gone, without a word. Saving the connection took the
+ * credentials typed below it with it, and removing an entry the address typed
+ * beside the list (on the local controller).
  */
 export function drawsByComparing(Page: Page): boolean {
     return /\bfrom\s+'(@node|\.\.?)\/view'/.test(Page.source);
@@ -371,39 +352,6 @@ function onTheSteps(Value: string, Step: string): boolean {
 }
 
 /**
- * How many forms of a page have neither an id nor a data-id: keepDrafts cannot
- * tell such a form from its neighbours after a drawing anew, and drops what
- * was typed into it without a word - the forms drawn for each login and each
- * connection on the charging station's pages, which said only data-edit.
- */
-export function formsKnownByNothing(Page: Page): number {
-    return [ ...Page.source.matchAll(/<form(\s[^>]*)?>/g) ].
-               filter(match => !/\s(id|data-id)="[^"]+"/.test(match[1] ?? '')).
-               length;
-}
-
-/**
- * The forms a page names as the one saved - keepDrafts(content, 'x-form',
- * draw) - that it has no form of. Misspelt, the form saved is not told from
- * the others, and what was typed into it comes back once it is saved, as if
- * it were still to be saved: 'token-forms' for 'token-form', a mutation the
- * count of draw() let through (the e-mobility provider). A name the page
- * gives by a variable, or by an entry's data-id, is not asked - and neither
- * is one handed on through a function of the page's own, drawAnew('x-form')
- * or load('x-form'): a page that names the form saved that way has only its
- * own eyes on it (the charging station and the meter found theirs so).
- */
-export function keptFormsNotOnThePage(Page: Page): string[] {
-
-    const forms = new Set(formsOf(Page));
-
-    return [ ...Page.source.matchAll(/keepDrafts\(\s*[\w.]+\s*,\s*'([^']+)'/g) ].
-               map(match => match[1]!).
-               filter(name => !forms.has(name));
-
-}
-
-/**
  * Where a page says itself who is signed in - "Signed in as ${…}" - rather
  * than through mayButNot. Said by hand, it was said four ways, and one of them,
  * ?? 'somebody' after the roles joined, told an account with no role "Signed
@@ -495,29 +443,14 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
 
     });
 
-    describe('a page drawn anew', () => {
+    describe('a page with a form, drawn', () => {
 
-        for (const page of pages.filter(page => page.source.includes('<form'))) {
-
-            it(`${page.name} draws itself anew through keepDrafts, so that what is typed into one form outlives saving another`, () => {
-                const times = drawnAnewWithoutItsDrafts(page);
-                assert.equal(times, 0, `${page.name} draws itself anew with draw() ${times} time(s) beyond the first, and what is typed ` +
-                                       `into its forms goes with it - keepDrafts(content, the form saved or null, draw) puts it back`);
+        for (const page of pages.filter(page => page.source.includes('<form')))
+            it(`${page.name} draws by comparing, so that what is typed into one form outlives saving another`, () => {
+                assert.ok(drawsByComparing(page),
+                          `${page.name} has a form and draws with html.ts, whose innerHTML draws every form anew and throws ` +
+                          `away what was typed into it - draw with html and render from view.ts`);
             });
-
-            it(`${page.name} names a form it has where it names the one saved`, () => {
-                const named = keptFormsNotOnThePage(page);
-                assert.deepEqual(named, [], `${page.name} names ${named.join(', ')} as the form saved, and has no form of that id - ` +
-                                            `what was typed into the one saved comes back after the save`);
-            });
-
-            it(`${page.name} gives every form an id or a data-id, so that what is typed into it outlives a drawing anew`, () => {
-                const unknown = formsKnownByNothing(page);
-                assert.equal(unknown, 0, `${page.name} has ${unknown} form(s) with neither an id nor a data-id, whose drafts ` +
-                                         `keepDrafts cannot tell from their neighbours and drops`);
-            });
-
-        }
 
     });
 
@@ -537,9 +470,7 @@ export function everyPageIn(Directory: URL, Expected: Expected): void {
                                  `.defaultValue=\${...} does`);
             });
 
-            it(`${page.name} needs neither keepDrafts nor innerHTML`, () => {
-                assert.doesNotMatch(page.source, /keepDrafts\(/,
-                                    `${page.name} draws with view.ts, which keeps what is typed by itself - keepDrafts would put back a value over the node's answer`);
+            it(`${page.name} replaces no part of itself with innerHTML`, () => {
                 assert.doesNotMatch(page.source, /\.innerHTML\s*=/,
                                     `${page.name} draws with view.ts and replaces a part of itself with innerHTML, which throws away what it was keeping`);
             });

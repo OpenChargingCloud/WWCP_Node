@@ -10,7 +10,7 @@ import { spawnSync }         from 'node:child_process';
 import { describe, it }      from 'node:test';
 import { fileURLToPath }     from 'node:url';
 
-import { asksBeforeItsReload, attributesSaidAsText, drawnAnewWithoutItsDrafts, expressionsInATextarea, formsKnownByNothing, patternsABrowserRefuses, stepsMissingTheirMin, formsNotHeld, formsOf, inlineStylesOf, keptFormsNotOnThePage, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
+import { asksBeforeItsReload, attributesSaidAsText, drawsByComparing, expressionsInATextarea, patternsABrowserRefuses, stepsMissingTheirMin, formsNotHeld, formsOf, inlineStylesOf, linksPastTheBase, numbersReadAsZeroWhenEmptied, rolesNamedAsNeeded, saysWhetherItHolds, signedInSaidByHand, tablesOutsideAScroll } from './pages.ts';
 
 
 const page = (source: string) => ({ name: 'page.ts', source });
@@ -204,38 +204,18 @@ describe('a link', () => {
 });
 
 
-describe('a page drawn anew', () => {
+describe('a page drawn', () => {
 
-    it('with draw() after something was done on it is found, once for each time beyond the first', () => {
-        assert.equal(drawnAnewWithoutItsDrafts(page(`<form id="connection-form">  <form id="credentials-form">
-                                                     current = await api.csms.save(update);  draw();
-                                                     current = await api.csms.saveCredentials(update);  draw();
-                                                     current = loaded;  draw();`)),
-                     2);
+    it('with view.ts draws by comparing, by @node/view or by a path of the shared frontend\'s own', () => {
+        assert.ok(drawsByComparing(page(`import { html, render } from '@node/view';`)));
+        assert.ok(drawsByComparing(page(`import { html, nothing, render, repeat } from '../view';`)));
+        assert.ok(drawsByComparing(page(`import { html, render } from './view';`)));
     });
 
-    it('with a form known by neither an id nor a data-id is found, one for each such form', () => {
-        assert.equal(formsKnownByNothing(page(`<form id="add-form">  <form class="form-stack upload-form" data-id="\${entry.id}">
-                                               <form class="form-stack" data-edit="\${entry.id}">  <form>`)),
-                     2);
-    });
-
-    it('naming as the one saved a form it has not is found, and a form it has, none, or a variable pass', () => {
-        assert.deepEqual(keptFormsNotOnThePage(page(`<form id="token-form" class="form-stack">
-                                                     keepDrafts(content, 'token-forms', draw);  keepDrafts(content, 'token-form', draw);
-                                                     keepDrafts(content, null, draw);  keepDrafts(content, saved, draw);  keepDrafts(content, id, draw);`)),
-                         [ 'token-forms' ]);
-    });
-
-    it('through keepDrafts passes, and so do a card drawn on its own and a draw() a comment speaks of', () => {
-        assert.equal(drawnAnewWithoutItsDrafts(page(`<form id="connection-form">  <form id="credentials-form">
-                                                     keepDrafts(content, 'connection-form', draw);
-                                                     keepDrafts(content, null, draw);
-                                                     drawServers();  shown.draw();
-                                                     // Redrawn with draw(); once, which threw the credentials away.
-                                                     /* draw(); draw(); */
-                                                     current = loaded;  draw();`)),
-                     0);
+    it('with html.ts does not, nor does one that only speaks of view.ts', () => {
+        assert.ok(!drawsByComparing(page(`import { html, must, render } from '@node/html';`)));
+        assert.ok(!drawsByComparing(page(`import { html, must, render } from '../html';
+                                           // Drawn as '@node/view' would draw it, one day.`)));
     });
 
 });

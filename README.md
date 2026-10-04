@@ -851,10 +851,9 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `basePath.ts` | where the page is mounted, added to a route on the way into the address bar and taken off on the way out |
 | `router.ts` | which page a path is, and the way from one page to the next |
 | `unsaved.ts` | what a page holds that the node has not been told about, and the question before it is left behind |
-| `drafts.ts` | what is typed into a page's other forms, kept while the page draws itself anew: `keepDrafts()` |
 | `api/client.ts` | how the node is asked - a deadline on every request, a refusal in the node's own words, a 401 handed on to whoever signs out - and the HTTPExt API, where the accounts are: `extRequest()`, with the same deadline over the whole answer, for the sign-in and for what a kind asks there, a sign-up or a change of password; the types of everything every node answers, checked against what `NodeHTTPAPI` sends, and `nodeAPI()`, its routes |
 | `ui.ts` | what else the pages share: a form held still while it is saved, a field read as a number, a time and a number as people read them, a key as a label, the way back after the sign-in |
-| `cards.ts` | the cards of a Configuration page: `card()`, a section as the node sent it - a value that is a thing of its own, or a list of them, as a block below its name, inside a block as well - and `librariesCard()`, one line per repository with its whole commit, naming an assembly only where two lines share a name |
+| `cardViews.ts` | the cards of a Configuration page: `cardView()`, a section as the node sent it - a value that is a thing of its own, or a list of them, as a block below its name, inside a block as well - and `librariesCardView()`, one line per repository with its whole commit, naming an assembly only where two lines share a name |
 | `logs/order.ts`, `logs/store.ts` | the browser's copy of the log: the snapshot and the stream after it, why a stream stopped - a session gone, an account that may no longer read the log - the stream closed while a page waits in the browser's back/forward cache, and what a kind publishes on the same stream |
 | `auth.ts` | who is signed in, what they may do, and the guard that sends everybody else to the sign-in |
 | `shell.ts` | the frame every signed-in page sits in: the menu - each entry shown to whoever may open its page, and on a screen too narrow for it beside the page folded away behind a button - who is signed in, and the versions; and what a page says somebody may not do, `mayButNot()` |
@@ -1022,11 +1021,10 @@ everyPageIn(new URL('./', import.meta.url), {
 Every page with a form says whether it is holding a draft, holds every form
 it has - by name, `typedSinceDrawn(content.querySelector('#…'))`, or all at
 once, `anyFormTypedSinceDrawn(content)` - and asks before its Reload throws
-one away; it draws itself anew, after a save, a removal or a row opened for
-editing, through `keepDrafts(content, the form saved or null, draw)`, which
-puts back what is typed into its other forms - `draw()` is for the first
-drawing only, the form it names as the one saved is one it has, and every
-form has an id or a data-id to be known by; every number typed, on every
+one away; it draws by comparing, with `html` and `render` from `view.ts`,
+which leave what is typed into its other forms where it is when it draws
+again after a save, a removal or a row opened for editing - `html.ts`'s
+`render()` drew every form anew and threw it away; every number typed, on every
 page, with a form or without, is read with `numberField`, or `numberFrom`
 for an input outside a form, not `Number()`, which makes an emptied field 0 -
 but where a page says itself what empty means, `=== '' ? ... :` before it. The
