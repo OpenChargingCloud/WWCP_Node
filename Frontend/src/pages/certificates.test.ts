@@ -19,7 +19,14 @@ document.head.innerHTML = '<meta name="node-name" content="local controller">';
 const { believedHint, certificatesPage, marksOf, stateOf } = await import('./certificates.ts');
 const { auth }             = await import('../auth.ts');
 const { configureShell }   = await import('../shell.ts');
-const { html }             = await import('../view.ts');
+const { html, render }     = await import('../view.ts');
+
+/** What a template says, drawn as text: the blanks of its markup taken together. */
+function textOf(template: Parameters<typeof render>[1]): string {
+    const element = document.createElement('div');
+    render(element, template);
+    return element.textContent!.replace(/\s+/g, ' ').trim();
+}
 const { unsaved }          = await import('../unsaved.ts');
 
 
@@ -89,7 +96,7 @@ describe('what a node believes, where its kind says nothing of its own', () => {
 
     it('is said of every kind of root, not of the servers it connects to alone', () => {
 
-        const said = believedHint('electric vehicle', [ 'v2gRoot', 'moRoot', 'oemRoot' ]).value;
+        const said = textOf(believedHint('electric vehicle', [ 'v2gRoot', 'moRoot', 'oemRoot' ]));
 
         assert.match(said, /the roots a certificate shown to this electric vehicle has to chain to/);
         assert.doesNotMatch(said, /server|this machine/, 'a vehicle\'s V2G, contract and OEM roots are no server\'s');
@@ -97,7 +104,7 @@ describe('what a node believes, where its kind says nothing of its own', () => {
     });
 
     it('says that a server may chain to what this machine trusts as well, where there are TLS roots', () => {
-        assert.match(believedHint('local controller', [ 'tlsRoot', 'clientRoot' ]).value,
+        assert.match(textOf(believedHint('local controller', [ 'tlsRoot', 'clientRoot' ])),
                      /A server's certificate may chain to the roots this machine trusts as well\./);
     });
 

@@ -1,6 +1,6 @@
 import { logLevels, type LogEntry, type LogLevel } from '../api/client';
 import { config } from '../config';
-import { html as stringHTML, must } from '../html';
+import { must } from '../html';
 import { drawOrder, entryAt } from '../logs/order';
 import { logs } from '../logs/store';
 import type { Page } from '../router';
@@ -145,9 +145,10 @@ export function logsPage(Words: LogsWords = {}): Page {
                 active:    '/logs',
                 title:     'Logs',
                 subtitle:  Words.subtitle ?? `Everything this ${config.nodeName} does, as it happens.`,
-                actions:   stringHTML`
+                actions:   html`
                     <span id="stream-state" class="stream-state"></span>
-                    <button type="button" id="clear" class="btn small" title="Clear what this page shows; the ${config.nodeName} keeps its log">Clear view</button>
+                    <button type="button" id="clear" class="btn small" title="Clear what this page shows; the ${config.nodeName} keeps its log"
+                            @click=${() => logs.clear()}>Clear view</button>
                 `
             });
 
@@ -215,7 +216,6 @@ export function logsPage(Words: LogsWords = {}): Page {
             const level       = must<HTMLSelectElement> (content, '#level');
             const follow      = must<HTMLInputElement>  (content, '#follow');
             const streamShown = must<HTMLElement>       (root,    '#stream-state');
-            const clear       = must<HTMLButtonElement> (root,    '#clear');
 
             /** The tags somebody has switched on; empty means "every tag". */
             const chosenTags = new Set<string>();
@@ -510,7 +510,6 @@ export function logsPage(Words: LogsWords = {}): Page {
             level   .addEventListener('change', () => applyFilters());
             follow  .addEventListener('change', () => { if (follow.checked) scrollToNewest(); });
             toNewest.addEventListener('click',  () => scrollToNewest());
-            clear   .addEventListener('click',  () => logs.clear());
 
             list.addEventListener('scroll', () => {
                 if (atNewest())

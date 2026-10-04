@@ -1,9 +1,9 @@
 import { nodeAPI, type Clock, type NTSConfiguration, type NTSServerEntry, type NTSServerResult, type NTSSyncResult, type NTSTimeSource, type NTSUpdate, type TimeServerTest } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
-import { html as stringHTML, must } from '../html';
+import { must } from '../html';
 import type { Page } from '../router';
-import { mayButNot, shell } from '../shell';
+import { mayButNot, reloadButton, shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, numberField, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { html, live, nothing, render, repeat, type TemplateResult } from '../view';
@@ -62,17 +62,10 @@ export const ntsPage: Page = {
             active:    '/configuration/nts',
             title:     'NTS client',
             subtitle:  `Where this ${config.nodeName} reads the time, and how it knows the answer is real.`,
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   reloadButton(() => load())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        // Reload throws a draft away just as thoroughly as "Discard changes"
-        // does, and from the opposite corner of the screen, so it asks first.
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-            if (unsaved.mayBeLost())
-                void load();
-        });
 
         const mayChange = auth.can('nts', 'edit');
         const mayTest   = auth.can('nts', 'run');

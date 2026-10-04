@@ -2,9 +2,9 @@ import { nodeAPI, type Certificate, type CertificateStore } from '../api/client'
 import { auth } from '../auth';
 import { toURL } from '../basePath';
 import { config } from '../config';
-import { html as stringHTML, must, type HTMLFragment } from '../html';
+import { must, type HTMLFragment } from '../html';
 import type { Page } from '../router';
-import { mayButNot, shell } from '../shell';
+import { mayButNot, reloadButton, shell } from '../shell';
 import { errorMessage, humanizeKey, whileSaving } from '../ui';
 import { anyFormTypedSinceDrawn, unsaved } from '../unsaved';
 import { html, nothing, render, repeat, type TemplateResult } from '../view';
@@ -166,14 +166,14 @@ export function marksOf(Entry:   Certificate,
  * as well.
  */
 export function believedHint(NodeName:      string,
-                             TrustAnchors:  readonly string[]): HTMLFragment {
+                             TrustAnchors:  readonly string[]): TemplateResult {
 
-    return stringHTML`
+    return html`
         Trust anchors: the roots a certificate shown to this ${NodeName} has to chain to, each kind for
         what its card says it is for. Every switched-on root of a kind is believed at once.
         ${TrustAnchors.includes('tlsRoot')
-              ? stringHTML`A server's certificate may chain to the roots this machine trusts as well.`
-              : ''}
+              ? html`A server's certificate may chain to the roots this machine trusts as well.`
+              : nothing}
     `;
 
 }
@@ -226,18 +226,10 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 active:    '/configuration/certificates',
                 title,
                 subtitle:  Options.subtitle ?? `The roots this ${config.nodeName} believes, what it presents, and the servers it recognises.`,
-                actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+                actions:   reloadButton(() => load())
             });
 
             render(content, html`<div class="loading">Loading ...</div>`);
-
-            // Reload throws what is typed into a form away as thoroughly as
-            // leaving the page does, and from the opposite corner of the
-            // screen, so it asks first.
-            must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-                if (unsaved.mayBeLost())
-                    void load();
-            });
 
             const mayChange = auth.can('certificates', 'edit');
 

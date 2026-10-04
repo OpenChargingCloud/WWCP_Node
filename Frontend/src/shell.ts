@@ -2,6 +2,7 @@ import { auth } from './auth';
 import { toURL } from './basePath';
 import { config } from './config';
 import { must, type HTMLFragment } from './html';
+import { unsaved } from './unsaved';
 import { html, nothing, render, type TemplateResult } from './view';
 import type { NodeMe } from './api/client';
 
@@ -251,6 +252,19 @@ export function mayButNot(May:     string,
                           MayNot:  string,
                           Me:      NodeMe<string> | null = auth.user): string {
     return `${signedInAs(Me)}, which may ${May} but not ${MayNot}. That needs a role that may ${MayNot}.`;
+}
+
+/**
+ * The Reload beside a page's heading. It draws the page anew from what the
+ * node says, which throws away what is typed into a form as thoroughly as
+ * leaving the page does - from the opposite corner of the screen - so it asks
+ * first, as leaving does. Every page with a Reload wrote it out for itself,
+ * the button as a string and its listener added by id: five of the local
+ * controller's once threw a typed address, port, station, subject or
+ * authority away on one click of it, without a word.
+ */
+export function reloadButton(Reload: () => unknown): TemplateResult {
+    return html`<button type="button" id="reload" class="btn small" @click=${() => { if (unsaved.mayBeLost()) void Reload(); }}>Reload</button>`;
 }
 
 /** Which node and which web interface this is: in the foot of the menu, and under the sign-in. */

@@ -1,9 +1,9 @@
 import { nodeAPI, type DNSConfiguration, type DNSQueryResult, type DNSServer, type DNSUpdate } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
-import { html as stringHTML, must } from '../html';
+import { must } from '../html';
 import type { Page } from '../router';
-import { mayButNot, shell } from '../shell';
+import { mayButNot, reloadButton, shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, numberField, numberFrom, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { html, live, nothing, render, repeat, type TemplateResult } from '../view';
@@ -44,17 +44,10 @@ export const dnsPage: Page = {
             active:    '/configuration/dns',
             title:     'DNS client',
             subtitle:  `How this ${config.nodeName} resolves names.`,
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   reloadButton(() => load())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        // Reload throws a draft away just as thoroughly as "Discard changes"
-        // does, and from the opposite corner of the screen, so it asks first.
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-            if (unsaved.mayBeLost())
-                void load();
-        });
 
         const mayChange  = auth.can('dns', 'edit');
         const mayTest    = auth.can('dns', 'run');

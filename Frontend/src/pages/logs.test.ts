@@ -211,6 +211,17 @@ describe('the Logs page', () => {
 
     });
 
+    it('clears what it shows with "Clear view", and the store with it, not the node', () => {
+
+        const root = opened(entry({ id: 1, message: 'first' }), entry({ id: 2, message: 'second' }));
+
+        root.querySelector<HTMLButtonElement>('.page-actions #clear')!.click();
+
+        assert.equal(root.querySelectorAll('#log-lines .line').length, 0);
+        assert.equal(logs.entries.length, 0);
+
+    });
+
     it('says why the log could not be loaded as text, not as markup', () => {
 
         const root = opened();

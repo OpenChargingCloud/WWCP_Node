@@ -203,4 +203,27 @@ describe('the DNS page', () => {
 
     });
 
+
+    it('reloads what the node has with the Reload beside its heading, once it has asked about what is typed', async () => {
+
+        const root = await opened();
+
+        const retries = field(root, 'maxRetries');
+        retries.value = '7';
+        retries.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // Changed on the node meanwhile.
+        held = { ...held, settings: { ...held.settings, maxRetries: 4 } };
+
+        const asked = [] as string[];
+        window.confirm = (text?: string) => { asked.push(String(text)); return true; };
+
+        root.querySelector<HTMLButtonElement>('.page-actions #reload')!.click();
+
+        await until(() => field(root, 'maxRetries').value === '4', 'the page did not reload what the node has');
+
+        assert.equal(asked.length, 1, 'what was typed was thrown away without a question');
+
+    });
+
 });

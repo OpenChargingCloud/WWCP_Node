@@ -25,7 +25,8 @@ for (const [ name, content ] of [ [ 'base', '/EV' ], [ 'node-name', 'electric ve
 }
 
 const { auth }                                                             = await import('./auth.ts');
-const { configureShell, mayButNot, mayOpen, menuView, shell, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
+const { configureShell, mayButNot, mayOpen, menuView, reloadButton, shell, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
+const { unsaved }                                                          = await import('./unsaved.ts');
 const { html: stringHTML }                                                 = await import('./html.ts');
 const { html, render }                                                     = await import('./view.ts');
 
@@ -429,6 +430,51 @@ describe('the frame of a page', () => {
             auth.signOut = signOut;
         }
 
+    });
+
+});
+
+
+describe('the Reload beside the heading of a page', () => {
+
+    /** A Reload drawn, what it reloaded, and what it asked, for a page holding a draft or not. */
+    function clicked(holding: boolean, answer: boolean): { reloaded: number; asked: string[] } {
+
+        const asked = [] as string[];
+        window.confirm = (text?: string) => { asked.push(String(text)); return answer; };
+
+        const release = unsaved.heldBy(() => holding);
+
+        try {
+
+            let reloaded = 0;
+
+            drawn(reloadButton(() => { reloaded++; })).querySelector<HTMLButtonElement>('button#reload.btn.small')!.click();
+
+            return { reloaded, asked };
+
+        }
+        finally {
+            release();
+        }
+
+    }
+
+    it('reloads at once where nothing typed would be lost', () => {
+        assert.deepEqual(clicked(false, false), { reloaded: 1, asked: [] });
+    });
+
+    it('asks first where a draft would be lost, and reloads only on a yes', () => {
+
+        const no  = clicked(true, false);
+        const yes = clicked(true, true);
+
+        assert.deepEqual([ no.reloaded, no.asked.length, yes.reloaded, yes.asked.length ], [ 0, 1, 1, 1 ]);
+
+    });
+
+    it('says Reload', () => {
+        assert.equal(drawn(reloadButton(() => undefined)).textContent!.trim(), 'Reload');
     });
 
 });
