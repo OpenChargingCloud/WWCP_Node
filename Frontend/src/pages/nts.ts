@@ -225,8 +225,7 @@ export const ntsPage: Page = {
                           ? html`
                               Checked against ${now.nts.lastServer ?? 'the time servers'} within the last
                               ${Math.round(now.maxAgeSeconds / 60)} minutes and within
-                              ${now.toleranceSeconds} s of them, and the operator says they carry
-                              the time of ${now.authority}.
+                              ${now.toleranceSeconds} s of them${authorityOf(now)}.
                             `
                           : html`
                               Unverified: ${why[now.why ?? ''] ?? `the ${config.nodeName} did not say why`}. The
@@ -1104,6 +1103,19 @@ export const ntsPage: Page = {
     }
 
 };
+
+
+/**
+ * Whose time the clock is said to carry, as the end of the sentence that says
+ * it is legal - or nothing, where the node names nobody. A node calls its time
+ * legal only once somebody is named, and the page does not argue with it; but
+ * an answer that said legal and no authority drew "they carry the time of ."
+ * (the e-mobility provider's stand-in API).
+ */
+function authorityOf(now: Clock): string {
+    const authority = now.authority?.trim() ?? '';
+    return authority.length > 0 ? `, and the operator says they carry the time of ${authority}` : '';
+}
 
 
 /**

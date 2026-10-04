@@ -19,6 +19,9 @@ const { ntsPage }          = await import('./nts.ts');
 
 let held: NTSConfiguration;
 const told: NTSUpdate[] = [];
+
+/** What the stand-in node says of its clock, over aClock(). */
+let clockSays: Partial<Clock> = {};
 let synced = 0;
 
 function aConfiguration(): NTSConfiguration {
@@ -53,7 +56,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     const method  = init?.method ?? 'GET';
 
     if (url.endsWith('/clock'))
-        return answer(aClock());
+        return answer({ ...aClock(), ...clockSays });
 
     if (url.endsWith('/configuration/nts/sync')) {
         synced++;
@@ -87,8 +90,9 @@ async function until(what: () => boolean, said: string): Promise<void> {
     assert.ok(what(), said);
 }
 
-async function opened(): Promise<HTMLElement> {
+async function opened(clock: Partial<Clock> = {}): Promise<HTMLElement> {
 
+    clockSays   = clock;
     held        = aConfiguration();
     told.length = 0;
     synced      = 0;
@@ -115,6 +119,29 @@ const submit = (root: HTMLElement, form: string) =>
 
 
 describe('the NTS page', () => {
+
+    const verdict = (root: HTMLElement) => root.querySelector('#nts-clock p.hint')!.textContent!.replace(/\s+/g, ' ').trim();
+
+    it('says whose time a legal clock carries, as the node names it', async () => {
+
+        const root = await opened({ legal: true, authority: 'PTB', why: null, nts: { ...aClock().nts, checkedAt: '2026-10-04T11:59:00Z', offset_ms: 0.4 } });
+
+        await until(() => root.querySelector('#nts-clock .chip')?.textContent?.trim() === 'legal time', 'the clock was not drawn as legal');
+
+        assert.match(verdict(root), /of them, and the operator says they carry the time of PTB\.$/);
+
+    });
+
+    it('says no half sentence where a node calls its clock legal and names nobody', async () => {
+
+        const root = await opened({ legal: true, authority: null, why: null, nts: { ...aClock().nts, checkedAt: '2026-10-04T11:59:00Z', offset_ms: 0.4 } });
+
+        await until(() => root.querySelector('#nts-clock .chip')?.textContent?.trim() === 'legal time', 'the clock was not drawn as legal');
+
+        assert.doesNotMatch(verdict(root), /time of/, 'it says whose time it carries, and names nobody');
+        assert.match(verdict(root), /of them\.$/);
+
+    });
 
     it('keeps what is typed into what counts as legal time, and its focus, while the group policy is saved and "Sync now" answers', async () => {
 
