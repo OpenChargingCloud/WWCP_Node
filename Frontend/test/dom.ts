@@ -14,6 +14,16 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://127.0.0.1/' });
 
+// new Option(text, value), which a page may make a choice with, and happy-dom
+// does not have (found by the meter).
+if (typeof (globalThis as { Option?: unknown }).Option === 'undefined')
+    (globalThis as { Option?: unknown }).Option = function Option(text = '', value?: string): HTMLOptionElement {
+        const option = document.createElement('option');
+        option.text  = text;
+        option.value = value ?? text;
+        return option;
+    };
+
 
 /**
  * What Chrome does and happy-dom does not, for as long as it is asked to: a

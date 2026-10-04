@@ -1006,6 +1006,20 @@ directory - `libs/<Kind>/<Kind>/Frontend`, with this repository in
   `test/resolve.ts` tells Node what webpack is told: where `@node/...` is, and
   that a relative import without its extension means the `.ts` file.
 
+A test that draws one of its pages draws it into a document of happy-dom,
+against a node that is a stand-in for fetch - `test/node.ts`, which every
+kind shares: `open(page, path, permissions, answers, drawn)`, what was
+`asked` and `said`, `until`, `field`, `submit`, `change` and `type`. A kind
+says in a file of its own who it is, and adds what only it has:
+
+```ts
+// test/controller.ts
+import { standIn } from '@node/../test/node.ts';
+export * from '@node/../test/node.ts';
+
+standIn({ name: 'Local Controller', icon: 'fa-sitemap' });
+```
+
 Its own pages are held to what the shared ones are, by the same rules -
 `test/pages.ts`, which `src/pages/pages.test.ts` asks of the shared pages -
 in its own `src/pages/pages.test.ts`; `@node/..` is `WWCP_Node/Frontend`:
