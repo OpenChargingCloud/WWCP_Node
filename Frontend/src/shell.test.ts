@@ -1,27 +1,40 @@
 /**
  * The frame every signed-in page sits in: which entries of the menu somebody
  * is shown, which one is the page being shown, where its links go, and who
- * the foot of the menu says is signed in.
+ * the foot of the menu says is signed in - drawn, in a document of happy-dom,
+ * with what a page puts beside its heading.
  *
  * Mounted at "/EV", as a node is where several share one HTTP server: the
  * base is read from the page once, when the modules are loaded, so the page
  * is there before they are imported.
  */
 
+import '../test/dom.ts';
+
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
 import type { NodeMe }       from './api/client.ts';
 
-(globalThis as unknown as { document: unknown }).document = {
-    querySelector: (selector: string) => selector === 'meta[name="base"]'      ? { content: '/EV' }
-                                       : selector === 'meta[name="node-name"]' ? { content: 'electric vehicle' }
-                                       : null
-};
+// What the node writes into the page it serves, read as the modules load.
+for (const [ name, content ] of [ [ 'base', '/EV' ], [ 'node-name', 'electric vehicle' ] ]) {
+    const meta = document.createElement('meta');
+    meta.name     = name!;
+    meta.content  = content!;
+    document.head.append(meta);
+}
 
 const { auth }                                                             = await import('./auth.ts');
-const { configureShell, mayButNot, mayOpen, menuHTML, shell, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
-const { html }                                                             = await import('./html.ts');
+const { configureShell, mayButNot, mayOpen, menuView, shell, signedInAs, versions, visibleMenu, whoIsSignedIn } = await import('./shell.ts');
+const { html: stringHTML }                                                 = await import('./html.ts');
+const { html, render }                                                     = await import('./view.ts');
+
+/** A template drawn into an element of its own. */
+function drawn(template: Parameters<typeof render>[1]): HTMLElement {
+    const element = document.createElement('div');
+    render(element, template);
+    return element;
+}
 
 
 /** Somebody signed in who may do this, and nothing else. */
@@ -156,33 +169,38 @@ describe('the menu as it is drawn', () => {
 
     it('marks the page being shown, and only that one', () => {
 
-        const drawn = menuHTML(entries, '/logs').value;
+        const menu    = drawn(menuView(entries, '/logs'));
+        const current = [ ...menu.querySelectorAll('a[aria-current]') ];
 
-        assert.equal(drawn.match(/aria-current="page"/g)?.length, 1);
-        assert.match(drawn, /<a href="\/EV\/logs"\s+class="active"\s+aria-current="page">/);
+        assert.deepEqual(current.map(link => [ link.getAttribute('href'), link.className, link.getAttribute('aria-current') ]),
+                         [ [ '/EV/logs', 'active', 'page' ] ]);
+        assert.equal(menu.querySelectorAll('a.active').length, 1);
 
     });
 
     it('carries the base in every link, for a page opened in a tab the router never sees', () => {
 
-        const drawn = menuHTML(entries, '/configuration').value;
+        const links = [ ...drawn(menuView(entries, '/configuration')).querySelectorAll('a') ].map(link => link.getAttribute('href'));
 
-        assert.match(drawn, /href="\/EV\/configuration"/);
-        assert.match(drawn, /href="\/EV\/configuration\/dns"/);
-        assert.doesNotMatch(drawn, /href="\/configuration/);
+        assert.deepEqual(links, [ '/EV/configuration', '/EV/configuration/dns', '/EV/logs' ]);
 
     });
 
     it('unfolds the pages below an entry while it or one of them is open, and not otherwise', () => {
 
-        assert.match       (menuHTML(entries, '/configuration').value,      /class="submenu"/);
-        assert.match       (menuHTML(entries, '/configuration/dns').value,  /class="submenu"/);
-        assert.doesNotMatch(menuHTML(entries, '/logs').value,               /class="submenu"/);
+        assert.ok(drawn(menuView(entries, '/configuration')).querySelector('.submenu')      !== null);
+        assert.ok(drawn(menuView(entries, '/configuration/dns')).querySelector('.submenu')  !== null);
+        assert.ok(drawn(menuView(entries, '/logs')).querySelector('.submenu')               === null);
 
     });
 
     it('writes what an entry is called as text', () => {
-        assert.match(menuHTML(entries, '').value, /Logs &amp; more/);
+
+        const menu = drawn(menuView([ { path: '/logs', label: 'Logs & <b>more</b>', icon: 'fa-list-ul' } ], ''));
+
+        assert.equal(menu.querySelector('a span')!.textContent, 'Logs & <b>more</b>');
+        assert.ok(menu.querySelector('b') === null, 'what an entry is called was taken as markup');
+
     });
 
 });
@@ -217,7 +235,7 @@ describe('the foot of the menu', () => {
     });
 
     it('names the node as the node names itself, beside its version and the web interface\'s', () => {
-        assert.match(versions().value, /^electric vehicle \S+ &middot; web \S+$/);
+        assert.match(drawn(versions()).textContent!.trim(), /^electric vehicle \S+ \u00b7 web \S+$/);
     });
 
 });
@@ -279,9 +297,10 @@ describe('what a page says somebody may not do', () => {
 
         configureShell({ name: 'Electric Vehicle', icon: 'fa-car', menu: [] });
 
-        const said = html`<div class="notice">${mayButNot('look at the store', 'change it', { ...signedIn(), roles: [ '<b>boss</b>' ] })}</div>`;
+        const said = drawn(html`<div class="notice">${mayButNot('look at the store', 'change it', { ...signedIn(), roles: [ '<b>boss</b>' ] })}</div>`);
 
-        assert.match(said.value, /Signed in as &lt;b&gt;boss&lt;\/b&gt;, which may/);
+        assert.match(said.textContent!, /Signed in as <b>boss<\/b>, which may/);
+        assert.ok(said.querySelector('b') === null, 'a role\'s name was taken as markup');
 
     });
 
@@ -290,61 +309,125 @@ describe('what a page says somebody may not do', () => {
 
 describe('the menu on a screen too narrow for it beside the page', () => {
 
-    /**
-     * The frame drawn into a stand-in: what render() writes, and the elements
-     * shell() asks for - the button's clicks kept, the sidebar's classes and
-     * the button's attributes written down.
-     */
-    function frame() {
-
-        const clicks: (() => void)[] = [];
-        const classes     = new Set<string>();
-        const attributes  = new Map<string, string>();
-
-        const elements: Record<string, unknown> = {
-            '#sign-out':      { addEventListener: () => {} },
-            '#menu-toggle':   { addEventListener: (_: string, listener: () => void) => clicks.push(listener),
-                                setAttribute:     (name: string, value: string) => attributes.set(name, value) },
-            '.sidebar':       { classList: { toggle: (name: string) => classes.delete(name) ? false : (classes.add(name), true) } },
-            '#content-body':  {}
-        };
-
-        const root = { innerHTML: '', querySelector: (selector: string) => elements[selector] ?? null };
+    /** The frame drawn into a root of its own, for somebody who may read the configuration and the name servers. */
+    function frame(root: HTMLElement = document.createElement('div')): HTMLElement {
 
         configureShell({ name: 'Local Controller', icon: 'fa-sitemap', menu });
         auth.set(signedIn('configuration:read', 'dns:read'));
 
-        shell(root as unknown as HTMLElement, { active: '/configuration', title: 'Configuration' });
+        shell(root, { active: '/configuration', title: 'Configuration' });
 
-        return { drawn: root.innerHTML, click: () => clicks.forEach(listener => listener()), classes, attributes };
+        return root;
 
     }
 
+    const toggle  = (root: HTMLElement) => root.querySelector<HTMLButtonElement>('#menu-toggle')!;
+    const isOpen  = (root: HTMLElement) => [ root.querySelector('.sidebar')!.classList.contains('open'), toggle(root).getAttribute('aria-expanded') ];
+
     it('is folded away behind a button that says so, and which parts it opens', () => {
 
-        const { drawn } = frame();
+        const root = frame();
 
-        assert.match(drawn, /<button type="button" id="menu-toggle"/);
-        assert.match(drawn, /aria-expanded="false"/);
-        assert.match(drawn, /aria-controls="menu sidebar-foot"/);
-        assert.match(drawn, /<ul class="menu" id="menu">/,              'the menu the button opens');
-        assert.match(drawn, /<div id="sidebar-foot" class="sidebar-foot">/, 'the foot the button opens');
+        assert.equal(toggle(root).getAttribute('aria-expanded'), 'false');
+        assert.equal(toggle(root).getAttribute('aria-controls'), 'menu sidebar-foot');
+        assert.ok(root.querySelector('#menu.menu')                 !== null, 'the menu the button opens');
+        assert.ok(root.querySelector('#sidebar-foot.sidebar-foot') !== null, 'the foot the button opens');
 
     });
 
     it('opens with the button, says it is open, and folds away with it again', () => {
 
-        const { click, classes, attributes } = frame();
+        const root = frame();
 
-        click();
+        toggle(root).click();
 
-        assert.ok(classes.has('open'),                    'the sidebar is not open');
-        assert.equal(attributes.get('aria-expanded'), 'true');
+        assert.deepEqual(isOpen(root), [ true, 'true' ]);
 
-        click();
+        toggle(root).click();
 
-        assert.ok(!classes.has('open'),                   'the sidebar is still open');
-        assert.equal(attributes.get('aria-expanded'), 'false');
+        assert.deepEqual(isOpen(root), [ false, 'false' ]);
+
+    });
+
+    it('opens with one click after the frame was drawn again into the same root, not with every listener a drawing added', () => {
+
+        const root = frame();
+        frame(root);
+
+        toggle(root).click();
+
+        assert.deepEqual(isOpen(root), [ true, 'true' ]);
+
+    });
+
+});
+
+
+describe('the frame of a page', () => {
+
+    /** The frame drawn into a root of its own with what a page puts beside its heading. */
+    function framed(actions?: Parameters<typeof shell>[1]['actions']): { root: HTMLElement; content: HTMLElement } {
+
+        configureShell({ name: 'Local Controller', icon: 'fa-sitemap', menu });
+        auth.set(signedIn('configuration:read'));
+
+        const root    = document.createElement('div');
+        const content = shell(root, { active: '/configuration', title: 'Configuration', subtitle: 'What it was started with', actions });
+
+        return { root, content };
+
+    }
+
+    it('hands back the element the page draws itself into, below the heading', () => {
+
+        const { root, content } = framed();
+
+        assert.ok(content === root.querySelector('main.content > #content-body'), 'not the body of the page');
+        assert.equal(root.querySelector('.page-head h1')!.textContent, 'Configuration');
+        assert.equal(root.querySelector('.page-head p.muted')!.textContent, 'What it was started with');
+        assert.equal(root.querySelector('.brand span')!.textContent, 'Local Controller');
+
+    });
+
+    it('shows a template of view.ts beside the heading, with its listener bound in it', () => {
+
+        let reloaded = 0;
+
+        const { root } = framed(html`<button type="button" id="reload" class="btn small" @click=${() => reloaded++}>Reload</button>`);
+
+        const reload = root.querySelector<HTMLButtonElement>('.page-actions #reload');
+
+        assert.ok(reload !== null, `no Reload beside the heading - there is "${root.querySelector('.page-actions')!.innerHTML}"`);
+
+        reload.click();
+
+        assert.equal(reloaded, 1);
+
+    });
+
+    it('shows a fragment of html.ts beside the heading as the markup it is, for a kind that still says it so', () => {
+
+        const { root } = framed(stringHTML`<button type="button" id="reload" class="btn small">Reload ${'<b>all</b>'}</button>`);
+
+        assert.equal(root.querySelector('.page-actions #reload')!.textContent, 'Reload <b>all</b>');
+        assert.ok(root.querySelector('.page-actions b') === null, 'what the fragment escaped was taken as markup');
+
+    });
+
+    it('signs out with the button in the foot of the menu', () => {
+
+        const signOut = auth.signOut;
+        let   asked   = 0;
+
+        auth.signOut = async () => { asked++; };
+
+        try {
+            framed().root.querySelector<HTMLButtonElement>('#sign-out')!.click();
+            assert.equal(asked, 1);
+        }
+        finally {
+            auth.signOut = signOut;
+        }
 
     });
 

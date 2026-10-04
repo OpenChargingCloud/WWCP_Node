@@ -1,7 +1,7 @@
 import type { NodeMe } from './api/client';
 import { auth } from './auth';
 import { fromURL } from './basePath';
-import { html, must, render } from './html';
+import { must } from './html';
 import { logs, type LogStore } from './logs/store';
 import { certificatesPage, type CertificatesOptions } from './pages/certificates';
 import { dnsPage } from './pages/dns';
@@ -11,6 +11,7 @@ import { notFoundPage } from './pages/notFound';
 import { ntsPage } from './pages/nts';
 import { Router, type Guard, type Page, type Route } from './router';
 import { configureShell, visibleMenu, type MenuEntry, type ShellSetup } from './shell';
+import { html, render } from './view';
 
 /**
  * What a kind of node says about its web interface, once, as it starts: what

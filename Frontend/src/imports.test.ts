@@ -65,7 +65,7 @@ describe('a shared file', () => {
         // The reading below has to find what is there, or every file passes.
         assert.deepEqual(importsOf(join(src, 'start.ts')).sort(), [
             './api/client', './auth', './basePath', './html', './logs/store', './pages/certificates', './pages/dns',
-            './pages/login', './pages/logs', './pages/notFound', './pages/nts', './router', './shell'
+            './pages/login', './pages/logs', './pages/notFound', './pages/nts', './router', './shell', './view'
         ]);
 
     });

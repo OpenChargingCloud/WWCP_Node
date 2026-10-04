@@ -28,10 +28,13 @@
 //
 // A fragment of html.ts in a template of this one is taken as the markup it
 // is - it was escaped when it was made - so that what the kinds hand a shared
-// page (a hint, a Reload) can stay html.ts's until they draw with this one
-// too. A Configuration page's cards are drawn with this one, by cardViews.ts;
-// the frame, shell.ts, stays html.ts's: it is drawn once for every page, and
-// the kinds' tests load it without a document, which lit-html wants as it loads.
+// page or the frame (a hint, a Reload) can stay html.ts's until they draw
+// with this one too. The frame, shell.ts, draws with this one, as every
+// shared page does.
+//
+// unsafeHTML() is for markup a page made itself and cannot say as a template
+// - the SVG a QR code library writes - and never for what a node or somebody
+// typing says: that goes in as text, as everything in a template does.
 
 import { html as litHTML, render as litRender, nothing, type TemplateResult } from 'lit-html';
 import { keyed }       from 'lit-html/directives/keyed.js';
@@ -41,7 +44,7 @@ import { unsafeHTML }  from 'lit-html/directives/unsafe-html.js';
 
 import { HTMLFragment } from './html';
 
-export { keyed, live, nothing, repeat, type TemplateResult };
+export { keyed, live, nothing, repeat, unsafeHTML, type TemplateResult };
 
 
 function bridged(value: unknown): unknown {
@@ -70,12 +73,11 @@ const anchors = new WeakMap<HTMLElement, Comment>();
 
 /**
  * Draw a template into an element. The first draw into an element empties it
- * of whatever else put something there - the loading box of html.ts's
- * render(), say - since lit-html would draw next to it, not over it. So does
- * a draw into an element whose content somebody else replaced since: the
- * router's root, which the next page fills with html.ts's render() - drawn
- * again into it, lit-html would compare with what is no longer there and show
- * nothing.
+ * of whatever else put something there - a loading box, say - since lit-html
+ * would draw next to it, not over it. So does a draw into an element whose
+ * content somebody else replaced since: the router's root, which the router
+ * empties for the next page - drawn again into it, lit-html would compare with
+ * what is no longer there and show nothing.
  */
 export function render(target: HTMLElement, template: TemplateResult | typeof nothing): void {
 

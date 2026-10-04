@@ -1,7 +1,8 @@
 import { auth } from './auth';
 import { toURL } from './basePath';
 import { config } from './config';
-import { html, must, render, type HTMLFragment } from './html';
+import { must, type HTMLFragment } from './html';
+import { html, nothing, render, type TemplateResult } from './view';
 import type { NodeMe } from './api/client';
 
 /**
@@ -13,6 +14,10 @@ import type { NodeMe } from './api/client';
  * entry that is current is simply the one that says so. What a kind of node
  * has pages for, and what it is called at the top of the menu, is the kind's
  * to say, once, when it starts - see start.ts.
+ *
+ * Drawn with view.ts, as the pages are: what a page puts beside its heading
+ * is a template of view.ts, with its listeners bound in it - or, until every
+ * kind draws it so, a fragment of html.ts, taken as the markup it is.
  */
 
 export interface MenuEntry {
@@ -57,7 +62,7 @@ export interface ShellOptions {
     /** One line under the heading, or nothing. */
     subtitle?:  string;
     /** Buttons and such, shown at the right of the heading. */
-    actions?:   HTMLFragment;
+    actions?:   TemplateResult | HTMLFragment;
 }
 
 
@@ -142,12 +147,13 @@ export function shell(root:     HTMLElement,
                     <i class="fa-solid ${setup.icon}"></i>
                     <span>${setup.name}</span>
                     <button type="button" id="menu-toggle" class="btn small menu-toggle"
-                            aria-expanded="false" aria-controls="menu sidebar-foot" aria-label="Menu">
+                            aria-expanded="false" aria-controls="menu sidebar-foot" aria-label="Menu"
+                            @click=${foldOrUnfold}>
                         <i class="fa-solid fa-bars"></i>
                     </button>
                 </div>
 
-                ${menuHTML(visibleMenu(), options.active)}
+                ${menuView(visibleMenu(), options.active)}
 
                 <div id="sidebar-foot" class="sidebar-foot">
                     <div class="who" title="${who?.title ?? ''}">
@@ -156,8 +162,8 @@ export function shell(root:     HTMLElement,
                     </div>
                     ${who?.line
                           ? html`<div class="roles small muted">${who.line}</div>`
-                          : ''}
-                    <button type="button" id="sign-out" class="btn small">Sign out</button>
+                          : nothing}
+                    <button type="button" id="sign-out" class="btn small" @click=${() => void auth.signOut()}>Sign out</button>
                     <div class="versions small muted">
                         ${versions()}
                     </div>
@@ -170,9 +176,9 @@ export function shell(root:     HTMLElement,
                 <header class="page-head">
                     <div>
                         <h1>${options.title}</h1>
-                        ${options.subtitle ? html`<p class="muted">${options.subtitle}</p>` : ''}
+                        ${options.subtitle ? html`<p class="muted">${options.subtitle}</p>` : nothing}
                     </div>
-                    <div class="page-actions">${options.actions ?? ''}</div>
+                    <div class="page-actions">${options.actions ?? nothing}</div>
                 </header>
 
                 <div id="content-body" class="content-body"></div>
@@ -182,23 +188,22 @@ export function shell(root:     HTMLElement,
         </div>
     `);
 
-    must<HTMLButtonElement>(root, '#sign-out').
-        addEventListener('click', () => void auth.signOut());
-
-    // On a screen too narrow for the menu beside the page, it is folded away
-    // behind this button, which only such a screen shows: open, it stood over
-    // the page as a strip of every entry - 438 px of the local controller's
-    // 812 on a phone, 550 of the CSMS's - and the page scrolled in what was
-    // left below it (found by the CSMS). A page drawn anew starts folded, so
-    // following a link from the open menu leaves the next page the screen.
-    const toggle   = must<HTMLButtonElement>(root, '#menu-toggle');
-    const sidebar  = must<HTMLElement>(root, '.sidebar');
-
-    toggle.addEventListener('click', () =>
-        toggle.setAttribute('aria-expanded', String(sidebar.classList.toggle('open'))));
-
     return must<HTMLElement>(root, '#content-body');
 
+}
+
+/**
+ * On a screen too narrow for the menu beside the page, it is folded away
+ * behind the button that only such a screen shows: open, it stood over the
+ * page as a strip of every entry - 438 px of the local controller's 812 on a
+ * phone, 550 of the CSMS's - and the page scrolled in what was left below it
+ * (found by the CSMS). A page drawn anew starts folded, so following a link
+ * from the open menu leaves the next page the screen.
+ */
+function foldOrUnfold(Event: MouseEvent): void {
+    const toggle  = Event.currentTarget as HTMLButtonElement;
+    const sidebar = toggle.closest('.sidebar')!;
+    toggle.setAttribute('aria-expanded', String(sidebar.classList.toggle('open')));
 }
 
 /**
@@ -249,14 +254,14 @@ export function mayButNot(May:     string,
 }
 
 /** Which node and which web interface this is: in the foot of the menu, and under the sign-in. */
-export function versions(): HTMLFragment {
+export function versions(): TemplateResult {
     return html`${config.nodeName} ${config.serverVersion} &middot; web ${config.frontendVersion}`;
 }
 
 
 /** The menu, with the entry that is the page being shown marked. */
-export function menuHTML(Entries:  readonly MenuEntry[],
-                         Active:   string): HTMLFragment {
+export function menuView(Entries:  readonly MenuEntry[],
+                         Active:   string): TemplateResult {
 
     return html`
         <ul class="menu" id="menu">
@@ -269,7 +274,7 @@ export function menuHTML(Entries:  readonly MenuEntry[],
                                   ${entry.children.map(child => html`<li>${link(child, Active)}</li>`)}
                               </ul>
                           `
-                          : ''}
+                          : nothing}
                 </li>
             `)}
         </ul>
@@ -282,14 +287,14 @@ export function menuHTML(Entries:  readonly MenuEntry[],
  * carries the base the web interface is mounted below, so that a page opened
  * in a new tab - which the router never sees - still finds its way.
  */
-function link(entry: MenuEntry, active: string): HTMLFragment {
+function link(entry: MenuEntry, active: string): TemplateResult {
 
     const current = entry.path === active;
 
     return html`
         <a href="${toURL(entry.path)}"
            class="${current ? 'active' : ''}"
-           ${current ? html`aria-current="page"` : ''}>
+           aria-current=${current ? 'page' : nothing}>
             <i class="fa-solid ${entry.icon}"></i>
             <span>${entry.label}</span>
         </a>

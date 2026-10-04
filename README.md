@@ -846,7 +846,8 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 
 | | |
 |---|---|
-| `html.ts` | the tagged template every page is written in - the one file all eight had alike |
+| `view.ts` | how every page and the frame draw: `html` and `render`, with lit-html, which compares a draw with what is on the page and leaves what it does not change - what is typed into another form, the focus, how far a list is scrolled |
+| `html.ts` | the tagged template every page was written in - the one file all eight had alike - which a kind's Reload button or hint may still be, taken by `view.ts` as the markup it is; and `must()` |
 | `config.ts` | what the node wrote into the page's `<meta>` tags: where the page and its APIs are, the versions, and the node's name |
 | `basePath.ts` | where the page is mounted, added to a route on the way into the address bar and taken off on the way out |
 | `router.ts` | which page a path is, and the way from one page to the next |
