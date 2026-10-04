@@ -10,6 +10,34 @@
     align-items:            start;
 }
 
+// The heading of a card: its name, its icon in the accent colour, and a chip
+// or an action pushed to its end.
+@mixin card-heading {
+    margin:      0 0 0.75rem;
+    font-size:   1rem;
+    display:     flex;
+    align-items: center;
+    gap:         0.5rem;
+
+    .fa-solid {
+        color: $color-accent;
+    }
+
+    // A state of the thing the card is about, said next to its name
+    // rather than buried in the rows below it.
+    .chip {
+        margin-left: auto;
+    }
+
+    // An action on everything the card lists - "Show the tokens" - at the
+    // end of its heading, where a chip goes. Said in a style attribute, as
+    // three kinds' partner pages said it, it was refused by the policy the
+    // pages are served with, and the button stood beside the title.
+    .heading-action {
+        margin-left: auto;
+    }
+}
+
 .card {
 
     @include panel;
@@ -17,29 +45,15 @@
     padding: 1rem 1.2rem 1.1rem;
 
     h2 {
-        margin:      0 0 0.75rem;
-        font-size:   1rem;
-        display:     flex;
-        align-items: center;
-        gap:         0.5rem;
+        @include card-heading;
+    }
 
-        .fa-solid {
-            color: $color-accent;
-        }
-
-        // A state of the thing the card is about, said next to its name
-        // rather than buried in the rows below it.
-        .chip {
-            margin-left: auto;
-        }
-
-        // An action on everything the card lists - "Show the tokens" - at the
-        // end of its heading, where a chip goes. Said in a style attribute, as
-        // three kinds' partner pages said it, it was refused by the policy the
-        // pages are served with, and the button stood beside the title.
-        .heading-action {
-            margin-left: auto;
-        }
+    // The card of a kind of certificate, below the heading of its group on
+    // the certificates page: an h3, drawn as a card's heading - at the
+    // browser's own size of an h3, with a black icon, it was the one card
+    // that looked like none (found by the energy meter).
+    &[data-kind] > h3 {
+        @include card-heading;
     }
 
 }
