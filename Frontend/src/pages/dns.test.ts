@@ -5,16 +5,15 @@
  * the node took.
  */
 
-import { chromeTakesTheFocus } from '../../test/dom.ts';
+import { open, said, until, type Asked } from '../../test/node.ts';
+import { chromeTakesTheFocus }           from '../../test/dom.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
 import type { DNSConfiguration, DNSUpdate } from '../api/client.ts';
 
-const { auth }             = await import('../auth.ts');
-const { configureShell }   = await import('../shell.ts');
-const { dnsPage }          = await import('./dns.ts');
+const { dnsPage } = await import('./dns.ts');
 
 
 /** What the stand-in node has, and what it was told. */
@@ -33,13 +32,11 @@ function aConfiguration(): DNSConfiguration {
     } as unknown as DNSConfiguration;
 }
 
-globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+/** How the stand-in node answers. */
+function node({ method, path, body }: Asked): unknown {
 
-    const url     = String(input);
-    const method  = init?.method ?? 'GET';
-
-    if (url.endsWith('/configuration/dns') && method === 'PUT') {
-        const update = JSON.parse(String(init!.body)) as DNSUpdate;
+    if (path === '/configuration/dns' && method === 'PUT') {
+        const update = body as DNSUpdate;
         told.push(update);
         // A node takes what it takes: no more than five retries.
         if (update.maxRetries !== undefined)
@@ -50,21 +47,14 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
                                       ...Object.fromEntries(Object.entries(update).filter(([ key ]) => key in held.settings)) } };
     }
 
-    if (url.endsWith('/configuration/dns'))
-        return new Response(JSON.stringify(held), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (path === '/configuration/dns')
+        return held;
 
-    return new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } });
+    return undefined;
 
-}) as typeof fetch;
-
+}
 
 const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
-
-async function until(what: () => boolean, said: string): Promise<void> {
-    for (let i = 0; i < 200 && !what(); i++)
-        await wait(5);
-    assert.ok(what(), said);
-}
 
 /** The DNS page, drawn and loaded, for somebody who may change and test it. */
 async function opened(): Promise<HTMLElement> {
@@ -72,17 +62,7 @@ async function opened(): Promise<HTMLElement> {
     held        = aConfiguration();
     told.length = 0;
 
-    configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
-    auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [ 'dns:edit', 'dns:run' ], mayReadTheLog: false } as never);
-
-    const root = document.createElement('div');
-    document.body.replaceChildren(root);
-
-    dnsPage.render({ root, url: new URL('http://127.0.0.1/configuration/dns'), params: {}, navigate: () => undefined } as never);
-
-    await until(() => root.querySelector('#dns-form') !== null, 'the page did not draw its settings');
-
-    return root;
+    return open(dnsPage, '/configuration/dns', [ 'dns:edit', 'dns:run' ], node, root => root.querySelector('#dns-form') !== null);
 
 }
 
@@ -215,14 +195,11 @@ describe('the DNS page', () => {
         // Changed on the node meanwhile.
         held = { ...held, settings: { ...held.settings, maxRetries: 4 } };
 
-        const asked = [] as string[];
-        window.confirm = (text?: string) => { asked.push(String(text)); return true; };
-
         root.querySelector<HTMLButtonElement>('.page-actions #reload')!.click();
 
         await until(() => field(root, 'maxRetries').value === '4', 'the page did not reload what the node has');
 
-        assert.equal(asked.length, 1, 'what was typed was thrown away without a question');
+        assert.equal(said.length, 1, 'what was typed was thrown away without a question');
 
     });
 

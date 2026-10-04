@@ -24,9 +24,8 @@ nodeName.name     = 'node-name';
 nodeName.content  = 'roaming hub';
 document.head.append(nodeName);
 
-const { auth }                                                = await import('../auth.ts');
+const { open, standIn }                                       = await import('../../test/node.ts');
 const { logs }                                                = await import('../logs/store.ts');
-const { configureShell }                                      = await import('../shell.ts');
 const { countsText, lineElement, logsPage, matches, streamState } = await import('./logs.ts');
 
 
@@ -118,35 +117,27 @@ describe('the Logs page', () => {
     const tagButton = (root: HTMLElement, tag: string) =>
                           [ ...root.querySelectorAll<HTMLButtonElement>('#tags .tag-button') ].find(button => button.textContent === tag);
 
-    /** How the page drawn last stops listening to the store, as the router has it stop once the page is left. */
-    let left: (() => void) | void = undefined;
+    standIn({ name: 'Test node', icon: 'fa-gear', user: { mayReadTheLog: true } });
 
-    /** The page drawn, with the store holding the entries given, for somebody who may read the log. */
-    function opened(...Entries: LogEntry[]): HTMLElement {
-
-        left?.();
+    /**
+     * The page drawn, with the store holding the entries given, for somebody
+     * who may read the log. The page drawn before stops listening to the
+     * store, as the router has it stop once the page is left.
+     */
+    async function opened(...Entries: LogEntry[]): Promise<HTMLElement> {
 
         logs.entries.length = 0;
         logs.tags.clear();
         logs.lastId = 0;
         delivered(...Entries);
 
-        configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
-        auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [], mayReadTheLog: true } as never);
-
-        const root = document.createElement('div');
-        document.body.replaceChildren(root);
-
-        // The page answers at once, with how it stops: logs.onChange's.
-        left = logsPage().render({ root, url: new URL('http://127.0.0.1/logs'), params: {}, navigate: () => undefined } as never) as () => void;
-
-        return root;
+        return open(logsPage(), '/logs', [], () => undefined, root => root.querySelector('#log-lines') !== null);
 
     }
 
-    it('draws the newest entry on top, and a burst newest first as well', () => {
+    it('draws the newest entry on top, and a burst newest first as well', async () => {
 
-        const root = opened(entry({ id: 1, message: 'first' }), entry({ id: 2, message: 'second' }));
+        const root = await opened(entry({ id: 1, message: 'first' }), entry({ id: 2, message: 'second' }));
 
         delivered(entry({ id: 3, message: 'third' }), entry({ id: 4, message: 'fourth' }));
 
@@ -155,9 +146,9 @@ describe('the Logs page', () => {
 
     });
 
-    it('keeps the focus on a tag button that is switched', () => {
+    it('keeps the focus on a tag button that is switched', async () => {
 
-        const root = opened(entry({ id: 1, tags: [ 'ocpi' ] }));
+        const root = await opened(entry({ id: 1, tags: [ 'ocpi' ] }));
         const ocpi = tagButton(root, 'ocpi')!;
 
         ocpi.focus();
@@ -169,9 +160,9 @@ describe('the Logs page', () => {
 
     });
 
-    it('keeps the focus on a tag button while the node learns a tag that goes in before it', () => {
+    it('keeps the focus on a tag button while the node learns a tag that goes in before it', async () => {
 
-        const root = opened(entry({ id: 1, tags: [ 'ocpi' ] }));
+        const root = await opened(entry({ id: 1, tags: [ 'ocpi' ] }));
 
         tagButton(root, 'ocpi')!.focus();
 
@@ -183,9 +174,9 @@ describe('the Logs page', () => {
 
     });
 
-    it('hides the lines a tag does not want, and shows them all again with "all tags"', () => {
+    it('hides the lines a tag does not want, and shows them all again with "all tags"', async () => {
 
-        const root = opened(entry({ id: 1, tags: [ 'ocpi' ], message: 'roaming' }), entry({ id: 2, tags: [ 'ocpp' ], message: 'charging' }));
+        const root = await opened(entry({ id: 1, tags: [ 'ocpi' ], message: 'roaming' }), entry({ id: 2, tags: [ 'ocpp' ], message: 'charging' }));
 
         tagButton(root, 'ocpp')!.click();
 
@@ -198,9 +189,9 @@ describe('the Logs page', () => {
 
     });
 
-    it('puts a line that a tag switched on does not want in already hidden', () => {
+    it('puts a line that a tag switched on does not want in already hidden', async () => {
 
-        const root = opened(entry({ id: 1, tags: [ 'ocpp' ], message: 'charging' }));
+        const root = await opened(entry({ id: 1, tags: [ 'ocpp' ], message: 'charging' }));
 
         tagButton(root, 'ocpp')!.click();
 
@@ -211,9 +202,9 @@ describe('the Logs page', () => {
 
     });
 
-    it('clears what it shows with "Clear view", and the store with it, not the node', () => {
+    it('clears what it shows with "Clear view", and the store with it, not the node', async () => {
 
-        const root = opened(entry({ id: 1, message: 'first' }), entry({ id: 2, message: 'second' }));
+        const root = await opened(entry({ id: 1, message: 'first' }), entry({ id: 2, message: 'second' }));
 
         root.querySelector<HTMLButtonElement>('.page-actions #clear')!.click();
 
@@ -222,9 +213,9 @@ describe('the Logs page', () => {
 
     });
 
-    it('says why the log could not be loaded as text, not as markup', () => {
+    it('says why the log could not be loaded as text, not as markup', async () => {
 
-        const root = opened();
+        const root = await opened();
 
         (logs as unknown as { emit(Event: unknown): void }).emit({ type: 'error', text: 'Could not load the log: <b>refused</b>' });
 

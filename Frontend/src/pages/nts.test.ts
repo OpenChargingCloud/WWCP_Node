@@ -5,16 +5,14 @@
  * what the node took.
  */
 
-import '../../test/dom.ts';
+import { open, until, type Asked } from '../../test/node.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
 import type { Clock, NTSConfiguration, NTSUpdate } from '../api/client.ts';
 
-const { auth }             = await import('../auth.ts');
-const { configureShell }   = await import('../shell.ts');
-const { ntsPage }          = await import('./nts.ts');
+const { ntsPage } = await import('./nts.ts');
 
 
 let held: NTSConfiguration;
@@ -52,29 +50,25 @@ const aClock = (): Clock => ({
     legal: false, authority: null, why: 'notClaimed', toleranceSeconds: 1, maxAgeSeconds: 3600
 }) as unknown as Clock;
 
-const answer = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+/** How the stand-in node answers. */
+function node({ method, path, body }: Asked): unknown {
 
-globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (path.endsWith('/clock'))
+        return { ...aClock(), ...clockSays };
 
-    const url     = String(input);
-    const method  = init?.method ?? 'GET';
+    if (path.endsWith('/certificates'))
+        return { certificates: { tlsRoot: [ { id: rootPrint.slice(0, 16), label: 'PTB Root', thumbprint: rootPrint,
+                                              usable: true, usages: [ 'nts' ] } ],
+                                 tlsServer: [] } };
 
-    if (url.endsWith('/clock'))
-        return answer({ ...aClock(), ...clockSays });
-
-    if (url.endsWith('/certificates'))
-        return answer({ certificates: { tlsRoot: [ { id: rootPrint.slice(0, 16), label: 'PTB Root', thumbprint: rootPrint,
-                                                     usable: true, usages: [ 'nts' ] } ],
-                                        tlsServer: [] } });
-
-    if (url.endsWith('/configuration/nts/sync')) {
+    if (path.endsWith('/configuration/nts/sync')) {
         synced++;
-        return answer({ ...held, result: { ok: true, at: '2026-10-04T12:00:01Z', servers: [],
-                                           group: { answered: 2, required: 2, offset_ms: 0.4, spread_ms: 0.1 } } });
+        return { ...held, result: { ok: true, at: '2026-10-04T12:00:01Z', servers: [],
+                                    group: { answered: 2, required: 2, offset_ms: 0.4, spread_ms: 0.1 } } };
     }
 
-    if (url.endsWith('/configuration/nts') && method === 'PUT') {
-        const update = JSON.parse(String(init!.body)) as NTSUpdate;
+    if (path.endsWith('/configuration/nts') && method === 'PUT') {
+        const update = body as NTSUpdate;
         told.push(update);
         // A node takes what it takes: a check every minute at the most often.
         if (update.checkEverySeconds !== undefined)
@@ -83,20 +77,11 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
                                       ...Object.fromEntries(Object.entries(update).filter(([ key ]) => key in held.settings)) } };
     }
 
-    if (url.endsWith('/configuration/nts'))
-        return answer(held);
+    if (path.endsWith('/configuration/nts'))
+        return held;
 
-    return new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } });
+    return undefined;
 
-}) as typeof fetch;
-
-
-const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
-
-async function until(what: () => boolean, said: string): Promise<void> {
-    for (let i = 0; i < 200 && !what(); i++)
-        await wait(5);
-    assert.ok(what(), said);
 }
 
 async function opened(clock:  Partial<Clock> = {},
@@ -108,17 +93,8 @@ async function opened(clock:  Partial<Clock> = {},
     told.length = 0;
     synced      = 0;
 
-    configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
-    auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [ 'nts:edit', 'nts:run', 'certificates:read' ], mayReadTheLog: false } as never);
-
-    const root = document.createElement('div');
-    document.body.replaceChildren(root);
-
-    ntsPage.render({ root, url: new URL('http://127.0.0.1/configuration/nts'), params: {}, navigate: () => undefined } as never);
-
-    await until(() => root.querySelector('#legal-form') !== null, 'the page did not draw its forms');
-
-    return root;
+    return open(ntsPage, '/configuration/nts', [ 'nts:edit', 'nts:run', 'certificates:read' ], node,
+                root => root.querySelector('#legal-form') !== null);
 
 }
 

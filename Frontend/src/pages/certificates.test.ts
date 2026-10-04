@@ -7,6 +7,7 @@
  */
 
 import { chromeTakesTheFocus } from '../../test/dom.ts';
+import type { Asked }           from '../../test/node.ts';
 
 import { strict as assert }  from 'node:assert';
 import { readFileSync }      from 'node:fs';
@@ -14,11 +15,13 @@ import { describe, it }      from 'node:test';
 
 import type { Certificate, CertificateStore } from '../api/client.ts';
 
+// What the node writes into the page it serves, read as the modules load - the
+// stand-in's among them, which load config.ts too.
 document.head.innerHTML = '<meta name="node-name" content="local controller">';
 
+const { open, until } = await import('../../test/node.ts');
+
 const { believedHint, certificatesPage, marksOf, stateOf } = await import('./certificates.ts');
-const { auth }             = await import('../auth.ts');
-const { configureShell }   = await import('../shell.ts');
 const { html, render }     = await import('../view.ts');
 
 /** What a template says, drawn as text: the blanks of its markup taken together. */
@@ -136,7 +139,6 @@ describe('the certificates page, drawn', () => {
 
     let held:     CertificateStore;
     let refuse  = false;
-    const asked = [] as string[];
 
     const aRoot = certificate({ id: 'aaaaaaaaaaaaaaaa', kind: 'tlsRoot', label: 'Root A', hasPrivateKey: false });
 
@@ -152,44 +154,31 @@ describe('the certificates page, drawn', () => {
         keysAreUnencrypted:  false
     } as unknown as CertificateStore);
 
-    const answer = (body: unknown, status = 200) =>
-        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-
-        const url    = String(input);
-        const method = init?.method ?? 'GET';
-
-        asked.push(`${method} ${url.replace(/^.*\/api\/v1/, '')}`);
+    /** How the stand-in node answers. */
+    function node({ method, path, body }: Asked): unknown {
 
         if (method === 'PATCH') {
             const entry = held.certificates['tlsRoot']![0]!;
-            entry.active = JSON.parse(String(init!.body)).active ?? entry.active;
-            return answer(entry);
+            entry.active = (body as { active?: boolean }).active ?? entry.active;
+            return entry;
         }
 
-        if (method === 'POST' && url.endsWith('/certificates')) {
+        if (method === 'POST' && path.endsWith('/certificates')) {
             if (refuse)
-                return answer({ description: 'That is no certificate.' }, 400);
+                return new Response(JSON.stringify({ description: 'That is no certificate.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             const imported = certificate({ id: 'bbbbbbbbbbbbbbbb', kind: 'tlsRoot', label: 'Root B', hasPrivateKey: false });
             held.certificates['tlsRoot']!.push(imported);
-            return answer(imported);
+            return imported;
         }
 
-        if (url.endsWith('/certificates'))
-            return answer(held);
+        if (path.endsWith('/certificates'))
+            return held;
 
-        return answer({}, 404);
+        return undefined;
 
-    }) as typeof fetch;
+    }
 
     const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
-
-    async function until(what: () => boolean, said: string): Promise<void> {
-        for (let i = 0; i < 200 && !what(); i++)
-            await wait(5);
-        assert.ok(what(), said);
-    }
 
     async function opened(options:  Parameters<typeof certificatesPage>[0] = {},
                           shape:    (store: CertificateStore) => void = () => undefined): Promise<HTMLElement> {
@@ -197,19 +186,9 @@ describe('the certificates page, drawn', () => {
         held         = aStore();
         shape(held);
         refuse       = false;
-        asked.length = 0;
 
-        configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
-        auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [ 'certificates:read', 'certificates:edit' ], mayReadTheLog: false } as never);
-
-        const root = document.createElement('div');
-        document.body.replaceChildren(root);
-
-        certificatesPage(options).render({ root, url: new URL('http://127.0.0.1/configuration/certificates'), params: {}, navigate: () => undefined } as never);
-
-        await until(() => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null, 'the page did not draw');
-
-        return root;
+        return open(certificatesPage(options), '/configuration/certificates', [ 'certificates:read', 'certificates:edit' ], node,
+                    root => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null);
 
     }
 
@@ -352,15 +331,20 @@ describe('the certificates page, as a kind of node adds to it', () => {
         listeners:           [ 'modbus' ]
     } as unknown as CertificateStore);
 
-    const answer = (body: unknown, status = 200) =>
-        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+    /** How the stand-in node answers. */
+    function node({ method, path, body }: Asked): unknown {
 
-    const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
+        if (method === 'PATCH') {
+            const entry = held.certificates['tlsRoot']![0]!;
+            entry.active = (body as { active?: boolean }).active ?? entry.active;
+            return entry;
+        }
 
-    async function until(what: () => boolean, said: string): Promise<void> {
-        for (let i = 0; i < 200 && !what(); i++)
-            await wait(5);
-        assert.ok(what(), said);
+        if (path.endsWith('/certificates') || path.endsWith('/certificates/reload'))
+            return held;
+
+        return undefined;
+
     }
 
     async function opened(options: Parameters<typeof certificatesPage>[0]): Promise<HTMLElement> {
@@ -369,28 +353,8 @@ describe('the certificates page, as a kind of node adds to it', () => {
         loads            = 0;
         refuseTheSection = false;
 
-        globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-            if ((init?.method ?? 'GET') === 'PATCH') {
-                const entry = held.certificates['tlsRoot']![0]!;
-                entry.active = JSON.parse(String(init!.body)).active ?? entry.active;
-                return answer(entry);
-            }
-            if (String(input).endsWith('/certificates') || String(input).endsWith('/certificates/reload'))
-                return answer(held);
-            return answer({}, 404);
-        }) as typeof fetch;
-
-        configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
-        auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [ 'certificates:read', 'certificates:edit' ], mayReadTheLog: false } as never);
-
-        const root = document.createElement('div');
-        document.body.replaceChildren(root);
-
-        certificatesPage(options).render({ root, url: new URL('http://127.0.0.1/configuration/certificates'), params: {}, navigate: () => undefined } as never);
-
-        await until(() => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null, 'the page did not draw');
-
-        return root;
+        return open(certificatesPage(options), '/configuration/certificates', [ 'certificates:read', 'certificates:edit' ], node,
+                    root => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null);
 
     }
 
