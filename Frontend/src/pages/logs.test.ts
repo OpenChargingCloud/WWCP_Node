@@ -1,7 +1,8 @@
 /**
- * What the Logs page decides without a browser: which entries its filters
- * let through, how one line is written, what it says about the stream and
- * about how much of the log it holds.
+ * What the Logs page decides: which entries its filters let through, how one
+ * line is made, what it says about the stream and about how much of the log
+ * it holds - and, drawn in a document of happy-dom, that its tag buttons keep
+ * the focus.
  *
  * What it does with a browser - the line somebody is reading staying where it
  * is while lines go in above it - is measured in one, with a filter on: the
@@ -9,17 +10,24 @@
  * the line being read moving by less than a pixel.
  */
 
+import '../../test/dom.ts';
+
 import { strict as assert }  from 'node:assert';
 import { readFileSync }      from 'node:fs';
 import { describe, it }      from 'node:test';
 
 import type { LogEntry }     from '../api/client.ts';
 
-(globalThis as unknown as { document: unknown }).document = {
-    querySelector: (selector: string) => selector === 'meta[name="node-name"]' ? { content: 'roaming hub' } : null
-};
+// What the node writes into the page it serves, read by config.ts as it loads.
+const nodeName = document.createElement('meta');
+nodeName.name     = 'node-name';
+nodeName.content  = 'roaming hub';
+document.head.append(nodeName);
 
-const { countsText, lineHTML, matches, streamState } = await import('./logs.ts');
+const { auth }                                                = await import('../auth.ts');
+const { logs }                                                = await import('../logs/store.ts');
+const { configureShell }                                      = await import('../shell.ts');
+const { countsText, lineElement, logsPage, matches, streamState } = await import('./logs.ts');
 
 
 const entry = (Changes: Partial<LogEntry> = {}): LogEntry => ({
@@ -64,23 +72,157 @@ describe('what the filters let through', () => {
 
 describe('one line of the log', () => {
 
-    it('is written with what the entry says as text, not as markup', () => {
+    it('is made with what the entry says as text, not as markup', () => {
 
-        const line = lineHTML(entry({ message: '<script>alert(1)</script>', tags: [ 'a"b' ] }));
+        const line = lineElement(entry({ message: '<script>alert(1)</script>', tags: [ 'a"b', '<i>x</i>' ] }));
 
-        assert.doesNotMatch(line, /<script>/);
-        assert.match       (line, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-        assert.match       (line, /<span class="chip tag">a&quot;b<\/span>/);
+        assert.ok(line.querySelector('script, i') === null, 'what the entry says was taken as markup');
+        assert.equal(line.querySelector('.message')!.textContent, '<script>alert(1)</script>');
+        assert.deepEqual([ ...line.querySelectorAll('.chip.tag') ].map(tag => tag.textContent), [ 'a"b', '<i>x</i>' ]);
 
     });
 
-    it('carries its level, which is how a notice line is drawn as one', () => {
-        assert.match(lineHTML(entry({ level: 'notice' })), /^<div class="line notice" data-id="7">/);
+    it('says when it was, to the second, and the whole time where the pointer rests', () => {
+
+        const time = lineElement(entry()).querySelector('time')!;
+
+        assert.equal(time.getAttribute('datetime'), '2026-09-29T01:02:03.456Z');
+        assert.ok(time.textContent!.length > 0 && time.title.length > time.textContent!.length,
+                  `the time "${time.textContent}" and the whole time "${time.title}"`);
+
+    });
+
+    it('carries its level and its id, which is how a notice line is drawn as one', () => {
+
+        const line = lineElement(entry({ level: 'notice' }));
+
+        assert.equal(line.className, 'line notice');
+        assert.equal(line.dataset.id, '7');
+        assert.equal(line.querySelector('.chip.level.notice')!.textContent, 'notice');
+
     });
 
     it('goes in already filtered out where a filter does not want it, so that it never takes up room it would give back', () => {
-        assert.match       (lineHTML(entry(), true),  /^<div class="line info filtered-out"/);
-        assert.doesNotMatch(lineHTML(entry()),        /filtered-out/);
+        assert.equal(lineElement(entry(), true).className, 'line info filtered-out');
+        assert.equal(lineElement(entry()).className,       'line info');
+    });
+
+});
+
+
+describe('the Logs page', () => {
+
+    /** Entries as the stream delivers them, through the store's own way in. */
+    const delivered = (...Entries: LogEntry[]) => (logs as unknown as { apply(Entries: LogEntry[]): void }).apply(Entries);
+
+    const tagButton = (root: HTMLElement, tag: string) =>
+                          [ ...root.querySelectorAll<HTMLButtonElement>('#tags .tag-button') ].find(button => button.textContent === tag);
+
+    /** How the page drawn last stops listening to the store, as the router has it stop once the page is left. */
+    let left: (() => void) | void = undefined;
+
+    /** The page drawn, with the store holding the entries given, for somebody who may read the log. */
+    function opened(...Entries: LogEntry[]): HTMLElement {
+
+        left?.();
+
+        logs.entries.length = 0;
+        logs.tags.clear();
+        logs.lastId = 0;
+        delivered(...Entries);
+
+        configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
+        auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [], mayReadTheLog: true } as never);
+
+        const root = document.createElement('div');
+        document.body.replaceChildren(root);
+
+        // The page answers at once, with how it stops: logs.onChange's.
+        left = logsPage().render({ root, url: new URL('http://127.0.0.1/logs'), params: {}, navigate: () => undefined } as never) as () => void;
+
+        return root;
+
+    }
+
+    it('draws the newest entry on top, and a burst newest first as well', () => {
+
+        const root = opened(entry({ id: 1, message: 'first' }), entry({ id: 2, message: 'second' }));
+
+        delivered(entry({ id: 3, message: 'third' }), entry({ id: 4, message: 'fourth' }));
+
+        assert.deepEqual([ ...root.querySelectorAll('#log-lines .message') ].map(line => line.textContent),
+                         [ 'fourth', 'third', 'second', 'first' ]);
+
+    });
+
+    it('keeps the focus on a tag button that is switched', () => {
+
+        const root = opened(entry({ id: 1, tags: [ 'ocpi' ] }));
+        const ocpi = tagButton(root, 'ocpi')!;
+
+        ocpi.focus();
+        ocpi.click();
+
+        assert.equal(tagButton(root, 'ocpi')!.getAttribute('aria-pressed'), 'true', 'the tag was not switched on');
+        assert.ok(document.activeElement === tagButton(root, 'ocpi'),
+                  `the focus is on ${document.activeElement?.tagName} "${document.activeElement?.textContent}", not on the tag switched`);
+
+    });
+
+    it('keeps the focus on a tag button while the node learns a tag that goes in before it', () => {
+
+        const root = opened(entry({ id: 1, tags: [ 'ocpi' ] }));
+
+        tagButton(root, 'ocpi')!.focus();
+
+        delivered(entry({ id: 2, tags: [ '15118' ] }));
+
+        assert.ok(tagButton(root, '15118') !== undefined, 'the new tag has no button');
+        assert.ok(document.activeElement === tagButton(root, 'ocpi'),
+                  `the focus is on ${document.activeElement?.tagName} "${document.activeElement?.textContent}", not on the tag it was on`);
+
+    });
+
+    it('hides the lines a tag does not want, and shows them all again with "all tags"', () => {
+
+        const root = opened(entry({ id: 1, tags: [ 'ocpi' ], message: 'roaming' }), entry({ id: 2, tags: [ 'ocpp' ], message: 'charging' }));
+
+        tagButton(root, 'ocpp')!.click();
+
+        assert.deepEqual([ ...root.querySelectorAll('#log-lines .line:not(.filtered-out) .message') ].map(line => line.textContent), [ 'charging' ]);
+
+        tagButton(root, 'all tags')!.click();
+
+        assert.equal(root.querySelectorAll('#log-lines .line.filtered-out').length, 0);
+        assert.ok(tagButton(root, 'all tags') === undefined, '"all tags" is still offered with no tag switched on');
+
+    });
+
+    it('puts a line that a tag switched on does not want in already hidden', () => {
+
+        const root = opened(entry({ id: 1, tags: [ 'ocpp' ], message: 'charging' }));
+
+        tagButton(root, 'ocpp')!.click();
+
+        delivered(entry({ id: 2, tags: [ 'ocpi' ], message: 'roaming' }), entry({ id: 3, tags: [ 'ocpp' ], message: 'charging again' }));
+
+        assert.deepEqual([ ...root.querySelectorAll('#log-lines .line') ].map(line => `${line.querySelector('.message')!.textContent}${line.classList.contains('filtered-out') ? ' (hidden)' : ''}`),
+                         [ 'charging again', 'roaming (hidden)', 'charging' ]);
+
+    });
+
+    it('says why the log could not be loaded as text, not as markup', () => {
+
+        const root = opened();
+
+        (logs as unknown as { emit(Event: unknown): void }).emit({ type: 'error', text: 'Could not load the log: <b>refused</b>' });
+
+        const note = root.querySelector<HTMLElement>('#log-error')!;
+
+        assert.equal(note.hidden, false);
+        assert.ok(note.querySelector('b') === null, 'the reason was taken as markup');
+        assert.equal(note.textContent, 'Could not load the log: <b>refused</b>');
+
     });
 
 });

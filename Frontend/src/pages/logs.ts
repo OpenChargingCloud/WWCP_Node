@@ -1,11 +1,12 @@
 import { logLevels, type LogEntry, type LogLevel } from '../api/client';
 import { config } from '../config';
-import { escapeHTML, html, must, render } from '../html';
+import { html as stringHTML, must } from '../html';
 import { drawOrder, entryAt } from '../logs/order';
 import { logs } from '../logs/store';
 import type { Page } from '../router';
 import { shell } from '../shell';
 import { formatTime, formatTimestamp, isAtLeast } from '../ui';
+import { html, render, repeat } from '../view';
 
 /** What a kind of node says on its Logs page beyond what every node says. */
 export interface LogsWords {
@@ -51,14 +52,45 @@ export function matches(Entry: LogEntry, Filter: LogFilter): boolean {
  * One line, made once; a filter only ever toggles its "filtered-out" - and a
  * line that goes in while a filter is on goes in with it already set, so that
  * it never takes up room it is about to give back.
+ *
+ * Made as elements, not drawn by view.ts: a line is never drawn again, and
+ * comparing a list of the thousands the node keeps with itself, for every line
+ * the node writes, would put back the cost that making a line once took away
+ * (see applyFilters). What the entry says goes in as text, which needs no
+ * escaping.
  */
-export function lineHTML(Entry: LogEntry, FilteredOut = false): string {
-    return `<div class="line ${Entry.level}${FilteredOut ? ' filtered-out' : ''}" data-id="${Entry.id}">` +
-               `<time datetime="${escapeHTML(Entry.timestamp)}" title="${escapeHTML(formatTimestamp(Entry.timestamp))}">${escapeHTML(formatTime(Entry.timestamp))}</time>` +
-               `<span class="chip level ${Entry.level}">${escapeHTML(Entry.level)}</span>` +
-               Entry.tags.map(tag => `<span class="chip tag">${escapeHTML(tag)}</span>`).join('') +
-               `<span class="message">${escapeHTML(Entry.message)}</span>` +
-           `</div>`;
+export function lineElement(Entry: LogEntry, FilteredOut = false): HTMLElement {
+
+    const line  = document.createElement('div');
+    line.className   = `line ${Entry.level}${FilteredOut ? ' filtered-out' : ''}`;
+    line.dataset.id  = String(Entry.id);
+
+    const time = document.createElement('time');
+    time.dateTime     = Entry.timestamp;
+    time.title        = formatTimestamp(Entry.timestamp);
+    time.textContent  = formatTime(Entry.timestamp);
+
+    line.append(time,
+                span(`chip level ${Entry.level}`, Entry.level),
+                ...Entry.tags.map(tag => span('chip tag', tag)),
+                span('message', Entry.message));
+
+    return line;
+
+}
+
+function span(Class: string, Text: string): HTMLSpanElement {
+    const element = document.createElement('span');
+    element.className    = Class;
+    element.textContent  = Text;
+    return element;
+}
+
+/** Lines in the order given, to go into the list at once. */
+function linesOf(Entries: readonly LogEntry[], FilteredOut: (Index: number) => boolean = () => false): DocumentFragment {
+    const lines = document.createDocumentFragment();
+    Entries.forEach((entry, index) => lines.append(lineElement(entry, FilteredOut(index))));
+    return lines;
 }
 
 /**
@@ -113,7 +145,7 @@ export function logsPage(Words: LogsWords = {}): Page {
                 active:    '/logs',
                 title:     'Logs',
                 subtitle:  Words.subtitle ?? `Everything this ${config.nodeName} does, as it happens.`,
-                actions:   html`
+                actions:   stringHTML`
                     <span id="stream-state" class="stream-state"></span>
                     <button type="button" id="clear" class="btn small" title="Clear what this page shows; the ${config.nodeName} keeps its log">Clear view</button>
                 `
@@ -135,7 +167,7 @@ export function logsPage(Words: LogsWords = {}): Page {
                         Level
                         <select id="level">
                             ${logLevels.map(level => html`
-                                <option value="${level}" ${level === 'debug' ? html`selected` : ''}>${level}</option>
+                                <option value="${level}" ?selected=${level === 'debug'}>${level}</option>
                             `)}
                         </select>
                     </label>
@@ -236,7 +268,7 @@ export function logsPage(Words: LogsWords = {}): Page {
                 scrollDebt = 0;
 
                 // Reversed for drawing only; the store keeps them oldest first.
-                lineBox.innerHTML = drawOrder(logs.entries).map(entry => lineHTML(entry)).join('');
+                lineBox.replaceChildren(linesOf(drawOrder(logs.entries)));
 
                 applyFilters();
 
@@ -336,7 +368,7 @@ export function logsPage(Words: LogsWords = {}): Page {
                     const now    = filter();
                     const wanted = batch.map(entry => matches(entry, now));
 
-                    lineBox.insertAdjacentHTML('afterbegin', batch.map((entry, index) => lineHTML(entry, !wanted[index])).join(''));
+                    lineBox.prepend(linesOf(batch, index => !wanted[index]));
 
                     const any = wanted.some(yes => yes);
 
@@ -411,7 +443,14 @@ export function logsPage(Words: LogsWords = {}): Page {
                 counts.textContent = countsText(shown, logs.entries.length, logs.capacity);
             }
 
-            /** The tag buttons, redrawn only when the node has learned a new tag. */
+            /**
+             * The tag buttons, drawn only when the node has learned a new tag
+             * or one was switched. Drawn by view.ts, by the tag: the button
+             * somebody switched, or moved to with the keyboard, is the same
+             * button after the draw, and keeps the focus - drawn anew with
+             * innerHTML, it was gone, and the focus with it, at every switch
+             * and at every tag the node learned while it was there.
+             */
             function drawTags(): void {
 
                 const all = [...new Set([...logLevels, ...logs.tags])].sort();
@@ -430,12 +469,31 @@ export function logsPage(Words: LogsWords = {}): Page {
 
                 renderedTags = key;
 
-                tagBox.innerHTML = all.map(tag =>
-                    `<button type="button" class="chip tag-button ${chosenTags.has(tag) ? 'on' : ''}" data-tag="${escapeHTML(tag)}" aria-pressed="${chosenTags.has(tag)}">${escapeHTML(tag)}</button>`
-                ).join('') +
-                (chosenTags.size > 0
-                     ? '<button type="button" class="chip tag-button clear-tags" data-tag="">all tags</button>'
-                     : '');
+                render(tagBox, html`
+                    ${repeat(all, tag => tag, tag => html`
+                        <button type="button" class="chip tag-button ${chosenTags.has(tag) ? 'on' : ''}" data-tag="${tag}"
+                                aria-pressed="${chosenTags.has(tag)}" @click=${() => switchTag(tag)}>${tag}</button>
+                    `)}
+                    ${chosenTags.size > 0
+                          ? html`<button type="button" class="chip tag-button clear-tags" data-tag="" @click=${() => switchTag('')}>all tags</button>`
+                          : ''}
+                `);
+
+            }
+
+            /** A tag switched on or off, or every tag, for '' - all of them again. */
+            function switchTag(Tag: string): void {
+
+                if (Tag === '')
+                    chosenTags.clear();
+                else if (chosenTags.has(Tag))
+                    chosenTags.delete(Tag);
+                else
+                    chosenTags.add(Tag);
+
+                renderedTags = '';
+                applyFilters();
+                drawTags();
 
             }
 
@@ -447,28 +505,6 @@ export function logsPage(Words: LogsWords = {}): Page {
 
 
             // Events
-
-            tagBox.addEventListener('click', event => {
-
-                const button = (event.target as Element | null)?.closest<HTMLElement>('.tag-button');
-
-                if (!button)
-                    return;
-
-                const tag = button.dataset.tag ?? '';
-
-                if (tag === '')
-                    chosenTags.clear();
-                else if (chosenTags.has(tag))
-                    chosenTags.delete(tag);
-                else
-                    chosenTags.add(tag);
-
-                renderedTags = '';
-                applyFilters();
-                drawTags();
-
-            });
 
             search  .addEventListener('input',  () => applyFilters());
             level   .addEventListener('change', () => applyFilters());
@@ -499,7 +535,7 @@ export function logsPage(Words: LogsWords = {}): Page {
                         break;
 
                     case 'error':
-                        errorNote.innerHTML = `<span class="message">${escapeHTML(event.text)}</span>`;
+                        errorNote.replaceChildren(span('message', event.text));
                         errorNote.hidden    = false;
                         // The store says why it stopped after it stopped, and
                         // the state beside the heading goes with what it says.
