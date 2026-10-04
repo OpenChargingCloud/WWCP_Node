@@ -22,8 +22,53 @@ const api = nodeAPI();
 const largestImport = 1024 * 1024;
 
 
+/** What a kind of node says in a place of the page: a fragment of html.ts, or a template of view.ts. */
+export type Said = HTMLFragment | TemplateResult;
+
+/** What a kind of node says about one kind of certificate: its card's heading, icon and hint, and what a certificate of it is for. */
+export interface KindWords {
+    /** The card's heading; the store's description of the kind where this is left out. */
+    title?:  string;
+    /** A Font Awesome class for the card's heading. */
+    icon?:   string;
+    /** Said under the heading. */
+    hint?:   Said;
+    /** Said in the dialog that says what one of this kind is for. */
+    uses?:   Said;
+}
+
+/** What a section of a kind of node's own on this page gets to work with. */
+export interface SectionContext<S extends CertificateStore = CertificateStore> {
+    /** The store as the node last said it. */
+    store():     S;
+    /** Whether the person signed in may change the store. */
+    mayChange:   boolean;
+    /** Draw the page again from what is known, after something of the section's own changed. */
+    draw():      void;
+    /** Ask the node for the store, and every section for its own, again - and draw. */
+    reload():    Promise<void>;
+}
+
+/**
+ * A part of the page a kind of node adds: a card or several, at the end of
+ * one of the three groups - the meter's signing requests below what it
+ * presents, the roles its clients may have below what it believes.
+ */
+export interface CertificatesSection<S extends CertificateStore = CertificateStore> {
+    /** At the end of which group it stands. */
+    below:  'believes' | 'presents' | 'recognises';
+    /**
+     * What it needs beside the store, asked whenever the store is: as the
+     * page is loaded, and after every change. A refusal is the page's: it
+     * says it could not be loaded, as for the store.
+     */
+    load?():  Promise<unknown>;
+    /** The section, drawn with the page - by comparing, so that what is typed into it outlives the rest being drawn. */
+    draw(store: S):  TemplateResult;
+}
+
 /** What a kind of node says on its certificates page beyond what every node says. */
-export interface CertificatesOptions {
+export interface CertificatesOptions<S extends CertificateStore = CertificateStore> {
 
     /** "Certificate store" where a kind has a page called "Server certificates" as well. */
     title?:         string;
@@ -31,11 +76,14 @@ export interface CertificatesOptions {
 
     /** What a kind says under each of the three groups, and what an unencrypted key lets somebody do. */
     hints?:         {
-                        believes?:     HTMLFragment;
-                        presents?:     HTMLFragment;
-                        recognises?:   HTMLFragment;
-                        unencrypted?:  HTMLFragment;
+                        believes?:     Said;
+                        presents?:     Said;
+                        recognises?:   Said;
+                        unencrypted?:  Said;
                     };
+
+    /** What a kind of node calls each kind of certificate, the icon and hint of its card, and what one of it is for. */
+    kinds?:         Record<string, KindWords>;
 
     /** What a usage is called where the node's word is not the one to show: a meter's "modbus" and "web". */
     usageNames?:    Record<string, string>;
@@ -48,6 +96,15 @@ export interface CertificatesOptions {
 
     /** How soon a certificate is worth warning about, in days: 30 unless a kind says otherwise. */
     expiringSoon?:  number;
+
+    /** What is to be said at the top of the page, from what the store says: a listener with nothing to show, say. */
+    notices?(store: S):  Said[];
+
+    /** What else a certificate's row says, as chips beside its name: where an identity is shown now, and where next. */
+    rowChips?(entry: Certificate, store: S):  Said[];
+
+    /** The sections a kind of node adds, made anew whenever the page is opened, so that what they keep is the page's. */
+    sections?(context: SectionContext<S>):  CertificatesSection<S>[];
 
 }
 
@@ -131,8 +188,14 @@ export function believedHint(NodeName:      string,
  * changes only what differs, so that the import above the cards, half filled
  * in, keeps its file, its kind and its label - a switch clicked below it used
  * to take them with it.
+ *
+ * A kind of node says what it calls its kinds and what their cards add
+ * (kinds), what the top of the page is to say (notices), what a row says
+ * beside a certificate's name (rowChips), and what sections it adds of its
+ * own (sections) - the energy meter its signing requests and its clients'
+ * roles, which had kept a page of 1258 lines of its own for them.
  */
-export function certificatesPage(Options: CertificatesOptions = {}): Page {
+export function certificatesPage<S extends CertificateStore = CertificateStore>(Options: CertificatesOptions<S> = {}): Page {
 
     const title         = Options.title ?? 'Certificates';
     const expiringSoon  = Options.expiringSoon ?? 30;
@@ -163,10 +226,29 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
             const mayChange = auth.can('certificates', 'edit');
 
             let cancelled = false;
-            let current: CertificateStore | null = null;
+            let current: S | null = null;
 
             /** The kind the import is for; undefined for the first one, as the form is drawn. */
             let importKind: string | undefined;
+
+            /** What the kind of node adds, for as long as the page is open. */
+            const sections = Options.sections?.({
+                                 store:      () => current!,
+                                 mayChange,
+                                 draw:       () => draw(),
+                                 reload:     () => reloadKinds()
+                             }) ?? [];
+
+            /** The store, and what every section needs beside it - asked together. */
+            async function fetched(): Promise<S> {
+                const [ store ] = await Promise.all([ api.certificates.get() as Promise<S>, ...sections.map(section => section.load?.()) ]);
+                return store;
+            }
+
+            /** The sections at the end of one group. */
+            function sectionsBelow(group: CertificatesSection['below'], store: S): TemplateResult[] {
+                return sections.filter(section => section.below === group).map(section => section.draw(store));
+            }
 
 
             /** The whole page, from what the node last said. */
@@ -191,6 +273,8 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                             ${mayButNot('look at the store', 'change it')}
                         </div>
                     `}
+
+                    ${(Options.notices?.(store) ?? []).map(notice => html`<div class="notice">${notice}</div>`)}
 
                     <section class="card">
                         <h2><i class="fa-solid fa-certificate"></i> The store</h2>
@@ -218,8 +302,8 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
             }
 
 
-            /** The three groups of the store, each kind a card. */
-            function kindsView(store: CertificateStore): TemplateResult {
+            /** The three groups of the store, each kind a card - and the sections the kind of node adds, each at the end of its group. */
+            function kindsView(store: S): TemplateResult {
 
                 return html`
 
@@ -228,6 +312,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                         ${Options.hints?.believes ?? believedHint(config.nodeName, store.trustAnchors)}
                     </p>
                     ${repeat(store.trustAnchors, kind => kind, kind => kindCard(kind))}
+                    ${sectionsBelow('believes', store)}
 
                     <h2>What this ${config.nodeName} presents</h2>
                     <p class="hint">
@@ -237,6 +322,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                         `}
                     </p>
                     ${repeat(store.credentials, kind => kind, kind => kindCard(kind))}
+                    ${sectionsBelow('presents', store)}
 
                     ${store.recognised.length === 0 ? nothing : html`
                         <h2>What this ${config.nodeName} recognises</h2>
@@ -251,6 +337,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                         </p>
                         ${repeat(store.recognised, kind => kind, kind => kindCard(kind))}
                     `}
+                    ${sectionsBelow('recognises', store)}
 
                 `;
 
@@ -364,10 +451,13 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
                 const store    = current!;
                 const entries  = store.certificates[kind] ?? [];
+                const words    = Options.kinds?.[kind];
 
                 return html`
                     <section class="card" data-kind="${kind}">
-                        <h3>${store.kinds[kind]!.description}</h3>
+                        <h3>${words?.icon ? html`<i class="fa-solid ${words.icon}"></i> ` : nothing}${words?.title ?? store.kinds[kind]!.description}</h3>
+
+                        ${words?.hint ? html`<p class="hint">${words.hint}</p>` : nothing}
 
                         <div class="form-actions">
                             <span class="form-notice" role="status" data-note-of="${kind}"></span>
@@ -408,6 +498,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                 const state  = stateOf(entry, expiringSoon);
                 const usages = hasUsages(current!, entry.kind);
                 const off    = !mayChange;
+                const chips  = Options.rowChips?.(entry, current!) ?? [];
 
                 return html`
                     <tr>
@@ -417,10 +508,11 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                                 <span class="chip on" title="${mark.title}">${mark.label}</span>
                             `)}
                             <br /><code class="muted" title="SHA-256: ${entry.thumbprint}">${entry.id}</code>
+                            ${chips.length > 0 ? html`<br /><span class="chips row-chips">${chips}</span>` : nothing}
                             ${usages
                                   ? html`<br /><span class="chips usages-of">
                                              ${entry.usages === null || entry.usages === undefined
-                                                   ? html`<span class="chip">for every use</span>`
+                                                   ? html`<span class="chip">${current!.credentials.includes(entry.kind) ? 'on every listener' : 'for every use'}</span>`
                                                    : entry.usages.map(usage => html`<span class="chip">${usageName(usage, Options.usageNames)}</span>`)}
                                          </span>`
                                   : nothing}
@@ -516,7 +608,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                 if (cancelled)
                     return;
 
-                current    = await api.certificates.get();
+                current    = await fetched();
                 importKind = undefined;
 
                 draw();
@@ -626,7 +718,9 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
                             ${usagesFields(entry.kind, entry.usages)}
                         </fieldset>
 
-                        ${!services ? nothing : html`
+                        ${Options.kinds?.[entry.kind]?.uses
+                              ? html`<p class="hint">${Options.kinds[entry.kind]!.uses}</p>`
+                              : !services ? nothing : html`
                             <p class="hint">
                                 ${current!.trustAnchors.includes(entry.kind)
                                       ? html`A root kept for the time servers alone vouches for no name server, and the
@@ -713,12 +807,12 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
             }
 
 
-            /** The store again, and the page drawn again - the import above the cards left as it is. */
+            /** The store again, and what the sections need, and the page drawn again - the import above the cards left as it is. */
             async function reloadKinds(): Promise<void> {
 
                 try
                 {
-                    const loaded = await api.certificates.get();
+                    const loaded = await fetched();
 
                     if (cancelled)
                         return;
@@ -746,7 +840,9 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
                 try
                 {
-                    const loaded = await whileSaving(content, note, () => api.certificates.reload());
+                    const loaded = await whileSaving(content, note, () => api.certificates.reload()) as S;
+
+                    await Promise.all(sections.map(section => section.load?.()));
 
                     if (cancelled)
                         return;
@@ -769,7 +865,7 @@ export function certificatesPage(Options: CertificatesOptions = {}): Page {
 
                 try
                 {
-                    const loaded = await api.certificates.get();
+                    const loaded = await fetched();
 
                     if (!cancelled) {
                         current    = loaded;

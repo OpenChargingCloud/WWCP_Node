@@ -19,6 +19,7 @@ document.head.innerHTML = '<meta name="node-name" content="local controller">';
 const { believedHint, certificatesPage, marksOf, stateOf } = await import('./certificates.ts');
 const { auth }             = await import('../auth.ts');
 const { configureShell }   = await import('../shell.ts');
+const { html }             = await import('../view.ts');
 
 
 const now  = Date.parse('2026-09-29T12:00:00Z');
@@ -182,9 +183,11 @@ describe('the certificates page, drawn', () => {
         assert.ok(what(), said);
     }
 
-    async function opened(): Promise<HTMLElement> {
+    async function opened(options:  Parameters<typeof certificatesPage>[0] = {},
+                          shape:    (store: CertificateStore) => void = () => undefined): Promise<HTMLElement> {
 
         held         = aStore();
+        shape(held);
         refuse       = false;
         asked.length = 0;
 
@@ -194,9 +197,9 @@ describe('the certificates page, drawn', () => {
         const root = document.createElement('div');
         document.body.replaceChildren(root);
 
-        certificatesPage().render({ root, url: new URL('http://127.0.0.1/configuration/certificates'), params: {}, navigate: () => undefined } as never);
+        certificatesPage(options).render({ root, url: new URL('http://127.0.0.1/configuration/certificates'), params: {}, navigate: () => undefined } as never);
 
-        await until(() => root.querySelector('#import-form') !== null, 'the page did not draw its import');
+        await until(() => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null, 'the page did not draw');
 
         return root;
 
@@ -312,6 +315,179 @@ describe('the certificates page, drawn', () => {
 
         assert.equal(label(root).value, 'mistyped');
         assert.equal(kind(root).value,  'tlsIdentity');
+
+    });
+
+});
+
+
+describe('the certificates page, as a kind of node adds to it', () => {
+
+    let held: CertificateStore;
+    let loads = 0;
+    let refuseTheSection = false;
+
+    const anIdentity = certificate({ id: 'cccccccccccccccc', kind: 'tlsIdentity', label: 'Meter A', usages: null });
+
+    const aStore = (): CertificateStore => ({
+        directory:           'certs',
+        trustAnchors:        [ 'tlsRoot' ],
+        credentials:         [ 'tlsIdentity' ],
+        recognised:          [],
+        kinds:               { tlsRoot:      { description: 'TLS roots',    usages: [ 'dns', 'nts' ] },
+                               tlsIdentity:  { description: 'TLS identity', usages: [ 'modbus', 'web' ] } },
+        usages:              [],
+        certificates:        { tlsRoot: [ certificate({ id: 'aaaaaaaaaaaaaaaa', kind: 'tlsRoot', label: 'Root A', hasPrivateKey: false }) ],
+                               tlsIdentity: [ { ...anIdentity } ] },
+        keysAreUnencrypted:  false,
+        // What a meter's store says beyond every node's.
+        listeners:           [ 'modbus' ]
+    } as unknown as CertificateStore);
+
+    const answer = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+    const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
+
+    async function until(what: () => boolean, said: string): Promise<void> {
+        for (let i = 0; i < 200 && !what(); i++)
+            await wait(5);
+        assert.ok(what(), said);
+    }
+
+    async function opened(options: Parameters<typeof certificatesPage>[0]): Promise<HTMLElement> {
+
+        held             = aStore();
+        loads            = 0;
+        refuseTheSection = false;
+
+        globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+            if ((init?.method ?? 'GET') === 'PATCH') {
+                const entry = held.certificates['tlsRoot']![0]!;
+                entry.active = JSON.parse(String(init!.body)).active ?? entry.active;
+                return answer(entry);
+            }
+            if (String(input).endsWith('/certificates') || String(input).endsWith('/certificates/reload'))
+                return answer(held);
+            return answer({}, 404);
+        }) as typeof fetch;
+
+        configureShell({ name: 'Test node', icon: 'fa-gear', menu: [] });
+        auth.set({ username: 'alice', roles: [ 'admin' ], permissions: [ 'certificates:read', 'certificates:edit' ], mayReadTheLog: false } as never);
+
+        const root = document.createElement('div');
+        document.body.replaceChildren(root);
+
+        certificatesPage(options).render({ root, url: new URL('http://127.0.0.1/configuration/certificates'), params: {}, navigate: () => undefined } as never);
+
+        await until(() => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null, 'the page did not draw');
+
+        return root;
+
+    }
+
+    const card = (root: HTMLElement, kind: string) => root.querySelector<HTMLElement>(`section[data-kind="${kind}"]`)!;
+
+
+    it('names a kind, with its icon and its hint, as the kind of node calls it, and says in the dialog what one is for', async () => {
+
+        const root = await opened({ kinds: { tlsIdentity: { title: 'TLS identities', icon: 'fa-id-card',
+                                                            hint: html`Shown to <strong>charging stations</strong>.`,
+                                                            uses: html`A listener only ever shows an identity that is for it.` } } });
+
+        const heading = card(root, 'tlsIdentity').querySelector('h3')!;
+
+        assert.equal(heading.textContent!.trim(), 'TLS identities');
+        assert.ok(heading.querySelector('i.fa-id-card') !== null, 'the icon is not in the heading');
+        assert.equal(card(root, 'tlsIdentity').querySelector('p.hint strong')?.textContent, 'charging stations', 'the hint is not drawn as markup');
+        assert.equal(card(root, 'tlsRoot').querySelector('h3')!.textContent!.trim(), 'TLS roots', 'a kind not named lost the store\'s description');
+
+        root.querySelector<HTMLButtonElement>('[data-usages="cccccccccccccccc"]')!.click();
+        await until(() => document.querySelector('dialog #usages-form') !== null, 'the dialog did not open');
+        assert.match(document.querySelector('dialog')!.textContent!, /A listener only ever shows an identity that is for it\./);
+        document.querySelector('dialog')!.remove();
+
+    });
+
+    it('says what the kind of node has to say at the top, and beside a certificate\'s name', async () => {
+
+        const root = await opened({
+            notices:   store => (store as CertificateStore & { listeners: string[] }).listeners.map(listener => html`The ${listener} listener has nothing to show.`),
+            rowChips:  entry => entry.kind === 'tlsIdentity' ? [ html`<span class="chip ok">shown on Modbus/TLS</span>` ] : []
+        });
+
+        assert.ok([ ...root.querySelectorAll('.notice') ].some(notice => notice.textContent!.trim() === 'The modbus listener has nothing to show.'),
+                  'the notice is not at the top');
+        assert.equal(card(root, 'tlsIdentity').querySelector('.row-chips .chip.ok')?.textContent, 'shown on Modbus/TLS');
+        assert.equal(card(root, 'tlsRoot').querySelector('.row-chips'), null, 'a row with nothing to add has a line for it');
+        assert.equal(card(root, 'tlsIdentity').querySelector('.usages-of .chip')?.textContent, 'on every listener',
+                     'an identity for every listener is said to be for every use');
+
+    });
+
+    it('draws a section at the end of its group, asks for what it needs with the store, and keeps what is typed into it', async () => {
+
+        let shownAt = 0;
+
+        const root = await opened({
+            sections: context => [ {
+                below:  'presents',
+                load:   async () => { loads++; shownAt = loads; },
+                draw:   () => html`
+                    <section class="card" id="requests">
+                        <h2>Signing requests, loaded ${shownAt} time(s)</h2>
+                        <form id="request-form"><input name="subject" /></form>
+                        <button type="button" id="again" @click=${() => void context.reload()}>again</button>
+                        ${context.mayChange ? html`<span id="may">may</span>` : ''}
+                    </section>`
+            } ]
+        });
+
+        const section = root.querySelector('#requests')!;
+
+        assert.ok(card(root, 'tlsIdentity').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING,
+                  'the section is not below what the node presents');
+        assert.equal(loads, 1, 'what the section needs was not asked for with the store');
+        assert.ok(root.querySelector('#may') !== null, 'the section was not told the person may change the store');
+
+        const subject = root.querySelector<HTMLInputElement>('#request-form [name="subject"]')!;
+        subject.value = 'CN=meter7.lan';
+        subject.focus();
+
+        root.querySelector<HTMLButtonElement>('[data-toggle="aaaaaaaaaaaaaaaa"]')!.click();
+        await until(() => loads === 2 && root.querySelector('[data-toggle="aaaaaaaaaaaaaaaa"]')?.textContent?.trim() === 'Switch on',
+                    'the section was not asked again with the store after a change');
+
+        assert.ok(root.querySelector('#request-form [name="subject"]') === subject, 'the section\'s field was made anew');
+        assert.equal(subject.value, 'CN=meter7.lan');
+        assert.ok(document.activeElement === subject, 'the focus went');
+        assert.match(root.querySelector('#requests h2')!.textContent!, /loaded 2 time/);
+
+        root.querySelector<HTMLButtonElement>('#again')!.click();
+        await until(() => loads === 3, 'the section could not ask for the store and its own again');
+
+        root.querySelector<HTMLButtonElement>('#rescan')!.click();
+        await until(() => loads === 4 && (root.querySelector('#store-note')?.textContent ?? '').startsWith('The directory was read again'),
+                    'the section was not asked again when the directory was read again');
+
+    });
+
+    it('says the page could not be loaded where what a section needs could not be', async () => {
+
+        const root = await opened({
+            sections: () => [ { below: 'believes', load: async () => { throw new Error('no requests'); }, draw: () => html`<p id="never"></p>` } ]
+        });
+
+        assert.match(root.querySelector('.error-box')?.textContent ?? '', /could not be loaded: no requests/);
+        assert.equal(root.querySelector('#never'), null);
+
+    });
+
+    it('takes a template of view.ts for what it says under a group, as well as a fragment of html.ts', async () => {
+
+        const root = await opened({ hints: { believes: html`Roots <em>this meter</em> believes.` } });
+
+        assert.ok([ ...root.querySelectorAll('p.hint em') ].some(em => em.textContent === 'this meter'), 'the hint is not drawn as markup');
 
     });
 
