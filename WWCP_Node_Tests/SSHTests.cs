@@ -655,118 +655,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region TheFilesOfKeysAreTakenOverOnce
-
-        /// <summary>
-        /// The files below accounts/ssh, where the keys were kept before, are
-        /// taken over at a start: each line to its account, with its options and
-        /// who let it in - a line that cannot be held to with a warning - and the
-        /// file put aside as .imported, never to be read again. A file of keys
-        /// handed in later is taken over too, beside the first, without a key
-        /// twice; a file that names no account lets nobody in.
-        /// </summary>
-        [Test]
-        public async Task TheFilesOfKeysAreTakenOverOnce()
-        {
-
-            var first      = await Started();
-            var files      = first.SSHKeyFilesPath;
-
-            await first.DisposeAsync();
-
-            var kept       = SshHostKey.GenerateEd25519();
-            var refused    = SshHostKey.GenerateEd25519();
-            var ghosts     = SshHostKey.GenerateEd25519();
-            var appended   = SshHostKey.GenerateEd25519();
-            var later      = SshHostKey.GenerateEd25519();
-
-            var keptLine   = $"from=\"127.0.0.1\" {PublicKeyLine(kept)}";
-            var root       = User_Id.Parse(WWCPNode.DefaultAdminUser);
-
-            Directory.CreateDirectory(files);
-
-            File.WriteAllText(Path.Combine(files, WWCPNode.DefaultAdminUser),
-                              $"# root's keys\n\n{keptLine}\npermitopen=\"10.0.0.1:80\" {PublicKeyLine(refused)}\n");
-
-            File.WriteAllText(Path.Combine(files, "ghost"), PublicKeyLine(ghosts) + "\n");
-
-            var log        = new EventLog();
-            var said       = new List<String>();
-
-            log.OnLogged += entry => { lock (said) said.Add(entry.Message); };
-
-            var second     = await Started(log);
-            var taken      = second.ExtAPI.FindSSHKey(root, kept.PublicKeyBlob, DateTimeOffset.UtcNow);
-
-            Assert.Multiple(() => {
-
-                Assert.That(taken,                                                                     Is.Not.Null, "not taken over");
-                Assert.That(taken?.Line,                                                               Is.EqualTo(keptLine), "not as it stood");
-                Assert.That(taken?.Key.Restrictions.SourceAddresses,                                   Is.Not.Null.And.Not.Empty, "from= is lost");
-                Assert.That(taken?.CreatedBy,                                                          Is.EqualTo("the take-over of ssh/root"));
-                Assert.That(second.ExtAPI.FindSSHKey(root, refused.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Null, "a line that cannot be held to");
-
-                Assert.That(File.Exists(Path.Combine(files, WWCPNode.DefaultAdminUser)),               Is.False, "root's file is still there");
-                Assert.That(File.Exists(Path.Combine(files, "root.imported")),                         Is.True,  "root's file is not put aside");
-                Assert.That(File.Exists(Path.Combine(files, "ghost")),                                 Is.False, "the ghost's file is still there");
-                Assert.That(File.Exists(Path.Combine(files, "ghost.imported")),                        Is.True,  "the ghost's file is not put aside");
-
-                lock (said)
-                {
-                    Assert.That(said, Has.Some.StartsWith("Line 4 of 'ssh/root' is not taken over, and lets nobody in:").
-                                          And.Some.Contains("'permitopen' cannot be held to"));
-                    Assert.That(said, Has.Some.StartsWith("The file of SSH keys 'ssh/ghost' names no account of this WWCP node"));
-                    Assert.That(said, Has.Some.EqualTo($"'root' keeps the SSH key {SshFingerprint.Sha256(kept.PublicKeyBlob)} from 'ssh/root', line 3, with its account now."));
-                }
-
-            });
-
-            await using (await SignIn(second, WWCPNode.DefaultAdminUser, kept)) { }
-
-            Assert.That(async () => await SignIn(second, "ghost", ghosts), Throws.InstanceOf<SshAuthenticationException>(), "the ghost's key");
-
-            // Written to the file put aside, a key is read by nobody: not at a
-            // sign-in, not at the next start.
-            File.AppendAllText(Path.Combine(files, "root.imported"), PublicKeyLine(appended) + "\n");
-
-            Assert.That(async () => await SignIn(second, WWCPNode.DefaultAdminUser, appended), Throws.InstanceOf<SshAuthenticationException>(), "read at a sign-in");
-
-            await second.DisposeAsync();
-
-            // A file handed in later, with a key there already.
-            File.WriteAllText(Path.Combine(files, WWCPNode.DefaultAdminUser), $"{keptLine}\n{PublicKeyLine(later)}\n");
-
-            var third      = await Started();
-
-            Assert.Multiple(() => {
-                Assert.That(third.ExtAPI.FindSSHKey(root, appended.PublicKeyBlob, DateTimeOffset.UtcNow),           Is.Null,     "the file put aside was read again");
-                Assert.That(third.ExtAPI.FindSSHKey(root, later.   PublicKeyBlob, DateTimeOffset.UtcNow),           Is.Not.Null, "the file handed in later is not taken over");
-                Assert.That(third.ExtAPI.GetSSHKeys(root).Count(key => key.Fingerprint == taken!.Fingerprint),      Is.EqualTo(1), "a key twice");
-                Assert.That(Directory.GetFiles(files).Select(Path.GetFileName).Order(StringComparer.Ordinal),
-                            Has.Exactly(3).Items.
-                            And.Exactly(1).Matches<String>(name => name == "ghost.imported").
-                            And.Exactly(1).Matches<String>(name => name == "root.imported").
-                            And.Exactly(1).Matches<String>(name => System.Text.RegularExpressions.Regex.IsMatch(name, @"^root\.\d{17}\.imported$")),
-                            "the second file is not put aside beside the first");
-            });
-
-            await third.DisposeAsync();
-
-            // Nothing is left over for the start after: no warning, no file.
-            var fourthLog  = new EventLog();
-            var fourthSaid = new List<String>();
-
-            fourthLog.OnLogged += entry => { lock (fourthSaid) fourthSaid.Add(entry.Message); };
-
-            await Started(fourthLog);
-
-            lock (fourthSaid)
-                Assert.That(fourthSaid, Has.None.Contains("ssh/"), "a file put aside is taken for one to take over");
-
-        }
-
-        #endregion
-
         #region TheSwitchesSayWhatTheyShould
 
         /// <summary>
@@ -879,8 +767,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser))[0].CreatedBy,                       Is.EqualTo("the first start"));
                 Assert.That(said,     Has.Some.Contains(made.Fingerprint), "the log does not name the key made up");
                 Assert.That(secret,   Is.Not.Empty);
-                Assert.That(secret,   Has.None.Matches<String>(line => said.Any(message => message.Contains(line))), "the private key is in the log");
-                Assert.That(secret,   Has.None.Matches<String>(line => written.Contains(line)),                       "the private key was written to disk");
+                Assert.That(secret,   Has.None.Matches<String>(line => line is not null && said.Any(message => message.Contains(line))), "the private key is in the log");
+                Assert.That(secret,   Has.None.Matches<String>(line => line is not null && written.Contains(line)),                       "the private key was written to disk");
             });
 
             await using (await SignIn(node, WWCPNode.DefaultAdminUser, key)) { }

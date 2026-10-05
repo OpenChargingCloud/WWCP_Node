@@ -2317,10 +2317,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // nobody behind it.
             await EnsureAccounts();
 
-            // The files of keys the accounts had before their keys were kept
-            // with them, taken over once - before anything asks who has a key.
-            await TakeOverSSHKeyFiles();
-
             // The keys the command line brought, now that the accounts are
             // known and before anybody can connect: the SSH server's first
             // word about who can sign in is then already true.

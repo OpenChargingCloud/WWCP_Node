@@ -41,12 +41,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <c>expiry-time="20271231"</c> in front of a key hold as OpenSSH holds
     /// them, and a line with an option that cannot be held to is refused.
     /// </para>
-    /// <para>
-    /// They were kept in a file per account, <c>accounts/ssh/&lt;account&gt;</c>,
-    /// read at every sign-in. A node takes such a file over once, at its start,
-    /// and renames it to <c>&lt;account&gt;.imported</c>: from then on it is
-    /// not read, and a key written into a file by hand opens nothing.
-    /// </para>
     /// </remarks>
     public static class AuthorizedKeysStore
     {
@@ -54,21 +48,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         #region Data
 
         /// <summary>
-        /// Where the files of the keys were, below the accounts' directory.
+        /// What an account's name may be made of: no separator, no dot at the
+        /// start, nothing that could be read as a path or as something else.
         /// </summary>
-        public const String DefaultDirectoryName  = "ssh";
-
-        /// <summary>
-        /// What a file taken over is renamed to end with.
-        /// </summary>
-        public const String ImportedSuffix        = ".imported";
-
-        /// <summary>
-        /// What an account's name may be made of to be a file's: no separator,
-        /// no dot at the start, nothing a file system could read as something
-        /// else.
-        /// </summary>
-        private static readonly Regex fileName = new ("^[A-Za-z0-9_@+-][A-Za-z0-9._@+-]{0,127}$", RegexOptions.Compiled);
+        private static readonly Regex accountName = new ("^[A-Za-z0-9_@+-][A-Za-z0-9._@+-]{0,127}$", RegexOptions.Compiled);
 
         #endregion
 
@@ -76,12 +59,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         #region (static) IsAccountName(Account)
 
         /// <summary>
-        /// Whether the given name can be an account's - and the name of a file
-        /// of keys it had.
+        /// Whether the given name can be an account's.
         /// </summary>
         public static Boolean IsAccountName(String Account)
 
-            => fileName.IsMatch(Account);
+            => accountName.IsMatch(Account);
 
         #endregion
 

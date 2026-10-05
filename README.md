@@ -649,14 +649,6 @@ the console's alone. The console names the account, and may do everything.
 Every key let in or taken out is in the log, tagged `security`, naming who
 did it.
 
-Before the keys were kept with the account they were kept in a file per
-account, `accounts/ssh/<account>`. A start takes such a file over: each line
-to its account, with "the take-over of ssh/<account>" as who let it in, a
-line that cannot be held to with a warning, and the file is renamed to
-`<account>.imported` - after which nobody reads it. A file handed in later is
-taken over the same way, beside the first; a key there already is not added
-twice. To let a key in, use `sshKeys` or `--authorize-ssh-key`, not the file.
-
 **At a first start, bring `root` a key of your own** - this is the way
 recommended:
 

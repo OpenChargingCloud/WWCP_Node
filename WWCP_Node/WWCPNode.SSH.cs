@@ -54,9 +54,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// its keys - kept with the account in the HTTPExt API, where the sshKeys
     /// command and the routes below /ext add and remove them - and may do there
     /// what its roles let it do on the web interface. A node none of whose
-    /// accounts has a key yet listens, and lets nobody in. Files of keys below
-    /// the accounts, where they were kept before, are taken over once - see
-    /// <see cref="AuthorizedKeysStore"/>.
+    /// accounts has a key yet listens, and lets nobody in.
     /// </para>
     /// <para>
     /// The node presents itself with a host key of its own, made at the first
@@ -129,13 +127,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// server has started.
         /// </summary>
         public String?              SSHHostKey              { get; private set; }
-
-        /// <summary>
-        /// Where the files of keys were, one per account, before the keys were
-        /// kept with the accounts: taken over once, and renamed, at a start.
-        /// </summary>
-        public String               SSHKeyFilesPath
-            => Path.Combine(AccountsPath, AuthorizedKeysStore.DefaultDirectoryName);
 
         /// <summary>
         /// The SSH key made up for the first account at a first start, its
@@ -274,7 +265,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// key - --authorize-ssh-key root=&lt;file.pub&gt; - so that the private key
         /// never leaves the machine it was made on and no console ever shows
         /// it. Where the command line did, no key is made up here; nor where the
-        /// account had a key already - taken over from an earlier file of keys.
+        /// account had a key already.
         /// </para>
         /// </remarks>
         private async Task GiveTheFirstAccountAKey()
@@ -337,130 +328,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
             => User_Id.TryParse(Account) is User_Id userId && ExtAPI.TryGetUser(userId, out var user) && user is not null
                    ? ExtAPI.AddSSHKey(user, Line, CreatedBy: CreatedBy)
                    : Task.FromResult(new AddSSHKeyResult(AddSSHKeyOutcome.UnknownUser, null, $"This {Kind.Name} has no account '{Account}'."));
-
-        #endregion
-
-        #region (private) TakeOverSSHKeyFiles()
-
-        /// <summary>
-        /// The files of keys below the accounts, where the keys were kept before
-        /// they were kept with their account: each line of each is added to its
-        /// account - with "the take-over of ssh/&lt;account&gt;" as who
-        /// let it in - a line that cannot be held to is said in the log, and the
-        /// file is renamed to &lt;account&gt;.imported, after which it is never
-        /// read again.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Once: a file renamed is not taken over again, and a key there already
-        /// is not added twice - a start that stopped half way through a file
-        /// takes the rest of it over at the next.
-        /// </para>
-        /// <para>
-        /// A file of a name that is no account of this node is renamed too, with
-        /// a warning: it let nobody in before, and it lets nobody in now.
-        /// </para>
-        /// </remarks>
-        private async Task TakeOverSSHKeyFiles()
-        {
-
-            if (!Directory.Exists(SSHKeyFilesPath))
-                return;
-
-            foreach (var file in Directory.EnumerateFiles(SSHKeyFilesPath).Order(StringComparer.Ordinal).ToArray())
-            {
-
-                var account = Path.GetFileName(file);
-
-                if (!AuthorizedKeysStore.IsAccountName(account) ||
-                    account.EndsWith(AuthorizedKeysStore.ImportedSuffix, StringComparison.Ordinal))
-                    continue;
-
-                var from = $"{AuthorizedKeysStore.DefaultDirectoryName}/{account}";
-
-                if (User_Id.TryParse(account) is not User_Id userId || !ExtAPI.TryGetUser(userId, out var user) || user is null)
-                {
-
-                    Log.Warning($"The file of SSH keys '{from}' names no account of this {Kind.Name}: it let nobody in, and is put aside as {account}{AuthorizedKeysStore.ImportedSuffix}.",
-                                "ssh", "auth");
-
-                }
-
-                else
-                {
-
-                    String text;
-
-                    try
-                    {
-                        text = File.ReadAllText(file);
-                    }
-                    catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
-                    {
-                        Log.Warning($"The file of SSH keys '{from}' could not be read, and is left where it is: {problem.Message}", "ssh", "auth");
-                        continue;
-                    }
-
-                    var number = 0;
-
-                    foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
-                    {
-
-                        number++;
-
-                        var line = raw.Trim();
-
-                        if (line.Length == 0 || line.StartsWith('#'))
-                            continue;
-
-                        var added = await ExtAPI.AddSSHKey(user,
-                                                           line,
-                                                           CreatedBy: $"the take-over of {from}");
-
-                        switch (added.Outcome)
-                        {
-
-                            case AddSSHKeyOutcome.Added:
-                                Log.Notice($"'{account}' keeps the SSH key {added.SSHKey!.Fingerprint} from '{from}', line {number}, with its account now.",
-                                           "ssh", "auth", "security");
-                                break;
-
-                            case AddSSHKeyOutcome.AlreadyThere:
-                                break;
-
-                            default:
-                                Log.Warning($"Line {number} of '{from}' is not taken over, and lets nobody in: {added.Reason}",
-                                            "ssh", "auth", "security");
-                                break;
-
-                        }
-
-                    }
-
-                }
-
-                try
-                {
-
-                    // Beside one put aside before, with the time in front of the
-                    // suffix - which is what keeps it from being read again.
-                    var aside = file + AuthorizedKeysStore.ImportedSuffix;
-
-                    if (File.Exists(aside))
-                        aside = $"{file}.{TimeProvider.GetUtcNow():yyyyMMddHHmmssfff}{AuthorizedKeysStore.ImportedSuffix}";
-
-                    File.Move(file, aside);
-
-                }
-                catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
-                {
-                    Log.Warning($"'{from}' could not be put aside, and will be taken over again at the next start - which adds no key twice: {problem.Message}",
-                                "ssh", "auth");
-                }
-
-            }
-
-        }
 
         #endregion
 
