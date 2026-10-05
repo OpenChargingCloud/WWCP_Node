@@ -52,7 +52,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             var key = SshHostKey.GenerateEd25519();
 
-            Assert.That(Node.SSHKeys.TryAuthorize(AdminLogin, SshPublicKey.FromHostKey(key).ToAuthorizedKeyLine(), out _, out var refused), Is.True, refused);
+            var added = await Node.AuthorizeSSHKey(AdminLogin, SshPublicKey.FromHostKey(key).ToAuthorizedKeyLine());
+
+            Assert.That(added.IsAdded, Is.True, added.Reason);
 
             return await SshClient.ConnectAsync("127.0.0.1",
                                                 Node.SSHPort!.Value.ToUInt16(),

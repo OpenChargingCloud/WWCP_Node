@@ -40,7 +40,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// </para>
     /// <para>
     /// Every question is asked again at every sign-in - the account, its roles,
-    /// its file of keys - and nothing is remembered between two of them.
+    /// its keys, which the HTTPExt API keeps with it - and nothing is
+    /// remembered between two of them: a key removed lets nobody in from that
+    /// moment on.
     /// </para>
     /// <para>
     /// A password opens nothing unless the node says it may, and never an
@@ -53,9 +55,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #region Data
 
-        private readonly WWCPNode             node;
-        private readonly AuthorizedKeysStore  keys;
-        private readonly Boolean              passwords;
+        private readonly WWCPNode  node;
+        private readonly Boolean   passwords;
 
         #endregion
 
@@ -71,18 +72,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         #region Constructor(s)
 
         /// <summary>
-        /// Who may sign in to the given node, with the keys of the given store.
+        /// Who may sign in to the given node, with the keys its accounts keep.
         /// </summary>
         /// <param name="Node">The node whose accounts these are.</param>
-        /// <param name="Keys">The keys each account may sign in with.</param>
         /// <param name="Passwords">Whether an account's password opens it as well.</param>
-        public NodeSSHAuthenticator(WWCPNode             Node,
-                                    AuthorizedKeysStore  Keys,
-                                    Boolean              Passwords)
+        public NodeSSHAuthenticator(WWCPNode  Node,
+                                    Boolean   Passwords)
         {
 
             this.node       = Node;
-            this.keys       = Keys;
             this.passwords  = Passwords;
 
             this.OfferedMethods = Passwords
@@ -101,8 +99,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                                                           CancellationToken        CancellationToken = default)
 
             => ValueTask.FromResult(
-                   AccountMaySignIn(Request.Username) is not null &&
-                   keys.Find(Request.Username, Request.PublicKeyBlob) is not null
+                   AccountMaySignIn(Request.Username) is IUser user &&
+                   node.ExtAPI.FindSSHKey(user.Id, Request.PublicKeyBlob, node.TimeProvider.GetUtcNow()) is not null
                );
 
         #endregion
@@ -110,14 +108,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         #region GetRestrictionsAsync(Request, CancellationToken)
 
         /// <summary>
-        /// What the line of the account's file that let the key in confines the
-        /// session to: where it may come from, and whether it gets a terminal.
+        /// What the authorized_keys line of the key that let the account in
+        /// confines the session to: where it may come from, and whether it gets
+        /// a terminal.
         /// </summary>
         public ValueTask<SshSessionRestrictions> GetRestrictionsAsync(SshPublicKeyAuthRequest  Request,
                                                                       CancellationToken        CancellationToken = default)
 
             => ValueTask.FromResult(
-                   keys.Find(Request.Username, Request.PublicKeyBlob)?.Restrictions
+                   (User_Id.TryParse(Request.Username) is User_Id userId
+                        ? node.ExtAPI.FindSSHKey(userId, Request.PublicKeyBlob, node.TimeProvider.GetUtcNow())?.Key.Restrictions
+                        : null)
                        ?? SshSessionRestrictions.None
                );
 

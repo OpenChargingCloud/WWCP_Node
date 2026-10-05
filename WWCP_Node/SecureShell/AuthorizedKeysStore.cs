@@ -18,7 +18,6 @@
 #region Usings
 
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
 using System.Text.RegularExpressions;
 
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
@@ -29,41 +28,40 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 {
 
     /// <summary>
-    /// The keys each account may sign in over SSH with: one file per account,
-    /// named after it, in the format of OpenSSH's <c>authorized_keys</c>.
+    /// What is read as SSH public keys: what somebody hands over - an
+    /// authorized_keys line, an OpenSSH .pub, or what PuTTYgen saves - and the
+    /// files the keys were kept in before they were kept with their account.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The format everybody already has a key in, and the one ssh-copy-id and
-    /// PuTTYgen's "Public key for pasting into OpenSSH authorized_keys file"
-    /// write - so a key can be put into an account's file by hand, and a key
-    /// that is taken out of it is gone. Options in front of a key are honoured
-    /// as OpenSSH honours them: <c>from="10.0.0.0/8"</c> confines it to where
-    /// it may come from, <c>expiry-time="20271231"</c> to until when, and an
-    /// option that cannot be enforced makes the whole line count for nothing
-    /// rather than be ignored.
+    /// The keys an account signs in with are the account's, in the HTTPExt API:
+    /// added and removed there, with who did it and when in the hash chain of
+    /// its database file, and gone with the account. Hermod reads the
+    /// authorized_keys line of each, so <c>from="10.0.0.0/8"</c> and
+    /// <c>expiry-time="20271231"</c> in front of a key hold as OpenSSH holds
+    /// them, and a line with an option that cannot be held to is refused.
     /// </para>
     /// <para>
-    /// A file is read at every sign-in, not at the start: a key put in works
-    /// at once, and a key taken out stops working at once - which is what
-    /// somebody who took out a key that leaked needs most.
-    /// </para>
-    /// <para>
-    /// Beside the accounts, and not beside the configuration file: who may sign
-    /// in with what is about the accounts, and goes where they go. An account
-    /// that is deleted takes its keys' power with it whether or not its file is
-    /// deleted too - a key opens nothing for an account that is not there.
+    /// They were kept in a file per account, <c>accounts/ssh/&lt;account&gt;</c>,
+    /// read at every sign-in. A node takes such a file over once, at its start,
+    /// and renames it to <c>&lt;account&gt;.imported</c>: from then on it is
+    /// not read, and a key written into a file by hand opens nothing.
     /// </para>
     /// </remarks>
-    public sealed class AuthorizedKeysStore
+    public static class AuthorizedKeysStore
     {
 
         #region Data
 
         /// <summary>
-        /// Where the files are below the accounts' directory.
+        /// Where the files of the keys were, below the accounts' directory.
         /// </summary>
-        public const String DefaultDirectoryName = "ssh";
+        public const String DefaultDirectoryName  = "ssh";
+
+        /// <summary>
+        /// What a file taken over is renamed to end with.
+        /// </summary>
+        public const String ImportedSuffix        = ".imported";
 
         /// <summary>
         /// What an account's name may be made of to be a file's: no separator,
@@ -74,135 +72,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #endregion
 
-        #region Properties
-
-        /// <summary>
-        /// The directory of the files.
-        /// </summary>
-        public String        Directory     { get; }
-
-        /// <summary>
-        /// The clock a key's validity is asked of.
-        /// </summary>
-        public TimeProvider  TimeProvider  { get; }
-
-        #endregion
-
-        #region Constructor(s)
-
-        /// <summary>
-        /// The keys kept in the given directory.
-        /// </summary>
-        /// <param name="Directory">Where the files are.</param>
-        /// <param name="TimeProvider">The clock; the system's by default.</param>
-        public AuthorizedKeysStore(String         Directory,
-                                   TimeProvider?  TimeProvider = null)
-        {
-            this.Directory     = Path.GetFullPath(Directory);
-            this.TimeProvider  = TimeProvider ?? TimeProvider.System;
-        }
-
-        #endregion
-
 
         #region (static) IsAccountName(Account)
 
         /// <summary>
-        /// Whether the given name can be an account's file - and so whether
-        /// anybody can sign in under it with a key at all.
+        /// Whether the given name can be an account's - and the name of a file
+        /// of keys it had.
         /// </summary>
         public static Boolean IsAccountName(String Account)
 
             => fileName.IsMatch(Account);
-
-        #endregion
-
-        #region FileOf(Account)
-
-        /// <summary>
-        /// The file of the given account's keys, or null for a name that cannot
-        /// be one.
-        /// </summary>
-        public String? FileOf(String Account)
-
-            => IsAccountName(Account)
-                   ? Path.Combine(Directory, Account)
-                   : null;
-
-        #endregion
-
-        #region Of(Account)
-
-        /// <summary>
-        /// The keys of the given account, as its file says now; none where it
-        /// has no file, or one that cannot be read.
-        /// </summary>
-        public IReadOnlyList<AuthorizedKey> Of(String Account)
-        {
-
-            var file = FileOf(Account);
-
-            if (file is null || !File.Exists(file))
-                return [];
-
-            try
-            {
-                return AuthorizedKeysFile.Parse(File.ReadAllText(file));
-            }
-            catch (IOException)
-            {
-                return [];
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return [];
-            }
-
-        }
-
-        #endregion
-
-        #region Find(Account, PublicKeyBlob)
-
-        /// <summary>
-        /// The entry of the given account's file that lets the given key in now,
-        /// or null: a plain key - not a certificate authority - that is the
-        /// same key and is within its validity.
-        /// </summary>
-        public AuthorizedKey? Find(String              Account,
-                                   ReadOnlySpan<Byte>  PublicKeyBlob)
-        {
-
-            var now = TimeProvider.GetUtcNow();
-
-            foreach (var key in Of(Account))
-                if (!key.IsCertAuthority && key.Matches(PublicKeyBlob) && key.IsValidAt(now))
-                    return key;
-
-            return null;
-
-        }
-
-        #endregion
-
-        #region AccountsWithKeys()
-
-        /// <summary>
-        /// The accounts that have at least one key in their file.
-        /// </summary>
-        public IReadOnlyList<String> AccountsWithKeys()
-        {
-
-            if (!System.IO.Directory.Exists(Directory))
-                return [];
-
-            return [.. System.IO.Directory.EnumerateFiles(Directory).
-                           Select(Path.GetFileName).
-                           OfType<String>().
-                           Where(account => IsAccountName(account) && Of(account).Count > 0).
-                           Order(StringComparer.Ordinal)];
-
-        }
 
         #endregion
 
@@ -254,9 +133,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                 if (line.Length == 0 || line.StartsWith('#'))
                     continue;
 
-                if (!AuthorizedKeysFile.TryParseLine(line, out _))
+                if (!AuthorizedKeysFile.TryParseLine(line, out _, out var why))
                 {
-                    Refused = $"'{(line.Length > 40 ? line[..40] + "..." : line)}' is no public key as an authorized_keys file has one.";
+                    Refused = $"'{(line.Length > 40 ? line[..40] + "..." : line)}' is no public key as an authorized_keys file has one: {why}";
                     return false;
                 }
 
@@ -317,93 +196,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                 return false;
             }
 
-            return true;
-
-        }
-
-        #endregion
-
-        #region TryAuthorize(Account, Text, out Added, out Refused)
-
-        /// <summary>
-        /// Let the given account in with the keys in the given text, beside the
-        /// keys it has. A key it has already is not written twice.
-        /// </summary>
-        /// <param name="Account">The account.</param>
-        /// <param name="Text">The public keys, as <see cref="TryRead"/> reads them.</param>
-        /// <param name="Added">The keys that were added, by fingerprint.</param>
-        /// <param name="Refused">Why none could be.</param>
-        public Boolean TryAuthorize(String                                        Account,
-                                    String                                        Text,
-                                    [NotNullWhen(true)]  out IReadOnlyList<String>?  Added,
-                                    [NotNullWhen(false)] out String?                 Refused)
-        {
-
-            Added = null;
-
-            var file = FileOf(Account);
-
-            if (file is null)
-            {
-                Refused = $"'{Account}' cannot be the name of an account's file of keys.";
-                return false;
-            }
-
-            if (!TryRead(Text, out var lines, out Refused))
-                return false;
-
-            var had    = Of(Account);
-            var added  = new List<String>();
-            var write  = new StringBuilder();
-
-            foreach (var line in lines)
-            {
-
-                AuthorizedKeysFile.TryParseLine(line, out var key);
-
-                if (had.Any(existing => existing.Matches(key!.PublicKey.Blob)) ||
-                    added.Contains(key!.PublicKey.Sha256Fingerprint))
-                    continue;
-
-                write.Append(line).Append('\n');
-                added.Add(key.PublicKey.Sha256Fingerprint);
-
-            }
-
-            try
-            {
-
-                System.IO.Directory.CreateDirectory(Directory);
-
-                var isNew = !File.Exists(file);
-
-                if (isNew)
-                {
-                    // Made for its owner alone before anything is in it: whoever
-                    // can write this file can sign in as the account.
-                    using (new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
-                    SshPrivateKeyFile.RestrictToOwner(file);
-                }
-
-                if (write.Length > 0)
-                {
-
-                    // A file written by hand may not end with its line.
-                    var existing  = isNew ? "" : File.ReadAllText(file);
-                    var separator = existing.Length > 0 && !existing.EndsWith('\n') ? "\n" : "";
-
-                    File.AppendAllText(file, separator + write, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-                }
-
-            }
-            catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
-            {
-                Refused = $"'{file}' could not be written: {problem.Message}";
-                return false;
-            }
-
-            Added = added;
             return true;
 
         }

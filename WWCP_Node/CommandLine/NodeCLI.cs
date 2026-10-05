@@ -25,6 +25,8 @@ using org.GraphDefined.Vanaheimr.CLI;
 
 using cloud.charging.open.protocols.WWCP.Node.Web;
 
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
@@ -185,6 +187,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             );
 
             Refused = $"'{account.Id}' may not do that here: it needs the {String.Join(" or ", allowed)} role.";
+            return false;
+
+        }
+
+        #endregion
+
+
+        #region MayActFor(Account, What, out Refused)
+
+        /// <summary>
+        /// Whether whoever is typing here may manage what belongs to the given
+        /// account - its SSH keys, its API keys - or the sentence that says why
+        /// not.
+        /// </summary>
+        /// <remarks>
+        /// The HTTPExt API's answer, as its routes give it for the same keys: an
+        /// account its own, and another where it may impersonate it - an admin
+        /// of the API's admin organization everybody but another such admin.
+        /// The console may do everything: whoever is at it has the process.
+        /// </remarks>
+        /// <param name="Account">The account whose things are asked about.</param>
+        /// <param name="What">The command, as it was typed.</param>
+        /// <param name="Refused">Why not.</param>
+        public Boolean MayActFor(IUser                             Account,
+                                 String                            What,
+                                 [NotNullWhen(false)] out String?  Refused)
+        {
+
+            Refused = null;
+
+            if (Caller.Account is not { } caller ||
+                caller.Id == Account.Id ||
+                Node.ExtAPI.CanImpersonate(caller, Account))
+            {
+                return true;
+            }
+
+            Node.Log.Warning(
+                $"'{caller.Id}' was refused '{What}' for '{Account.Id}' at the command line over SSH: it may not act for that account.",
+                "cli", "ssh", "auth"
+            );
+
+            Refused = $"'{caller.Id}' may not do that for '{Account.Id}': only the account itself, or an account that may act for it in the accounts, may.";
             return false;
 
         }

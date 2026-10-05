@@ -34,7 +34,7 @@ a port of their own to connect to.
 | `NodeKind.cs` | the five names a kind of node goes by |
 | `BuiltFrom.cs` | what the node was built from: every assembly of ours it runs, and the commit each was built from - for the banner, the Configuration page and a bug report |
 | `CommandLine/` | `NodeCLI`, the command line every kind of node has: its commands, `syncNTS` among them, and the console from the first prompt until 'quit', Ctrl+C, SIGTERM or the end of a task it is given, after which the log has the screen to itself again. And what a kind's program does before it: the switches every node has, the certificate store's among them, with the rest left for the kind (`NodeArguments`), what -h says of them (`NodeUsage`), why a node could not be set up or could not start and what the command line puts into the store (`NodeProgram`), and the banner, the kind's lines in their places (`NodeBanner`) |
-| `WWCPNode.SSH.cs`, `SecureShell/` | the command line over SSH: the server, its host key, who may sign in with which key (`AuthorizedKeysStore`, `NodeSSHAuthenticator`), and what the program says about it (`SSHSettings`) - see "The command line over SSH" below |
+| `WWCPNode.SSH.cs`, `SecureShell/` | the command line over SSH: the server, its host key, who may sign in with which key (`NodeSSHAuthenticator`, asking the keys kept with the account; `AuthorizedKeysStore`, reading what is handed over), and what the program says about it (`SSHSettings`) - see "The command line over SSH" below |
 | `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles`, `ssh` |
@@ -618,13 +618,44 @@ second one. Between the two sits the file:
 A switch wins over the file, the file over the program's default.
 
 Who signs in is an account of the node, under its name, with a key of its
-own: one file per account below the accounts, `accounts/ssh/<account>`, in
-the format of OpenSSH's `authorized_keys` - so that a key can be put in by
-hand, and `from="..."` or `expiry-time="..."` in front of it hold. The file
-is read at every sign-in: a key taken out lets nobody in from that moment
-on. `--authorize-ssh-key <account>=<file>` puts one in - an OpenSSH `.pub`,
-or what PuTTYgen saves - once the accounts are read and before a port opens,
-so at a first start too.
+own - kept with the account, in the HTTPExt API's database, beside its
+password and its API keys. A key is a line as OpenSSH's `authorized_keys`
+has it, and `from="..."` or `expiry-time="..."` in front of it hold. Who
+let it in, and when, is written down with it, as a link of the database's
+hash chain. The keys are asked at every sign-in: a key taken out lets nobody
+in from that moment on. `--authorize-ssh-key <account>=<file>` puts one in -
+an OpenSSH `.pub`, or what PuTTYgen saves - once the accounts are read and
+before a port opens, so at a first start too.
+
+`sshKeys` lists, lets in and takes out an account's SSH keys, and `apiKeys`
+does the same for its API keys - at the console and over SSH:
+
+```
+sshKeys [<account>] [add <authorized_keys line> | remove <fingerprint>]
+apiKeys [<account>] [add [readOnly | readWrite] [<description>] | remove <key>]
+```
+
+A fingerprint is written as OpenSSH writes it, `SHA256:...`, or by enough of
+its beginning to be only one key's; an API key by its beginning, which is
+all a list shows of it - the whole key is shown once, when it is made, and
+never again, because whoever has it is signed in as its account. An API key
+is read-only unless `readWrite` says otherwise. Over SSH the account may be
+left out, and is then the one signed in; another account's keys are for
+whoever the HTTPExt API lets act for it - as its routes
+`/ext/users/{UserId}/SSHKeys` and the API keys' own decide - which is an
+admin of its admins' organization, `Admins`. A node does not make that
+organization by itself, so until somebody does, another account's keys are
+the console's alone. The console names the account, and may do everything.
+Every key let in or taken out is in the log, tagged `security`, naming who
+did it.
+
+Before the keys were kept with the account they were kept in a file per
+account, `accounts/ssh/<account>`. A start takes such a file over: each line
+to its account, with "the take-over of ssh/<account>" as who let it in, a
+line that cannot be held to with a warning, and the file is renamed to
+`<account>.imported` - after which nobody reads it. A file handed in later is
+taken over the same way, beside the first; a key there already is not added
+twice. To let a key in, use `sshKeys` or `--authorize-ssh-key`, not the file.
 
 **At a first start, bring `root` a key of your own** - this is the way
 recommended:
@@ -643,7 +674,8 @@ only its owner can read. `ssh -i <file> ssh://root@<host>:<port>` then signs
 in, or PuTTY with the file imported in PuTTYgen. Like the password it is
 written down nowhere - but a console may be kept: a service's journal,
 `docker logs`, a redirected output. Replace that key with your own and take
-it out; the log names it by its fingerprint and the comment
+it out - `sshKeys root add <your key.pub's line>`, then `sshKeys root remove
+<its fingerprint>`; the log names it by its fingerprint and the comment
 `root@<kind>-first-start`. An account that is switched off, or holds none of
 the node's roles, is not let in; a password only where the file says
 `"passwords": true`, and never for an account with a second factor on the

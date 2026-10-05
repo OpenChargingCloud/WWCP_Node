@@ -163,7 +163,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (private) SignIn(Account = root, Role = null) / Open(Client)
+        #region (private) MakeAccount(Account, Role) / SignIn(Account = root, Role = null) / Open(Client)
+
+        /// <summary>
+        /// Make the given account, in the given role.
+        /// </summary>
+        private async Task<User> MakeAccount(String Account, String Role)
+        {
+
+            await node!.ExtAPI.AddUser(new User(User_Id.Parse(Account), I18NString.Create(Languages.en, Account), SimpleEMailAddress.Parse($"{Account}@localhost")),
+                                       SkipDefaultNotifications: true, SkipNewUserEMail: true, SkipNewUserNotifications: true);
+
+            node.ExtAPI.TryGetUser(User_Id.Parse(Account), out var stored);
+            node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role), out var group);
+
+            await node.ExtAPI.AddUserToUserGroup((User) stored!, User2UserGroupEdgeLabel.IsMember, (UserGroup) group!);
+
+            return (User) stored!;
+
+        }
 
         /// <summary>
         /// Sign in over SSH as the given account - made, in the given role,
@@ -173,21 +191,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             if (Account != WWCPNode.DefaultAdminUser)
-            {
-
-                await node!.ExtAPI.AddUser(new User(User_Id.Parse(Account), I18NString.Create(Languages.en, Account), SimpleEMailAddress.Parse($"{Account}@localhost")),
-                                           SkipDefaultNotifications: true, SkipNewUserEMail: true, SkipNewUserNotifications: true);
-
-                node.ExtAPI.TryGetUser(User_Id.Parse(Account), out var stored);
-                node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role!), out var group);
-
-                await node.ExtAPI.AddUserToUserGroup((User) stored!, User2UserGroupEdgeLabel.IsMember, (UserGroup) group!);
-
-            }
+                await MakeAccount(Account, Role!);
 
             var key = SshHostKey.GenerateEd25519();
 
-            Assert.That(node!.SSHKeys.TryAuthorize(Account, SshPublicKey.FromHostKey(key).ToAuthorizedKeyLine(), out _, out var refused), Is.True, refused);
+            var added = await node!.AuthorizeSSHKey(Account, SshPublicKey.FromHostKey(key).ToAuthorizedKeyLine());
+
+            Assert.That(added.IsAdded, Is.True, added.Reason);
 
             return await SshClient.ConnectAsync("127.0.0.1",
                                                 node.SSHPort!.Value.ToUInt16(),
@@ -295,6 +305,138 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             lock (said)
                 Assert.That(said, Has.Some.StartsWith("'aviewer' was refused nts:run on 'syncNTS' at the command line over SSH"));
+
+        }
+
+        #endregion
+
+        #region AnAccountManagesItsOwnKeys
+
+        /// <summary>
+        /// Signed in over SSH, an account lists, lets in and takes out its own
+        /// SSH keys, and makes and takes back its own API keys - without naming
+        /// itself, and in any role: the keys are its own.
+        /// </summary>
+        [Test]
+        public async Task AnAccountManagesItsOwnKeys()
+        {
+
+            await using var client  = await SignIn("kimberly", Role.Viewer.Name);
+            var (shell, screen)     = await Open(client);
+            var kimberly                 = User_Id.Parse("kimberly");
+
+            await screen.WaitFor("WWCP node> ");
+
+            var own   = node!.ExtAPI.GetSSHKeys(kimberly).Single();
+            var mark  = screen.Text.Length;
+
+            await shell.WriteAsync("sshKeys\r");
+            Assert.That(await screen.WaitFor(own.Fingerprint, mark), Does.Contain(own.Fingerprint));
+
+            var other = SshHostKey.GenerateEd25519();
+            var line  = SshPublicKey.FromHostKey(other, "laptop").ToAuthorizedKeyLine();
+
+            mark = screen.Text.Length;
+            await shell.WriteAsync($"sshKeys add {line}\r");
+            await screen.WaitFor("signs in with the key", mark);
+
+            var added = node.ExtAPI.FindSSHKey(kimberly, other.PublicKeyBlob, DateTimeOffset.UtcNow);
+
+            Assert.Multiple(() => {
+                Assert.That(added,             Is.Not.Null, "not let in");
+                Assert.That(added?.CreatedBy,  Is.EqualTo("kimberly"), "who let the key in");
+                lock (said)
+                    Assert.That(said, Has.Some.EqualTo($"'kimberly' at the command line over SSH let 'kimberly' in over SSH with the key {added?.Fingerprint}."));
+            });
+
+            mark = screen.Text.Length;
+            await shell.WriteAsync($"sshKeys remove {added!.Fingerprint}\r");
+            await screen.WaitFor("in no more", mark);
+
+            Assert.That(node.ExtAPI.FindSSHKey(kimberly, other.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Null, "still let in");
+
+            mark = screen.Text.Length;
+            await shell.WriteAsync("apiKeys add for a script\r");
+            await screen.WaitFor("never again:", mark);
+            await screen.WaitFor("WWCP node> ", mark);
+
+            var apiKeys = node.ExtAPI.GetAPIKeysForUser(node.ExtAPI.GetUser(kimberly)!).ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(apiKeys,                                      Has.Length.EqualTo(1));
+                Assert.That(screen.Text[mark..],                          Does.Contain(apiKeys[0].Id.ToString()), "the key made is not the key shown");
+                Assert.That(apiKeys[0].Description.FirstText(),           Is.EqualTo("for a script"));
+            });
+
+        }
+
+        #endregion
+
+        #region AnotherAccountsKeysAreForWhoMayActForIt
+
+        /// <summary>
+        /// The keys of another account are refused - in the log too - until the
+        /// account signed in may act for it in the accounts, as an admin of the
+        /// admins' organization may.
+        /// </summary>
+        [Test]
+        public async Task AnotherAccountsKeysAreForWhoMayActForIt()
+        {
+
+            var hank                = await MakeAccount("hank", Role.Viewer.Name);
+            var hanksKey            = SshHostKey.GenerateEd25519();
+
+            Assert.That((await node!.AuthorizeSSHKey("hank", SshPublicKey.FromHostKey(hanksKey).ToAuthorizedKeyLine())).IsAdded, Is.True);
+
+            var fingerprint         = SshFingerprint.Sha256(hanksKey.PublicKeyBlob);
+
+            await using var client  = await SignIn("kimberly", Role.Viewer.Name);
+            var (shell, screen)     = await Open(client);
+
+            await screen.WaitFor("WWCP node> ");
+
+            foreach (var command in new[] { "sshKeys hank", $"sshKeys hank remove {fingerprint}", "apiKeys hank", "apiKeys hank add readWrite" })
+            {
+
+                var mark = screen.Text.Length;
+                await shell.WriteAsync(command + "\r");
+
+                Assert.That(await screen.WaitFor("may not do that for 'hank'", mark), Does.Not.Contain($"{fingerprint}  "), command);
+
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(node.ExtAPI.GetSSHKeys(hank.Id),          Has.Count.EqualTo(1), "a key was taken");
+                Assert.That(node.ExtAPI.GetAPIKeysForUser(hank),      Is.Empty,             "a key was made");
+                lock (said)
+                    Assert.That(said, Has.Some.StartsWith("'kimberly' was refused 'sshKeys' for 'hank' at the command line over SSH").
+                                          And.Some.StartsWith("'kimberly' was refused 'apiKeys' for 'hank' at the command line over SSH"));
+            });
+
+            var admins = new Organization(node.ExtAPI.AdminOrganizationId, I18NString.Create("Admins"));
+
+            Assert.That((await node.ExtAPI.AddOrganization(admins)).Result, Is.EqualTo(CommandResult.Success));
+            node.ExtAPI.TryGetUser(User_Id.Parse("kimberly"), out var kimberly);
+            Assert.That((await node.ExtAPI.AddUserToOrganization(kimberly!, User2OrganizationEdgeLabel.IsAdmin, admins)).IsSuccess, Is.True);
+
+            var listed = screen.Text.Length;
+            await shell.WriteAsync("sshKeys hank\r");
+            await screen.WaitFor(fingerprint, listed);
+
+            var removed = screen.Text.Length;
+            await shell.WriteAsync($"sshKeys hank remove {fingerprint}\r");
+            await screen.WaitFor("lets 'hank' in no more", removed);
+
+            var made = screen.Text.Length;
+            await shell.WriteAsync("apiKeys hank add\r");
+            await screen.WaitFor("never again:", made);
+
+            Assert.Multiple(() => {
+                Assert.That(node.ExtAPI.GetSSHKeys(hank.Id),          Is.Empty);
+                Assert.That(node.ExtAPI.GetAPIKeysForUser(hank),      Has.Exactly(1).Items);
+                lock (said)
+                    Assert.That(said, Has.Some.EqualTo($"'kimberly' at the command line over SSH took the key {fingerprint} from 'hank': it lets nobody in from now on."));
+            });
 
         }
 

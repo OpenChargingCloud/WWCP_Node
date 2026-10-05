@@ -948,7 +948,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // loopback unless --any says every address, which is one decision
             // about who may reach this node and not two.
             this.listenAddress   = address;
-            this.SSHKeys         = new AuthorizedKeysStore(Path.Combine(this.AccountsPath, AuthorizedKeysStore.DefaultDirectoryName), this.TimeProvider);
 
             this.sshSettings     = SSH;
 
@@ -2318,14 +2317,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // nobody behind it.
             await EnsureAccounts();
 
+            // The files of keys the accounts had before their keys were kept
+            // with them, taken over once - before anything asks who has a key.
+            await TakeOverSSHKeyFiles();
+
             // The keys the command line brought, now that the accounts are
             // known and before anybody can connect: the SSH server's first
             // word about who can sign in is then already true.
-            AuthorizeSSHKeys(sshSettings?.Authorize);
+            await AuthorizeSSHKeys(sshSettings?.Authorize);
 
             // At a first start, the made-up account gets a key as well, where the
             // command line brought it none: shown once, as its password is.
-            GiveTheFirstAccountAKey();
+            await GiveTheFirstAccountAKey();
 
             if (OwnsHTTPServer)
             {

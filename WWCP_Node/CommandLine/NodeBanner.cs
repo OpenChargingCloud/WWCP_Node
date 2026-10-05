@@ -98,7 +98,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             if (Node.SSHURL is String sshURL)
             {
 
-                var accounts = Node.SSHKeys.AccountsWithKeys();
+                var accounts = Node.AccountsWithSSHKeys();
 
                 interfaces.Add(("SSH",  $"{sshURL}\n{Node.SSHHostKey}\n" +
                                         (accounts.Count == 0

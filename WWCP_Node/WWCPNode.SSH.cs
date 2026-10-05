@@ -51,9 +51,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// </para>
     /// <para>
     /// Whoever signs in is an account of the node, under its name, with one of
-    /// the keys in its file below the accounts - see <see cref="AuthorizedKeysStore"/>
-    /// - and may do there what its roles let it do on the web interface. A node
-    /// none of whose accounts has a key yet listens, and lets nobody in.
+    /// its keys - kept with the account in the HTTPExt API, where the sshKeys
+    /// command and the routes below /ext add and remove them - and may do there
+    /// what its roles let it do on the web interface. A node none of whose
+    /// accounts has a key yet listens, and lets nobody in. Files of keys below
+    /// the accounts, where they were kept before, are taken over once - see
+    /// <see cref="AuthorizedKeysStore"/>.
     /// </para>
     /// <para>
     /// The node presents itself with a host key of its own, made at the first
@@ -128,9 +131,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public String?              SSHHostKey              { get; private set; }
 
         /// <summary>
-        /// The keys each account may sign in with.
+        /// Where the files of keys were, one per account, before the keys were
+        /// kept with the accounts: taken over once, and renamed, at a start.
         /// </summary>
-        public AuthorizedKeysStore  SSHKeys                 { get; }
+        public String               SSHKeyFilesPath
+            => Path.Combine(AccountsPath, AuthorizedKeysStore.DefaultDirectoryName);
 
         /// <summary>
         /// The SSH key made up for the first account at a first start, its
@@ -196,31 +201,52 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Let in over SSH whom the program named, with the keys in the files it
-        /// named - and stop the start where an account is not this node's, or a
+        /// named - kept with the account, with the command line as who let them
+        /// in - and stop the start where an account is not this node's, or a
         /// file holds no key, rather than start with somebody locked out who was
         /// meant to be let in.
         /// </summary>
-        private void AuthorizeSSHKeys(IReadOnlyList<(String Account, String File)>? Authorize)
+        private async Task AuthorizeSSHKeys(IReadOnlyList<(String Account, String File)>? Authorize)
         {
 
             foreach (var (account, file) in Authorize ?? [])
             {
 
-                if (User_Id.TryParse(account) is not User_Id userId || !ExtAPI.TryGetUser(userId, out _))
+                if (User_Id.TryParse(account) is not User_Id userId || !ExtAPI.TryGetUser(userId, out var user) || user is null)
                     throw new InvalidOperationException(
                               $"--authorize-ssh-key: this {Kind.Name} has no account '{account}'. Its accounts are " +
                               $"{String.Join(", ", ExtAPI.Users.Select(user => user.Id.ToString()).Order(StringComparer.Ordinal))}."
                           );
 
                 if (!AuthorizedKeysStore.TryReadFile(file, out var text, out var refused) ||
-                    !SSHKeys.TryAuthorize(account, text, out var added, out refused))
+                    !AuthorizedKeysStore.TryRead(text, out var lines, out refused))
                     throw new InvalidOperationException($"--authorize-ssh-key: {refused}");
 
-                foreach (var fingerprint in added)
-                    Log.Notice($"The command line let '{account}' in over SSH with the key {fingerprint}.", "ssh", "auth", "security");
+                foreach (var line in lines)
+                {
 
-                if (added.Count == 0)
-                    Log.Info($"'{account}' had the key in '{file}' already.", "ssh", "auth");
+                    var added = await ExtAPI.AddSSHKey(user,
+                                                       line,
+                                                       Label:      $"--authorize-ssh-key {Path.GetFileName(file)}",
+                                                       CreatedBy:  "the command line");
+
+                    switch (added.Outcome)
+                    {
+
+                        case AddSSHKeyOutcome.Added:
+                            Log.Notice($"The command line let '{account}' in over SSH with the key {added.SSHKey!.Fingerprint}.", "ssh", "auth", "security");
+                            break;
+
+                        case AddSSHKeyOutcome.AlreadyThere:
+                            Log.Info($"'{account}' had the key {added.SSHKey!.Fingerprint} in '{file}' already.", "ssh", "auth");
+                            break;
+
+                        default:
+                            throw new InvalidOperationException($"--authorize-ssh-key: '{file}': {added.Reason}");
+
+                    }
+
+                }
 
             }
 
@@ -248,28 +274,191 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// key - --authorize-ssh-key root=&lt;file.pub&gt; - so that the private key
         /// never leaves the machine it was made on and no console ever shows
         /// it. Where the command line did, no key is made up here; nor where the
-        /// account had a key in its file already, from an earlier life of the
-        /// accounts directory.
+        /// account had a key already - taken over from an earlier file of keys.
         /// </para>
         /// </remarks>
-        private void GiveTheFirstAccountAKey()
+        private async Task GiveTheFirstAccountAKey()
         {
 
-            if (GeneratedPassword is null || !SSHEnabled || SSHKeys.Of(DefaultAdminUser).Count > 0)
+            if (GeneratedPassword is null || !SSHEnabled ||
+                !ExtAPI.TryGetUser(User_Id.Parse(DefaultAdminUser), out var admin) || admin is null ||
+                ExtAPI.GetSSHKeys(admin.Id).Count > 0)
                 return;
 
             var key      = SshKeyGenerator.Generate("ssh-ed25519");
             var comment  = $"{DefaultAdminUser}@{Kind.Tag}-first-start";
 
-            if (!SSHKeys.TryAuthorize(DefaultAdminUser, SshPublicKey.FromHostKey(key, comment).ToAuthorizedKeyLine(), out var added, out var refused) ||
-                added.Count != 1)
-                throw new InvalidOperationException($"The SSH key made up for '{DefaultAdminUser}' at the first start could not be let in: {refused}");
+            var added    = await ExtAPI.AddSSHKey(admin,
+                                                  SshPublicKey.FromHostKey(key, comment).ToAuthorizedKeyLine(),
+                                                  Label:      "made up at the first start",
+                                                  CreatedBy:  "the first start");
 
-            GeneratedSSHKey = new GeneratedSSHKey(DefaultAdminUser, added[0], OpenSshPrivateKey.Format(key, comment));
+            if (!added.IsAdded)
+                throw new InvalidOperationException($"The SSH key made up for '{DefaultAdminUser}' at the first start could not be let in: {added.Reason ?? added.Outcome.ToString()}");
 
-            Log.Notice($"No SSH key was given for '{DefaultAdminUser}', so one was made up at the first start and let in: {added[0]}. " +
+            GeneratedSSHKey = new GeneratedSSHKey(DefaultAdminUser, added.SSHKey!.Fingerprint, OpenSshPrivateKey.Format(key, comment));
+
+            Log.Notice($"No SSH key was given for '{DefaultAdminUser}', so one was made up at the first start and let in: {added.SSHKey.Fingerprint}. " +
                         "Its private key is shown once, on the console, and kept nowhere.",
                        "ssh", "auth", "security");
+
+        }
+
+        #endregion
+
+        #region AccountsWithSSHKeys()
+
+        /// <summary>
+        /// The accounts that have at least one SSH key, by name.
+        /// </summary>
+        public IReadOnlyList<String> AccountsWithSSHKeys()
+
+            => [.. ExtAPI.Users.
+                       Where (user => ExtAPI.GetSSHKeys(user.Id).Count > 0).
+                       Select(user => user.Id.ToString()).
+                       Order (StringComparer.Ordinal)];
+
+        #endregion
+
+        #region AuthorizeSSHKey(Account, Line, CreatedBy = null)
+
+        /// <summary>
+        /// Let the given account in over SSH with the key of the given
+        /// authorized_keys line - kept with the account, as the sshKeys command
+        /// and --authorize-ssh-key keep it.
+        /// </summary>
+        /// <param name="Account">The account, by name.</param>
+        /// <param name="Line">One line, as an authorized_keys file holds it.</param>
+        /// <param name="CreatedBy">Who lets the key in, as the database of the accounts writes it down.</param>
+        public Task<AddSSHKeyResult> AuthorizeSSHKey(String   Account,
+                                                     String   Line,
+                                                     String?  CreatedBy = null)
+
+            => User_Id.TryParse(Account) is User_Id userId && ExtAPI.TryGetUser(userId, out var user) && user is not null
+                   ? ExtAPI.AddSSHKey(user, Line, CreatedBy: CreatedBy)
+                   : Task.FromResult(new AddSSHKeyResult(AddSSHKeyOutcome.UnknownUser, null, $"This {Kind.Name} has no account '{Account}'."));
+
+        #endregion
+
+        #region (private) TakeOverSSHKeyFiles()
+
+        /// <summary>
+        /// The files of keys below the accounts, where the keys were kept before
+        /// they were kept with their account: each line of each is added to its
+        /// account - with "the take-over of ssh/&lt;account&gt;" as who
+        /// let it in - a line that cannot be held to is said in the log, and the
+        /// file is renamed to &lt;account&gt;.imported, after which it is never
+        /// read again.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Once: a file renamed is not taken over again, and a key there already
+        /// is not added twice - a start that stopped half way through a file
+        /// takes the rest of it over at the next.
+        /// </para>
+        /// <para>
+        /// A file of a name that is no account of this node is renamed too, with
+        /// a warning: it let nobody in before, and it lets nobody in now.
+        /// </para>
+        /// </remarks>
+        private async Task TakeOverSSHKeyFiles()
+        {
+
+            if (!Directory.Exists(SSHKeyFilesPath))
+                return;
+
+            foreach (var file in Directory.EnumerateFiles(SSHKeyFilesPath).Order(StringComparer.Ordinal).ToArray())
+            {
+
+                var account = Path.GetFileName(file);
+
+                if (!AuthorizedKeysStore.IsAccountName(account) ||
+                    account.EndsWith(AuthorizedKeysStore.ImportedSuffix, StringComparison.Ordinal))
+                    continue;
+
+                var from = $"{AuthorizedKeysStore.DefaultDirectoryName}/{account}";
+
+                if (User_Id.TryParse(account) is not User_Id userId || !ExtAPI.TryGetUser(userId, out var user) || user is null)
+                {
+
+                    Log.Warning($"The file of SSH keys '{from}' names no account of this {Kind.Name}: it let nobody in, and is put aside as {account}{AuthorizedKeysStore.ImportedSuffix}.",
+                                "ssh", "auth");
+
+                }
+
+                else
+                {
+
+                    String text;
+
+                    try
+                    {
+                        text = File.ReadAllText(file);
+                    }
+                    catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
+                    {
+                        Log.Warning($"The file of SSH keys '{from}' could not be read, and is left where it is: {problem.Message}", "ssh", "auth");
+                        continue;
+                    }
+
+                    var number = 0;
+
+                    foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+                    {
+
+                        number++;
+
+                        var line = raw.Trim();
+
+                        if (line.Length == 0 || line.StartsWith('#'))
+                            continue;
+
+                        var added = await ExtAPI.AddSSHKey(user,
+                                                           line,
+                                                           CreatedBy: $"the take-over of {from}");
+
+                        switch (added.Outcome)
+                        {
+
+                            case AddSSHKeyOutcome.Added:
+                                Log.Notice($"'{account}' keeps the SSH key {added.SSHKey!.Fingerprint} from '{from}', line {number}, with its account now.",
+                                           "ssh", "auth", "security");
+                                break;
+
+                            case AddSSHKeyOutcome.AlreadyThere:
+                                break;
+
+                            default:
+                                Log.Warning($"Line {number} of '{from}' is not taken over, and lets nobody in: {added.Reason}",
+                                            "ssh", "auth", "security");
+                                break;
+
+                        }
+
+                    }
+
+                }
+
+                try
+                {
+
+                    // Beside one put aside before, with the time in front of the
+                    // suffix - which is what keeps it from being read again.
+                    var aside = file + AuthorizedKeysStore.ImportedSuffix;
+
+                    if (File.Exists(aside))
+                        aside = $"{file}.{TimeProvider.GetUtcNow():yyyyMMddHHmmssfff}{AuthorizedKeysStore.ImportedSuffix}";
+
+                    File.Move(file, aside);
+
+                }
+                catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
+                {
+                    Log.Warning($"'{from}' could not be put aside, and will be taken over again at the next start - which adds no key twice: {problem.Message}",
+                                "ssh", "auth");
+                }
+
+            }
 
         }
 
@@ -293,7 +482,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var server  = new SshServer(new SshServerOptions {
                               HostKeys             = [ hostKey ],
-                              Authenticator        = new NodeSSHAuthenticator(this, SSHKeys, SSHPasswords),
+                              Authenticator        = new NodeSSHAuthenticator(this, SSHPasswords),
                               ShellHandler         = ServeShellAsync,
                               AuditSink            = new DelegateAuditSink(Audited),
                               ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
@@ -317,7 +506,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             sshServer = server;
 
-            var accounts = SSHKeys.AccountsWithKeys();
+            var accounts = AccountsWithSSHKeys();
 
             Log.Notice($"The command line is served over SSH on {SSHURL}, host key {SSHHostKey}; " +
                        (accounts.Count == 0
