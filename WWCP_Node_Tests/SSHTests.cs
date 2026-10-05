@@ -537,8 +537,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// The banner says where the SSH server is and the host key to compare
-        /// PuTTY's question with - and how to get a key in while nobody has one -
-        /// in lines of no more than 80 columns.
+        /// PuTTY's question with, which accounts have a key - root, after a first
+        /// start - and how to get a key in while nobody has one, in lines of no
+        /// more than 80 columns.
         /// </summary>
         [Test]
         public async Task TheBannerSaysWhereAndWithWhichHostKey()
@@ -553,9 +554,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(lines[at],      Does.EndWith(node.SSHURL!));
                 Assert.That(lines[at + 1].Trim(),  Is.EqualTo(node.SSHHostKey));
-                Assert.That(lines[at + 2].Trim(),  Is.EqualTo($"no account has a key yet: --authorize-ssh-key {WWCPNode.DefaultAdminUser}=<file.pub>"));
+                Assert.That(lines[at + 2].Trim(),  Is.EqualTo($"accounts with a key: {WWCPNode.DefaultAdminUser}"));
                 Assert.That(lines.Take(at + 3).Skip(at), Has.All.Length.LessThanOrEqualTo(NodeUsage.Width));
             });
+
+            File.Delete(node.SSHKeys.FileOf(WWCPNode.DefaultAdminUser)!);
+
+            lines  = node.Banner();
+            at     = lines.ToList().FindIndex(line => line.StartsWith("  SSH "));
+
+            Assert.That(lines[at + 2].Trim(), Is.EqualTo($"no account has a key yet: --authorize-ssh-key {WWCPNode.DefaultAdminUser}=<file.pub>"));
 
         }
 
@@ -659,7 +667,151 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(text,   Does.Contain("--ssh-port <number>").And.Contain("--no-ssh").And.Contain("--authorize-ssh-key <account>=<file>"));
                 Assert.That(text,   Does.Contain("(default: 22347,"));
+                Assert.That(String.Join(" ", lines.Select(line => line.Trim())),
+                                    Does.Contain($"Recommended at a first start: --authorize-ssh-key {WWCPNode.DefaultAdminUser}=<your key.pub>."));
                 Assert.That(lines,  Has.All.Length.LessThanOrEqualTo(NodeUsage.Width));
+            });
+
+        }
+
+        #endregion
+
+
+        #region AFirstStartWithoutAKeyGivesRootOne
+
+        /// <summary>
+        /// A first start with SSH on and no key for root makes up an Ed25519 key
+        /// pair for it: its public key is let in, its private key signs in, the
+        /// log names it by its fingerprint - and the private key is in no file
+        /// below the node's directory and in no entry of its log.
+        /// </summary>
+        [Test]
+        public async Task AFirstStartWithoutAKeyGivesRootOne()
+        {
+
+            var log   = new EventLog();
+            var said  = new List<String>();
+
+            log.OnLogged += entry => said.Add(entry.Message);
+
+            var node  = await Started(log);
+            var made  = node.GeneratedSSHKey;
+
+            Assert.That(made, Is.Not.Null, "no key was made up for root");
+
+            var key   = SshKeyGenerator.LoadPrivateKey(made!.PrivateKey).Key;
+            // The lines that hold what is secret: past the first two, which begin
+            // alike in every unencrypted Ed25519 key - the host key's file has
+            // them too - and hold the public key.
+            var secret = made.PrivateKey.Split('\n').Select(line => line.Trim()).
+                                         Where (line => line.Length > 0 && !line.StartsWith("-----")).
+                                         Skip  (2).
+                                         ToArray();
+
+            var written = String.Join("\n", Directory.GetFiles(directory, "*", SearchOption.AllDirectories).
+                                                      Select(path => File.ReadAllText(path)));
+
+            Assert.Multiple(() => {
+                Assert.That(made.Account,      Is.EqualTo(WWCPNode.DefaultAdminUser));
+                Assert.That(made.Fingerprint,  Is.EqualTo(SshFingerprint.Sha256(key.PublicKeyBlob)));
+                Assert.That(made.PrivateKey,   Does.StartWith("-----BEGIN OPENSSH PRIVATE KEY-----"));
+                Assert.That(node.SSHKeys.Of(WWCPNode.DefaultAdminUser).Count,                       Is.EqualTo(1));
+                Assert.That(node.SSHKeys.Find(WWCPNode.DefaultAdminUser, key.PublicKeyBlob),        Is.Not.Null, "the key made up is not let in");
+                Assert.That(said,     Has.Some.Contains(made.Fingerprint), "the log does not name the key made up");
+                Assert.That(secret,   Is.Not.Empty);
+                Assert.That(secret,   Has.None.Matches<String>(line => said.Any(message => message.Contains(line))), "the private key is in the log");
+                Assert.That(secret,   Has.None.Matches<String>(line => written.Contains(line)),                       "the private key was written to disk");
+            });
+
+            await using (await SignIn(node, WWCPNode.DefaultAdminUser, key)) { }
+
+        }
+
+        #endregion
+
+        #region TheBannerShowsTheMadeUpKeyOnceAsItStands
+
+        /// <summary>
+        /// The first-start box names the key by its fingerprint and how to sign
+        /// in with it; its private key follows outside the box, at the start of
+        /// each line, so that the lines from BEGIN to END, copied as they stand,
+        /// are the key - and then the way recommended instead.
+        /// </summary>
+        [Test]
+        public async Task TheBannerShowsTheMadeUpKeyOnceAsItStands()
+        {
+
+            var node   = await Started();
+            var lines  = node.Banner().ToList();
+            var begin  = lines.IndexOf("-----BEGIN OPENSSH PRIVATE KEY-----");
+            var end    = lines.IndexOf("-----END OPENSSH PRIVATE KEY-----");
+
+            Assert.That(begin, Is.GreaterThan(0).And.LessThan(end), String.Join("\n", lines));
+
+            var copied = String.Join("\n", lines.Skip(begin).Take(end - begin + 1));
+            var key    = SshKeyGenerator.LoadPrivateKey(copied).Key;
+            var after  = String.Join(" ", lines.Skip(end + 1).Select(line => line.Trim()));
+
+            Assert.Multiple(() => {
+                Assert.That(SshFingerprint.Sha256(key.PublicKeyBlob), Is.EqualTo(node.GeneratedSSHKey!.Fingerprint));
+                Assert.That(lines.Take(begin), Has.Some.EqualTo($"  │  SSH key   {node.GeneratedSSHKey.Fingerprint}"));
+                Assert.That(lines.Take(begin), Has.Some.EqualTo($"  │  ssh -i <file> ssh://{WWCPNode.DefaultAdminUser}@127.0.0.1:{node.SSHPort}"));
+                Assert.That(after,  Does.Contain($"--authorize-ssh-key {WWCPNode.DefaultAdminUser}=<your key.pub>"));
+                Assert.That(lines.Skip(lines.FindIndex(line => line.StartsWith("  ┌─ First start"))),
+                                    Has.All.Length.LessThanOrEqualTo(NodeUsage.Width));
+            });
+
+        }
+
+        #endregion
+
+        #region NoKeyIsMadeUpWhereOneWasGivenOrNeedNotBe
+
+        /// <summary>
+        /// No key is made up where the command line brought one for root - the
+        /// way recommended - nor without SSH, nor at a start after the first.
+        /// </summary>
+        [Test]
+        public async Task NoKeyIsMadeUpWhereOneWasGivenOrNeedNotBe()
+        {
+
+            var own   = SshHostKey.GenerateEd25519();
+            var file  = Path.Combine(directory, "id_ed25519.pub");
+
+            File.WriteAllText(file, PublicKeyLine(own));
+
+            var brought = await Started(Authorize: [ (WWCPNode.DefaultAdminUser, file) ]);
+
+            Assert.Multiple(() => {
+                Assert.That(brought.GeneratedPassword,  Is.Not.Null, "not a first start");
+                Assert.That(brought.GeneratedSSHKey,    Is.Null,     "a key was made up beside the one brought");
+                Assert.That(brought.SSHKeys.Of(WWCPNode.DefaultAdminUser).Count, Is.EqualTo(1));
+                Assert.That(brought.Banner(), Has.None.Contains("PRIVATE KEY"));
+            });
+
+            await brought.DisposeAsync();
+
+            // A start after the first: the accounts are there - and root has no
+            // key any more, which a first start alone answers with one.
+            File.Delete(brought.SSHKeys.FileOf(WWCPNode.DefaultAdminUser)!);
+
+            var again = await Started();
+
+            Assert.That(again.GeneratedSSHKey,             Is.Null,  "a key was made up at a start after the first");
+            Assert.That(again.SSHKeys.AccountsWithKeys(),  Is.Empty);
+
+            await again.DisposeAsync();
+
+            // A first start without SSH.
+            Directory.Delete(Path.Combine(directory, "accounts"), true);
+
+            var noSSH = Node(new SSHSettings(Enabled: false));
+
+            await noSSH.Start();
+
+            Assert.Multiple(() => {
+                Assert.That(noSSH.GeneratedPassword,  Is.Not.Null, "not a first start");
+                Assert.That(noSSH.GeneratedSSHKey,    Is.Null,     "a key was made up without SSH");
             });
 
         }

@@ -2323,6 +2323,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // word about who can sign in is then already true.
             AuthorizeSSHKeys(sshSettings?.Authorize);
 
+            // At a first start, the made-up account gets a key as well, where the
+            // command line brought it none: shown once, as its password is.
+            GiveTheFirstAccountAKey();
+
             if (OwnsHTTPServer)
             {
                 try

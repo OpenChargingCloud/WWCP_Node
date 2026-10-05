@@ -234,7 +234,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                         $"let the account in over SSH with the public key in the file - an OpenSSH .pub, or what " +
                                         $"PuTTYgen saves - kept in {WWCPNode.DefaultAccountsPath}/{AuthorizedKeysStore.DefaultDirectoryName}/<account>, " +
                                          "one file per account in the format of OpenSSH's authorized_keys. May be given several times. " +
-                                         "Whoever signs in is that account, and may do what its roles let it do on the web interface."))
+                                         "Whoever signs in is that account, and may do what its roles let it do on the web interface. " +
+                                        $"Recommended at a first start: --authorize-ssh-key {WWCPNode.DefaultAdminUser}=<your key.pub>. " +
+                                        $"Without it, a first start makes up a key pair for '{WWCPNode.DefaultAdminUser}' and shows " +
+                                         "it once, on the console, beside the password."))
                 yield return line;
 
             yield return "";
@@ -248,7 +251,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             foreach (var line in Switch("--accounts <dir>",  $"where the accounts live (default: {WWCPNode.DefaultAccountsPath}/ below the repository " +
                                                               "root): the users, their roles, the organizations and the API keys. Without them a " +
                                                              $"password is made up at the first start for the user '{WWCPNode.DefaultAdminUser}' " +
-                                                              "and shown once."))
+                                                              "and shown once - and, with SSH on and no --authorize-ssh-key for it, an SSH " +
+                                                              "key pair, shown once as well."))
                 yield return line;
 
             yield return "";

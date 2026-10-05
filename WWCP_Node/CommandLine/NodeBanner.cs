@@ -23,6 +23,8 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
@@ -181,6 +183,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <summary>
         /// The account a node made up at its first start and the password it
         /// shows this once, in a box; nothing where there were accounts already.
+        /// Where it made up an SSH key for the account as well, its fingerprint
+        /// is in the box, and its private key below it, shown this once too -
+        /// outside the box, so that it can be copied as it stands - and then
+        /// the way recommended instead: the command line bringing one's own key.
         /// </summary>
         /// <remarks>
         /// The scheme is named rather than called "a hash", and read from the
@@ -202,6 +208,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             yield return $"  │  password  {Node.GeneratedPassword}";
             yield return $"  │  It is shown here once and kept only as a {SecurePassword.PBKDF2SHA256} hash";
             yield return $"  │  over {SecurePassword.DefaultIterations} iterations. Write it down.";
+
+            if (Node.GeneratedSSHKey is GeneratedSSHKey key)
+            {
+
+                var signIn = Node.SSHURL is String url && url.StartsWith("ssh://", StringComparison.Ordinal)
+                                 ? $"ssh -i <file> ssh://{key.Account}@{url["ssh://".Length..]}"
+                                 : $"ssh -i <file> {key.Account}@<this machine>";
+
+                yield return  "  │";
+                yield return $"  │  SSH key   {key.Fingerprint}";
+                yield return $"  │  It was made up for {key.Account}, as the command line brought no key for it.";
+                yield return  "  │  Its private key is below, shown here once and kept nowhere. Save the";
+                yield return  "  │  lines from BEGIN to END as a file only you can read, then sign in with";
+                yield return $"  │  {signIn}";
+                yield return  "  │  - or import the file in PuTTYgen and save it for PuTTY.";
+                yield return  "  └───────────────────────────────────────────────────────────────────────────";
+
+                foreach (var line in key.PrivateKey.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n'))
+                    yield return line;
+
+                yield return  "";
+                yield return  "  Recommended for a first start: bring your own key instead -";
+                yield return $"  --authorize-ssh-key {key.Account}=<your key.pub> - and none is made up.";
+
+                yield break;
+
+            }
+
             yield return  "  └───────────────────────────────────────────────────────────────────────────";
 
         }

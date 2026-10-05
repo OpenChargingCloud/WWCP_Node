@@ -133,6 +133,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public AuthorizedKeysStore  SSHKeys                 { get; }
 
         /// <summary>
+        /// The SSH key made up for the first account at a first start, its
+        /// private key to be shown once, as the password is - or null: when
+        /// accounts were there already, when SSH is off, and when the command
+        /// line brought a key for that account, which is the way recommended
+        /// for a first start.
+        /// </summary>
+        /// <remarks>
+        /// Set by <see cref="Start"/>, as <see cref="GeneratedPassword"/> is.
+        /// </remarks>
+        public GeneratedSSHKey?     GeneratedSSHKey         { get; private set; }
+
+        /// <summary>
         /// Where the SSH server is reached, "ssh://127.0.0.1:22347"; null where
         /// there is none.
         /// </summary>
@@ -211,6 +223,53 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     Log.Info($"'{account}' had the key in '{file}' already.", "ssh", "auth");
 
             }
+
+        }
+
+        #endregion
+
+        #region (private) GiveTheFirstAccountAKey()
+
+        /// <summary>
+        /// At a first start with SSH on, and no key the command line brought for
+        /// the first account: an Ed25519 key pair made up for it, its public key
+        /// let in, its private key kept in memory for the banner to show once.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Without it nobody could sign in over SSH after a first start: SSH
+        /// takes keys, passwords only where the configuration file says so, and
+        /// the account the start made up has no key. Its password is shown once
+        /// on the console, and this key is shown there too: whoever reads that
+        /// console has the password already.
+        /// </para>
+        /// <para>
+        /// The way recommended for a first start is still to bring one's own
+        /// key - --authorize-ssh-key root=&lt;file.pub&gt; - so that the private key
+        /// never leaves the machine it was made on and no console ever shows
+        /// it. Where the command line did, no key is made up here; nor where the
+        /// account had a key in its file already, from an earlier life of the
+        /// accounts directory.
+        /// </para>
+        /// </remarks>
+        private void GiveTheFirstAccountAKey()
+        {
+
+            if (GeneratedPassword is null || !SSHEnabled || SSHKeys.Of(DefaultAdminUser).Count > 0)
+                return;
+
+            var key      = SshKeyGenerator.Generate("ssh-ed25519");
+            var comment  = $"{DefaultAdminUser}@{Kind.Tag}-first-start";
+
+            if (!SSHKeys.TryAuthorize(DefaultAdminUser, SshPublicKey.FromHostKey(key, comment).ToAuthorizedKeyLine(), out var added, out var refused) ||
+                added.Count != 1)
+                throw new InvalidOperationException($"The SSH key made up for '{DefaultAdminUser}' at the first start could not be let in: {refused}");
+
+            GeneratedSSHKey = new GeneratedSSHKey(DefaultAdminUser, added[0], OpenSshPrivateKey.Format(key, comment));
+
+            Log.Notice($"No SSH key was given for '{DefaultAdminUser}', so one was made up at the first start and let in: {added[0]}. " +
+                        "Its private key is shown once, on the console, and kept nowhere.",
+                       "ssh", "auth", "security");
 
         }
 

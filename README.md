@@ -517,7 +517,10 @@ it. Nobody can sign in to a web interface whose accounts are empty, and an
 unauthenticated setup page would be a door of its own: so at a first start
 the node makes one account, `root`, with a password made up on the spot and
 shown once, on the console, to whoever started the process. It is never
-written down anywhere; what the accounts hold is the hash. It is 24
+written down anywhere; what the accounts hold is the hash. With SSH on, the
+first start gives `root` a key as well, unless the command line brought one
+- see "The command line over SSH" below for that, and why bringing one's own
+is the way recommended. It is 24
 characters out of 57 - no I or l, no O or 0, which read as each other on a
 console - drawn from `RandomNumberGenerator`; it used to come from
 `Random.Shared`, which is fast and not secret. A kind of node that keeps
@@ -621,7 +624,27 @@ hand, and `from="..."` or `expiry-time="..."` in front of it hold. The file
 is read at every sign-in: a key taken out lets nobody in from that moment
 on. `--authorize-ssh-key <account>=<file>` puts one in - an OpenSSH `.pub`,
 or what PuTTYgen saves - once the accounts are read and before a port opens,
-so at a first start too. An account that is switched off, or holds none of
+so at a first start too.
+
+**At a first start, bring `root` a key of your own** - this is the way
+recommended:
+
+```
+<program> --authorize-ssh-key root=~/.ssh/id_ed25519.pub
+```
+
+The private key then never leaves the machine it was made on, and no console
+shows it. Where the first start was given no key for `root`, and SSH is on,
+the node makes up an Ed25519 key pair for it, lets its public key in and
+shows its private key once, below the password in the banner's first-start
+box - outside the box, so that it can be copied as it stands, from
+`-----BEGIN OPENSSH PRIVATE KEY-----` to the END line, and saved as a file
+only its owner can read. `ssh -i <file> ssh://root@<host>:<port>` then signs
+in, or PuTTY with the file imported in PuTTYgen. Like the password it is
+written down nowhere - but a console may be kept: a service's journal,
+`docker logs`, a redirected output. Replace that key with your own and take
+it out; the log names it by its fingerprint and the comment
+`root@<kind>-first-start`. An account that is switched off, or holds none of
 the node's roles, is not let in; a password only where the file says
 `"passwords": true`, and never for an account with a second factor on the
 web interface, for which SSH would be the way around it.
