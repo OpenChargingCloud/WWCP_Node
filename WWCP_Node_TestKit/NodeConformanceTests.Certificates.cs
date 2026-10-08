@@ -214,7 +214,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Assert.Multiple(() => {
 
-                Assert.That(store["usages"]!.Values<String>(),         Is.EqualTo(Node.Certificates.Usages), "what a page may offer");
+                Assert.That(store["usages"]!.Values<String>(),         Is.EqualTo(Node.Certificates.Usages.Select(usage => usage.ToString())), "what a page may offer");
                 Assert.That(((JObject) store["kinds"]!).Properties().Select(kind => kind.Name),
                             Is.EquivalentTo(kinds.Select(kind => kind.AsText())),
                             "the kinds this store keeps, and no others");
@@ -222,20 +222,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 foreach (var kind in kinds)
                 {
                     Assert.That(store["kinds"]![kind.AsText()]!["hasUsages"]!.Value<Boolean>(),  Is.EqualTo(Node.Certificates.HasUsages(kind)),  $"whether {kind.WithArticle()} is told what it is for");
-                    Assert.That(store["kinds"]![kind.AsText()]!["usages"]!.Values<String>(),     Is.EqualTo(Node.Certificates.UsagesFor(kind)),  $"what {kind.WithArticle()} may be told");
+                    Assert.That(store["kinds"]![kind.AsText()]!["usages"]!.Values<String>(),     Is.EqualTo(Node.Certificates.KnownUsages(kind).Select(usage => usage.ToString())),  $"what {kind.WithArticle()} is offered");
                 }
 
                 if (kinds.Contains(CertificateKind.TLSRoot))
-                    Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSRoot),       Does.Contain("dns").And.Contain("nts"),
+                    Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSRoot).Select(usage => usage.ToString()),  Does.Contain("dns").And.Contain("nts"),
                                 "a TLS root may vouch for the node's name servers and time servers");
 
                 if (kinds.Contains(CertificateKind.TLSIdentity))
                     Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSIdentity),   Is.EqualTo(Node.Certificates.Listeners),
                                 "an identity is told the listeners its kind of node names, and nothing a root vouches for");
 
-                Assert.That(store["trustAnchors"]!.Values<String>(),  Is.EquivalentTo(kinds.Where(kind =>  kind.IsTrustAnchor()).Select(kind => kind.AsText())), "what the node believes");
-                Assert.That(store["credentials"]!. Values<String>(),  Is.EquivalentTo(kinds.Where(kind => !kind.IsTrustAnchor() && !kind.MustNotCarryPrivateKey()).Select(kind => kind.AsText())), "what it presents");
-                Assert.That(store["recognised"]!.  Values<String>(),  Is.EquivalentTo(kinds.Where(kind => !kind.IsTrustAnchor() &&  kind.MustNotCarryPrivateKey()).Select(kind => kind.AsText())), "what it recognises a server by");
+                Assert.That(store["trustAnchors"]!.Values<String>(),  Is.EquivalentTo(kinds.Where(kind => kind.Group == CertificateGroup.TrustAnchor).Select(kind => kind.AsText())), "what the node believes");
+                Assert.That(store["credentials"]!. Values<String>(),  Is.EquivalentTo(kinds.Where(kind => kind.Group == CertificateGroup.Credential). Select(kind => kind.AsText())), "what it presents");
+                Assert.That(store["recognised"]!.  Values<String>(),  Is.EquivalentTo(kinds.Where(kind => kind.Group == CertificateGroup.Recognised). Select(kind => kind.AsText())), "what it recognises a server by");
 
             });
 
@@ -243,39 +243,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
-        #region AKindThatIsNotToldWhatItIsForIsRefusedUsages()
+        #region ARootMayBeMarkedWithAUsageMadeUp()
 
         /// <summary>
-        /// A root of a kind that is for what its kind says - a vehicle's roots,
-        /// the roots a client connecting here has to chain to - is refused
-        /// usages where they are typed, rather than kept with them and never
-        /// asked about them.
+        /// A root of any kind may be marked with a usage nobody defined - for a
+        /// configuration or code to name later - and the store offers it for as
+        /// long as a certificate is marked with it, and no longer.
         /// </summary>
         [Test]
-        public async Task AKindThatIsNotToldWhatItIsForIsRefusedUsages()
+        public async Task ARootMayBeMarkedWithAUsageMadeUp()
         {
 
             var kind = Node.Certificates.Kinds.
-                           Where (kind => kind.IsTrustAnchor() && !Node.Certificates.HasUsages(kind)).
+                           Where (kind => kind.IsTrustAnchor() && kind != CertificateKind.ClientRoot).
                            Select(kind => (CertificateKind?) kind).
                            FirstOrDefault();
 
-            Assume.That(kind, Is.Not.Null, $"The store of this {Node.Kind.Name} keeps no root that is not told what it is for.");
+            Assume.That(kind, Is.Not.Null, $"The store of this {Node.Kind.Name} keeps no root.");
 
             using var http  = await SignedIn();
 
-            var before         = InTheStore();
-
             var (status, said) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
                                                 new JProperty("kind",     kind!.Value.AsText()),
-                                                new JProperty("content",  RootPem("A Root For What Its Kind Says")),
-                                                new JProperty("usages",   new JArray("nts"))
+                                                new JProperty("content",  RootPem("A Root Marked For Our Backend")),
+                                                new JProperty("usages",   new JArray("Our-Backend"))
                                             ));
 
+            var offered        = (await GetJSON(http, "api/v1/certificates"))["kinds"]![kind!.Value.AsText()]!["usages"]!.Values<String>().ToArray();
+            var (deleted, _)   = await Send(http, HttpMethod.Delete, $"api/v1/certificates/{said["id"]}");
+            var offeredAfter   = (await GetJSON(http, "api/v1/certificates"))["kinds"]![kind!.Value.AsText()]!["usages"]!.Values<String>().ToArray();
+
             Assert.Multiple(() => {
-                Assert.That(status,           Is.EqualTo(HttpStatusCode.BadRequest), said.ToString());
-                Assert.That(said.ToString(),  Does.Contain("only a TLS root and a server certificate"));
-                Assert.That(InTheStore(),     Is.EquivalentTo(before), "nothing refused was half-imported");
+                Assert.That(status,                          Is.EqualTo(HttpStatusCode.Created), said.ToString());
+                Assert.That(said["usages"]!.Values<String>(), Is.EqualTo(new[] { "our-backend" }), "in lower case");
+                Assert.That(offered,                         Does.Contain("our-backend"));
+                Assert.That(deleted,                         Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(offeredAfter,                    Does.Not.Contain("our-backend"), "nothing but the certificates remembers it");
             });
 
         }
@@ -419,7 +422,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var (unknown, said)      = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
                                                       new JProperty("kind",     "tlsRoot"),
                                                       new JProperty("content",  RootPem("Some Root")),
-                                                      new JProperty("usages",   new JArray("ntp"))
+                                                      new JProperty("usages",   new JArray("not a usage!"))
                                                   ));
 
             var (notAList, listSaid) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
@@ -447,7 +450,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             Assert.Multiple(() => {
 
                 Assert.That(unknown,              Is.EqualTo(HttpStatusCode.BadRequest));
-                Assert.That(said.ToString(),      Does.Contain("'ntp' is not a usage").And.Contain(String.Join(", ", Node.Certificates.UsagesFor(CertificateKind.TLSRoot))));
+                Assert.That(said.ToString(),      Does.Contain("'not a usage!' is not a usage name"));
 
                 Assert.That(notAList,             Is.EqualTo(HttpStatusCode.BadRequest));
                 Assert.That(listSaid.ToString(),  Does.Contain("has to be a list of usages"));
@@ -467,15 +470,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
-        #region AnIdentityIsToldOnlyTheListenersOfItsNode()
+        #region AnIdentityMarkedForSomethingElseIsShownOnNoListener()
 
         /// <summary>
-        /// An identity is told the listeners it is shown on, and only those of
-        /// this kind of node - not the services a root vouches for. A kind of
-        /// node that names no listener has an identity told nothing at all.
+        /// An identity may be marked with a usage that is no listener of this
+        /// kind of node - for a configuration or code to name later - and is
+        /// then shown on none of its listeners: a usage that is not a listener
+        /// does not make it one.
         /// </summary>
         [Test]
-        public async Task AnIdentityIsToldOnlyTheListenersOfItsNode()
+        public async Task AnIdentityMarkedForSomethingElseIsShownOnNoListener()
         {
 
             Keeps(CertificateKind.TLSIdentity);
@@ -484,15 +488,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             var (status, said) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
                                                 new JProperty("kind",     "tlsIdentity"),
-                                                new JProperty("content",  Identity("Not For The Name Servers")),
+                                                new JProperty("content",  Identity("Not For A Listener")),
                                                 new JProperty("usages",   new JArray("dns"))
                                             ));
 
+            var stored = Node.Certificates.Get(said.Value<String>("id"), CertificateKind.TLSIdentity);
+
             Assert.Multiple(() => {
-                Assert.That(status,           Is.EqualTo(HttpStatusCode.BadRequest), said.ToString());
-                Assert.That(said.ToString(),  Node.Certificates.Listeners.Count == 0
-                                                  ? Does.Contain("names none")
-                                                  : Does.Contain("'dns' is not a listener"));
+                Assert.That(status,  Is.EqualTo(HttpStatusCode.Created), said.ToString());
+                Assert.That(stored,  Is.Not.Null);
+                foreach (var listener in Node.Certificates.Listeners)
+                    Assert.That(stored!.IsFor(listener), Is.False, $"shown on {listener}");
             });
 
         }
@@ -665,7 +671,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var path           = $"api/v1/certificates/{handle}";
 
             var (notYes, saidOfYes)  = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label", "Renamed By A Refusal"), new JProperty("active", "yes")));
-            var (bogus,  _)          = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label", "Renamed By A Refusal"), new JProperty("usages", new JArray("bogus"))));
+            var (bogus,  _)          = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label", "Renamed By A Refusal"), new JProperty("usages", new JArray("no usage!"))));
 
             var (_, kept)            = await Send(http, HttpMethod.Get, path);
 

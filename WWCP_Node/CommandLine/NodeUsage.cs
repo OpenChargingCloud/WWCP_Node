@@ -613,7 +613,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         private String AfterTheKinds()
         {
 
-            var forEveryUse = certificateKinds.Where(kind => kind is CertificateKind.TLSRoot or CertificateKind.TLSServer).
+            var forEveryUse = certificateKinds.Where(kind => kind == CertificateKind.TLSRoot || kind == CertificateKind.TLSServer).
                                                Select(kind => kind.AsText()).
                                                ToArray();
 

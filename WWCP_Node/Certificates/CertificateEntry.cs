@@ -84,7 +84,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                           Int32            ChainLength,
                                           Boolean          IsActive,
                                           DateTimeOffset   ImportedAt,
-                                          IReadOnlyList<String>?  Usages = null)
+                                          IReadOnlyList<CertificateUsage>?  Usages = null)
     {
 
         #region Data
@@ -149,10 +149,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// TLS root was before there were usages, and a store written then
         /// should mean tomorrow what it meant yesterday.
         /// </remarks>
-        public Boolean IsFor(String Usage)
+        public Boolean IsFor(CertificateUsage Usage)
 
             => Kind.HasUsages() &&
-               (Usages is null || Usages.Contains(Usage, StringComparer.OrdinalIgnoreCase));
+               (Usages is null || Usages.Contains(Usage));
 
         #endregion
 
@@ -169,7 +169,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                             Int32                   ChainLength,
                                             Boolean                 IsActive,
                                             DateTimeOffset?         ImportedAt   = null,
-                                            IEnumerable<String>?    Usages       = null)
+                                            IEnumerable<CertificateUsage>?  Usages  = null)
         {
 
             var thumbprint = ThumbprintOf(Certificate);
@@ -343,6 +343,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public static Boolean TryParse(JObject                                     JSON,
                                        [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                        [NotNullWhen(false)] out String?            Error)
+
+            => TryParse(JSON, [], out Entry, out Error);
+
+        /// <summary>
+        /// One entry as the index file holds it, its kind one of the given ones
+        /// where it is - a kind of node's own, which its store was made with -
+        /// or one defined in code, or else made up, of the group the index
+        /// says.
+        /// </summary>
+        /// <param name="JSON">The entry as the index holds it.</param>
+        /// <param name="Known">The kinds the store keeps.</param>
+        /// <param name="Entry">The entry.</param>
+        /// <param name="Error">What is wrong with it.</param>
+        public static Boolean TryParse(JObject                                     JSON,
+                                       IEnumerable<CertificateKind>                Known,
+                                       [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                       [NotNullWhen(false)] out String?            Error)
         {
 
             Entry  = null;
@@ -356,7 +373,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            if (!CertificateKindExtensions.TryParseKind(JSON.Value<String>("kind"), out var kind))
+            var kindName = JSON.Value<String>("kind")?.Trim();
+            var group    = CertificateKind.TryParseGroup(JSON.Value<String>("group"), out var said) ? said : (CertificateGroup?) null;
+
+            CertificateKind kind;
+
+            if (Known.FirstOrDefault(known => String.Equals(known.AsText(), kindName, StringComparison.OrdinalIgnoreCase)) is { IsNotNullOrEmpty: true } keptKind)
+                kind = keptKind;
+
+            else if (CertificateKind.TryParse(kindName, group, out var parsed))
+                kind = parsed.Value;
+
+            else
             {
                 Error = $"the certificate '{id}' has an unknown 'kind'.";
                 return false;
@@ -370,7 +398,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            IReadOnlyList<String>? usages = null;
+            IReadOnlyList<CertificateUsage>? usages = null;
 
             if (JSON.TryGetValue("usages", out var usagesToken) && usagesToken.Type != JTokenType.Null)
             {
@@ -383,7 +411,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     return false;
                 }
 
-                usages = [.. usagesArray.Select(usage => usage.Value<String>()!).Distinct()];
+                usages = [.. usagesArray.Select(usage => CertificateUsage.Parse(usage.Value<String>()!)).Distinct()];
 
             }
 
@@ -472,6 +500,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             var json = new JObject(
                            new JProperty("id",            Id),
                            new JProperty("kind",          Kind.AsText()),
+                           // Written for every kind, so that a kind of node's own
+                           // read before it is defined, or a kind somebody made
+                           // up, comes back in the group it was in.
+                           new JProperty("group",         CertificateKind.AsText(Kind.Group)),
                            new JProperty("fileName",      FileName),
                            new JProperty("label",         Label),
                            new JProperty("subject",       Subject),
@@ -493,7 +525,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (Kind.HasUsages())
                 json.Add("usages", Usages is null
                                        ? JValue.CreateNull()
-                                       : new JArray(Usages));
+                                       : new JArray(Usages.Select(usage => usage.ToString())));
 
             if (WithDiagnostics)
             {
@@ -501,6 +533,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 json.Add("notYetValid",  IsNotYetValid);
                 json.Add("usable",       IsUsable);
                 json.Add("description",  Kind.Describe());
+                json.Add("custom",       Kind.IsCustom);
             }
 
             return json;

@@ -95,8 +95,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// </remarks>
         private static readonly String[] readableExtensions = [ ".pem", ".crt", ".cer", ".der", ".p12", ".pfx" ];
 
-        private readonly SemaphoreSlim                        storeLock  = new (1, 1);
-        private readonly Dictionary<String, CertificateEntry>  entries    = [];
+        private readonly SemaphoreSlim                                                  storeLock  = new (1, 1);
+
+        /// <summary>
+        /// Every registration in the store: a certificate once for each kind it
+        /// is kept as, by its handle and that kind.
+        /// </summary>
+        private readonly Dictionary<(String Id, CertificateKind Kind), CertificateEntry>  entries    = [];
 
         /// <summary>
         /// What the index remembers of kinds this node does not keep: not in
@@ -104,7 +109,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// day such a kind is kept again - switched off where it was, under
         /// its label.
         /// </summary>
-        private readonly Dictionary<String, CertificateEntry>  setAside   = [];
+        private readonly Dictionary<(String Id, CertificateKind Kind), CertificateEntry>  setAside   = [];
         private readonly EventLog                              log;
 
         #endregion
@@ -135,16 +140,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public String NodeName { get; }
 
         /// <summary>
-        /// What a TLS root or a server certificate may be told it is for: the
-        /// node's usages, and its kind's - the servers this node connects to.
+        /// What a TLS root or a server certificate is offered to be told it is
+        /// for: the node's usages, and its kind's - the servers this node
+        /// connects to.
         /// </summary>
         /// <remarks>
-        /// A closed list per store, so that a usage somebody mistyped is
-        /// refused where it is typed rather than quietly matching nothing - a
-        /// TLS root "for ntp" would otherwise vouch for no time server, and
-        /// nothing would say why.
+        /// What a page offers, and not all a certificate may be told: whoever
+        /// looks after a node may mark a certificate with a usage of their own,
+        /// which is offered from then on for as long as a certificate is marked
+        /// with it - see <see cref="KnownUsages"/>.
         /// </remarks>
-        public IReadOnlyList<String> Usages { get; }
+        public IReadOnlyList<CertificateUsage> Usages { get; }
 
         /// <summary>
         /// What a TLS identity may be told it is shown on: the listeners its
@@ -157,7 +163,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// questions, and one list would let an identity be "for dns" and a
         /// root "for web", both of which mean nothing.
         /// </remarks>
-        public IReadOnlyList<String> Listeners { get; }
+        public IReadOnlyList<CertificateUsage> Listeners { get; }
 
         /// <summary>
         /// Everything in the store, roots before credentials and each group by
@@ -239,21 +245,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             this.Kinds      = [.. (Kinds ?? CertificateKindExtensions.All).Distinct().OrderBy(kind => kind.SortOrder())];
             this.NodeName   = NodeName ?? "node";
 
-            var usages      = new List<String>(CertificateUsages.All);
+            var usages      = new List<CertificateUsage>(CertificateUsages.All);
 
-            foreach (var usage in Usages ?? [])
-            {
-
-                var name = usage?.Trim().ToLowerInvariant() ?? "";
-
-                if (!CertificateUsages.IsUsageName(name))
-                    throw new ArgumentException($"'{usage}' is not a usage name: a letter, then letters, digits, '-' or '_', at most {CertificateUsages.MaxLength} characters.",
-                                                nameof(Usages));
-
-                if (!usages.Contains(name))
-                    usages.Add(name);
-
-            }
+            foreach (var usage in NamesOf(Usages, nameof(Usages)))
+                if (!usages.Contains(usage))
+                    usages.Add(usage);
 
             this.Usages     = usages;
             this.Listeners  = NamesOf(Listeners, nameof(Listeners));
@@ -271,18 +267,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// Names as a store keeps them - in lower case, each once, in the order
         /// given - or an exception for one that is no name.
         /// </summary>
-        private static IReadOnlyList<String> NamesOf(IEnumerable<String>?  Names,
-                                                     String                Parameter)
+        private static IReadOnlyList<CertificateUsage> NamesOf(IEnumerable<String>?  Names,
+                                                               String                Parameter)
         {
 
-            var names = new List<String>();
+            var names = new List<CertificateUsage>();
 
             foreach (var given in Names ?? [])
             {
 
-                var name = given?.Trim().ToLowerInvariant() ?? "";
-
-                if (!CertificateUsages.IsUsageName(name))
+                if (!CertificateUsage.TryParse(given, out var name))
                     throw new ArgumentException($"'{given}' is not a name: a letter, then letters, digits, '-' or '_', at most {CertificateUsages.MaxLength} characters.",
                                                 Parameter);
 
@@ -297,34 +291,93 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
-        #region UsagesFor(Kind) / HasUsages(Kind)
+        #region UsagesFor(Kind) / HasUsages(Kind) / KnownUsages(Kind)
 
         /// <summary>
-        /// What a certificate of this kind may be told it is for in this store:
-        /// the usages for a TLS root or a server certificate, the listeners for
-        /// a TLS identity, and nothing for the other kinds.
+        /// What a certificate of this kind is offered to be told it is for in
+        /// this store by the node itself: the usages for a TLS root or a server
+        /// certificate, the listeners for a TLS identity, and nothing for the
+        /// other kinds.
         /// </summary>
         /// <remarks>
-        /// What a page offers where a certificate is imported or changed, so
-        /// that it offers only what the store would take.
+        /// What a page offers where a certificate is imported or changed, beside
+        /// the usages somebody marked a certificate of the kind with - see
+        /// <see cref="KnownUsages"/>.
         /// </remarks>
-        public IReadOnlyList<String> UsagesFor(CertificateKind Kind)
+        public IReadOnlyList<CertificateUsage> UsagesFor(CertificateKind Kind)
 
-            => Kind switch {
-                   CertificateKind.TLSRoot      => Usages,
-                   CertificateKind.TLSServer    => Usages,
-                   CertificateKind.TLSIdentity  => Listeners,
-                   _                            => []
-               };
+            => Kind == CertificateKind.TLSRoot || Kind == CertificateKind.TLSServer
+                   ? Usages
+                   : Kind == CertificateKind.TLSIdentity
+                         ? Listeners
+                         : [];
 
         /// <summary>
         /// Whether a certificate of this kind may be told what it is for in this
-        /// store - which a TLS identity may only where the kind of node names
-        /// listeners.
+        /// store: every kind may, by the usages the node offers it or by usages
+        /// somebody marks it with.
         /// </summary>
         public Boolean HasUsages(CertificateKind Kind)
 
-            => UsagesFor(Kind).Count > 0;
+            => Kind.HasUsages();
+
+        /// <summary>
+        /// Every usage a certificate of this kind is offered: what the node
+        /// offers it, then every usage a certificate in the store is marked
+        /// with, in the order of their names.
+        /// </summary>
+        /// <remarks>
+        /// Nothing remembers a usage somebody made up but the certificates
+        /// marked with it: once the last of them is deleted, or told otherwise,
+        /// it is offered no more.
+        /// </remarks>
+        public IReadOnlyList<CertificateUsage> KnownUsages(CertificateKind Kind)
+        {
+
+            var offered = new List<CertificateUsage>(UsagesFor(Kind));
+
+            foreach (var usage in Entries.SelectMany(entry => entry.Usages ?? []).Distinct().Order())
+                if (!offered.Contains(usage))
+                    offered.Add(usage);
+
+            return offered;
+
+        }
+
+        #endregion
+
+        #region Keeps(Kind) / KindsKept
+
+        /// <summary>
+        /// Whether this store keeps certificates of the given kind: one it was
+        /// made with, or one somebody made up - which a store keeps where it
+        /// keeps any kind at all.
+        /// </summary>
+        public Boolean Keeps(CertificateKind Kind)
+
+            => Kinds.Contains(Kind) ||
+               (Kind.IsCustom && Kinds.Count > 0);
+
+        /// <summary>
+        /// Every kind there is a page for: the kinds this store was made with,
+        /// then every made-up kind a certificate in it is kept as.
+        /// </summary>
+        public IReadOnlyList<CertificateKind> KindsKept
+        {
+            get
+            {
+
+                var kinds = new List<CertificateKind>(Kinds);
+
+                foreach (var kind in Entries.Select(entry => entry.Kind).Where(kind => kind.IsCustom).Distinct().
+                                             OrderBy(kind => kind.SortOrder()).ThenBy(kind => kind.AsText(), StringComparer.OrdinalIgnoreCase))
+                    if (!kinds.Contains(kind))
+                        kinds.Add(kind);
+
+                return kinds;
+
+            }
+        }
 
         #endregion
 
@@ -373,7 +426,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 }
 
                 var remembered  = ReadIndex();
-                var found       = new Dictionary<String, CertificateEntry>();
+                var found       = new Dictionary<(String Id, CertificateKind Kind), CertificateEntry>();
                 var adopted     = 0;
 
                 // Only the directories of the kinds kept are read, so an entry
@@ -384,10 +437,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 // its kind was kept again (found by the CSMS).
                 setAside.Clear();
 
-                foreach (var entry in remembered.Values.Where(entry => !Kinds.Contains(entry.Kind)))
-                    setAside.Add(entry.Id, entry);
+                foreach (var entry in remembered.Values.Where(entry => !Keeps(entry.Kind)))
+                    setAside.Add((entry.Id, entry.Kind), entry);
 
-                foreach (var kind in Kinds)
+                foreach (var kind in KindsToRead(remembered.Values))
                 {
 
                     var directory = Path.Combine(Directory, kind.Directory().Replace('/', Path.DirectorySeparatorChar));
@@ -425,14 +478,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                             known?.Usages
                                         );
 
-                            if (found.ContainsKey(entry.Id))
+                            // The same certificate in the directory of another
+                            // kind is that certificate kept as that kind too; in
+                            // the directory of this kind twice, it is one file
+                            // too many.
+                            if (found.ContainsKey((entry.Id, kind)))
                             {
                                 log.Warning($"Certificates: '{relative}' is the same certificate as one already read and was skipped.",
                                             "certificates");
                                 continue;
                             }
 
-                            found.Add(entry.Id, entry);
+                            found.Add((entry.Id, kind), entry);
 
                             if (known is null)
                             {
@@ -449,10 +506,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 }
 
-                foreach (var gone in remembered.Values.Where(entry => Kinds.Contains(entry.Kind) && !found.ContainsKey(entry.Id)))
+                foreach (var gone in remembered.Values.Where(entry => Keeps(entry.Kind) && !found.ContainsKey((entry.Id, entry.Kind))))
                     log.Metrological(LogLevel.Notice,
                                      $"Certificates: '{gone.FileName}' is no longer there and was dropped from the index.",
                                      "certificates", "security");
+
+                // What a certificate is called is the certificate's, whichever
+                // kinds it is kept as: the name the index remembers for one of
+                // them - a file copied into another kind's directory takes the
+                // name it has already - or else its own.
+                foreach (var registrations in found.Values.GroupBy(entry => entry.Id).Where(group => group.Count() > 1).ToList())
+                {
+
+                    var label = registrations.OrderBy(entry => entry.Kind.SortOrder()).
+                                              Select (entry => remembered.GetValueOrDefault((entry.Id, entry.Kind))?.Label).
+                                              FirstOrDefault(name => name is { Length: > 0 })
+                                ?? registrations.OrderBy(entry => entry.Kind.SortOrder()).First().Label;
+
+                    foreach (var entry in registrations)
+                        found[(entry.Id, entry.Kind)] = entry with { Label = label };
+
+                }
 
                 if (setAside.Count > 0)
                     log.Info($"Certificates: {setAside.Count} in the index of a kind this {NodeName} does not keep " +
@@ -484,6 +558,58 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             if (reloaded)
                 Changed();
+
+        }
+
+        #endregion
+
+        #region (private) KindsToRead(Remembered)
+
+        /// <summary>
+        /// The kinds whose directories a reading looks in: the kinds the store
+        /// was made with, every made-up kind the index remembers, and every one
+        /// whose directory is there below "custom/" - so that a made-up kind
+        /// comes back with its certificates where the index did not.
+        /// </summary>
+        private IReadOnlyList<CertificateKind> KindsToRead(IEnumerable<CertificateEntry> Remembered)
+        {
+
+            var kinds = new List<CertificateKind>(Kinds);
+
+            if (Kinds.Count == 0)
+                return kinds;
+
+            foreach (var kind in Remembered.Select(entry => entry.Kind).Where(kind => kind.IsCustom))
+                if (!kinds.Contains(kind))
+                    kinds.Add(kind);
+
+            foreach (var group in Enum.GetValues<CertificateGroup>())
+            {
+
+                var below = Path.GetDirectoryName(CertificateKind.Custom("x", group).Directory().Replace('/', Path.DirectorySeparatorChar))!;
+                var path  = Path.Combine(Directory, below);
+
+                if (!System.IO.Directory.Exists(path))
+                    continue;
+
+                foreach (var directory in System.IO.Directory.EnumerateDirectories(path).Order(StringComparer.Ordinal))
+                {
+
+                    var name = Path.GetFileName(directory);
+
+                    if (!CertificateKind.IsKindName(name) || CertificateKind.TryParse(name, out CertificateKind _))
+                        continue;
+
+                    var kind = CertificateKind.Custom(name, group);
+
+                    if (!kinds.Contains(kind))
+                        kinds.Add(kind);
+
+                }
+
+            }
+
+            return kinds;
 
         }
 
@@ -636,6 +762,39 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                            out Boolean                                         PasswordWanted)
         {
 
+            if (!TryReadCollection(Content, Password, out Collection, out Leaf, out Error, out PasswordWanted))
+                return false;
+
+            if (!Suits(Leaf, Kind, out Error))
+            {
+                Dispose(Collection);
+                Collection  = null;
+                Leaf        = null;
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryReadCollection(Content, Password, out Collection, out Leaf, out Error, out PasswordWanted)
+
+        /// <summary>
+        /// What a file holds, and its leaf - the one with the private key where
+        /// there is one, and otherwise the first: the same rule the session's
+        /// own loaders use, so that what the store calls the leaf is what they
+        /// will.
+        /// </summary>
+        private static Boolean TryReadCollection(Byte[]                                                Content,
+                                                 String?                                               Password,
+                                                 [NotNullWhen(true)]  out X509Certificate2Collection?  Collection,
+                                                 [NotNullWhen(true)]  out X509Certificate2?            Leaf,
+                                                 [NotNullWhen(false)] out String?                      Error,
+                                                 out Boolean                                           PasswordWanted)
+        {
+
             Collection      = null;
             Leaf            = null;
             Error           = null;
@@ -666,21 +825,367 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            // The leaf is the one with the private key where there is one, and
-            // otherwise the first: the same rule the session's own loaders use,
-            // so that what the store calls the leaf is what they will.
-            var leaf = collection.FirstOrDefault(certificate => certificate.HasPrivateKey) ?? collection[0];
-
-            if (!Suits(leaf, Kind, out Error))
-            {
-                Dispose(collection);
-                return false;
-            }
-
             Collection  = collection;
-            Leaf        = leaf;
+            Leaf        = collection.FirstOrDefault(certificate => certificate.HasPrivateKey) ?? collection[0];
 
             return true;
+
+        }
+
+        #endregion
+
+        #region (static) Inspect(Content, Password)
+
+        /// <summary>
+        /// What a file or a text holds, certificate by certificate, each with
+        /// the certificates above it that came with it and its private key
+        /// where it came with one - as it would be imported, without putting
+        /// anything anywhere.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// For a page that is dropped a file on, or pasted a text into: it shows
+        /// what is in it, and puts it into its box as PEM - a PKCS#12 or a DER
+        /// file too, which a box of text could not show otherwise.
+        /// </para>
+        /// <para>
+        /// A text may hold any number of certificates and keys. Every certificate
+        /// that no other one in it was issued by is one import, with the ones
+        /// above it that came with it; a key goes to the certificate it belongs
+        /// to, wherever it was written, and one that belongs to none is refused,
+        /// as an import refuses it.
+        /// </para>
+        /// </remarks>
+        /// <param name="Content">The file or the text as it is.</param>
+        /// <param name="Password">What opens it, where it is a protected PKCS#12 or a PEM with an encrypted key.</param>
+        public static CertificateInspection Inspect(Byte[]   Content,
+                                                    String?  Password)
+
+            => Inspect(Content, Password, _ => []);
+
+        #endregion
+
+        #region Inspect(Content, Password)
+
+        /// <summary>
+        /// What a file or a text holds, certificate by certificate - each with
+        /// the kinds this store keeps it as already.
+        /// </summary>
+        /// <param name="Content">The file or the text as it is.</param>
+        /// <param name="Password">What opens it, where it is a protected PKCS#12 or a PEM with an encrypted key.</param>
+        public CertificateInspection InspectFor(Byte[]   Content,
+                                                String?  Password)
+
+            => Inspect(Content, Password, id => [.. Registrations(id).Select(entry => entry.Kind)]);
+
+        #endregion
+
+        #region (private static) Inspect(Content, Password, KindsOf)
+
+        private static CertificateInspection Inspect(Byte[]                                          Content,
+                                                     String?                                         Password,
+                                                     Func<String, IReadOnlyList<CertificateKind>>    KindsOf)
+        {
+
+            if (Content.Length == 0)
+                return new CertificateInspection([], "There is nothing in that file.");
+
+            var found = new X509Certificate2Collection();
+
+            try
+            {
+
+                var asText = LooksLikeText(Content)
+                                 ? System.Text.Encoding.UTF8.GetString(Content)
+                                 : null;
+
+                var keys   = asText is null ? [] : KeyBlocksOf(asText);
+
+                if (asText is not null && (asText.Contains("-----BEGIN CERTIFICATE-----", StringComparison.Ordinal) || keys.Count > 0))
+                {
+
+                    if (asText.Contains("-----BEGIN CERTIFICATE-----", StringComparison.Ordinal))
+                        found.ImportFromPem(asText);
+
+                    if (found.Count == 0)
+                        return new CertificateInspection([], keys.Count > 0
+                                                                 ? "That text holds a private key, and no certificate it belongs to."
+                                                                 : "That text looks like PEM, and holds no certificate that can be read.");
+
+                    foreach (var key in keys)
+                        PairKey(found, key, Password);
+
+                }
+
+                else
+                    found = ReadCollection(Content, Password);
+
+            }
+            catch (PasswordWantedException exception)
+            {
+                Dispose(found);
+                return new CertificateInspection([], exception.Message, PasswordWanted: true);
+            }
+            catch (Exception exception)
+            {
+                Dispose(found);
+                return new CertificateInspection([], exception.Message);
+            }
+
+            try
+            {
+
+                // Each certificate once, the one with its key where it came
+                // twice - as a PKCS#12 and its PEM, say.
+                var all = found.GroupBy (certificate => CertificateEntry.ThumbprintOf(certificate)).
+                                Select  (same        => same.FirstOrDefault(certificate => certificate.HasPrivateKey) ?? same.First()).
+                                ToList();
+
+                if (all.Count == 0)
+                    return new CertificateInspection([], "That file holds no certificate.");
+
+                static Boolean SelfSigned(X509Certificate2 Certificate)
+                    => String.Equals(Certificate.Subject, Certificate.Issuer, StringComparison.Ordinal);
+
+                // A leaf is what no other certificate in it was issued by; a
+                // root on its own is a leaf of its own.
+                var leaves = all.Where(candidate => !all.Any(other => !ReferenceEquals(other, candidate) &&
+                                                                       !SelfSigned(other)                 &&
+                                                                       String.Equals(other.Issuer, candidate.Subject, StringComparison.Ordinal))).
+                                 ToList();
+
+                if (leaves.Count == 0)
+                    leaves = all;
+
+                var inspected = new List<InspectedCertificate>();
+
+                foreach (var leaf in leaves)
+                {
+
+                    var chain   = new List<X509Certificate2>();
+                    var current = leaf;
+
+                    while (!SelfSigned(current))
+                    {
+
+                        var issuer = all.FirstOrDefault(other => !ReferenceEquals(other, current) &&
+                                                                 String.Equals(other.Subject, current.Issuer, StringComparison.Ordinal));
+
+                        if (issuer is null || ReferenceEquals(issuer, leaf) || chain.Contains(issuer))
+                            break;
+
+                        chain.Add(issuer);
+                        current = issuer;
+
+                    }
+
+                    var pem = new System.Text.StringBuilder();
+
+                    pem.Append(leaf.ExportCertificatePem()).Append('\n');
+
+                    foreach (var above in chain)
+                        pem.Append(above.ExportCertificatePem()).Append('\n');
+
+                    if (leaf.HasPrivateKey && PrivateKeyPemOf(leaf) is String key)
+                        pem.Append(key).Append('\n');
+
+                    var thumbprint = CertificateEntry.ThumbprintOf(leaf);
+
+                    inspected.Add(new InspectedCertificate(
+                                      pem.ToString(),
+                                      thumbprint[..CertificateEntry.IdLength],
+                                      thumbprint,
+                                      CertificateEntry.CommonNameOf(leaf),
+                                      leaf.Subject,
+                                      leaf.Issuer,
+                                      leaf.NotBefore.ToUniversalTime(),
+                                      leaf.NotAfter. ToUniversalTime(),
+                                      CertificateEntry.KeyAlgorithmOf(leaf),
+                                      leaf.HasPrivateKey,
+                                      chain.Count,
+                                      IsCA(leaf),
+                                      SelfSigned(leaf),
+                                      KindsOf(thumbprint[..CertificateEntry.IdLength])
+                                  ));
+
+                }
+
+                return new CertificateInspection(inspected);
+
+            }
+            finally
+            {
+                Dispose(found);
+            }
+
+        }
+
+        #endregion
+
+        #region Unsuitable(Certificate)
+
+        /// <summary>
+        /// For each kind this store keeps that the given certificate cannot be
+        /// kept as, why not - as an import of it as that kind alone would say.
+        /// </summary>
+        /// <param name="Certificate">A certificate as <see cref="InspectFor"/> found it.</param>
+        public IReadOnlyDictionary<CertificateKind, String> Unsuitable(InspectedCertificate Certificate)
+        {
+
+            var unsuitable = new Dictionary<CertificateKind, String>();
+
+            if (!TryReadCollection(System.Text.Encoding.ASCII.GetBytes(Certificate.Pem), null, out var collection, out var leaf, out var error, out _))
+            {
+                foreach (var kind in KindsKept)
+                    unsuitable[kind] = error;
+                return unsuitable;
+            }
+
+            try
+            {
+
+                foreach (var kind in KindsKept)
+                    if (!Suits(leaf, kind, out var refused))
+                        unsuitable[kind] = refused;
+
+                return unsuitable;
+
+            }
+            finally
+            {
+                Dispose(collection);
+            }
+
+        }
+
+        #endregion
+
+        #region (private static) PairKey(Collection, Key, Password)
+
+        /// <summary>
+        /// Give a private key to the certificate in the collection it belongs to -
+        /// or say that it belongs to none.
+        /// </summary>
+        private static void PairKey(X509Certificate2Collection  Collection,
+                                    String                      Key,
+                                    String?                     Password)
+        {
+
+            var encrypted = Key.StartsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----", StringComparison.Ordinal);
+
+            if (encrypted && Password is not { Length: > 0 })
+                throw new PasswordWantedException("That text's private key is encrypted, and no password was given.");
+
+            for (var i = 0; i < Collection.Count; i++)
+            {
+
+                var certificate = Collection[i];
+
+                if (certificate.HasPrivateKey)
+                    continue;
+
+                X509Certificate2 paired;
+
+                try
+                {
+                    paired = encrypted
+                                 ? X509Certificate2.CreateFromEncryptedPem(certificate.ExportCertificatePem(), Key, Password!)
+                                 : X509Certificate2.CreateFromPem         (certificate.ExportCertificatePem(), Key);
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+                catch (CryptographicException exception)
+                {
+                    throw new ArgumentException(
+                              encrypted
+                                  ? $"That text's private key could not be opened - wrong password? ({exception.Message})"
+                                  : $"That text's private key is of a kind that cannot be read. ({exception.Message})");
+                }
+
+                using (paired)
+                {
+                    Collection[i] = X509CertificateLoader.LoadPkcs12(
+                                        paired.Export(X509ContentType.Pkcs12) ?? [],
+                                        (String?) null,
+                                        X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet
+                                    );
+                }
+
+                certificate.Dispose();
+                return;
+
+            }
+
+            throw new ArgumentException(
+                      "That text carries a private key that belongs to none of the certificates in it. " +
+                      "A credential is one leaf, its key, and the sub-CAs above it.");
+
+        }
+
+        #endregion
+
+        #region (private static) KeyBlocksOf(Pem) / PrivateKeyPemOf(Certificate)
+
+        /// <summary>
+        /// Every private key block in a PEM, whichever of the four spellings it uses, in the order written.
+        /// </summary>
+        private static IReadOnlyList<String> KeyBlocksOf(String Pem)
+        {
+
+            var blocks = new List<(Int32 At, String Block)>();
+
+            foreach (var label in new[] { "PRIVATE KEY", "EC PRIVATE KEY", "RSA PRIVATE KEY", "ENCRYPTED PRIVATE KEY" })
+            {
+
+                var opening = $"-----BEGIN {label}-----";
+                var closing = $"-----END {label}-----";
+                var from    = 0;
+
+                while ((from = Pem.IndexOf(opening, from, StringComparison.Ordinal)) >= 0)
+                {
+
+                    var to = Pem.IndexOf(closing, from, StringComparison.Ordinal);
+
+                    if (to < 0)
+                        break;
+
+                    blocks.Add((from, Pem[from..(to + closing.Length)]));
+                    from = to + closing.Length;
+
+                }
+
+            }
+
+            return [.. blocks.OrderBy(block => block.At).Select(block => block.Block)];
+
+        }
+
+        /// <summary>
+        /// A certificate's private key as an unencrypted PKCS#8 PEM, or nothing
+        /// where it has none that can be written out.
+        /// </summary>
+        private static String? PrivateKeyPemOf(X509Certificate2 Certificate)
+        {
+
+            try
+            {
+
+                using var ecdsa = Certificate.GetECDsaPrivateKey();
+
+                if (ecdsa is not null)
+                    return ecdsa.ExportPkcs8PrivateKeyPem();
+
+                using var rsa = Certificate.GetRSAPrivateKey();
+
+                return rsa?.ExportPkcs8PrivateKeyPem();
+
+            }
+            catch (CryptographicException)
+            {
+                return null;
+            }
 
         }
 
@@ -771,21 +1276,108 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                               out Boolean                                 NotSaved)
         {
 
-            Entry     = null;
+            Entry = null;
+
+            if (!Import(Content,
+                        Password,
+                        Label,
+                        [ new CertificateRegistration(Kind, Usages is null ? null : [.. Usages]) ],
+                        out var entries,
+                        out Error,
+                        out NotSaved))
+            {
+                return false;
+            }
+
+            Entry = entries[0];
+            return true;
+
+        }
+
+        #endregion
+
+        #region Import(Content, Password, Label, Registrations, out Entries, out Error, out NotSaved)
+
+        /// <summary>
+        /// Put a certificate into the store as every kind given, copying it in
+        /// once for each - all of them or none.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Each kind a certificate is kept as is a registration of its own: a
+        /// file in that kind's directory, written as that kind's reader takes
+        /// it, switched on and told its usages on its own. What it is called is
+        /// the certificate's - a label given here is the label of every kind it
+        /// is kept as, and a kind added to a certificate already in the store
+        /// takes the name it has there.
+        /// </para>
+        /// <para>
+        /// Whatever can refuse one of the kinds is asked before anything is
+        /// written, and a file or the index that cannot be written takes back
+        /// what this import wrote: a certificate put in as an identity and a
+        /// root, refused as the root, is not in the store as the identity
+        /// either.
+        /// </para>
+        /// <para>
+        /// A trust anchor and a server's certificate must not carry a private
+        /// key, and a file that brings one along is refused as either - unless
+        /// the same import puts it in as a kind that presents it as well. Then
+        /// the key is where it belongs, with that kind, and the anchor or the
+        /// server's certificate is kept without it.
+        /// </para>
+        /// </remarks>
+        /// <param name="Content">The file as it arrived.</param>
+        /// <param name="Password">What opens it, where it is a protected PKCS#12.</param>
+        /// <param name="Label">What to call it; its common name, or the name it has in the store already, where this is not given.</param>
+        /// <param name="Registrations">The kinds to keep it as, each with what it is for; at least one, and each kind once.</param>
+        /// <param name="Entries">What it is in the store now, one entry per kind given, in the order given.</param>
+        /// <param name="Error">Why nothing went in.</param>
+        /// <param name="NotSaved">True where a file or the index could not be written: nothing about the certificate was wrong, and nothing went in.</param>
+        public Boolean Import(Byte[]                                                    Content,
+                              String?                                                   Password,
+                              String?                                                   Label,
+                              IReadOnlyList<CertificateRegistration>                    Registrations,
+                              [NotNullWhen(true)]  out IReadOnlyList<CertificateEntry>?  Entries,
+                              [NotNullWhen(false)] out String?                          Error,
+                              out Boolean                                               NotSaved)
+        {
+
+            Entries   = null;
             Error     = null;
             NotSaved  = false;
+
+            if (Registrations.Count == 0)
+            {
+                Error = "Name at least one kind to keep the certificate as.";
+                return false;
+            }
+
+            if (Registrations.GroupBy(registration => registration.Kind).FirstOrDefault(group => group.Count() > 1) is { } twice)
+            {
+                Error = $"{twice.Key.CapitalisedWithArticle()} is named twice. Name each kind once.";
+                return false;
+            }
 
             // Before anything is read or written, so that a kind this store does
             // not keep is not half-imported, and a store that keeps nothing is
             // not given a directory by a refused import.
-            if (!Kinds.Contains(Kind))
+            if (Registrations.FirstOrDefault(registration => !Keeps(registration.Kind)) is { } unkept)
             {
-                Error = $"This {NodeName} keeps no certificate of that kind: {Kind.Describe(NodeName)}.";
+                Error = $"This {NodeName} keeps no certificate of that kind: {unkept.Kind.Describe(NodeName)}.";
                 return false;
             }
 
-            if (!TrySettleUsages(Kind, Usages, out var usages, out Error))
-                return false;
+            var settled = new Dictionary<CertificateKind, IReadOnlyList<CertificateUsage>?>();
+
+            foreach (var registration in Registrations)
+            {
+
+                if (!TrySettleUsages(registration.Kind, registration.Usages, out var usages, out Error))
+                    return false;
+
+                settled[registration.Kind] = usages;
+
+            }
 
             if (Content.Length == 0)
             {
@@ -799,147 +1391,197 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            if (!TryReadLeaf(Content, Kind, Password, out var collection, out var leaf, out Error, out _))
+            if (!TryReadCollection(Content, Password, out var collection, out var leaf, out Error, out _))
                 return false;
 
-            var storeChanged = false;
+            // The key stays with the kinds that present it. An anchor or a
+            // server's certificate put in beside one of them is kept without it;
+            // put in alone, a key that came along is refused as before, because
+            // then it is somebody's key in the wrong place.
+            var presented  = Registrations.Any(registration => registration.Kind.NeedsPrivateKey());
+            using var bare = leaf.HasPrivateKey && presented
+                                 ? X509CertificateLoader.LoadCertificate(leaf.RawData)
+                                 : null;
+
+            X509Certificate2 LeafFor(CertificateKind Kind)
+
+                => bare is not null && (Kind.IsTrustAnchor() || Kind.MustNotCarryPrivateKey())
+                       ? bare
+                       : leaf;
+
+            foreach (var registration in Registrations)
+            {
+                if (!Suits(LeafFor(registration.Kind), registration.Kind, out Error))
+                {
+                    Dispose(collection);
+                    return false;
+                }
+            }
+
+            var storeChanged  = false;
+            var written       = new List<String>();
+            var before        = new Dictionary<(String Id, CertificateKind Kind), CertificateEntry>();
+            var said          = new List<(LogLevel Level, String Line, Boolean Security)>();
 
             storeLock.Wait();
 
             try
             {
 
-                var thumbprint = CertificateEntry.ThumbprintOf(leaf);
-                var id         = thumbprint[..CertificateEntry.IdLength];
+                var thumbprint  = CertificateEntry.ThumbprintOf(leaf);
+                var id          = thumbprint[..CertificateEntry.IdLength];
+                var others      = entries.Values.Where(entry => entry.Id == id).OrderBy(entry => entry.Kind.SortOrder()).ToList();
 
-                #region The same certificate again is the same entry
-
-                if (entries.TryGetValue(id, out var existing))
+                if (others.FirstOrDefault(entry => entry.Thumbprint != thumbprint) is CertificateEntry taken)
                 {
-
-                    if (existing.Thumbprint != thumbprint)
-                    {
-                        Error = $"The handle '{id}' is already taken by a different certificate " +
-                                $"('{existing.Label}'). Remove that one first.";
-                        return false;
-                    }
-
-                    if (existing.Kind != Kind)
-                    {
-                        Error = $"That certificate is already in the store as {existing.Kind.WithArticle()} " +
-                                $"('{existing.Label}'). One certificate has one purpose - remove it first " +
-                                 "to put it back as something else.";
-                        return false;
-                    }
-
-                    var before   = existing;
-                    var relabel  = Label?.Trim() is { Length: > 0 } given && given != existing.Label ? given : null;
-
-                    // Usages given are the usages from now on; none given leaves
-                    // the ones it has, because an import that said nothing about
-                    // them said nothing about them.
-                    var reuse    = Usages is not null && !SameUsages(existing.Usages, usages);
-
-                    if (relabel is null && !reuse)
-                    {
-                        log.Info($"Certificates: {existing.Label} was already in the store; nothing changed.", "certificates");
-                        Entry = existing;
-                        return true;
-                    }
-
-                    if (relabel is not null)
-                        existing = existing with { Label = relabel };
-
-                    if (reuse)
-                        existing = existing with { Usages = usages };
-
-                    entries[id] = existing;
-
-                    // What changed is nothing but the index: where that cannot
-                    // be written, the change is put back rather than answered as
-                    // done and gone at the next start.
-                    if (!TryWriteIndex(PutBack: true, out Error))
-                    {
-                        entries[id] = before;
-                        NotSaved    = true;
-                        return false;
-                    }
-
-                    storeChanged = true;
-
-                    if (relabel is not null)
-                        log.Info($"Certificates: '{existing.FileName}' is now called '{relabel}'.", "certificates");
-
-                    if (reuse)
-                        log.Metrological(LogLevel.Notice,
-                                         $"Certificates: {existing.Label} ({existing.Kind.AsText()}) is now {CertificateUsages.Describe(usages)}, " +
-                                         $"where it was {CertificateUsages.Describe(before.Usages)}.",
-                                         "certificates", "security");
-
-                    Entry = existing;
-                    return true;
-
-                }
-
-                #endregion
-
-                var fileName  = RelativeName(Kind, id + Kind.Extension());
-                var fullPath  = FullPath(fileName);
-
-                try
-                {
-                    File.WriteAllBytes(fullPath, Serialise(collection, leaf, Kind));
-                    Protect(fullPath);
-                }
-                catch (Exception exception)
-                {
-                    Error     = $"That certificate could not be written to the store: {exception.Message}";
-                    NotSaved  = true;
+                    Error = $"The handle '{id}' is already taken by a different certificate " +
+                            $"('{taken.Label}'). Remove that one first.";
                     return false;
                 }
 
-                var imported = CertificateEntry.From(
-                                   leaf,
-                                   Kind,
-                                   fileName,
-                                   Label,
-                                   collection.Count - 1,
-                                   IsActive:  true,
-                                   Usages:    usages
-                               );
+                foreach (var entry in others)
+                    before[(entry.Id, entry.Kind)] = entry;
 
-                entries.Add(imported.Id, imported);
+                var given   = Label?.Trim() is { Length: > 0 } trimmed ? trimmed : null;
+
+                // Given, the label is the certificate's from now on, whichever
+                // kinds it is kept as; not given, a kind added to a certificate
+                // in the store takes the name it has there.
+                var label   = given ?? others.FirstOrDefault()?.Label;
+
+                var results = new List<CertificateEntry>();
+
+                foreach (var registration in Registrations)
+                {
+
+                    var kind    = registration.Kind;
+                    var usages  = settled[kind];
+
+                    if (entries.TryGetValue((id, kind), out var existing))
+                    {
+
+                        // Usages given are the usages from now on; none given
+                        // leaves the ones it has, because an import that said
+                        // nothing about them said nothing about them.
+                        if (registration.Usages is not null && !SameUsages(existing.Usages, usages))
+                        {
+
+                            said.Add((LogLevel.Notice,
+                                      $"Certificates: {existing.Label} ({kind.AsText()}) is now {CertificateUsages.Describe(usages)}, " +
+                                      $"where it was {CertificateUsages.Describe(existing.Usages)}.",
+                                      true));
+
+                            existing = existing with { Usages = usages };
+                            entries[(id, kind)] = existing;
+
+                        }
+
+                        results.Add(existing);
+                        continue;
+
+                    }
+
+                    var fileName  = RelativeName(kind, id + kind.Extension());
+                    var fullPath  = FullPath(fileName);
+                    var kindLeaf  = LeafFor(kind);
+
+                    try
+                    {
+                        // A made-up kind has no directory until its first
+                        // certificate.
+                        System.IO.Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+                        File.WriteAllBytes(fullPath, Serialise(collection, kindLeaf, kind));
+                        written.Add(fullPath);
+                        Protect(fullPath);
+                    }
+                    catch (Exception exception)
+                    {
+                        Error     = $"That certificate could not be written to the store: {exception.Message}";
+                        NotSaved  = true;
+                        PutBack(written, before, id);
+                        return false;
+                    }
+
+                    var imported = CertificateEntry.From(
+                                       kindLeaf,
+                                       kind,
+                                       fileName,
+                                       label,
+                                       collection.Count - 1,
+                                       IsActive:  true,
+                                       Usages:    usages
+                                   );
+
+                    label ??= imported.Label;
+
+                    entries.Add((id, kind), imported);
+                    results.Add(imported);
+
+                    said.Add((LogLevel.Notice,
+                              $"Certificates: imported {imported.Label} as {kind.Describe(NodeName)}, " +
+                              $"{imported.KeyAlgorithm}, valid until {imported.NotAfter.UtcDateTime:yyyy-MM-dd}, SHA-256 {imported.Thumbprint}. It is switched on" +
+                              $"{(kind.HasUsages() ? ", " + CertificateUsages.Describe(usages) : "")}" +
+                              $"{(others.Count > 0 ? $", and kept as {String.Join(" and ", others.Select(other => other.Kind.WithArticle()))} as well" : "")}.",
+                              true));
+
+                    if (imported.HasPrivateKey)
+                        said.Add((LogLevel.Warning,
+                                  $"Certificates: the private key of {imported.Label} is stored unencrypted in " +
+                                  $"'{Directory}'. Anybody who can read that directory can use it.",
+                                  false));
+
+                }
+
+                // A label given renames every kind it is kept as; a certificate
+                // whose kinds went by different names would be two certificates
+                // on a page that shows it once.
+                if (given is not null)
+                {
+                    foreach (var entry in entries.Values.Where(entry => entry.Id == id && entry.Label != given).ToList())
+                    {
+
+                        if (before.ContainsKey((entry.Id, entry.Kind)))
+                            said.Add((LogLevel.Info, $"Certificates: '{entry.FileName}' is now called '{given}'.", false));
+
+                        entries[(entry.Id, entry.Kind)] = entry with { Label = given };
+
+                    }
+                }
+
+                var changed = written.Count > 0 ||
+                              entries.Values.Where(entry => entry.Id == id).Any(entry => !before.TryGetValue((entry.Id, entry.Kind), out var was) || was != entry);
+
+                if (!changed)
+                {
+                    log.Info($"Certificates: {results[0].Label} was already in the store; nothing changed.", "certificates");
+                    Entries = [.. Registrations.Select(registration => entries[(id, registration.Kind)])];
+                    return true;
+                }
 
                 // The index says what it is called, that it is on, and what it
-                // is for. Without it the file would come back at the next start
-                // under its own name, switched on, for every use - so it goes
-                // back out rather than in.
+                // is for. Without it a file written here would come back at the
+                // next start under its own name, switched on, for every use - so
+                // everything this import did goes back out rather than in.
                 if (!TryWriteIndex(PutBack: true, out Error))
                 {
-                    entries.Remove(imported.Id);
                     NotSaved = true;
-                    Forget(fullPath);
+                    PutBack(written, before, id);
                     return false;
                 }
 
-                Entry         = imported;
-                storeChanged  = true;
+                storeChanged = true;
 
-                log.Metrological(LogLevel.Notice,
-                                 $"Certificates: imported {Entry.Label} as {Kind.Describe(NodeName)}, " +
-                                 $"{Entry.KeyAlgorithm}, valid until {Entry.NotAfter.UtcDateTime:yyyy-MM-dd}, SHA-256 {Entry.Thumbprint}. It is switched on" +
-                                 $"{(Kind.HasUsages() ? ", " + CertificateUsages.Describe(usages) : "")}.",
-                                 "certificates", "security");
+                foreach (var (level, line, security) in said)
+                {
+                    if (security)
+                        log.Metrological(level, line, "certificates", "security");
+                    else if (level == LogLevel.Warning)
+                        log.Warning(line, "certificates");
+                    else
+                        log.Info(line, "certificates");
+                }
 
-                // Said at the import as well as at a start, because the start
-                // that matters happened before this key existed: a node that
-                // only warned at construction would never mention the first
-                // private key anybody put on it.
-                if (Entry.HasPrivateKey)
-                    log.Warning($"Certificates: the private key of {Entry.Label} is stored unencrypted in " +
-                                $"'{Directory}'. Anybody who can read that directory can use it.",
-                                "certificates");
-
+                Entries = [.. Registrations.Select(registration => entries[(id, registration.Kind)])];
                 return true;
 
             }
@@ -958,30 +1600,89 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
+        #region (private) PutBack(Written, Before, Id)
+
+        /// <summary>
+        /// Take back what an import did that could not be finished: the files
+        /// it wrote, and the registrations of the certificate as they were.
+        /// Called from inside <see cref="storeLock"/>.
+        /// </summary>
+        private void PutBack(IEnumerable<String>                                                Written,
+                             IReadOnlyDictionary<(String Id, CertificateKind Kind), CertificateEntry>  Before,
+                             String                                                             Id)
+        {
+
+            foreach (var path in Written)
+                Forget(path);
+
+            foreach (var key in entries.Keys.Where(key => key.Id == Id).ToList())
+                entries.Remove(key);
+
+            foreach (var (key, entry) in Before)
+                entries[key] = entry;
+
+        }
+
+        #endregion
+
         #region SetActive(Id, Active, out Entry, out Error)
 
         /// <summary>
-        /// Switch one certificate on or off, leaving it where it is.
+        /// Switch one certificate on or off, as every kind it is kept as,
+        /// leaving it where it is.
         /// </summary>
         /// <remarks>
-        /// The difference between this and <see cref="Remove"/> is the whole
-        /// reason both exist: a certificate somebody is taking out of service
-        /// for an afternoon should not have to be imported again afterwards,
-        /// and one whose key may have leaked should not merely be switched off.
+        /// The difference between this and <see cref="Remove(String, out String?)"/>
+        /// is the whole reason both exist: a certificate somebody is taking out
+        /// of service for an afternoon should not have to be imported again
+        /// afterwards, and one whose key may have leaked should not merely be
+        /// switched off. Switched off as a whole, a certificate kept as two kinds
+        /// is not left believed as the one somebody forgot.
         /// </remarks>
         public Boolean SetActive(String                                      Id,
                                  Boolean                                     Active,
                                  [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                  [NotNullWhen(false)] out String?            Error)
 
-            => SetActive(Id, Active, out Entry, out Error, out _);
+            => SetActive(Id, null, Active, out Entry, out Error, out _);
 
         /// <summary>
-        /// Switch one certificate on or off - and say whether a refusal was the
-        /// index's rather than the change's.
+        /// Switch one certificate on or off as every kind it is kept as - and say
+        /// whether a refusal was the index's rather than the change's.
         /// </summary>
         /// <param name="NotSaved">True where the index could not be written: the certificate stays as it was.</param>
         public Boolean SetActive(String                                      Id,
+                                 Boolean                                     Active,
+                                 [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                 [NotNullWhen(false)] out String?            Error,
+                                 out Boolean                                 NotSaved)
+
+            => SetActive(Id, null, Active, out Entry, out Error, out NotSaved);
+
+        /// <summary>
+        /// Switch one certificate on or off as one kind it is kept as.
+        /// </summary>
+        public Boolean SetActive(String                                      Id,
+                                 CertificateKind                             Kind,
+                                 Boolean                                     Active,
+                                 [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                 [NotNullWhen(false)] out String?            Error)
+
+            => SetActive(Id, Kind, Active, out Entry, out Error, out _);
+
+        /// <summary>
+        /// Switch one certificate on or off - as the given kind, or as every
+        /// kind it is kept as - and say whether a refusal was the index's rather
+        /// than the change's.
+        /// </summary>
+        /// <param name="Id">The certificate's handle.</param>
+        /// <param name="Kind">The kind it is switched as; null for every kind it is kept as.</param>
+        /// <param name="Active">On or off.</param>
+        /// <param name="Entry">The certificate as the kind given, or as the first kind it is kept as, as it is now.</param>
+        /// <param name="Error">Why not.</param>
+        /// <param name="NotSaved">True where the index could not be written: the certificate stays as it was.</param>
+        public Boolean SetActive(String                                      Id,
+                                 CertificateKind?                            Kind,
                                  Boolean                                     Active,
                                  [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                  [NotNullWhen(false)] out String?            Error,
@@ -999,36 +1700,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             try
             {
 
-                if (!entries.TryGetValue(Id, out var entry))
-                {
-                    Error = $"There is no certificate '{Id}' in this store.";
+                if (!TryRegistrations(Id, Kind, out var targets, out Error))
                     return false;
-                }
 
-                if (entry.IsActive != Active)
+                var switched = targets.Where(entry => entry.IsActive != Active).ToList();
+
+                foreach (var entry in switched)
+                    entries[(entry.Id, entry.Kind)] = entry with { IsActive = Active };
+
+                if (switched.Count > 0)
                 {
-
-                    var switched = entry with { IsActive = Active };
-                    entries[Id]  = switched;
 
                     if (!TryWriteIndex(PutBack: true, out Error))
                     {
-                        entries[Id] = entry;
-                        NotSaved    = true;
+
+                        foreach (var entry in switched)
+                            entries[(entry.Id, entry.Kind)] = entry;
+
+                        NotSaved = true;
                         return false;
+
                     }
 
-                    Entry        = switched;
                     storeChanged = true;
 
-                    log.Metrological(LogLevel.Notice,
-                                     $"Certificates: {Entry.Label} ({Entry.Kind.AsText()}) was switched {(Active ? "on" : "off")}.",
-                                     "certificates", "security");
+                    foreach (var entry in switched)
+                        log.Metrological(LogLevel.Notice,
+                                         $"Certificates: {entry.Label} ({entry.Kind.AsText()}) was switched {(Active ? "on" : "off")}.",
+                                         "certificates", "security");
 
                 }
-                else
-                    Entry = entry;
 
+                Entry = entries[(targets[0].Id, targets[0].Kind)];
                 return true;
 
             }
@@ -1049,7 +1752,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #region Relabel(Id, Label, out Entry, out Error)
 
         /// <summary>
-        /// Change what a certificate is called.
+        /// Change what a certificate is called - whichever kinds it is kept as,
+        /// because the name is the certificate's.
         /// </summary>
         public Boolean Relabel(String                                      Id,
                                String?                                     Label,
@@ -1087,30 +1791,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             try
             {
 
-                if (!entries.TryGetValue(Id, out var entry))
-                {
-                    Error = $"There is no certificate '{Id}' in this store.";
+                if (!TryRegistrations(Id, null, out var targets, out Error))
                     return false;
-                }
 
                 // A label taken back is not an empty label: it is the
                 // certificate's own name again.
                 var settled = Label?.Trim() is { Length: > 0 } given
                                   ? given
-                                  : NameFromFile(entry);
+                                  : NameFromFile(targets[0]);
 
-                var relabelled = entry with { Label = settled };
-                entries[Id]    = relabelled;
+                foreach (var entry in targets)
+                    entries[(entry.Id, entry.Kind)] = entry with { Label = settled };
 
                 if (!TryWriteIndex(PutBack: true, out Error))
                 {
-                    entries[Id] = entry;
-                    NotSaved    = true;
+
+                    foreach (var entry in targets)
+                        entries[(entry.Id, entry.Kind)] = entry;
+
+                    NotSaved = true;
                     return false;
+
                 }
 
-                Entry        = relabelled;
-                storeChanged = relabelled.Label != entry.Label;
+                Entry        = entries[(targets[0].Id, targets[0].Kind)];
+                storeChanged = targets.Any(entry => entry.Label != settled);
 
                 return true;
 
@@ -1136,10 +1841,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// use where none are given.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// A decision about trust, as switching it on is: a TLS root told it
         /// may vouch for the time servers is one that can make this node
         /// believe a time. So it is written into the metrological log like
         /// every other change of the store, tagged as a matter of security.
+        /// </para>
+        /// <para>
+        /// Without a kind, a certificate kept as one kind is told; one kept as
+        /// several has to be told as which, because what a root may vouch for
+        /// and where an identity is shown are different questions.
+        /// </para>
         /// </remarks>
         /// <param name="Id">The certificate's handle.</param>
         /// <param name="Usages">What it may be used for from now on; null for every use.</param>
@@ -1150,7 +1862,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                  [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                  [NotNullWhen(false)] out String?            Error)
 
-            => SetUsages(Id, Usages, out Entry, out Error, out _);
+            => SetUsages(Id, null, Usages, out Entry, out Error, out _);
 
         /// <summary>
         /// Say what one certificate may be used for - and say whether a refusal
@@ -1158,6 +1870,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// </summary>
         /// <param name="NotSaved">True where the index could not be written: the certificate is for what it was for.</param>
         public Boolean SetUsages(String                                      Id,
+                                 IEnumerable<String>?                        Usages,
+                                 [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                 [NotNullWhen(false)] out String?            Error,
+                                 out Boolean                                 NotSaved)
+
+            => SetUsages(Id, null, Usages, out Entry, out Error, out NotSaved);
+
+        /// <summary>
+        /// Say what one certificate may be used for as one kind it is kept as.
+        /// </summary>
+        public Boolean SetUsages(String                                      Id,
+                                 CertificateKind                             Kind,
+                                 IEnumerable<String>?                        Usages,
+                                 [NotNullWhen(true)]  out CertificateEntry?  Entry,
+                                 [NotNullWhen(false)] out String?            Error)
+
+            => SetUsages(Id, Kind, Usages, out Entry, out Error, out _);
+
+        /// <summary>
+        /// Say what one certificate may be used for as the given kind, or as the
+        /// one kind it is kept as - and say whether a refusal was the index's
+        /// rather than the usages'.
+        /// </summary>
+        /// <param name="Id">The certificate's handle.</param>
+        /// <param name="Kind">The kind it is told as; null where it is kept as one kind only.</param>
+        /// <param name="Usages">What it may be used for from now on; null for every use.</param>
+        /// <param name="Entry">The certificate as it is now.</param>
+        /// <param name="Error">Why not.</param>
+        /// <param name="NotSaved">True where the index could not be written: the certificate is for what it was for.</param>
+        public Boolean SetUsages(String                                      Id,
+                                 CertificateKind?                            Kind,
                                  IEnumerable<String>?                        Usages,
                                  [NotNullWhen(true)]  out CertificateEntry?  Entry,
                                  [NotNullWhen(false)] out String?            Error,
@@ -1175,11 +1918,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             try
             {
 
-                if (!entries.TryGetValue(Id, out var entry))
+                if (!TryRegistrations(Id, Kind, out var targets, out Error))
+                    return false;
+
+                if (targets.Count > 1)
                 {
-                    Error = $"There is no certificate '{Id}' in this store.";
+                    Error = $"'{targets[0].Label}' is kept as {String.Join(" and ", targets.Select(entry => entry.Kind.WithArticle()))}. " +
+                             "Say as which of them it is told what it is for.";
                     return false;
                 }
+
+                var entry = targets[0];
 
                 if (!TrySettleUsages(entry.Kind, Usages, out var usages, out Error))
                     return false;
@@ -1190,13 +1939,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     return true;
                 }
 
-                var reused   = entry with { Usages = usages };
-                entries[Id]  = reused;
+                var reused = entry with { Usages = usages };
+                entries[(entry.Id, entry.Kind)] = reused;
 
                 if (!TryWriteIndex(PutBack: true, out Error))
                 {
-                    entries[Id] = entry;
-                    NotSaved    = true;
+                    entries[(entry.Id, entry.Kind)] = entry;
+                    NotSaved = true;
                     return false;
                 }
 
@@ -1228,24 +1977,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #region Remove(Id, out Error)
 
         /// <summary>
-        /// Take a certificate out of the store and delete its file.
+        /// Take a certificate out of the store as every kind it is kept as, and
+        /// delete its files.
         /// </summary>
         /// <remarks>
-        /// The file goes. A store whose "delete" left the private key on the
+        /// The files go. A store whose "delete" left the private key on the
         /// disk would be worse than one with no delete at all, because it would
         /// be believed.
         /// </remarks>
         public Boolean Remove(String                            Id,
                               [NotNullWhen(false)] out String?  Error)
 
-            => Remove(Id, out Error, out _);
+            => Remove(Id, null, out Error, out _);
 
         /// <summary>
-        /// Take a certificate out of the store and delete its file - and say
-        /// whether a refusal was the file's rather than the request's.
+        /// Take a certificate out of the store as every kind it is kept as, and
+        /// delete its files - and say whether a refusal was a file's rather than
+        /// the request's.
         /// </summary>
-        /// <param name="NotSaved">True where the file could not be deleted: the certificate stays in the store.</param>
+        /// <param name="NotSaved">True where a file could not be deleted: the certificate stays in the store as that kind.</param>
         public Boolean Remove(String                            Id,
+                              [NotNullWhen(false)] out String?  Error,
+                              out Boolean                       NotSaved)
+
+            => Remove(Id, null, out Error, out NotSaved);
+
+        /// <summary>
+        /// Take a certificate out of the store as one kind it is kept as, and
+        /// delete that kind's file of it.
+        /// </summary>
+        public Boolean Remove(String                            Id,
+                              CertificateKind                   Kind,
+                              [NotNullWhen(false)] out String?  Error)
+
+            => Remove(Id, Kind, out Error, out _);
+
+        /// <summary>
+        /// Take a certificate out of the store - as the given kind, or as every
+        /// kind it is kept as - and delete those files of it; and say whether a
+        /// refusal was a file's rather than the request's.
+        /// </summary>
+        /// <remarks>
+        /// Taken out as one kind of several, the certificate stays in the store
+        /// as the others, under its name.
+        /// </remarks>
+        /// <param name="Id">The certificate's handle.</param>
+        /// <param name="Kind">The kind it is taken out as; null for every kind it is kept as.</param>
+        /// <param name="Error">Why not.</param>
+        /// <param name="NotSaved">True where a file could not be deleted: the certificate stays in the store as that kind.</param>
+        public Boolean Remove(String                            Id,
+                              CertificateKind?                  Kind,
                               [NotNullWhen(false)] out String?  Error,
                               out Boolean                       NotSaved)
         {
@@ -1260,38 +2041,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             try
             {
 
-                if (!entries.TryGetValue(Id, out var entry))
-                {
-                    Error = $"There is no certificate '{Id}' in this store.";
+                if (!TryRegistrations(Id, Kind, out var targets, out Error))
                     return false;
-                }
 
-                var fullPath = FullPath(entry.FileName);
-
-                try
+                foreach (var entry in targets)
                 {
-                    if (File.Exists(fullPath))
-                        File.Delete(fullPath);
-                }
-                catch (Exception exception)
-                {
-                    Error     = $"'{entry.FileName}' could not be deleted: {exception.Message}";
-                    NotSaved  = true;
-                    return false;
+
+                    var fullPath = FullPath(entry.FileName);
+
+                    try
+                    {
+                        if (File.Exists(fullPath))
+                            File.Delete(fullPath);
+                    }
+                    catch (Exception exception)
+                    {
+
+                        Error     = $"'{entry.FileName}' could not be deleted: {exception.Message}";
+                        NotSaved  = true;
+
+                        // What was deleted before is gone, and is said so.
+                        if (storeChanged)
+                            TryWriteIndex(PutBack: false, out _);
+
+                        return false;
+
+                    }
+
+                    entries.Remove((entry.Id, entry.Kind));
+                    storeChanged = true;
+
+                    var left = entries.Values.Where(other => other.Id == entry.Id).ToList();
+
+                    log.Metrological(LogLevel.Notice,
+                                     left.Count == 0
+                                         ? $"Certificates: {entry.Label} ({entry.Kind.AsText()}) was deleted from the store."
+                                         : $"Certificates: {entry.Label} is no longer kept as {entry.Kind.WithArticle()}; it is still kept as " +
+                                           $"{String.Join(" and ", left.Select(other => other.Kind.WithArticle()))}.",
+                                     "certificates", "security");
+
                 }
 
-                entries.Remove(Id);
-
-                // The file is gone, and the entry with it, whether or not the
-                // index can say so: an entry whose file is not there is dropped
-                // at the next reading. That it could not be written is logged.
+                // The files are gone, and the entries with them, whether or not
+                // the index can say so: an entry whose file is not there is
+                // dropped at the next reading. That it could not be written is
+                // logged.
                 TryWriteIndex(PutBack: false, out _);
-
-                storeChanged = true;
-
-                log.Metrological(LogLevel.Notice,
-                                 $"Certificates: {entry.Label} ({entry.Kind.AsText()}) was deleted from the store.",
-                                 "certificates", "security");
 
                 return true;
 
@@ -1310,13 +2105,61 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
-
-        #region Get(Id) / ByKind(Kind) / UsableByKind(Kind) / UsableFor(Kind, Usage)
+        #region (private) TryRegistrations(Id, Kind, out Registrations, out Error)
 
         /// <summary>
-        /// One entry by its handle, or nothing.
+        /// A certificate as the given kind, or as every kind it is kept as, in
+        /// the order the kinds are shown in - or why there is none. Called from
+        /// inside <see cref="storeLock"/>.
         /// </summary>
+        private Boolean TryRegistrations(String                                                  Id,
+                                         CertificateKind?                                        Kind,
+                                         [NotNullWhen(true)]  out List<CertificateEntry>?        Registrations,
+                                         [NotNullWhen(false)] out String?                        Error)
+        {
+
+            Registrations  = [.. entries.Values.Where(entry => entry.Id == Id && (Kind is null || entry.Kind == Kind.Value)).
+                                                OrderBy(entry => entry.Kind.SortOrder()).
+                                                ThenBy (entry => entry.Kind.AsText(), StringComparer.OrdinalIgnoreCase)];
+            Error          = null;
+
+            if (Registrations.Count > 0)
+                return true;
+
+            Error = Kind is CertificateKind kind && entries.Values.Any(entry => entry.Id == Id)
+                        ? $"The certificate '{Id}' is not kept as {kind.WithArticle()} in this store."
+                        : $"There is no certificate '{Id}' in this store.";
+
+            Registrations = null;
+            return false;
+
+        }
+
+        #endregion
+
+
+        #region Get(Id) / Get(Id, Kind) / Registrations(Id) / ByKind(Kind) / UsableByKind(Kind) / UsableFor(Kind, Usage)
+
+        /// <summary>
+        /// One certificate by its handle - as the first kind it is kept as, in
+        /// the order the kinds are shown in - or nothing.
+        /// </summary>
+        /// <remarks>
+        /// A certificate kept as several kinds is several entries, one per kind:
+        /// whoever asks for one of them by name asks <see cref="Get(String?, CertificateKind)"/>,
+        /// and whoever wants all of them, <see cref="Registrations"/>.
+        /// </remarks>
         public CertificateEntry? Get(String? Id)
+
+            => Id is null
+                   ? null
+                   : Registrations(Id).FirstOrDefault();
+
+        /// <summary>
+        /// One certificate by its handle as the given kind, or nothing.
+        /// </summary>
+        public CertificateEntry? Get(String?          Id,
+                                     CertificateKind  Kind)
         {
 
             if (Id is null)
@@ -1326,7 +2169,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             try
             {
-                return entries.GetValueOrDefault(Id);
+                return entries.GetValueOrDefault((Id, Kind));
+            }
+            finally
+            {
+                storeLock.Release();
+            }
+
+        }
+
+        /// <summary>
+        /// One certificate as every kind it is kept as, in the order the kinds
+        /// are shown in - empty where it is not in the store.
+        /// </summary>
+        public IReadOnlyList<CertificateEntry> Registrations(String Id)
+        {
+
+            storeLock.Wait();
+
+            try
+            {
+                return [.. entries.Values.Where(entry => entry.Id == Id).
+                                          OrderBy(entry => entry.Kind.SortOrder()).
+                                          ThenBy (entry => entry.Kind.AsText(), StringComparer.OrdinalIgnoreCase)];
             }
             finally
             {
@@ -1337,7 +2202,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// The entry whose certificate has this SHA-256 fingerprint, of whatever
-        /// kind it is kept as, or nothing.
+        /// kind it is kept as - one that is usable where there is one - or nothing.
         /// </summary>
         /// <remarks>
         /// The whole fingerprint and nothing shorter, written in any of the
@@ -1357,7 +2222,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             try
             {
-                return entries.Values.FirstOrDefault(entry => String.Equals(entry.Thumbprint, fingerprint, StringComparison.OrdinalIgnoreCase));
+                return entries.Values.Where  (entry => String.Equals(entry.Thumbprint, fingerprint, StringComparison.OrdinalIgnoreCase)).
+                                      OrderBy(entry => entry.IsUsable ? 0 : 1).
+                                      ThenBy (entry => entry.Kind.SortOrder()).
+                                      FirstOrDefault();
             }
             finally
             {
@@ -1386,10 +2254,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// usage: switched on, inside its own validity, and for that use - or
         /// for every use, where it was never told which.
         /// </summary>
-        /// <param name="Kind">A kind kept for some uses and not others.</param>
+        /// <param name="Kind">A kind.</param>
         /// <param name="Usage">The usage.</param>
-        public IReadOnlyList<CertificateEntry> UsableFor(CertificateKind  Kind,
-                                                        String           Usage)
+        public IReadOnlyList<CertificateEntry> UsableFor(CertificateKind   Kind,
+                                                        CertificateUsage  Usage)
 
             => [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsable && entry.IsFor(Usage))];
 
@@ -1469,7 +2337,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             var parts = new List<String>();
 
-            foreach (var kind in Kinds)
+            foreach (var kind in entries.Values.Select(entry => entry.Kind).Concat(Kinds).Distinct().OrderBy(kind => kind.SortOrder()))
             {
 
                 var all = entries.Values.Where(entry => entry.Kind == kind).ToArray();
@@ -1542,7 +2410,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// </remarks>
         public Boolean TrySettleUsages(CertificateKind                    Kind,
                                        IEnumerable<String>?               Usages,
-                                       out IReadOnlyList<String>?         Settled,
+                                       out IReadOnlyList<CertificateUsage>?  Settled,
                                        [NotNullWhen(false)] out String?   Error)
         {
 
@@ -1552,22 +2420,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (Usages is null)
                 return true;
 
-            var allowed    = UsagesFor(Kind);
             var isIdentity = Kind == CertificateKind.TLSIdentity;
+            var given      = new List<CertificateUsage>();
 
-            if (allowed.Count == 0)
+            foreach (var usage in Usages)
             {
-                Error = isIdentity
-                            ? $"{Kind.CapitalisedWithArticle()} is shown on every listener of this {NodeName}, which names none an identity " +
-                               "could be told of: only a TLS root and a server certificate are kept for some uses and not " +
-                               "others, and a TLS identity is shown on the listeners a kind of node names."
-                            : $"{Kind.CapitalisedWithArticle()} is for what its kind says, and is not told what it is used for: " +
-                               "only a TLS root and a server certificate are kept for some uses and not others, " +
-                               "and a TLS identity is shown on some listeners and not others.";
-                return false;
-            }
 
-            var given = Usages.Select(usage => usage?.Trim().ToLowerInvariant() ?? "").Distinct().ToList();
+                if (!CertificateUsage.TryParse(usage, out var name))
+                {
+                    Error = $"'{usage}' is not a usage name: a letter, then letters, digits, '-' or '_', at most {CertificateUsages.MaxLength} characters.";
+                    return false;
+                }
+
+                if (!given.Contains(name))
+                    given.Add(name);
+
+            }
 
             if (given.Count == 0)
             {
@@ -1577,15 +2445,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            if (given.FirstOrDefault(usage => !allowed.Contains(usage)) is String unknown)
-            {
-                Error = isIdentity
-                            ? $"'{unknown}' is not a listener of this {NodeName}. Its listeners are: {String.Join(", ", allowed)}."
-                            : $"'{unknown}' is not a usage this {NodeName} knows. Its usages are: {String.Join(", ", allowed)}.";
-                return false;
-            }
+            // What the node offers first, in its order, then what somebody made
+            // up, in the order of the names: the order is the store's, so that
+            // two requests naming the same usages keep the same list.
+            var offered = UsagesFor(Kind);
 
-            Settled = [.. allowed.Where(given.Contains)];
+            Settled = [.. offered.Where(given.Contains), .. given.Where(usage => !offered.Contains(usage)).Order()];
             return true;
 
         }
@@ -1598,12 +2463,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// Whether two sets of usages are the same set: both every use, or the
         /// same usages in whatever order.
         /// </summary>
-        private static Boolean SameUsages(IReadOnlyList<String>?  Some,
-                                          IReadOnlyList<String>?  Others)
+        private static Boolean SameUsages(IReadOnlyList<CertificateUsage>?  Some,
+                                          IReadOnlyList<CertificateUsage>?  Others)
 
             => Some is null || Others is null
                    ? Some is null && Others is null
-                   : Some.Count == Others.Count && !Some.Except(Others, StringComparer.OrdinalIgnoreCase).Any();
+                   : Some.Count == Others.Count && !Some.Except(Others).Any();
 
         #endregion
 
@@ -2089,7 +2954,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
-            if (Kind == CertificateKind.TLSServer && Leaf.HasPrivateKey)
+            if (Kind.Group == CertificateGroup.Recognised && Leaf.HasPrivateKey)
             {
                 Error = "That file carries a private key, and a server's certificate kept here must not: " +
                         "it is that server's key, in the wrong place. Import the certificate on its own.";
@@ -2108,13 +2973,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 var selfSigned = String.Equals(Leaf.Subject, Leaf.Issuer, StringComparison.Ordinal);
 
-                if (Kind == CertificateKind.ClientRoot)
+                if (Kind.MayBeIssuingCA)
                 {
 
                     if (!selfSigned && !IsCA(Leaf))
                     {
-                        Error = $"'{CertificateEntry.CommonNameOf(Leaf)}' is not a CA certificate. A client root is " +
-                                 "the CA that signs the clients - a root, or the issuing CA below one - and not a client.";
+                        Error = Kind == CertificateKind.ClientRoot
+                                    ? $"'{CertificateEntry.CommonNameOf(Leaf)}' is not a CA certificate. A client root is " +
+                                       "the CA that signs the clients - a root, or the issuing CA below one - and not a client."
+                                    : $"'{CertificateEntry.CommonNameOf(Leaf)}' is not a CA certificate, and {Kind.WithArticle()} " +
+                                       "has to be one: a root, or a CA below one.";
                         return false;
                     }
 
@@ -2170,8 +3038,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             var ordered = new X509Certificate2Collection(Leaf);
 
+            // Compared by what they are rather than which object: the leaf
+            // written may be a copy without its key, beside the one that came
+            // with it.
             foreach (var certificate in Collection)
-                if (!ReferenceEquals(certificate, Leaf))
+                if (!certificate.RawData.AsSpan().SequenceEqual(Leaf.RawData))
                     ordered.Add(certificate);
 
             return ordered.Export(X509ContentType.Pkcs12, password: (String?) null)
@@ -2269,10 +3140,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// one; a damaged index is named and then treated as empty, which costs
         /// labels and switches and no certificates.
         /// </summary>
-        private Dictionary<String, CertificateEntry> ReadIndex()
+        private Dictionary<(String Id, CertificateKind Kind), CertificateEntry> ReadIndex()
         {
 
-            var remembered  = new Dictionary<String, CertificateEntry>();
+            var remembered  = new Dictionary<(String Id, CertificateKind Kind), CertificateEntry>();
             var path        = Path.Combine(Directory, IndexFileName);
 
             if (!File.Exists(path))
@@ -2289,14 +3160,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 foreach (var token in array.OfType<JObject>())
                 {
 
-                    if (!CertificateEntry.TryParse(token, out var entry, out var error))
+                    if (!CertificateEntry.TryParse(token, Kinds, out var entry, out var error))
                     {
                         log.Warning($"Certificates: the index has an entry this {NodeName} could not read - {error}",
                                     "certificates");
                         continue;
                     }
 
-                    remembered[entry.Id] = entry;
+                    remembered[(entry.Id, entry.Kind)] = entry;
 
                 }
 

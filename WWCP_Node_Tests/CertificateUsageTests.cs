@@ -109,13 +109,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// </summary>
         private static CertificateEntry Imported(CertificateStore      Store,
                                                  String                Name,
-                                                 CertificateKind       Kind    = CertificateKind.TLSRoot,
+                                                 CertificateKind?      Kind    = null,
                                                  IEnumerable<String>?  Usages  = null)
         {
 
+            Kind ??= CertificateKind.TLSRoot;
+
             using var root = Root(Name);
 
-            Assert.That(Store.Import(Pem(root), Kind, null, null, Usages, out var entry, out var error), Is.True, error);
+            Assert.That(Store.Import(Pem(root), Kind.Value, null, null, Usages, out var entry, out var error), Is.True, error);
 
             return entry!;
 
@@ -166,7 +168,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(both.Usages,     Is.EqualTo(new[] { "dns", "nts" }), "in lower case, each once, in the order the store lists them");
+                Assert.That(both.Usages,     Is.EqualTo(new CertificateUsage[] { "dns", "nts" }), "in lower case, each once, in the order the store lists them");
                 Assert.That(store.Entries,   Has.Count.EqualTo(2));
 
                 Assert.That(store.UsableFor(CertificateKind.TLSRoot, CertificateUsages.DNS).Select(entry => entry.Id),
@@ -196,7 +198,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             second.Reload();
 
             Assert.Multiple(() => {
-                Assert.That(second.Get(entry.Id)!.Usages,  Is.EqualTo(new[] { CertificateUsages.NTS }), "the index remembers what a file cannot say");
+                Assert.That(second.Get(entry.Id)!.Usages,  Is.EqualTo(new CertificateUsage[] { CertificateUsages.NTS }), "the index remembers what a file cannot say");
                 Assert.That(second.Get(never.Id)!.Usages,  Is.Null,                                     "and every use stays every use");
             });
 
@@ -256,7 +258,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var said    = log.Recent(100, before, "security").ToArray();
 
             Assert.Multiple(() => {
-                Assert.That(changed!.Usages,                                       Is.EqualTo(new[] { "dns", "nts" }));
+                Assert.That(changed!.Usages,                                       Is.EqualTo(new CertificateUsage[] { "dns", "nts" }));
                 Assert.That(store.UsableFor(CertificateKind.TLSRoot, "nts"),       Has.Count.EqualTo(1));
                 Assert.That(said.Select(entry => entry.Message),                   Has.Some.Contains("is now for dns and nts, where it was for dns"));
                 Assert.That(said.All(entry => entry.Metrological),                 Is.True, "every change of the store is evidence");
@@ -290,8 +292,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(store.Entries,    Has.Count.EqualTo(1));
-                Assert.That(second!.Usages,   Is.EqualTo(new[] { CertificateUsages.NTS }));
-                Assert.That(third!.Usages,    Is.EqualTo(new[] { CertificateUsages.NTS }), "said nothing, changed nothing");
+                Assert.That(second!.Usages,   Is.EqualTo(new CertificateUsage[] { CertificateUsages.NTS }));
+                Assert.That(third!.Usages,    Is.EqualTo(new CertificateUsage[] { CertificateUsages.NTS }), "said nothing, changed nothing");
             });
 
         }
@@ -310,11 +312,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(store.Import(Pem(root), CertificateKind.TLSRoot, null, null, [ "ntp" ], out _, out var unknown),  Is.False);
-                Assert.That(unknown,  Does.Contain("'ntp' is not a usage this node knows").And.Contain("dns, nts"));
-
-                Assert.That(store.Import(Pem(root), CertificateKind.V2GRoot, null, null, [ CertificateUsages.NTS ], out _, out var kind),  Is.False);
-                Assert.That(kind,     Does.Contain("only a TLS root and a server certificate"));
+                Assert.That(store.Import(Pem(root), CertificateKind.TLSRoot, null, null, [ "not a usage" ], out _, out var unknown),  Is.False);
+                Assert.That(unknown,  Is.EqualTo("'not a usage' is not a usage name: a letter, then letters, digits, '-' or '_', at most 32 characters."));
 
                 Assert.That(store.Import(Pem(root), CertificateKind.TLSRoot, null, null, [], out _, out var none),  Is.False);
                 Assert.That(none,     Does.Contain("switch off"));
@@ -341,8 +340,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var entry  = Imported(store, "Our Backend's Root", Usages: [ "backend", CertificateUsages.NTS ]);
 
             Assert.Multiple(() => {
-                Assert.That(store.Usages,  Is.EqualTo(new[] { "dns", "nts", "backend" }));
-                Assert.That(entry.Usages,  Is.EqualTo(new[] { "nts", "backend" }));
+                Assert.That(store.Usages,  Is.EqualTo(new CertificateUsage[] { "dns", "nts", "backend" }));
+                Assert.That(entry.Usages,  Is.EqualTo(new CertificateUsage[] { "nts", "backend" }));
             });
 
             Assert.That(() => new CertificateStore(directory, log, Usages: [ "not a usage" ]),
@@ -405,7 +404,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(forModbus!.Usages,                                                           Is.EqualTo(new[] { "modbus" }));
+                Assert.That(forModbus!.Usages,                                                           Is.EqualTo(new CertificateUsage[] { "modbus" }));
                 Assert.That(forEvery!.Usages,                                                            Is.Null, "never told is every listener");
 
                 Assert.That(store.UsableFor(CertificateKind.TLSIdentity, "modbus").Select(entry => entry.Id), Is.EquivalentTo(new[] { forModbus.Id, forEvery.Id }));
@@ -414,8 +413,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(forModbus.ToJSON()["usages"]?.Values<String>(),                             Is.EqualTo(new[] { "modbus" }));
                 Assert.That(forEvery.ToJSON()["usages"]?.Type,                                           Is.EqualTo(JTokenType.Null));
 
-                Assert.That(store.UsagesFor(CertificateKind.TLSIdentity),                                Is.EqualTo(new[] { "modbus", "web" }));
-                Assert.That(store.UsagesFor(CertificateKind.TLSRoot),                                    Is.EqualTo(new[] { "dns", "nts" }));
+                Assert.That(store.UsagesFor(CertificateKind.TLSIdentity),                                Is.EqualTo(new CertificateUsage[] { "modbus", "web" }));
+                Assert.That(store.UsagesFor(CertificateKind.TLSRoot),                                    Is.EqualTo(new CertificateUsage[] { "dns", "nts" }));
                 Assert.That(store.UsagesFor(CertificateKind.ClientRoot),                                 Is.Empty);
 
             });
@@ -427,10 +426,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region AListenerIsNoUsageAndAUsageNoListener()
 
         /// <summary>
-        /// The servers a node connects to and the listeners it has are two lists:
-        /// an identity "for dns" and a root "for web" are refused rather than
-        /// kept to mean nothing - and a node that names no listeners has
-        /// identities that are told nothing at all.
+        /// The servers a node connects to and the listeners it has are two lists
+        /// of what it offers: an identity is offered its node's listeners, a
+        /// root the services. Either may be marked with another name - for a
+        /// configuration or code to name later - and an identity marked "for
+        /// dns" is then shown on no listener, which a usage does not make it.
         /// </summary>
         [Test]
         public void AListenerIsNoUsageAndAUsageNoListener()
@@ -441,26 +441,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var key      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             using var identity = new CertificateRequest("CN=meter-001", key, HashAlgorithmName.SHA256).
                                      CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
-            using var root     = Root("Some Root");
 
-            var identityForDNS = withListeners.Import(identity.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ CertificateUsages.DNS ], out _, out var notAListener);
-            var rootForWeb     = withListeners.Import(Pem(root),                                  CertificateKind.TLSRoot,     null, null, [ "web" ],                 out _, out var notAUsage);
+            var identityForDNS = withListeners.Import(identity.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ CertificateUsages.DNS ], out var marked, out var error);
 
             var withoutThem    = new CertificateStore(Path.Combine(directory, "other"), log);
-            var toldAnyway     = withoutThem.Import(identity.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ "modbus" ], out _, out var noneNamed);
 
             Assert.Multiple(() => {
 
-                Assert.That(identityForDNS,                                        Is.False);
-                Assert.That(notAListener,                                          Does.Contain("'dns' is not a listener of this node").And.Contain("modbus, web"));
-
-                Assert.That(rootForWeb,                                            Is.False);
-                Assert.That(notAUsage,                                             Does.Contain("'web' is not a usage this node knows").And.Contain("dns, nts"));
-
-                Assert.That(toldAnyway,                                            Is.False);
-                Assert.That(noneNamed,                                             Does.Contain("names none"));
-                Assert.That(withoutThem.HasUsages(CertificateKind.TLSIdentity),    Is.False, "a page offers it nothing to tick");
-                Assert.That(withListeners.HasUsages(CertificateKind.TLSIdentity),  Is.True);
+                Assert.That(identityForDNS,                                          Is.True, error);
+                Assert.That(marked!.IsFor("modbus") || marked!.IsFor("web"),          Is.False, "shown on no listener");
+                Assert.That(withListeners.UsagesFor(CertificateKind.TLSIdentity),    Is.EqualTo(new CertificateUsage[] { "modbus", "web" }), "the listeners are what an identity is offered");
+                Assert.That(withListeners.UsagesFor(CertificateKind.TLSRoot),        Is.EqualTo(new CertificateUsage[] { "dns", "nts" }),    "and the services what a root is");
+                Assert.That(withoutThem.UsagesFor(CertificateKind.TLSIdentity),      Is.Empty, "a node that names no listeners offers an identity none");
 
             });
 

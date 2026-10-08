@@ -129,9 +129,10 @@ Beyond the names, a kind of node adds to the node in eight places:
   the keys it dials with in stores of its own, and a store beside every one
   of them holding a vehicle's seven empty directories was a promise nobody
   was keeping. And `CertificateUsages`, what a TLS root or a server
-  certificate may be for beside the node's `dns` and `nts` - a backend it
+  certificate is offered beside the node's `dns` and `nts` - a backend it
   dials, say - and `CertificateListeners`, which of its listeners a TLS
-  identity may be told it is shown on.
+  identity is offered. A kind of its own is a `CertificateKind.Define` of its
+  own.
 * **Who may do what:** `Resources`, the names of what it adds for a role to
   read, edit or run, and `RoleDefinitions`, its roles and what each of them
   may do - see below.
@@ -479,25 +480,69 @@ and `CertificateKindExtensions.ISO15118` and `.TLS` name the two groups.
 A TLS root and a server certificate are told as well what they are for: the
 name servers, the time servers, both, or what a kind of node adds, such as a
 backend it dials. One root may vouch for several of them, which is why a
-certificate has any number of usages rather than being kept twice - two
-entries would be two things to switch off when it is withdrawn, and the one
-forgotten would still be believed. A certificate never told is for every
+certificate has any number of usages. A certificate never told is for every
 use, which is what every TLS root was before there were usages, and an index
-written then still means it. A usage the store does not know is refused where
-it is typed, because a root "for ntp" would otherwise vouch for no time server
-and nothing would say why. The time servers are anchored by the TLS roots for
-`nts`, and by the root a server is held to whatever it is kept for: naming it
-in the server's configuration says the same thing, and more narrowly.
+written then still means it. The time servers are anchored by the TLS roots
+for `nts`, and by the root a server is held to whatever it is kept for: naming
+it in the server's configuration says the same thing, and more narrowly.
 
-A TLS identity is told the same way where it is shown, from a list of its
-own: a node with more than one listener - a meter's Modbus/TLS port and its
-web interface - names them in `CertificateListeners` and presents on each the
-identities for it, and one never told is for every listener. The two lists
-are kept apart because they answer different questions: an identity "for dns"
-or a root "for web" is refused rather than kept to mean nothing, and a node
-naming no listeners has identities that are told nothing at all.
-`UsagesFor(kind)` is what a page offers. The node itself presents none of
-them: which one a listener shows, and when it changes, is its kind's to say.
+A TLS identity is told the same way where it is shown: a node with more than
+one listener - a meter's Modbus/TLS port and its web interface - names them in
+`CertificateListeners` and presents on each the identities for it, and one
+never told is for every listener. `UsagesFor(kind)` is what the node offers a
+kind - the services for a root or a server certificate, the listeners for an
+identity, nothing for the rest. The node itself presents none of them: which
+one a listener shows, and when it changes, is its kind's to say.
+
+A usage is a `CertificateUsage`, a name - a letter, then letters, digits, `-`
+or `_`, in lower case - and the node's own and its kind's are only what it
+offers. Whoever looks after a node may mark any certificate, of any kind, with
+a usage of their own where it is imported or changed: a mark, which nothing in
+the node acts on until a configuration or code names it, and an identity
+marked "for dns" is shown on no listener, which a usage does not make it. Such
+a usage is offered for as long as a certificate is marked with it -
+`KnownUsages(kind)`, the node's first, then the ones made up - and nowhere
+remembered but on the certificates: once the last of them is deleted or told
+otherwise, it is offered no more. What is still refused is a name that is no
+usage name, and an empty list, which is a certificate to switch off.
+
+**One certificate, several kinds.** A self-signed identity may be the root its
+peers are judged against as well, and one CA the root of the servers a node
+connects to and of its clients alike. So a certificate is kept as any number
+of kinds: each a registration of its own - a file in that kind's directory,
+written as that kind's reader takes it, switched on and off and told its
+usages on its own - and all of them one certificate, under one handle and
+one name. `ByKind`, `UsableFor` and a file copied into a kind's directory work
+as they always did; `Get(id, kind)` is the certificate as one kind,
+`Registrations(id)` as every kind, and `Get(id)` as the first. Switched off or
+deleted without a kind, a certificate goes as every kind, so that one
+withdrawn is not left believed as the kind somebody forgot; with one, as that
+kind alone. An import names its kinds - `Import(content, password, label,
+registrations)` - and goes in as all of them or none: whatever can refuse one
+of them is asked before anything is written. A trust anchor or a server's
+certificate still refuses a key that comes along, unless the same import puts
+the certificate in as a kind that presents it: then the key stays with that
+kind, and the anchor is kept without it.
+
+**Kinds of one's own.** `CertificateKind` is a name and a group - believed
+(`TrustAnchor`), presented (`Credential`) or recognised (`Recognised`) - and
+the eleven above are its static definitions, with what each of them does. A
+kind of node may define more with `CertificateKind.Define`, and whoever looks
+after a node may make one up where they import a certificate,
+`CertificateKind.Custom(name, group)`: a mark in its group, as a made-up usage
+is - a root of one has to be a CA, a credential of one carries its key - kept
+below `custom/<group>/<name>`, where the next start finds it with or without
+the index, and forgotten with its last certificate. `KindsKept` is the store's
+kinds and the made-up ones it has certificates of.
+
+**Looking before importing.** `InspectFor(content, password)` says what a file
+or a text holds without putting anything anywhere: each certificate that no
+other one in it was issued by, with the ones above it that came with it and
+its private key where it came with one - written out as PEM, as one import's
+worth - and the kinds the store keeps it as already. Three roots pasted one
+after the other are three; a leaf, its sub-CAs and its key are one, in
+whatever order they were written. `Unsuitable(certificate)` says, for each
+kind it cannot be kept as, why not.
 
 Anything in the store is found by its SHA-256 fingerprint, whatever kind it
 was kept as: `ByFingerprint` takes the whole of it and nothing shorter, in any
@@ -815,7 +860,7 @@ only it has on top:
 | `GET v1/configuration` | what the node is made of |
 | `GET`/`PUT v1/configuration/dns`, `POST …/dns/query` | name resolution, and one look-up |
 | `GET`/`PUT v1/configuration/nts`, `POST …/nts/sync`, `POST …/nts/test` | the time servers, one synchronisation, one server asked everything |
-| `GET`/`POST v1/certificates`, `POST …/reload`, `GET`/`PATCH`/`DELETE …/{id}` | the certificate store |
+| `GET`/`POST v1/certificates`, `POST …/inspect`, `POST …/reload`, `GET`/`PATCH`/`DELETE …/{id}` | the certificate store: a POST with `kinds` puts every certificate of a file or a text in as every kind given, each answered on its own; `inspect` says what a file or a text holds, PEM and keys included, at the permission to change the store; `kind` in a PATCH and `?kind=` in a DELETE name the kind a certificate kept as several is changed or taken out as |
 | `GET v1/logs`, `GET v1/events` | the log's snapshot, and the event stream after it |
 | anything else below `/api` | a JSON 404, for every method |
 
@@ -840,7 +885,8 @@ said where the kind says it:
   the sentence a DELETE of it is refused with, 409. Switching it off is
   still allowed: that is how a vehicle's chosen credential is taken out of
   service.
-* The node's `WhatWouldLose(Entry, ActiveAfter, UsagesAfter)` - what would
+* The node's `WhatWouldLose(Entry, ActiveAfter, UsagesAfter)` - asked of every
+  kind the change touches, the usages as `CertificateUsage`s - what would
   be left without a certificate it needs, were it switched off or told
   other usages, as the sentence a PATCH or a DELETE is refused with, 409 -
   asked before any of the change is made, with the usages as the store
@@ -909,7 +955,8 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `index.html` | the page itself, which every kind's webpack names itself into - its title, what it is, the version of its frontend - and the node fills in as it serves it |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
 | `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |
-| `pages/certificates.ts` | the certificate store: what the node believes, presents and recognises, and what each certificate is told it is for (`certificateUsages.ts`) |
+| `pages/certificates.ts` | the certificate store, in three tabs: by usage - what the node believes, presents and recognises, kind by kind (`certificateUsages.ts`); every certificate once, by name or by fingerprint, with every kind it is kept as; and the upload - a box of text certificates are pasted into and files dropped on, which the node reads into PEM, what is in it said certificate by certificate before anything goes in, and the kinds to keep it as, a kind or a usage made up among them |
+| `tabs.ts`, `pemBox.ts` | building blocks of a page: tabs that are switched on the page and kept in the address as `?tab=`, every tab drawn so that what is typed into one outlives a look at another; and a box for certificates as text, with a Paste button where the browser lets a page read the clipboard and files dropped on it |
 | `styles/` | what all of it looks like, in the kind's colour |
 
 The shared pages say what the node says, in its name: the question before

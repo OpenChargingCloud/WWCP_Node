@@ -503,13 +503,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// only: "A OEM provisioning certificate - what this vehicle was born
         /// with has to carry its private key".
         /// </summary>
-        [TestCase(CertificateKind.TLSIdentity,      "A TLS identity")]
-        [TestCase(CertificateKind.Vehicle,          "A vehicle certificate")]
-        [TestCase(CertificateKind.Contract,         "A contract certificate")]
-        [TestCase(CertificateKind.OEMProvisioning,  "An OEM provisioning certificate")]
-        public void ACredentialWithoutItsKeyIsRefusedInOneSentence(CertificateKind  Kind,
+        [TestCase("tlsIdentity",    "A TLS identity")]
+        [TestCase("vehicle",        "A vehicle certificate")]
+        [TestCase("contract",       "A contract certificate")]
+        [TestCase("oemProvisioning", "An OEM provisioning certificate")]
+        public void ACredentialWithoutItsKeyIsRefusedInOneSentence(String           KindName,
                                                                    String           Named)
         {
+
+            var Kind = CertificateKind.Parse(KindName);
 
             var store = new CertificateStore(directory, log);
 
@@ -532,73 +534,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// root" but "a V2G root", by how the name is said and not by its first
         /// letter.
         /// </summary>
-        [TestCase(CertificateKind.V2GRoot,             "a V2G root")]
-        [TestCase(CertificateKind.MORoot,              "a Mobility Operator root")]
-        [TestCase(CertificateKind.OEMRoot,             "an OEM root")]
-        [TestCase(CertificateKind.Vehicle,             "a vehicle certificate")]
-        [TestCase(CertificateKind.Contract,            "a contract certificate")]
-        [TestCase(CertificateKind.OEMProvisioning,     "an OEM provisioning certificate")]
-        [TestCase(CertificateKind.TariffVerification,  "a tariff certificate")]
-        [TestCase(CertificateKind.TLSRoot,             "a TLS root")]
-        [TestCase(CertificateKind.ClientRoot,          "a client root")]
-        [TestCase(CertificateKind.TLSServer,           "a server certificate")]
-        [TestCase(CertificateKind.TLSIdentity,         "a TLS identity")]
-        public void AKindIsNamedWithTheArticleItIsSaidWith(CertificateKind  Kind,
+        [TestCase("v2gRoot",           "a V2G root")]
+        [TestCase("moRoot",            "a Mobility Operator root")]
+        [TestCase("oemRoot",           "an OEM root")]
+        [TestCase("vehicle",           "a vehicle certificate")]
+        [TestCase("contract",          "a contract certificate")]
+        [TestCase("oemProvisioning",   "an OEM provisioning certificate")]
+        [TestCase("tariffVerification", "a tariff certificate")]
+        [TestCase("tlsRoot",           "a TLS root")]
+        [TestCase("clientRoot",        "a client root")]
+        [TestCase("tlsServer",         "a server certificate")]
+        [TestCase("tlsIdentity",       "a TLS identity")]
+        public void AKindIsNamedWithTheArticleItIsSaidWith(String           KindName,
                                                            String           Named)
         {
+
+            var Kind = CertificateKind.Parse(KindName);
 
             Assert.Multiple(() => {
                 Assert.That(Kind.WithArticle(),             Is.EqualTo(Named));
                 Assert.That(Kind.CapitalisedWithArticle(),  Is.EqualTo(Char.ToUpperInvariant(Named[0]) + Named[1..]));
             });
-
-        }
-
-        #endregion
-
-        #region AKindThatIsToldNothingSaysSoWithItsArticle(Kind, Named)
-
-        /// <summary>
-        /// A kind that is not told what it is for, told anyway, is refused in a
-        /// sentence that names it as the rest of the sentence names the others:
-        /// "An OEM root is for what its kind says", where it said "A oemRoot".
-        /// </summary>
-        [TestCase(CertificateKind.OEMRoot,  "An OEM root")]
-        [TestCase(CertificateKind.V2GRoot,  "A V2G root")]
-        public void AKindThatIsToldNothingSaysSoWithItsArticle(CertificateKind  Kind,
-                                                               String           Named)
-        {
-
-            var store = new CertificateStore(directory, log);
-
-            Assert.That(store.TrySettleUsages(Kind, [ "dns" ], out _, out var error), Is.False);
-
-            Assert.That(error, Is.EqualTo($"{Named} is for what its kind says, and is not told what it is used for: " +
-                                           "only a TLS root and a server certificate are kept for some uses and not others, " +
-                                           "and a TLS identity is shown on some listeners and not others."));
-
-        }
-
-        #endregion
-
-        #region AnIdentityWithNoListenerToBeToldOfSaysSo()
-
-        /// <summary>
-        /// A TLS identity told where it is shown, on a node that names no
-        /// listeners, is refused with the identity named as the sentence names
-        /// it further on - "A TLS identity", where it said "A tlsIdentity".
-        /// </summary>
-        [Test]
-        public void AnIdentityWithNoListenerToBeToldOfSaysSo()
-        {
-
-            var store = new CertificateStore(directory, log, NodeName: "local controller");
-
-            Assert.That(store.TrySettleUsages(CertificateKind.TLSIdentity, [ "web" ], out _, out var error), Is.False);
-
-            Assert.That(error, Is.EqualTo("A TLS identity is shown on every listener of this local controller, which names none an identity " +
-                                          "could be told of: only a TLS root and a server certificate are kept for some uses and not " +
-                                          "others, and a TLS identity is shown on the listeners a kind of node names."));
 
         }
 
@@ -628,14 +584,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(store.Import(Pem(other), CertificateKind.V2GRoot, null, null, out var entry, out var error), Is.True, error);
 
-            var entries  = (Dictionary<String, CertificateEntry>) typeof(CertificateStore).
+            var entries  = (Dictionary<(String Id, CertificateKind Kind), CertificateEntry>) typeof(CertificateStore).
                                GetField("entries", BindingFlags.Instance | BindingFlags.NonPublic)!.
                                GetValue(store)!;
 
             var handle   = CertificateEntry.ThumbprintOf(one)[..CertificateEntry.IdLength];
 
-            entries.Remove(entry!.Id);
-            entries.Add(handle, entry!);
+            entries.Remove((entry!.Id, entry!.Kind));
+            entries.Add((handle, entry!.Kind), entry! with { Id = handle });
 
             Assert.That(store.Import(Pem(one), CertificateKind.V2GRoot, null, null, out _, out var taken), Is.False);
 
@@ -758,52 +714,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(entry!.IsExpired, Is.True);
                 Assert.That(entry!.IsUsable,  Is.False);
             });
-
-        }
-
-        #endregion
-
-        #region OneCertificateHasOnePurpose()
-
-        [Test]
-        public void OneCertificateHasOnePurpose()
-        {
-
-            var store = new CertificateStore(directory, log);
-
-            using var root = Root("A Root");
-
-            Assert.That(store.Import(Pem(root), CertificateKind.V2GRoot, null, null, out _, out var error), Is.True, error);
-
-            Assert.That(store.Import(Pem(root), CertificateKind.MORoot, null, null, out _, out var error2), Is.False,
-                        "the same certificate cannot be two trust anchors at once");
-
-            Assert.That(error2, Does.StartWith("That certificate is already in the store as a V2G root ('A Root')."));
-
-        }
-
-        #endregion
-
-        #region OneCertificateHasOnePurposeSaidWithItsArticle()
-
-        /// <summary>
-        /// Named with the article the kind is said with - "as an OEM root",
-        /// where it said "as a oemRoot".
-        /// </summary>
-        [Test]
-        public void OneCertificateHasOnePurposeSaidWithItsArticle()
-        {
-
-            var store = new CertificateStore(directory, log);
-
-            using var root = Root("A Root");
-
-            Assert.That(store.Import(Pem(root), CertificateKind.OEMRoot, null, null, out _, out var error), Is.True, error);
-
-            Assert.That(store.Import(Pem(root), CertificateKind.V2GRoot, null, null, out _, out var error2), Is.False);
-
-            Assert.That(error2, Is.EqualTo("That certificate is already in the store as an OEM root ('A Root'). " +
-                                           "One certificate has one purpose - remove it first to put it back as something else."));
 
         }
 

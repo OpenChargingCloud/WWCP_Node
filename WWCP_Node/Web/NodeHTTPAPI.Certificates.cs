@@ -56,6 +56,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             AddHandler(root,               GetStoreCertificates,        HTTPMethod.GET);
             AddHandler(root,               PostStoreCertificate,        HTTPMethod.POST);
             AddHandler(root + "/reload",   PostStoreCertificateReload,  HTTPMethod.POST);
+            AddHandler(root + "/inspect",  PostStoreCertificateInspect, HTTPMethod.POST);
             AddHandler(root + "/{id}",     GetStoreCertificate,         HTTPMethod.GET);
             AddHandler(root + "/{id}",     PatchStoreCertificate,       HTTPMethod.PATCH);
             AddHandler(root + "/{id}",     DeleteStoreCertificate,      HTTPMethod.DELETE);
@@ -125,6 +126,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
+            if (json.ContainsKey("kinds"))
+                return Task.FromResult(PostStoreCertificates(Request, json, user.Id.ToString()));
+
             if (!CertificateKindExtensions.TryParseKind(json.Value<String>("kind"), out var kind) ||
                 !Node.Certificates.Kinds.Contains(kind))
             {
@@ -188,6 +192,238 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         }
 
+        /// <summary>
+        /// POST /api/v1/certificates with {"kinds": [{"kind", "group", "usages"}],
+        /// "content" or "pem", "password", "label"}: put every certificate in a
+        /// file or a text into the store as every kind given.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// What the page's upload sends: a text that may hold several
+        /// certificates and their keys, and the kinds ticked for it. Each
+        /// certificate in it is one import - see <see cref="CertificateStore.InspectFor"/>
+        /// - put in as all the kinds given or as none, and each is answered on
+        /// its own: {"imported": [...], "refused": [{"id", "label", "error"}]}.
+        /// Refused as a whole, with 400, where nothing went in.
+        /// </para>
+        /// <para>
+        /// A kind is one the store keeps, or one somebody makes up here: a name
+        /// it does not know, with the group it is in - "trustAnchor",
+        /// "credential" or "recognised". A label is taken only where the text
+        /// holds one certificate; several each keep their own names.
+        /// </para>
+        /// </remarks>
+        private HTTPResponse PostStoreCertificates(HTTPRequest  Request,
+                                                   JObject      JSON,
+                                                   String       UserId)
+        {
+
+            if (JSON["kinds"] is not JArray kindsArray || kindsArray.Count == 0 || kindsArray.Any(token => token is not JObject))
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                 "'kinds' has to be a list of the kinds to keep the certificates as, such as [{\"kind\": \"tlsRoot\"}].");
+
+            var registrations = new List<CertificateRegistration>();
+
+            foreach (var token in kindsArray.Cast<JObject>())
+            {
+
+                var name   = token.Value<String>("kind");
+                var group  = CertificateKind.TryParseGroup(token.Value<String>("group"), out var said) ? said : (CertificateGroup?) null;
+
+                // A kind the store keeps - one made up among them, once a
+                // certificate is kept as it - is named without its group, as
+                // the page names it; a kind defined in code anywhere is known
+                // too, and one nobody knows is made up where its group is said.
+                var kept   = Node.Certificates.KindsKept.FirstOrDefault(one => String.Equals(one.AsText(), name?.Trim(), StringComparison.OrdinalIgnoreCase));
+                var kind   = kept.IsNotNullOrEmpty ? kept : (CertificateKind?) null;
+
+                if (kind is null &&
+                    !CertificateKind.TryParse(name, null, out kind) &&
+                    !(token.ContainsKey("group") && CertificateKind.TryParse(name, group, out kind)))
+                {
+                    return ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                     CertificateKind.IsKindName(name?.Trim())
+                                         ? $"'{name}' is no kind this {Node.Kind.Name} knows. To make it up, say which group it is in: " +
+                                            "\"trustAnchor\", \"credential\" or \"recognised\"."
+                                         : $"'{name}' is not a kind name: a letter, then letters, digits, '-' or '_', at most {CertificateKind.MaxLength} characters.");
+                }
+
+                if (!Node.Certificates.Keeps(kind.Value))
+                    return ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                     "'kinds' has to name kinds of " +
+                                     String.Join(", ", Node.Certificates.Kinds.Select(one => one.AsText())) + ", or kinds made up.");
+
+                if (!TryReadUsages(token, out var usages, out var usagesError))
+                    return ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesError);
+
+                registrations.Add(new CertificateRegistration(kind.Value, usages));
+
+            }
+
+            if (!TryReadContent(JSON, out var bytes, out var contentError))
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, contentError);
+
+            var password    = JSON.Value<String>("password");
+            var inspection  = Node.Certificates.InspectFor(bytes, password);
+
+            if (inspection.Error is not null)
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, inspection.Error,
+                                 inspection.PasswordWanted ? new JProperty("passwordWanted", true) : null);
+
+            var label     = inspection.Certificates.Count == 1 ? JSON.Value<String>("label") : null;
+            var imported  = new JArray();
+            var refused   = new JArray();
+            var created   = false;
+
+            foreach (var certificate in inspection.Certificates)
+            {
+
+                var before = Node.Certificates.Registrations(certificate.Id).Count;
+
+                if (!Node.Certificates.Import(System.Text.Encoding.ASCII.GetBytes(certificate.Pem),
+                                              null,
+                                              label,
+                                              registrations,
+                                              out var entries,
+                                              out var error,
+                                              out var notSaved))
+                {
+
+                    if (notSaved)
+                        return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
+
+                    refused.Add(new JObject(
+                                    new JProperty("id",     certificate.Id),
+                                    new JProperty("label",  certificate.CommonName),
+                                    new JProperty("error",  error)
+                                ));
+
+                    continue;
+
+                }
+
+                created |= Node.Certificates.Registrations(certificate.Id).Count > before;
+
+                foreach (var entry in entries)
+                    imported.Add(entry.ToJSON(WithDiagnostics: true));
+
+                Log.Notice($"'{UserId}' put '{entries[0].Label}' into the certificate store as " +
+                           $"{String.Join(" and ", entries.Select(entry => entry.Kind.WithArticle()))} ({entries[0].Id}).",
+                           "certificates", "web");
+
+            }
+
+            var answer = new JObject(
+                             new JProperty("imported", imported),
+                             new JProperty("refused",  refused)
+                         );
+
+            if (imported.Count == 0)
+            {
+                answer.Add("error", refused.Count == 1
+                                        ? refused[0]!.Value<String>("error")
+                                        : $"None of the {refused.Count} certificates went in.");
+                return JSONResponse(Request, HTTPStatusCode.BadRequest, answer);
+            }
+
+            return JSONResponse(Request,
+                                created ? HTTPStatusCode.Created : HTTPStatusCode.OK,
+                                answer);
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/certificates/inspect with {"content" or "pem",
+        /// "password"}: what a file or a text holds, certificate by certificate,
+        /// without putting anything anywhere.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// For a page that is dropped a file on: each certificate with its PEM -
+        /// the certificates above it that came with it, and its private key
+        /// where it came with one - the kinds the store keeps it as already, and
+        /// why it cannot be each kind it cannot be. {"certificates": [...],
+        /// "pem"}: the whole as one text, for the box it was dropped on.
+        /// </para>
+        /// <para>
+        /// At the permission to change the store, because what comes back holds
+        /// the private keys that were sent: what somebody may only look at the
+        /// store with is not something to read keys out of, even their own.
+        /// </para>
+        /// </remarks>
+        private Task<HTTPResponse> PostStoreCertificateInspect(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!TryReadContent(json, out var bytes, out var contentError))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, contentError));
+
+            var inspection = Node.Certificates.InspectFor(bytes, json.Value<String>("password"));
+
+            if (inspection.Error is not null)
+                return Task.FromResult(
+                           ErrorJSON(Request, HTTPStatusCode.BadRequest, inspection.Error,
+                                     inspection.PasswordWanted ? new JProperty("passwordWanted", true) : null)
+                       );
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, new JObject(
+                           new JProperty("certificates", new JArray(inspection.Certificates.Select(certificate =>
+                                                                        certificate.ToJSON(Node.Certificates.Unsuitable(certificate))))),
+                           new JProperty("pem",          inspection.Pem)
+                       ))
+                   );
+
+        }
+
+        #endregion
+
+        #region (protected static) TryReadContent(JSON, out Content, out Error)
+
+        /// <summary>
+        /// The file of a request: "content", base64 - what an upload from the
+        /// browser turns into - or "pem", a text as it was pasted.
+        /// </summary>
+        protected static Boolean TryReadContent(JObject                           JSON,
+                                                out Byte[]                        Content,
+                                                [NotNullWhen(false)] out String?  Error)
+        {
+
+            Content = [];
+            Error   = null;
+
+            if (JSON.Value<String>("pem") is String pem && pem.Trim().Length > 0)
+            {
+                Content = System.Text.Encoding.UTF8.GetBytes(pem);
+                return true;
+            }
+
+            var content = JSON.Value<String>("content")?.Trim();
+
+            if (content is null or { Length: 0 })
+            {
+                Error = "'content' has to be the certificate file, base64-encoded - or 'pem' the text of one.";
+                return false;
+            }
+
+            try
+            {
+                Content = Convert.FromBase64String(content);
+                return true;
+            }
+            catch (FormatException)
+            {
+                Error = "'content' is not valid base64.";
+                return false;
+            }
+
+        }
+
         #endregion
 
         #region (private) GetStoreCertificate(Request) / PatchStoreCertificate(Request) / DeleteStoreCertificate(Request)
@@ -206,7 +442,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             return Task.FromResult(
                        entry is null
                            ? ErrorJSON(Request, HTTPStatusCode.NotFound, "There is no such certificate in this store.")
-                           : JSONResponse(Request, HTTPStatusCode.OK, entry.ToJSON(WithDiagnostics: true))
+                           : JSONResponse(Request, HTTPStatusCode.OK, WithKinds(entry))
                    );
 
         }
@@ -243,10 +479,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             var handle = HandleOf(Request);
 
-            if (Node.Certificates.Get(handle) is not CertificateEntry entry)
+            if (!TryReadKindOf(json.Value<String>("kind"), out var kind, out var kindError))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, kindError));
+
+            var registrations = Node.Certificates.Registrations(handle).Where(one => kind is null || one.Kind == kind.Value).ToList();
+
+            if (registrations.Count == 0)
                 return Task.FromResult(
                            ErrorJSON(Request, HTTPStatusCode.NotFound, "There is no such certificate in this store.")
                        );
+
+            var entry = registrations[0];
 
             Boolean? active = null;
 
@@ -264,7 +507,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             // Present, even as null, is something to set: null is every use.
             var                     newUsages  = json.ContainsKey("usages");
-            IReadOnlyList<String>?  usages     = null;
+            IReadOnlyList<CertificateUsage>?  usages  = null;
 
             if (newUsages)
             {
@@ -272,16 +515,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                 if (!TryReadUsages(json, out var given, out var usagesError))
                     return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesError));
 
+                if (registrations.Count > 1)
+                    return Task.FromResult(
+                               ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                         $"'{entry.Label}' is kept as {String.Join(" and ", registrations.Select(one => one.Kind.WithArticle()))}. " +
+                                          "Say as which of them it is told what it is for, with 'kind'.")
+                           );
+
                 if (!Node.Certificates.TrySettleUsages(entry.Kind, given, out usages, out var usagesRefused))
                     return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesRefused));
 
             }
 
-            if (Node.WhatWouldLose(entry,
-                                   active ?? entry.IsActive,
-                                   newUsages ? usages : entry.Usages) is String wouldLose)
+            foreach (var registration in registrations)
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
+                if (Node.WhatWouldLose(registration,
+                                       active ?? registration.IsActive,
+                                       newUsages ? usages : registration.Usages) is String wouldLose)
+                {
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
+                }
             }
 
             // Each of the three is written into the index, and put back where
@@ -293,19 +546,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                     return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, relabelError, relabelNotSaved));
             }
 
-            if (active is Boolean on && !Node.Certificates.SetActive(handle, on, out _, out var activeError, out var activeNotSaved))
+            if (active is Boolean on && !Node.Certificates.SetActive(handle, kind, on, out _, out var activeError, out var activeNotSaved))
                 return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, activeError, activeNotSaved));
 
-            if (newUsages && !Node.Certificates.SetUsages(handle, usages, out _, out var usagesNotSet, out var usagesNotSaved))
+            if (newUsages && !Node.Certificates.SetUsages(handle, entry.Kind, usages?.Select(usage => usage.ToString()), out _, out var usagesNotSet, out var usagesNotSaved))
                 return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, usagesNotSet, usagesNotSaved));
 
-            var changed = Node.Certificates.Get(handle) ?? entry;
+            var changed = Node.Certificates.Get(handle, entry.Kind) ?? entry;
 
             Log.Notice($"'{user.Id}' changed the certificate '{changed.Label}' ({changed.Id}) in the certificate store.",
                        "certificates", "web");
 
             return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, changed.ToJSON(WithDiagnostics: true))
+                       JSONResponse(Request, HTTPStatusCode.OK, WithKinds(changed))
                    );
 
         }
@@ -330,18 +583,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             var handle = HandleOf(Request);
 
+            if (!TryReadKindOf(Request.QueryString.GetString("kind"), out var kind, out var kindError))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, kindError));
+
+            var registrations = Node.Certificates.Registrations(handle).Where(one => kind is null || one.Kind == kind.Value).ToList();
+            var entry         = registrations.FirstOrDefault();
+
+            // What names a certificate names it whichever kinds it is kept as,
+            // as far as a kind of node says: taken out as one kind of several,
+            // it is asked all the same.
             if (Node.WhatUses(handle) is String inUse)
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, inUse));
 
-            var entry = Node.Certificates.Get(handle);
-
-            if (entry is not null &&
-                Node.WhatWouldLose(entry, false, entry.Usages) is String wouldLose)
+            foreach (var registration in registrations)
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
+                if (Node.WhatWouldLose(registration, false, registration.Usages) is String wouldLose)
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, wouldLose));
             }
 
-            if (!Node.Certificates.Remove(handle, out var error, out var notSaved))
+            if (!Node.Certificates.Remove(handle, kind, out var error, out var notSaved))
                 return Task.FromResult(NotChanged(Request, HTTPStatusCode.NotFound, error, notSaved));
 
             Log.Notice($"'{user.Id}' took the certificate '{entry?.Label}' ({handle}) out of the certificate store.",
@@ -387,6 +647,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
+
+        #region (private) WithKinds(Entry) / TryReadKindOf(Text, out Kind, out Error)
+
+        /// <summary>
+        /// One certificate as one kind it is kept as, with every kind it is kept as.
+        /// </summary>
+        private JObject WithKinds(CertificateEntry Entry)
+        {
+
+            var json = Entry.ToJSON(WithDiagnostics: true);
+
+            json.Add("kinds", new JArray(Node.Certificates.Registrations(Entry.Id).Select(entry => entry.Kind.AsText())));
+
+            return json;
+
+        }
+
+        /// <summary>
+        /// The kind a request names a certificate as - a kind the store keeps,
+        /// or one made up - or none, where it names none.
+        /// </summary>
+        private Boolean TryReadKindOf(String?                           Text,
+                                      out CertificateKind?              Kind,
+                                      [NotNullWhen(false)] out String?  Error)
+        {
+
+            Kind   = null;
+            Error  = null;
+
+            if (Text is null || Text.Trim().Length == 0)
+                return true;
+
+            var known = Node.Certificates.KindsKept.FirstOrDefault(kept => String.Equals(kept.AsText(), Text.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (known.IsNotNullOrEmpty)
+            {
+                Kind = known;
+                return true;
+            }
+
+            Error = $"'kind' has to be one of {String.Join(", ", Node.Certificates.KindsKept.Select(kept => kept.AsText()))}.";
+            return false;
+
+        }
+
+        #endregion
 
         #region (protected static) TryReadUsages(JSON, out Usages, out Error)
 

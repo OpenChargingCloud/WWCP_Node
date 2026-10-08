@@ -413,7 +413,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(CertificateKindExtensions.All,  Is.EquivalentTo(Enum.GetValues<CertificateKind>()),  "a kind is missing from All");
+                Assert.That(CertificateKindExtensions.All,  Is.EquivalentTo(typeof(CertificateKind).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static).
+                                                                                                 Where (property => property.PropertyType == typeof(CertificateKind)).
+                                                                                                 Select(property => (CertificateKind) property.GetValue(null)!)),  "a kind is missing from All");
                 Assert.That(CertificateKindExtensions.All,  Is.EquivalentTo(CertificateKindExtensions.ISO15118.Concat(CertificateKindExtensions.TLS)));
                 Assert.That(CertificateKindExtensions.All.Select(kind => kind.SortOrder()),  Is.Ordered.And.Unique);
                 Assert.That(CertificateKindExtensions.All.Select(kind => kind.Directory()),  Is.Unique);

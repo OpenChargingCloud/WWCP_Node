@@ -59,7 +59,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             // The kinds this store keeps: a page offering a kind the store
             // refuses would be offering a refusal.
-            var kinds  = Certificates.Kinds;
+            var kinds  = Certificates.KindsKept;
             var byKind = new JObject();
 
             foreach (var kind in kinds)
@@ -71,11 +71,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("directory",    Certificates.Directory),
 
                            new JProperty("trustAnchors", new JArray(
-                               kinds.Where(kind =>  kind.IsTrustAnchor()).Select(kind => kind.AsText())
+                               kinds.Where(kind => kind.Group == CertificateGroup.TrustAnchor).Select(kind => kind.AsText())
                            )),
 
                            new JProperty("credentials",  new JArray(
-                               kinds.Where(kind => !kind.IsTrustAnchor() && !kind.MustNotCarryPrivateKey()).Select(kind => kind.AsText())
+                               kinds.Where(kind => kind.Group == CertificateGroup.Credential).Select(kind => kind.AsText())
                            )),
 
                            // Neither believed nor presented, and never with a key:
@@ -83,13 +83,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            // Shown among what a node presents, it read as something
                            // the node would present.
                            new JProperty("recognised",   new JArray(
-                               kinds.Where(kind => !kind.IsTrustAnchor() &&  kind.MustNotCarryPrivateKey()).Select(kind => kind.AsText())
+                               kinds.Where(kind => kind.Group == CertificateGroup.Recognised).Select(kind => kind.AsText())
                            )),
 
                            new JProperty("kinds",        new JObject(
                                kinds.Select(kind =>
                                    new JProperty(kind.AsText(), new JObject(
                                        new JProperty("description",     kind.Describe(Kind.Name)),
+                                       new JProperty("group",           CertificateKind.AsText(kind.Group)),
+                                       new JProperty("custom",          kind.IsCustom),
                                        new JProperty("trustAnchor",     kind.IsTrustAnchor()),
                                        new JProperty("needsPrivateKey", kind.NeedsPrivateKey()),
                                        // Whether one of the kind is told what it is
@@ -101,14 +103,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                        // identity "dns" and "nts", which the store
                                        // refuses.
                                        new JProperty("hasUsages",       Certificates.HasUsages(kind)),
-                                       new JProperty("usages",          new JArray(Certificates.UsagesFor(kind)))
+                                       // What the node offers the kind, then every usage a
+                                       // certificate is marked with: a usage somebody made
+                                       // up is offered for as long as a certificate has it.
+                                       new JProperty("usages",          new JArray(Certificates.KnownUsages(kind).Select(usage => usage.ToString())))
                                    )))
                            )),
 
                            // What a TLS root or a server certificate may be told it is
                            // for - the services it vouches for - as it was said
                            // before every kind said its own above.
-                           new JProperty("usages",       new JArray(Certificates.Usages)),
+                           new JProperty("usages",       new JArray(Certificates.Usages.Select(usage => usage.ToString()))),
+
+                           // Every usage the store knows: what the node offers,
+                           // its listeners, and what certificates are marked with.
+                           new JProperty("knownUsages",  new JArray(
+                               Certificates.Usages.Concat(Certificates.Listeners).
+                                                   Concat(Certificates.Entries.SelectMany(entry => entry.Usages ?? [])).
+                                                   Distinct().
+                                                   Select(usage => usage.ToString())
+                           )),
 
                            new JProperty("certificates", byKind),
 
@@ -188,9 +202,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Entry">The certificate as it is now.</param>
         /// <param name="ActiveAfter">Whether it would be switched on afterwards; false for a deletion.</param>
         /// <param name="UsagesAfter">What it would be for afterwards, as the store keeps usages; null for every use.</param>
-        public virtual String? WhatWouldLose(CertificateEntry        Entry,
-                                             Boolean                 ActiveAfter,
-                                             IReadOnlyList<String>?  UsagesAfter)
+        public virtual String? WhatWouldLose(CertificateEntry                  Entry,
+                                             Boolean                           ActiveAfter,
+                                             IReadOnlyList<CertificateUsage>?  UsagesAfter)
             => null;
 
         #endregion

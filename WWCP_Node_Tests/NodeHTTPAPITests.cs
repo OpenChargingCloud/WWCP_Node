@@ -115,12 +115,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             /// What the test says a change would leave without its certificate,
             /// given whether it would be on and what it would be for.
             /// </summary>
-            public Func<Boolean, IReadOnlyList<String>?, String?>?  Loses  { get; set; }
+            public Func<Boolean, IReadOnlyList<CertificateUsage>?, String?>?  Loses  { get; set; }
 
             /// <summary>
             /// Every change the node was asked about, as it would leave the certificate.
             /// </summary>
-            public List<(Boolean Active, IReadOnlyList<String>? Usages)>  AskedAbout  { get; } = [];
+            public List<(Boolean Active, IReadOnlyList<CertificateUsage>? Usages)>  AskedAbout  { get; } = [];
 
             protected override void CompleteCertificatesJSON(JObject JSON)
                 => JSON["chosen"] = new JObject(new JProperty("forTheTest", Used));
@@ -130,9 +130,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                        ? "The test uses that certificate."
                        : null;
 
-            public override String? WhatWouldLose(CertificateEntry        Entry,
-                                                  Boolean                 ActiveAfter,
-                                                  IReadOnlyList<String>?  UsagesAfter)
+            public override String? WhatWouldLose(CertificateEntry                  Entry,
+                                                  Boolean                           ActiveAfter,
+                                                  IReadOnlyList<CertificateUsage>?  UsagesAfter)
             {
                 AskedAbout.Add((ActiveAfter, UsagesAfter));
                 return Loses?.Invoke(ActiveAfter, UsagesAfter);
@@ -515,7 +515,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var (unknown, unknownSaid) = await Send(root, HttpMethod.Patch, $"api/v1/certificates/{handle}", new JObject(
                                                                                                                 new JProperty("label",   "Renamed By A Refusal"),
-                                                                                                                new JProperty("usages",  new JArray("ntp"))
+                                                                                                                new JProperty("usages",  new JArray("no usage!"))
                                                                                                             ));
             var (_,       kept)     = await Send(root, HttpMethod.Get,   $"api/v1/certificates/{handle}");
 
@@ -525,13 +525,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(every,                              Is.EqualTo(HttpStatusCode.OK));
                 Assert.That(asked,                              Has.Length.EqualTo(3));
                 Assert.That(asked[0].Active,                    Is.True);
-                Assert.That(asked[0].Usages,                    Is.EqualTo(new[] { "dns", "nts" }), "as the store keeps them");
+                Assert.That(asked[0].Usages,                    Is.EqualTo(new CertificateUsage[] { "dns", "nts" }), "as the store keeps them");
                 Assert.That(asked[1].Active,                    Is.False);
-                Assert.That(asked[1].Usages,                    Is.EqualTo(new[] { "dns", "nts" }), "the ones it has, which the request left alone");
+                Assert.That(asked[1].Usages,                    Is.EqualTo(new CertificateUsage[] { "dns", "nts" }), "the ones it has, which the request left alone");
                 Assert.That(asked[2].Active,                    Is.False,                            "off, as the request before left it");
                 Assert.That(asked[2].Usages,                    Is.Null,                             "every use");
                 Assert.That(unknown,                            Is.EqualTo(HttpStatusCode.BadRequest), unknownSaid.ToString());
-                Assert.That(unknownSaid.Value<String>("error"), Does.Contain("'ntp'"));
+                Assert.That(unknownSaid.Value<String>("error"), Does.Contain("'no usage!' is not a usage name"));
                 Assert.That(kept.Value<String>("label"),        Is.EqualTo("A Root For Names"),     "the refused request renamed it");
             });
 

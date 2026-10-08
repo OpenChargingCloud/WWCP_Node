@@ -302,14 +302,24 @@ export interface DNSQueryResult {
 // The certificate store
 // ---------------------------------------------------------------------------
 
+/** Which of the three things a node does with a certificate a kind is. */
+export type CertificateGroup = 'trustAnchor' | 'credential' | 'recognised';
+
 /**
- * One certificate in the store, of one of the kinds K the node keeps.
- * Everything but label, active and usages is read out of the file.
+ * One certificate in the store as one of the kinds K the node keeps it as - a
+ * certificate kept as several kinds is one of these per kind, under one id and
+ * one label. Everything but label, active and usages is read out of the file.
  */
 export interface Certificate<K extends string = string> {
-    /** The handle it is addressed by: the first 16 digits of its fingerprint. */
+    /** The handle it is addressed by: the first 16 digits of its fingerprint, the same for every kind it is kept as. */
     id:             string;
     kind:           K;
+    /** Which of the three things the node does with it as this kind. */
+    group?:         CertificateGroup;
+    /** Whether the kind is one somebody made up: a mark the node acts on by itself not at all. */
+    custom?:        boolean;
+    /** Every kind it is kept as, where the node says so - one certificate asked for by its id. */
+    kinds?:         K[];
     fileName:       string;
     label:          string;
     subject:        string;
@@ -332,9 +342,8 @@ export interface Certificate<K extends string = string> {
     usable:         boolean;
     description:    string;
     /**
-     * What it may be used for - "dns", "nts" - where its kind is kept for
-     * some uses and not others, and null there for every use. Left out for
-     * every other kind, which is for what its kind says.
+     * What it is marked for - "dns", "nts", a listener, or a usage somebody
+     * made up - and null for every use.
      */
     usages?:        string[] | null;
 }
@@ -342,11 +351,15 @@ export interface Certificate<K extends string = string> {
 /** What the store says about one kind it keeps. */
 export interface CertificateKindInfo {
     description:      string;
+    /** Which of the three things the node does with one of this kind. */
+    group?:           CertificateGroup;
+    /** Whether somebody made the kind up where a certificate was imported. */
+    custom?:          boolean;
     trustAnchor:      boolean;
     needsPrivateKey:  boolean;
-    /** Whether one of this kind is told what it is for, in this store. */
+    /** Whether one of this kind may be told what it is for: every kind may. */
     hasUsages:        boolean;
-    /** What one of this kind may be told it is for - the store's word, not the kind's. */
+    /** What one of this kind is offered: what the node offers it, then every usage a certificate is marked with. */
     usages:           string[];
 }
 
@@ -362,6 +375,8 @@ export interface CertificateStore<K extends string = string> {
     kinds:         Record<K, CertificateKindInfo>;
     /** What a TLS root or a server certificate may be told it is for, as it was said before every kind said its own. */
     usages:        string[];
+    /** Every usage the store knows: the node's, its listeners, and what certificates are marked with. */
+    knownUsages?:  string[];
     certificates:  Record<K, Certificate<K>[]>;
     /** Whether anything in the store carries a private key, which is kept unencrypted. */
     keysAreUnencrypted: boolean;
@@ -390,10 +405,72 @@ export interface CertificateImport<K extends string = string> {
 
 /** What a change to a stored certificate may say. Everything else is read from the file. */
 export interface CertificateUpdate {
+    /** The kind it is changed as, where it is kept as several; left out for every kind it is kept as. */
+    kind?:    string;
     active?:  boolean;
     label?:   string | null;
     /** What it is for; null for every use again, and left out to leave it alone. */
     usages?:  string[] | null;
+}
+
+/** One kind an upload keeps its certificates as: a kind of the store's, or one made up, with its group. */
+export interface CertificateRegistration {
+    kind:     string;
+    /** The group of a kind made up; left out for a kind the store keeps. */
+    group?:   CertificateGroup;
+    /** What it is for as that kind; left out for every use. */
+    usages?:  string[] | null;
+}
+
+/** What an upload sends: a text or a file, and the kinds every certificate in it is kept as. */
+export interface CertificatesUpload {
+    kinds:      CertificateRegistration[];
+    /** The text, as pasted: PEM, any number of certificates and keys. */
+    pem?:       string;
+    /** A file's bytes, base64-encoded: PEM, DER or PKCS#12. */
+    content?:   string;
+    /** What opens a protected PKCS#12 or an encrypted key. Used once and not kept. */
+    password?:  string;
+    /** What to call it, where the text holds one certificate. */
+    label?:     string;
+}
+
+/** What an upload did, certificate by certificate. */
+export interface CertificatesUploaded<K extends string = string> {
+    /** Every certificate that went in, once per kind. */
+    imported:  Certificate<K>[];
+    /** Every certificate that did not, and why. */
+    refused:   { id: string; label: string; error: string }[];
+    /** Where nothing went in: why, in one sentence. */
+    error?:    string;
+}
+
+/** One certificate found in a file or a text, as it would be imported. */
+export interface InspectedCertificate {
+    /** The certificate, the ones above it that came with it, and its private key where it came with one. */
+    pem:            string;
+    id:             string;
+    thumbprint:     string;
+    label:          string;
+    subject:        string;
+    issuer:         string;
+    notBefore:      string;
+    notAfter:       string;
+    keyAlgorithm:   string;
+    hasPrivateKey:  boolean;
+    chainLength:    number;
+    isCA:           boolean;
+    selfSigned:     boolean;
+    /** The kinds the store keeps it as already. */
+    inStoreAs:      string[];
+    /** For each kind of the store it cannot be kept as, why not. */
+    unsuitable:     Record<string, string>;
+}
+
+/** What a file or a text holds, certificate by certificate, and the whole as PEM. */
+export interface CertificateInspection {
+    certificates:  InspectedCertificate[];
+    pem:           string;
 }
 
 
@@ -1077,13 +1154,28 @@ export function nodeAPI<T extends NodeTypes = NodeTypes>() {
             import:  (certificate: CertificateImport<T['kind']>) =>
                          request<Certificate<T['kind']>>('POST', '/certificates', certificate),
 
-            /** Switch one on or off, rename it, or say what it is for. */
+            /**
+             * Put every certificate of a text or a file in as every kind
+             * given - kinds made up among them - each answered on its own.
+             */
+            upload:  (upload: CertificatesUpload) =>
+                         request<CertificatesUploaded<T['kind']>>('POST', '/certificates', upload),
+
+            /**
+             * What a text or a file holds, certificate by certificate - as
+             * PEM, keys and chains included - without putting anything in.
+             */
+            inspect: (what: { pem?: string; content?: string; password?: string }) =>
+                         request<CertificateInspection>('POST', '/certificates/inspect', what),
+
+            /** Switch one on or off, rename it, or say what it is for - as the kind given, or as every kind it is kept as. */
             update:  (id: string, update: CertificateUpdate) =>
                          request<Certificate<T['kind']>>('PATCH', `/certificates/${encodeURIComponent(id)}`, update),
 
-            /** Take one out of the store and delete its file. */
-            remove:  (id: string) =>
-                         request<T['store']>('DELETE', `/certificates/${encodeURIComponent(id)}`),
+            /** Take one out of the store as the kind given, or as every kind it is kept as, and delete those files of it. */
+            remove:  (id: string, kind?: string) =>
+                         request<T['store']>('DELETE', `/certificates/${encodeURIComponent(id)}` +
+                                                       (kind === undefined ? '' : `?kind=${encodeURIComponent(kind)}`)),
 
             /**
              * Read the store directory again.

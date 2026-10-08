@@ -750,6 +750,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                );
 
         /// <summary>
+        /// An answer that says what is wrong, as {"error"}, and something more
+        /// a page acts on - that a password is wanted, say.
+        /// </summary>
+        protected static HTTPResponse ErrorJSON(HTTPRequest     Request,
+                                                HTTPStatusCode  StatusCode,
+                                                String          Message,
+                                                JProperty?      More)
+        {
+
+            var json = new JObject(new JProperty("error", Message));
+
+            if (More is not null)
+                json.Add(More);
+
+            return JSONResponse(Request, StatusCode, json);
+
+        }
+
+        /// <summary>
         /// The answer to a change that was not made: the status of what was
         /// wrong with it - or 500, where nothing was, and the file it is kept in
         /// could not be written, the change undone. Both came as the status of
