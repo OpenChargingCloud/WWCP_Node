@@ -92,6 +92,15 @@ describe('what the node has chosen a certificate for', () => {
         assert.deepEqual(marksOf(certificate(), undefined), []);
     });
 
+    it('is said of the kind it was chosen as alone, where the node names the kind', () => {
+
+        const asContract = { contractCertificate: { id: '0123456789abcdef', kind: 'contract' } };
+
+        assert.equal(marksOf(certificate({ kind: 'contract' }), asContract).length, 1);
+        assert.deepEqual(marksOf(certificate({ kind: 'vehicle' }), asContract), [], 'the same certificate kept as another kind');
+
+    });
+
 });
 
 
@@ -181,6 +190,7 @@ describe('every certificate once', () => {
 describe('the certificates page, drawn', () => {
 
     let held:      CertificateStore;
+    let chosen:    CertificateStore['chosen'];
     let refuse     = false;
     let inspected  = 0;
 
@@ -196,6 +206,7 @@ describe('the certificates page, drawn', () => {
                                clientRoot:   { description: 'client roots', group: 'trustAnchor', usages: [] },
                                tlsIdentity:  { description: 'TLS identity', group: 'credential',  usages: [ 'modbus', 'web' ] } },
         usages:              [],
+        chosen,
         certificates:        { tlsRoot: [ { ...aRoot }, twice('tlsRoot') ], clientRoot: [ twice('clientRoot') ], tlsIdentity: [] },
         keysAreUnencrypted:  false
     } as unknown as CertificateStore);
@@ -579,6 +590,30 @@ describe('the certificates page, drawn', () => {
         assert.match(said.at(-1)!, /It stays in the store as TLS roots/);
 
         await until(() => root.querySelector('#panel-all [data-certificate="dddddddddddddddd"] tr[data-kind="clientRoot"]') === null, 'the kind taken out is still listed');
+
+    });
+
+    it('marks a certificate chosen as one kind in that kind\'s row alone, and each choice once on its card', async () => {
+
+        chosen = { forTheTest: { id: 'dddddddddddddddd', kind: 'clientRoot' }, byItsHandle: 'dddddddddddddddd' };
+
+        try
+        {
+
+            const root  = await opened({ chosen: { forTheTest: { label: 'used by the test' }, byItsHandle: { label: 'chosen as any' } } });
+            const rowOf = (Key: string) => root.querySelector(`#panel-usage [data-remove="${Key}"]`)!.closest('tr')!;
+
+            assert.match       (rowOf('dddddddddddddddd:clientRoot').textContent!, /used by the test/);
+            assert.doesNotMatch(rowOf('dddddddddddddddd:tlsRoot').textContent!,    /used by the test/, 'the same certificate kept as another kind');
+            assert.match       (rowOf('dddddddddddddddd:tlsRoot').textContent!,    /chosen as any/,    'a handle alone marks every kind');
+            assert.deepEqual   ([ ...root.querySelectorAll('#panel-all [data-certificate="dddddddddddddddd"] h3 .chip') ].map(chip => chip.textContent),
+                                [ 'chosen as any', 'used by the test' ], 'each once, whichever kinds it is chosen as');
+
+        }
+        finally
+        {
+            chosen = undefined;
+        }
 
     });
 

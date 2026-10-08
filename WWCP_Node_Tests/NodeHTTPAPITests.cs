@@ -109,6 +109,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             public String?   Used  { get; set; }
 
+            /// <summary>
+            /// The kind the test uses the certificate as; null for as every kind.
+            /// </summary>
+            public CertificateKind?  UsedAs  { get; set; }
+
+            /// <summary>
+            /// Every kind the node was asked whether it uses a certificate as.
+            /// </summary>
+            public List<CertificateKind?>  AskedAs  { get; } = [];
+
             public TestAPI?  API   { get; set; }
 
             /// <summary>
@@ -125,10 +135,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             protected override void CompleteCertificatesJSON(JObject JSON)
                 => JSON["chosen"] = new JObject(new JProperty("forTheTest", Used));
 
-            public override String? WhatUses(String Handle)
-                => Used is not null && Handle.Equals(Used, StringComparison.OrdinalIgnoreCase)
-                       ? "The test uses that certificate."
-                       : null;
+            public override String? WhatUses(String Handle, CertificateKind? Kind)
+            {
+                AskedAs.Add(Kind);
+                return Used is not null && Handle.Equals(Used, StringComparison.OrdinalIgnoreCase) &&
+                       (Kind is null || UsedAs is null || Kind == UsedAs)
+                           ? "The test uses that certificate."
+                           : null;
+            }
 
             public override String? WhatWouldLose(CertificateEntry                  Entry,
                                                   Boolean                           ActiveAfter,
@@ -432,6 +446,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(said.Value<String>("error"),                   Is.EqualTo("The test uses that certificate."));
                 Assert.That(deleted,                                       Is.EqualTo(HttpStatusCode.OK), after.ToString());
                 Assert.That(after["certificates"]!["tlsRoot"]!.Children().Any(), Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region ACertificateChosenAsOneKindIsTakenOutAsAnother()
+
+        /// <summary>
+        /// A certificate a kind of node uses as one kind it is kept as is taken
+        /// out as another all the same, and not as that kind or as every kind:
+        /// the node is asked as which kind it would go. A vehicle's certificate
+        /// chosen as its contract certificate was not deleted as its vehicle
+        /// certificate, which the session does not name.
+        /// </summary>
+        [Test]
+        public async Task ACertificateChosenAsOneKindIsTakenOutAsAnother()
+        {
+
+            await using var node      = await Started();
+
+            using var root     = Root(node);
+
+            using var key      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request        = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=A Root Kept Twice", key, HashAlgorithmName.SHA256);
+
+            request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(true, false, 0, true));
+
+            using var rootCA   = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+
+            var (created, said)  = await Send(root, HttpMethod.Post, "api/v1/certificates", new JObject(
+                                                  new JProperty("kinds",  new JArray(new JObject(new JProperty("kind", "tlsRoot")),
+                                                                                     new JObject(new JProperty("kind", "clientRoot")))),
+                                                  new JProperty("pem",    rootCA.ExportCertificatePem())
+                                              ));
+
+            Assert.That(created, Is.EqualTo(HttpStatusCode.Created), said.ToString());
+
+            var handle            = said["imported"]![0]!.Value<String>("id")!;
+
+            node.Used             = handle;
+            node.UsedAs           = CertificateKind.TLSRoot;
+
+            var (asUsed,  why)    = await Send(root, HttpMethod.Delete, $"api/v1/certificates/{handle}?kind=tlsRoot");
+            var (asEvery, why2)   = await Send(root, HttpMethod.Delete, $"api/v1/certificates/{handle}");
+            var (asOther, after)  = await Send(root, HttpMethod.Delete, $"api/v1/certificates/{handle}?kind=clientRoot");
+
+            Assert.Multiple(() => {
+                Assert.That(asUsed,                                                Is.EqualTo(HttpStatusCode.Conflict), why.ToString());
+                Assert.That(asEvery,                                               Is.EqualTo(HttpStatusCode.Conflict), why2.ToString());
+                Assert.That(asOther,                                               Is.EqualTo(HttpStatusCode.OK),       after.ToString());
+                Assert.That(node.AskedAs,                                          Is.EqualTo(new CertificateKind?[] { CertificateKind.TLSRoot, null, CertificateKind.ClientRoot }));
+                Assert.That(after["certificates"]!["tlsRoot"]!.Children().Count(),    Is.EqualTo(1), "still kept as the kind it is used as");
+                Assert.That(after["certificates"]!["clientRoot"]!.Children().Any(),   Is.False);
             });
 
         }

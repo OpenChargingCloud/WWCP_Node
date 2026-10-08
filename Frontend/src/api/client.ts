@@ -359,9 +359,12 @@ export interface CertificateKindInfo {
     needsPrivateKey:  boolean;
     /** Whether one of this kind may be told what it is for: every kind may. */
     hasUsages:        boolean;
-    /** What one of this kind is offered: what the node offers it, then every usage a certificate is marked with. */
+    /** What one of this kind is offered: what the node offers it, then every usage a certificate kept as this kind is marked with. */
     usages:           string[];
 }
+
+/** A certificate a kind of node has chosen: its handle, as every kind it is kept as, or as one kind alone. */
+export type ChosenCertificate = string | { id: string; kind: string };
 
 /** The whole store, grouped the way it is shown. */
 export interface CertificateStore<K extends string = string> {
@@ -385,9 +388,12 @@ export interface CertificateStore<K extends string = string> {
      * a local controller signs in to its CSMS with, the four a vehicle's
      * charging session takes - each the handle of one certificate, or null.
      * A certificate chosen is not deleted until another one is: the node
-     * answers that with a 409.
+     * answers that with a 409. A handle is the certificate as every kind it
+     * is kept as; { id, kind } is it as that kind alone - a vehicle's
+     * certificate chosen as its contract certificate, not as its vehicle
+     * certificate.
      */
-    chosen?:       Record<string, string | null>;
+    chosen?:       Record<string, ChosenCertificate | null>;
 }
 
 /** What an import sends: the file, base64-encoded, and what to make of it. */

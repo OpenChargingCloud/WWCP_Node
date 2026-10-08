@@ -85,6 +85,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         }
 
         /// <summary>A certificate the issuer signed, with its private key.</summary>
+        /// <remarks>
+        /// It ends a day before its issuer does, not a span after now: a
+        /// certificate counts whole seconds, and where the second turned
+        /// between a CA and the leaf it signed, the leaf would have outlived
+        /// it, which is refused (a full run of the suite).
+        /// </remarks>
         private static X509Certificate2 Leaf(String            Name,
                                              X509Certificate2  Issuer,
                                              Boolean           CA = false)
@@ -97,7 +103,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             return request.Create(Issuer,
                                   DateTimeOffset.UtcNow.AddDays(-1),
-                                  DateTimeOffset.UtcNow.AddDays(300),
+                                  new DateTimeOffset(Issuer.NotAfter).AddDays(-1),
                                   Guid.NewGuid().ToByteArray()).
                            CopyWithPrivateKey(key);
 
@@ -458,7 +464,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(entry!.Usages,                                 Is.EqualTo(new CertificateUsage[] { "backend-x" }), "in lower case");
                 Assert.That(entry!.IsFor("backend-x"),                      Is.True);
                 Assert.That(store.KnownUsages(CertificateKind.V2GRoot),    Is.EqualTo(new CertificateUsage[] { "backend-x" }));
-                Assert.That(store.KnownUsages(CertificateKind.TLSRoot),    Is.EqualTo(new CertificateUsage[] { "dns", "nts", "backend-x" }), "the node's first, then the ones made up");
+                Assert.That(store.KnownUsages(CertificateKind.TLSRoot),    Is.EqualTo(new CertificateUsage[] { "dns", "nts" }), "the node's own, and none of a V2G root's");
             });
 
             Assert.That(store.SetUsages(entry!.Id, null, out _, out var error2), Is.True, error2);
@@ -500,6 +506,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(told!.Usages,                                           Is.EqualTo(new CertificateUsage[] { "nts" }));
                 Assert.That(store.Get(id, CertificateKind.ClientRoot)!.Usages,       Is.Null, "the other kind is for every use as before");
+            });
+
+        }
+
+        #endregion
+
+        #region AUsageIsOfferedToTheKindItIsToldAsAlone()
+
+        /// <summary>
+        /// A usage a certificate is marked with is offered to the kind it is
+        /// marked with it as, and to no other - not to the same certificate as
+        /// another kind either: a meter's identities for "web" made "web" an
+        /// offer to its TLS roots, a root "for the web interface".
+        /// </summary>
+        [Test]
+        public void AUsageIsOfferedToTheKindItIsToldAsAlone()
+        {
+
+            var store = new CertificateStore(directory, log);
+
+            using var root = Root("Told As One Kind");
+
+            Assert.That(store.Import(Pem(root), null, null, [ new (CertificateKind.TLSRoot), new (CertificateKind.ClientRoot) ], out var entries, out var error, out _),
+                        Is.True, error);
+
+            Assert.That(store.SetUsages(entries![0].Id, CertificateKind.ClientRoot, [ "web" ], out _, out var error2), Is.True, error2);
+
+            Assert.Multiple(() => {
+                Assert.That(store.KnownUsages(CertificateKind.ClientRoot),  Is.EqualTo(new CertificateUsage[] { "web" }));
+                Assert.That(store.KnownUsages(CertificateKind.TLSRoot),     Is.EqualTo(new CertificateUsage[] { "dns", "nts" }), "the same certificate as another kind");
+                Assert.That(store.KnownUsages(CertificateKind.V2GRoot),     Is.Empty, "a kind no certificate is kept as");
             });
 
         }

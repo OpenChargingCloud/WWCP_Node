@@ -589,10 +589,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             var registrations = Node.Certificates.Registrations(handle).Where(one => kind is null || one.Kind == kind.Value).ToList();
             var entry         = registrations.FirstOrDefault();
 
-            // What names a certificate names it whichever kinds it is kept as,
-            // as far as a kind of node says: taken out as one kind of several,
-            // it is asked all the same.
-            if (Node.WhatUses(handle) is String inUse)
+            // Asked as the kind it goes as: a certificate chosen as one kind it
+            // is kept as is taken out as another, and goes as every kind where
+            // no kind is said.
+            if (Node.WhatUses(handle, kind) is String inUse)
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, inUse));
 
             foreach (var registration in registrations)

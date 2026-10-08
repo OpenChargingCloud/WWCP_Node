@@ -503,7 +503,9 @@ marked "for dns" is shown on no listener, which a usage does not make it. Such
 a usage is offered for as long as a certificate is marked with it -
 `KnownUsages(kind)`, the node's first, then the ones made up - and nowhere
 remembered but on the certificates: once the last of them is deleted or told
-otherwise, it is offered no more. What is still refused is a name that is no
+otherwise, it is offered no more. It is offered to the kind it was marked
+as, and to no other: a meter's identities "for web" made no root "for the
+web interface". What is still refused is a name that is no
 usage name, and an empty list, which is a certificate to switch off.
 
 **One certificate, several kinds.** A self-signed identity may be the root its
@@ -881,10 +883,12 @@ said where the kind says it:
   log is not for.
 * The node's `CompleteCertificatesJSON(JSON)` - what the store's answer says
   beyond every node's, such as the certificates a vehicle chose for a session.
-* The node's `WhatUses(Handle)` - what of the node names a certificate, as
-  the sentence a DELETE of it is refused with, 409. Switching it off is
-  still allowed: that is how a vehicle's chosen credential is taken out of
-  service.
+* The node's `WhatUses(Handle, Kind)` - what of the node names a certificate
+  as the kind it would be deleted as, null for as every kind, as the
+  sentence a DELETE of it is refused with, 409. A vehicle's certificate
+  chosen as its contract certificate goes as its vehicle certificate all
+  the same. Switching it off is still allowed: that is how a vehicle's
+  chosen credential is taken out of service.
 * The node's `WhatWouldLose(Entry, ActiveAfter, UsagesAfter)` - asked of every
   kind the change touches, the usages as `CertificateUsage`s - what would
   be left without a certificate it needs, were it switched off or told
@@ -1038,7 +1042,8 @@ nobody has to be signed in for, and a meter's old bookmarks into `routes`,
 which are asked first. `signIn`, `logs`, `certificates` and `who` say what
 the sign-in, the Logs page, the certificate store and the foot of the menu
 say where the node's words do not fit - the store's `chosen` names what the
-node chose a certificate for, on its row.
+node chose a certificate for, on its row: a handle marks it as every kind it
+is kept as, `{ id, kind }` as that kind alone.
 
 Each menu entry is shown to whoever may open its page: `permission` is any
 one of the permissions the node writes into "me", or a function. Whether the

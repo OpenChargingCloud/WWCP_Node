@@ -323,20 +323,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// Every usage a certificate of this kind is offered: what the node
-        /// offers it, then every usage a certificate in the store is marked
-        /// with, in the order of their names.
+        /// offers it, then every usage a certificate kept as this kind is
+        /// marked with as it, in the order of their names.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Nothing remembers a usage somebody made up but the certificates
         /// marked with it: once the last of them is deleted, or told otherwise,
         /// it is offered no more.
+        /// </para>
+        /// <para>
+        /// Of this kind alone: what one kind is for is mostly nothing another
+        /// is for. A meter's identities are for "modbus" and "web", and offered
+        /// to its TLS roots those made a root "for the web interface".
+        /// </para>
         /// </remarks>
         public IReadOnlyList<CertificateUsage> KnownUsages(CertificateKind Kind)
         {
 
             var offered = new List<CertificateUsage>(UsagesFor(Kind));
 
-            foreach (var usage in Entries.SelectMany(entry => entry.Usages ?? []).Distinct().Order())
+            foreach (var usage in Entries.Where     (entry => entry.Kind == Kind).
+                                          SelectMany(entry => entry.Usages ?? []).
+                                          Distinct().
+                                          Order())
                 if (!offered.Contains(usage))
                     offered.Add(usage);
 

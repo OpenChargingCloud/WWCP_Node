@@ -94,18 +94,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                        new JProperty("custom",          kind.IsCustom),
                                        new JProperty("trustAnchor",     kind.IsTrustAnchor()),
                                        new JProperty("needsPrivateKey", kind.NeedsPrivateKey()),
-                                       // Whether one of the kind is told what it is
-                                       // for in this store, and what it may be told -
-                                       // the store's word and not the kind's: a TLS
-                                       // identity is told the listeners a kind of node
-                                       // names, and most name none, so it is told
-                                       // nothing. Asked of the kind, a page offered an
-                                       // identity "dns" and "nts", which the store
-                                       // refuses.
+                                       // Whether one of the kind may be told what it is
+                                       // for: every kind may, by what the node offers it
+                                       // below or by a usage somebody makes up.
                                        new JProperty("hasUsages",       Certificates.HasUsages(kind)),
                                        // What the node offers the kind, then every usage a
-                                       // certificate is marked with: a usage somebody made
-                                       // up is offered for as long as a certificate has it.
+                                       // certificate kept as the kind is marked with: a
+                                       // usage somebody made up is offered for as long as a
+                                       // certificate of the kind has it.
                                        new JProperty("usages",          new JArray(Certificates.KnownUsages(kind).Select(usage => usage.ToString())))
                                    )))
                            )),
@@ -154,11 +150,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (virtual) WhatUses(Handle)
+        #region (virtual) WhatUses(Handle, Kind)
 
         /// <summary>
-        /// What of this node uses the certificate with the given handle, as the
-        /// sentence a refusal to delete it says - or null where nothing does.
+        /// What of this node uses the certificate with the given handle as the
+        /// given kind, as the sentence a refusal to delete it says - or null
+        /// where nothing does.
         /// </summary>
         /// <remarks>
         /// Asked before a certificate is deleted: deleting it anyway would leave
@@ -169,7 +166,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// for something says what.
         /// </remarks>
         /// <param name="Handle">The handle the certificate is asked for by, as the store spells it: the first 16 digits of its fingerprint, in lower case.</param>
-        public virtual String? WhatUses(String Handle)
+        /// <param name="Kind">The kind it would be taken out as - a vehicle's certificate chosen as its contract certificate goes as its vehicle certificate all the same; null where it would go as every kind it is kept as.</param>
+        public virtual String? WhatUses(String            Handle,
+                                        CertificateKind?  Kind)
             => null;
 
         #endregion

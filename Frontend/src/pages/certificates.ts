@@ -152,14 +152,17 @@ export function stateOf(Entry:         Certificate,
 
 /**
  * What the node has chosen this certificate for, as the row says it - in the
- * kind's words where it has them, and in the node's own name otherwise.
+ * kind's words where it has them, and in the node's own name otherwise. A
+ * choice that names a kind marks the certificate as that kind alone.
  */
 export function marksOf(Entry:   Certificate,
-                        Chosen:  Record<string, string | null> | undefined,
+                        Chosen:  CertificateStore['chosen'],
                         Words:   CertificatesOptions['chosen'] = {}): { label: string; title: string }[] {
 
     return Object.entries(Chosen ?? {}).
-                  filter(([ , id ]) => id === Entry.id).
+                  filter(([ , chosen ]) => typeof chosen === 'string'
+                                               ? chosen === Entry.id
+                                               : chosen?.id === Entry.id && chosen.kind === Entry.kind).
                   map(([ name ]) => ({
                       label:  Words[name]?.label ?? humanizeKey(name),
                       title:  Words[name]?.title ?? `Chosen by this ${config.nodeName}; deleted only once another one is`
@@ -652,7 +655,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                 const first  = entries[0]!;
                 const off    = !mayChange;
-                const marks  = marksOf(first, current!.chosen, Options.chosen);
+                // Whatever it is chosen for as any kind it is kept as, once.
+                const marks  = [ ...new Map(entries.flatMap(entry => marksOf(entry, current!.chosen, Options.chosen)).
+                                                    map(mark => [ mark.label, mark ])).values() ];
 
                 return html`
                     <article class="card certificate-card" data-certificate="${id}">
