@@ -455,8 +455,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(own.Status,         Is.EqualTo(HttpStatusCode.OK),         "kim may not read kim: " + own.Text);
-                // Hermod's GET of another account says 401 where its SET says 403: refused either way.
-                Assert.That(read.Status,        Is.AnyOf(HttpStatusCode.Forbidden, HttpStatusCode.Unauthorized), read.Text);
+                // 403, as SET says: a 401 would tell the page its session is gone.
+                Assert.That(read.Status,        Is.EqualTo(HttpStatusCode.Forbidden),  read.Text);
                 Assert.That(read.Text,          Does.Not.Contain("root@"),             "kim was shown root's account");
                 Assert.That(saved.Status,       Is.EqualTo(HttpStatusCode.Forbidden),  saved.Text);
                 Assert.That(apiKeys.Status,     Is.EqualTo(HttpStatusCode.Forbidden),  apiKeys.Text);
