@@ -56,8 +56,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         private String               directory  = "";
         private WWCPNode?            node;
-        private readonly List<String> said      = [];
-        private readonly List<LogEntry> entries = [];
+        // A test's own, made new in each Setup: a node of the test before may
+        // still log while it goes, and that is the test before's to hold.
+        private List<String>         said       = [];
+        private List<LogEntry>       entries    = [];
 
         #endregion
 
@@ -126,6 +128,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName), """{ "nts": { "enabled": false } }""");
 
+            List<String>   said     = this.said    = [];
+            List<LogEntry> entries  = this.entries = [];
+
             var log = new EventLog();
             log.OnLogged += entry => { lock (said) { said.Add(entry.Message); entries.Add(entry); } };
 
@@ -149,9 +154,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             if (node is not null)
                 await node.DisposeAsync();
 
-            said.Clear();
-            entries.Clear();
-
             try
             {
                 Directory.Delete(directory, recursive: true);
@@ -159,6 +161,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             catch (Exception)
             { }
 
+        }
+
+        #endregion
+
+        #region (private) Said()
+
+        /// <summary>
+        /// What the log has said so far, taken under its lock: a copy taken
+        /// while a line is added may hold a slot not yet written.
+        /// </summary>
+        private String[] Said()
+        {
+            lock (said)
+                return [.. said];
         }
 
         #endregion
@@ -276,6 +292,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(asked,               Has.Length.EqualTo(1));
             Assert.That(asked[0].Level,      Is.EqualTo(LogLevel.Notice));
             Assert.That(asked[0].Tags,       Is.EqualTo(new[] { "nts", "test", "cli", "ssh" }));
+
+        }
+
+        #endregion
+
+        #region WhatANodeLogsAfterItsTestIsNotTheNextTestsToRead
+
+        /// <summary>
+        /// A node of the test before may still log while it goes - a session
+        /// that leaves - after the TearDown that cleared what the test had
+        /// read. That line is the test before's, and lands in what it read, not
+        /// in what the next test reads: added to the same list as the next
+        /// test's Clear() ran, it left that list with empty slots, and the
+        /// next test failed on a null entry (Gateway CI, Windows).
+        /// </summary>
+        [Test]
+        public async Task WhatANodeLogsAfterItsTestIsNotTheNextTestsToRead()
+        {
+
+            var before = node!.Log;
+
+            await TearDown();
+            await Setup();
+
+            before.Notice("said by the node of the test before, after its TearDown");
+
+            lock (said)
+                Assert.That(said, Has.None.EqualTo("said by the node of the test before, after its TearDown"));
 
         }
 
@@ -494,10 +538,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(node!.HTTPServer.IsRunning, Is.True, "quit over SSH stopped the node");
 
             var until = DateTime.UtcNow.AddSeconds(5);
-            while (DateTime.UtcNow < until && !said.ToArray().Any(line => line.StartsWith($"'{WWCPNode.DefaultAdminUser}' left the command line over SSH after")))
+            while (DateTime.UtcNow < until && !Said().Any(line => line.StartsWith($"'{WWCPNode.DefaultAdminUser}' left the command line over SSH after")))
                 await Task.Delay(20);
 
-            Assert.That(said.ToArray(), Has.Some.StartsWith($"'{WWCPNode.DefaultAdminUser}' left the command line over SSH after"));
+            Assert.That(Said(), Has.Some.StartsWith($"'{WWCPNode.DefaultAdminUser}' left the command line over SSH after"));
 
         }
 
