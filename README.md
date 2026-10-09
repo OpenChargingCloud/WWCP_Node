@@ -727,8 +727,12 @@ key's beginning. **SSH keys** - an `authorized_keys` line added with a label,
 as `sshKeys` takes it. Either kind of key is switched off and on again with
 `SET .../APIKeys/{key}` or `SET .../SSHKeys/{fingerprint}` and
 `{"isDisabled": true|false}`, and removed after a question. What the page
-changes is in the accounts' database file, with the account that did it, not
-in the log.
+changes is in the accounts' database file, with the account that did it, and
+in the log as the command line's changes are - who changed which details of
+which account, or gave, switched or took which key, tagged `web` (keys also
+`security`), an API key by its beginning only. The node reads it from what
+these routes answered, so a change that was refused is not in it; and the
+line every request writes says an API key in its path by its beginning too.
 
 **At a first start, bring `root` a key of your own** - this is the way
 recommended:

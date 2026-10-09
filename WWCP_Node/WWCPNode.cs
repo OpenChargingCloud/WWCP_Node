@@ -1122,7 +1122,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // as a browser has the page open; logging it would say nothing
                 // and logging its response would say it at the wrong moment.
                 if (!IsEventStream(request))
-                    this.Log.Debug($"{request.HTTPMethod} {request.Path} from {request.RemoteSocket}", "http");
+                    this.Log.Debug($"{request.HTTPMethod} {PathForTheLog(request.Path.ToString())} from {request.RemoteSocket}", "http");
+
+                try
+                {
+                    BeforeAccountChange(request);
+                }
+                catch (Exception e)
+                {
+                    this.Log.Warning($"What a request was to change of an account could not be kept for the log: {e.Message}", "auth", "web");
+                }
 
                 return Task.CompletedTask;
 
@@ -1145,9 +1154,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         : code == 401 ? LogLevel.Debug
                         : code >= 400 ? LogLevel.Warning
                         : LogLevel.Debug,
-                    $"{code} {response.HTTPStatusCode.Name} for {request.HTTPMethod} {request.Path}",
+                    $"{code} {response.HTTPStatusCode.Name} for {request.HTTPMethod} {PathForTheLog(request.Path.ToString())}",
                     "http"
                 );
+
+                // What was changed of an account on the web interface, as the
+                // command line says what it changes - see WWCPNode.AccountLog.cs.
+                try
+                {
+                    AfterAccountChange(request, response);
+                }
+                catch (Exception e)
+                {
+                    this.Log.Warning($"What a request changed of an account could not be said in the log: {e.Message}", "auth", "web");
+                }
 
                 return Task.CompletedTask;
 
