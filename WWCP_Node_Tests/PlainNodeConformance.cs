@@ -68,14 +68,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (private static) AFrontendIn(Directory)
+        #region (protected static) AFrontendIn(Directory)
 
         /// <summary>
         /// The least of a web interface a kind of node is built with: the
         /// stub with the placeholders the node fills in, a bundle it references
         /// relatively, and the icon /favicon.ico is pointed at.
         /// </summary>
-        private static String AFrontendIn(String Directory)
+        protected static String AFrontendIn(String Directory)
         {
 
             var frontend = Path.Combine(Directory, "frontend");

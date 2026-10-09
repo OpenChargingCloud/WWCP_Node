@@ -393,7 +393,7 @@ export interface Certificate<K extends string = string> {
  * as a client, or who a server of it is - each with its private key but the
  * first.
  */
-export type CertificatePageName = 'certificates' | 'identities' | 'serverCertificates';
+export type CertificatePageName = 'certificates' | 'identities' | 'serverIdentities';
 
 /** What the store says about one kind it keeps. */
 export interface CertificateKindInfo {

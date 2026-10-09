@@ -303,11 +303,11 @@ const pageWords: Record<CertificatePageName, { path: string; title: string; all:
         subtitle:  () => `Who this ${config.nodeName} is as a client, each with its private key: what it shows a server that asks who it is.`
     },
 
-    serverCertificates: {
-        path:      '/configuration/server-certificates',
-        title:     'Server certificates',
-        all:       'All server certificates',
-        upload:    'Upload server certificates',
+    serverIdentities: {
+        path:      '/configuration/server-identities',
+        title:     'Server identities',
+        all:       'All server identities',
+        upload:    'Upload server identities',
         subtitle:  () => `Who the servers of this ${config.nodeName} are, each with its private key: what its listeners show whoever connects.`
     }
 
@@ -345,8 +345,8 @@ export function identitiesPage<S extends CertificateStore = CertificateStore>(Op
  * Modbus/TLS port and its web interface: the certificates page of the server
  * identities - see certificatesPage().
  */
-export function serverCertificatesPage<S extends CertificateStore = CertificateStore>(Options: CertificatesOptions<S> = {}): Page {
-    return certificatesPage(Options, 'serverCertificates');
+export function serverIdentitiesPage<S extends CertificateStore = CertificateStore>(Options: CertificatesOptions<S> = {}): Page {
+    return certificatesPage(Options, 'serverIdentities');
 }
 
 
@@ -477,7 +477,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
             /** Whether one of a kind is told the listeners it is shown on, rather than what it is for. */
             function shownOnListeners(kind: string): boolean {
-                return pageOf(current!, kind) === 'serverCertificates';
+                return pageOf(current!, kind) === 'serverIdentities';
             }
 
             /** Where a certificate with its key goes in instead: the pages of the kinds this node keeps, and no page it keeps nothing on. */
@@ -486,9 +486,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 const store    = current!;
                 const kept     = new Set([ ...store.trustAnchors, ...store.credentials, ...store.recognised ].map(kind => pageOf(store, kind)));
                 const clients  = kept.has('identities');
-                const servers  = kept.has('serverCertificates');
+                const servers  = kept.has('serverIdentities');
                 const toClients = html`<a href="${toURL(pageWords.identities.path)}">Identities</a>`;
-                const toServers = html`<a href="${toURL(pageWords.serverCertificates.path)}">Server certificates</a>`;
+                const toServers = html`<a href="${toURL(pageWords.serverIdentities.path)}">Server identities</a>`;
 
                 return clients && servers ? html`Who this ${config.nodeName} is goes in with its key on ${toClients}, a server of it on ${toServers}.`
                      : clients            ? html`Who this ${config.nodeName} is goes in with its key on ${toClients}.`
@@ -600,13 +600,13 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                     ${presented.length === 0 && below('presents').length === 0 ? nothing : html`
                         <h2>${Page === 'certificates'       ? `What this ${config.nodeName} checks with`
-                            : Page === 'serverCertificates' ? `Who the servers of this ${config.nodeName} are`
+                            : Page === 'serverIdentities' ? `Who the servers of this ${config.nodeName} are`
                             :                                 `Who this ${config.nodeName} is`}</h2>
                         <p class="hint">
                             ${Page === 'certificates' ? html`
                                   Certificates it checks something with and presents nothing with: a station's
                                   signed tariff, say.`
-                            : Page === 'serverCertificates' ? hint('serves', store) ?? html`
+                            : Page === 'serverIdentities' ? hint('serves', store) ?? html`
                                   What a listener of this ${config.nodeName} shows whoever connects to it, with its
                                   private key.`
                             : hint('presents', store) ?? html`
@@ -931,7 +931,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 const groups: { group: CertificateGroup; heading: string }[] = [
                     { group: 'trustAnchor', heading: `Believed by this ${config.nodeName}` },
                     { group: 'credential',  heading: Page === 'certificates'       ? `Checked with by this ${config.nodeName}`
-                                                   : Page === 'serverCertificates' ? `Shown by the servers of this ${config.nodeName}`
+                                                   : Page === 'serverIdentities' ? `Shown by the servers of this ${config.nodeName}`
                                                    :                                 `Presented by this ${config.nodeName}` },
                     { group: 'recognised',  heading: `Recognised by this ${config.nodeName}` }
                 ];

@@ -108,7 +108,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 foreach (var kind in new[] { CertificateKind.TLSIdentity, CertificateKind.Vehicle, CertificateKind.Contract, CertificateKind.OEMProvisioning })
                     Assert.That(kind.Page, Is.EqualTo(CertificatePage.Identities), kind.AsText());
 
-                Assert.That(CertificateKind.TLSServerIdentity.Page,                                Is.EqualTo(CertificatePage.ServerCertificates));
+                Assert.That(CertificateKind.TLSServerIdentity.Page,                                Is.EqualTo(CertificatePage.ServerIdentities));
 
                 Assert.That(CertificateKind.Custom("ownRoot",     CertificateGroup.TrustAnchor).Page,  Is.EqualTo(CertificatePage.Certificates));
                 Assert.That(CertificateKind.Custom("ownLogin",    CertificateGroup.Credential). Page,  Is.EqualTo(CertificatePage.Identities), "a credential made up carries its key");
@@ -116,7 +116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(CertificateKind.AsText(CertificatePage.Certificates),                   Is.EqualTo("certificates"));
                 Assert.That(CertificateKind.AsText(CertificatePage.Identities),                     Is.EqualTo("identities"));
-                Assert.That(CertificateKind.AsText(CertificatePage.ServerCertificates),             Is.EqualTo("serverCertificates"));
+                Assert.That(CertificateKind.AsText(CertificatePage.ServerIdentities),             Is.EqualTo("serverIdentities"));
 
             });
 

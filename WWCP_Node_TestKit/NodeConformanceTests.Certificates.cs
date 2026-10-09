@@ -160,6 +160,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                            $"The store of this {Node.Kind.Name} keeps no {Kind.AsText()}.");
 
         /// <summary>
+        /// The kind a TLS identity of this kind of node is kept as: who it is as
+        /// a client where its store keeps that, who a server of it is otherwise
+        /// - and go on only where it keeps one of the two.
+        /// </summary>
+        /// <remarks>
+        /// A meter keeps the identities its listeners show and none of a
+        /// client's, and lost every check of an identity's key, switch, name
+        /// and deletion while they asked for a client's alone (found by the
+        /// meter).
+        /// </remarks>
+        private CertificateKind AnIdentityKind()
+        {
+
+            foreach (var kind in new[] { CertificateKind.TLSIdentity, CertificateKind.TLSServerIdentity })
+                if (Node.Certificates.Kinds.Contains(kind))
+                    return kind;
+
+            Assume.That(false, $"The store of this {Node.Kind.Name} keeps no TLS identity, of a client or of a server.");
+
+            return default;
+
+        }
+
+        /// <summary>
         /// A TLS root of the given name, put into the store through the API,
         /// and its entry.
         /// </summary>
@@ -517,19 +541,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task AnIdentityComesWithItsKeyAndIsSwitchedOffRenamedAndDeleted()
         {
 
-            Keeps(CertificateKind.TLSIdentity);
+            var kind        = AnIdentityKind();
 
             using var http  = await SignedIn();
 
             var (created, entry)  = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                   new JProperty("kind",     "tlsIdentity"),
+                                                   new JProperty("kind",     kind.AsText()),
                                                    new JProperty("content",  Identity("node-001")),
                                                    new JProperty("label",    "What This Node Presents")
                                                ));
 
             Assert.That(created, Is.EqualTo(HttpStatusCode.Created), entry.ToString());
 
-            var stored            = Node.Certificates.Get(entry["id"]!.Value<String>())!;
+            var stored            = Node.Certificates.Get(entry["id"]!.Value<String>(), kind)!;
 
             // A kind of node whose listeners need an identity may refuse to be
             // left without one - see WWCPNode.WhatWouldLose - and a node of
@@ -575,14 +599,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task AnIdentityWithoutItsKeyIsRefused()
         {
 
-            Keeps(CertificateKind.TLSIdentity);
+            var kind        = AnIdentityKind();
 
             using var http  = await SignedIn();
 
             var before         = InTheStore();
 
             var (status, said) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                new JProperty("kind",     "tlsIdentity"),
+                                                new JProperty("kind",     kind.AsText()),
                                                 new JProperty("content",  Identity("node-002", WithKey: false))
                                             ));
 

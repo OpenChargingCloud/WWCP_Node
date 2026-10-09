@@ -3,7 +3,7 @@ import { auth } from './auth';
 import { fromURL } from './basePath';
 import { must } from './html';
 import { logs, type LogStore } from './logs/store';
-import { certificatesPage, identitiesPage, serverCertificatesPage, type CertificatesOptions } from './pages/certificates';
+import { certificatesPage, identitiesPage, serverIdentitiesPage, type CertificatesOptions } from './pages/certificates';
 import { sshPage } from './pages/ssh';
 import { dnsPage } from './pages/dns';
 import { loginPage, type SignInWords } from './pages/login';
@@ -53,7 +53,7 @@ export const nodeMenu: {
     nts:            MenuEntry;
     certificates:        MenuEntry;
     identities:          MenuEntry;
-    serverCertificates:  MenuEntry;
+    serverIdentities:    MenuEntry;
     ssh:                 MenuEntry;
     logs:                MenuEntry;
 } = {
@@ -98,9 +98,9 @@ export const nodeMenu: {
 
     // Who its servers are, with their keys - for a kind of node with
     // listeners of its own, a meter's Modbus/TLS port and web interface.
-    serverCertificates: {
-        path:        '/configuration/server-certificates',
-        label:       'Server certificates',
+    serverIdentities: {
+        path:        '/configuration/server-identities',
+        label:       'Server identities',
         icon:        'fa-server',
         permission:  [ 'certificates:read' ]
     },
@@ -131,6 +131,19 @@ export function mayReadTheLog(): boolean {
 /** Signed in, and the log is for them - or where they should be instead. */
 const toReadTheLog: Guard = url =>
     auth.requireSignIn(url) ?? (mayReadTheLog() ? null : '/');
+
+/**
+ * A page that moved: whoever comes to its old address - a bookmark - is sent
+ * on to the new one, which replaces it in the history.
+ */
+export function movedTo(Path: string, Title: string): Page {
+    return {
+        title: Title,
+        render({ navigate }) {
+            navigate(Path, true);
+        }
+    };
+}
 
 /**
  * "/", where a kind of node has not said what it shows: the first page of the
@@ -186,7 +199,9 @@ export function routesOf(Frontend: NodeFrontend): Route[] {
         { path: '/configuration/nts',  page: ntsPage,                    guard: auth.requireSignIn },
         { path: '/configuration/certificates',         page: certificatesPage(Frontend.certificates),        guard: auth.requireSignIn },
         { path: '/configuration/identities',           page: identitiesPage(Frontend.certificates),          guard: auth.requireSignIn },
-        { path: '/configuration/server-certificates',  page: serverCertificatesPage(Frontend.certificates),  guard: auth.requireSignIn },
+        { path: '/configuration/server-identities',    page: serverIdentitiesPage(Frontend.certificates),    guard: auth.requireSignIn },
+        // Its address for the few hours it was called "Server certificates".
+        { path: '/configuration/server-certificates',  page: movedTo('/configuration/server-identities', 'Server identities'), guard: auth.requireSignIn },
         { path: '/configuration/ssh',                  page: sshPage,                                        guard: auth.requireSignIn },
         { path: '/logs',               page: logsPage(Frontend.logs),    guard: toReadTheLog       },
         { path: '/login',              page: loginPage(Frontend.signIn)                            }

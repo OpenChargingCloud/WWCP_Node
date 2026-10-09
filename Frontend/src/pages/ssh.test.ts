@@ -13,7 +13,7 @@ import { describe, it }      from 'node:test';
 
 import type { SSHConfiguration, SSHUpdate } from '../api/client.ts';
 
-const { movesTheServer, sshPage } = await import('./ssh.ts');
+const { movesTheServer, sshPage, when } = await import('./ssh.ts');
 
 
 /** What the stand-in node has, how it answers a save, and what it was told. */
@@ -100,6 +100,32 @@ describe('whether a change moves the SSH server', () => {
 });
 
 
+describe('when a session began', () => {
+
+    it('is said in the time zone of the browser, as every other page says a moment - not in UTC, unsaid', () => {
+
+        const zone = process.env['TZ'];
+
+        try
+        {
+            process.env['TZ'] = 'Europe/Berlin';
+
+            const said = when('2026-10-09T01:38:00Z');
+
+            assert.match(said, /03:38/, 'a session begun at 03:38 in Berlin');
+            assert.doesNotMatch(said, /01:38/, 'said in UTC');
+            assert.equal(when('no moment'), 'no moment', 'what is no moment is said as it came');
+        }
+        finally
+        {
+            if (zone === undefined) delete process.env['TZ']; else process.env['TZ'] = zone;
+        }
+
+    });
+
+});
+
+
 describe('the SSH server page', () => {
 
     it('shows the server, its host key, who is connected, the keys of the accounts and what it offers', async () => {
@@ -110,7 +136,8 @@ describe('the SSH server page', () => {
         assert.match(root.querySelector('#ssh-connections')!.textContent!, /1 connection/);
         assert.equal(root.querySelector('#ssh-host-keys .fingerprint')?.textContent, 'SHA256:hostkeyhostkey');
         assert.equal(root.querySelector('#ssh-host-keys .known-hosts')?.textContent, '[127.0.0.1]:22347 ssh-ed25519 AAAAC3host');
-        assert.match(root.querySelector('#ssh-sessions [data-session="c1"]')!.textContent!, /root.*192\.0\.2\.7:51234.*2026-10-09 08:15.*SHA256:rootskey/s);
+        assert.match(root.querySelector('#ssh-sessions [data-session="c1"]')!.textContent!, /root.*192\.0\.2\.7:51234.*SHA256:rootskey/s);
+        assert.ok(root.querySelector('#ssh-sessions [data-session="c1"]')!.textContent!.includes(when('2026-10-09T08:15:00Z')), 'when the session began');
         assert.match(root.querySelector('#ssh-keys [data-key="SHA256:rootskey"]')!.textContent!, /root.*ssh-ed25519.*made up at the first start.*root@laptop.*by the first start/s);
         assert.match(root.querySelector('#accounts-without-keys')!.textContent!, /viewer1/);
         assert.deepEqual([ ...root.querySelectorAll('[data-algorithms="Key exchange"] .chip') ].map(chip => chip.textContent),

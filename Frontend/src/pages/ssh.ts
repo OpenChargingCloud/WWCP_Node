@@ -26,9 +26,21 @@ import { html, nothing, render, repeat, type TemplateResult } from '../view';
 
 const api = nodeAPI();
 
-/** When something began, as a person reads it: the date and the time, to the minute. */
-function when(Iso: string): string {
-    return new Date(Iso).toISOString().replace('T', ' ').slice(0, 16);
+/**
+ * When something began, as a person reads it: the date and the time, to the
+ * minute, in this browser's time zone and words - as the log and every other
+ * page say a moment. In UTC and unsaid, a session begun at 03:38 read 01:38
+ * (found by the gateway). Made for each moment, because a format keeps the
+ * time zone it was made in.
+ */
+export function when(Iso: string): string {
+
+    const date = new Date(Iso);
+
+    return Number.isNaN(date.getTime())
+               ? Iso
+               : new Intl.DateTimeFormat([], { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+
 }
 
 /**

@@ -22,7 +22,7 @@ document.head.innerHTML = '<meta name="node-name" content="local controller">';
 const { asked, open, refused, said, type, until } = await import('../../test/node.ts');
 
 const { believedHint, certificatesOf, certificatesPage, fingerprintOf, identitiesPage, marksOf,
-        pageOf, serverCertificatesPage, stateOf, withoutPrivateKeys } = await import('./certificates.ts');
+        pageOf, serverIdentitiesPage, stateOf, withoutPrivateKeys } = await import('./certificates.ts');
 const { html, render }     = await import('../view.ts');
 
 /** What a template says, drawn as text: the blanks of its markup taken together. */
@@ -191,13 +191,13 @@ describe('every certificate once', () => {
 describe('which page a kind is looked after on', () => {
 
     const store = { kinds: { tlsRoot:            { page: 'certificates' },
-                             tlsServerIdentity:  { page: 'serverCertificates', needsPrivateKey: true },
+                             tlsServerIdentity:  { page: 'serverIdentities', needsPrivateKey: true },
                              vehicle:            { needsPrivateKey: true },
                              tariffVerification: { needsPrivateKey: false } } } as unknown as CertificateStore;
 
     it('is the page the store says, or by whether one of it carries its private key', () => {
         assert.equal(pageOf(store, 'tlsRoot'),            'certificates');
-        assert.equal(pageOf(store, 'tlsServerIdentity'),  'serverCertificates');
+        assert.equal(pageOf(store, 'tlsServerIdentity'),  'serverIdentities');
         assert.equal(pageOf(store, 'vehicle'),            'identities');
         assert.equal(pageOf(store, 'tariffVerification'), 'certificates');
         assert.equal(pageOf(store, 'unknown'),            'certificates');
@@ -718,9 +718,9 @@ describe('the certificates page, drawn', () => {
             assert.deepEqual([ ...identities.querySelectorAll<HTMLOptionElement>('#make-up-group option') ].map(option => option.value), [ 'credential' ]);
             assert.equal(identities.querySelectorAll('#panel-all [data-certificate]').length, 0, 'a root is listed among all identities');
 
-            const servers = await opened({}, '/configuration/server-certificates', serverCertificatesPage);
+            const servers = await opened({}, '/configuration/server-identities', serverIdentitiesPage);
 
-            assert.equal(servers.querySelector('h1')!.textContent, 'Server certificates');
+            assert.equal(servers.querySelector('h1')!.textContent, 'Server identities');
             assert.match(servers.querySelector('#kinds')!.textContent!, /keeps nothing of what this page looks after/);
             assert.ok(servers.querySelector('#upload-make-up') === null, 'a server\'s identity is offered to be made up');
 
@@ -807,7 +807,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         credentials:         [ 'tlsServerIdentity' ],
         recognised:          [],
         kinds:               { tlsRoot:            { description: 'TLS roots',           page: 'certificates',        usages: [ 'dns', 'nts' ] },
-                               tlsServerIdentity:  { description: 'TLS server identity', page: 'serverCertificates',  usages: [ 'modbus', 'web' ], needsPrivateKey: true } },
+                               tlsServerIdentity:  { description: 'TLS server identity', page: 'serverIdentities',  usages: [ 'modbus', 'web' ], needsPrivateKey: true } },
         usages:              [],
         certificates:        { tlsRoot: [ certificate({ id: 'aaaaaaaaaaaaaaaa', kind: 'tlsRoot', label: 'Root A', hasPrivateKey: false }) ],
                                tlsServerIdentity: [ { ...anIdentity } ] },
@@ -834,8 +834,8 @@ describe('the certificates page, as a kind of node adds to it', () => {
     }
 
     async function opened(options:  Parameters<typeof certificatesPage>[0],
-                          made      = serverCertificatesPage,
-                          path      = '/configuration/server-certificates'): Promise<HTMLElement> {
+                          made      = serverIdentitiesPage,
+                          path      = '/configuration/server-identities'): Promise<HTMLElement> {
 
         held             = aStore();
         loads            = 0;
@@ -904,7 +904,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         const root = await opened({
             sections: context => [ {
                 below:  'presents',
-                page:   'serverCertificates',
+                page:   'serverIdentities',
                 load:   async () => { loads++; shownAt = loads; },
                 draw:   () => html`
                     <section class="card" id="requests">
@@ -948,7 +948,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         const root = await opened({
             sections: context => [ {
                 below:  'presents',
-                page:   'serverCertificates',
+                page:   'serverIdentities',
                 reset:  () => { chosen = undefined; },
                 draw:   () => html`
                     <section class="card" id="requests">
@@ -1014,7 +1014,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
 
         const sections = () => [
             { below: 'presents' as const,                               draw: () => html`<p id="by-presents"></p>` },
-            { below: 'presents' as const, page: 'serverCertificates' as const,  draw: () => html`<p id="on-servers"></p>`  },
+            { below: 'presents' as const, page: 'serverIdentities' as const,  draw: () => html`<p id="on-servers"></p>`  },
             { below: 'believes' as const,                               draw: () => html`<p id="by-believes"></p>` }
         ];
 
@@ -1025,7 +1025,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
 
         assert.deepEqual(await on(certificatesPage,       '/configuration/certificates'),        [ 'by-believes' ]);
         assert.deepEqual(await on(identitiesPage,         '/configuration/identities'),          [ 'by-presents' ]);
-        assert.deepEqual(await on(serverCertificatesPage, '/configuration/server-certificates'), [ 'on-servers'  ]);
+        assert.deepEqual(await on(serverIdentitiesPage, '/configuration/server-identities'), [ 'on-servers'  ]);
 
     });
 

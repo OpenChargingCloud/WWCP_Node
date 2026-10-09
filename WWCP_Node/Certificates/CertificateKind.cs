@@ -79,7 +79,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// Who a server of this node is, with its private key: what a listener
         /// shows whoever connects to it.
         /// </summary>
-        ServerCertificates
+        ServerIdentities
 
     }
 
@@ -256,7 +256,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             this.MayBeIssuingCA   = MayBeIssuingCA;
             this.IsCustom         = IsCustom;
             this.Page             = !NeedsPrivateKey ? CertificatePage.Certificates
-                                  : ServerIdentity   ? CertificatePage.ServerCertificates
+                                  : ServerIdentity   ? CertificatePage.ServerIdentities
                                   :                    CertificatePage.Identities;
 
         }
@@ -500,7 +500,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             => Page switch {
                    CertificatePage.Identities          => "identities",
-                   CertificatePage.ServerCertificates  => "serverCertificates",
+                   CertificatePage.ServerIdentities  => "serverIdentities",
                    _                                   => "certificates"
                };
 

@@ -90,12 +90,20 @@ describe('the routes of a kind of node', () => {
         assert.equal(routeFor('/configuration/certificates', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
                      'Certificate store');
         assert.equal(routeFor('/configuration/identities',          routes)?.page.title, 'Identities', 'who the node is as a client has no page');
-        assert.equal(routeFor('/configuration/server-certificates', routes)?.page.title, 'Server certificates', 'who its servers are has no page');
+        assert.equal(routeFor('/configuration/server-identities', routes)?.page.title, 'Server identities', 'who its servers are has no page');
         assert.equal(routeFor('/configuration/identities', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
                      'Identities', 'the title a kind gives its certificates is not the identities\' too');
-        assert.deepEqual([ nodeMenu.identities.path, nodeMenu.serverCertificates.path ], [ '/configuration/identities', '/configuration/server-certificates' ]);
-        assert.deepEqual([ nodeMenu.identities.permission, nodeMenu.serverCertificates.permission ], [ [ 'certificates:read' ], [ 'certificates:read' ] ]);
+        assert.deepEqual([ nodeMenu.identities.path, nodeMenu.serverIdentities.path ], [ '/configuration/identities', '/configuration/server-identities' ]);
+        assert.deepEqual([ nodeMenu.identities.permission, nodeMenu.serverIdentities.permission ], [ [ 'certificates:read' ], [ 'certificates:read' ] ]);
         assert.equal(routeFor('/configuration/ssh', routes)?.page.title, 'SSH server', 'the SSH server has no page');
+
+        // The server identities' page was "Server certificates" for a few
+        // hours: a bookmark of that is sent on, the address replaced.
+        const sentTo: [ string, boolean | undefined ][] = [];
+        routeFor('/configuration/server-certificates', routes)!.page.render(
+            { root: document.createElement('div'), url: new URL('http://here/configuration/server-certificates'),
+              navigate: (Path: string, Replace?: boolean) => { sentTo.push([ Path, Replace ]); } } as unknown as Parameters<Page['render']>[0]);
+        assert.deepEqual(sentTo, [ [ '/configuration/server-identities', true ] ], 'the old address of the server identities leads nowhere');
         assert.deepEqual([ nodeMenu.ssh.path, nodeMenu.ssh.permission ], [ '/configuration/ssh', [ 'ssh:read' ] ], 'the SSH server is not read with a permission of its own');
         assert.equal(routeFor('/',                   routes)?.page,       firstPageOfTheMenu);
 
