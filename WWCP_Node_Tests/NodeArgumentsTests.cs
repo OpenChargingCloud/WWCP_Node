@@ -885,7 +885,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(Said(Usage()),
-                            Does.Contain("a vehicle, contract, oemProvisioning or tlsIdentity has to bring its private key"));
+                            Does.Contain("a vehicle, contract, oemProvisioning, tlsIdentity or tlsServerIdentity has to bring its private key"));
                 Assert.That(Said(Usage([ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ])),
                             Does.Contain("a tlsIdentity has to bring its private key"));
                 Assert.That(Said(Usage([ CertificateKind.V2GRoot, CertificateKind.TLSRoot ])),
@@ -912,7 +912,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(said, Does.Contain("what a server this test node connects to may chain to"));
-                Assert.That(said, Does.Contain("what this test node presents in TLS"));
+                Assert.That(said, Does.Contain("who this test node is to a server that asks"));
                 Assert.That(said, Does.Not.Contain("this node"));
             });
 

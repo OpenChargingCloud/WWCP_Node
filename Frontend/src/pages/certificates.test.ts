@@ -21,7 +21,8 @@ document.head.innerHTML = '<meta name="node-name" content="local controller">';
 
 const { asked, open, refused, said, type, until } = await import('../../test/node.ts');
 
-const { believedHint, certificatesOf, certificatesPage, fingerprintOf, marksOf, stateOf } = await import('./certificates.ts');
+const { believedHint, certificatesOf, certificatesPage, fingerprintOf, identitiesPage, marksOf,
+        pageOf, serverCertificatesPage, stateOf, withoutPrivateKeys } = await import('./certificates.ts');
 const { html, render }     = await import('../view.ts');
 
 /** What a template says, drawn as text: the blanks of its markup taken together. */
@@ -187,28 +188,59 @@ describe('every certificate once', () => {
 });
 
 
+describe('which page a kind is looked after on', () => {
+
+    const store = { kinds: { tlsRoot:            { page: 'certificates' },
+                             tlsServerIdentity:  { page: 'serverCertificates', needsPrivateKey: true },
+                             vehicle:            { needsPrivateKey: true },
+                             tariffVerification: { needsPrivateKey: false } } } as unknown as CertificateStore;
+
+    it('is the page the store says, or by whether one of it carries its private key', () => {
+        assert.equal(pageOf(store, 'tlsRoot'),            'certificates');
+        assert.equal(pageOf(store, 'tlsServerIdentity'),  'serverCertificates');
+        assert.equal(pageOf(store, 'vehicle'),            'identities');
+        assert.equal(pageOf(store, 'tariffVerification'), 'certificates');
+        assert.equal(pageOf(store, 'unknown'),            'certificates');
+    });
+
+    it('sends a text to the certificates without its private keys, of whatever kind', () => {
+        const certificate = '-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----';
+        assert.equal(withoutPrivateKeys(`${certificate}\n-----BEGIN PRIVATE KEY-----\nK\n-----END PRIVATE KEY-----\n` +
+                                        `-----BEGIN EC PRIVATE KEY-----\nE\n-----END EC PRIVATE KEY-----\n` +
+                                        `-----BEGIN ENCRYPTED PRIVATE KEY-----\nX\n-----END ENCRYPTED PRIVATE KEY-----\n${certificate}\n`),
+                     `${certificate}\n${certificate}`);
+    });
+
+});
+
+
 describe('the certificates page, drawn', () => {
 
-    let held:      CertificateStore;
-    let chosen:    CertificateStore['chosen'];
-    let refuse     = false;
-    let inspected  = 0;
+    let held:        CertificateStore;
+    let chosen:      CertificateStore['chosen'];
+    let unencrypted  = false;
+    let selfToo      = false;
+    let refuse       = false;
+    let inspected    = 0;
 
     const aRoot  = certificate({ id: 'aaaaaaaaaaaaaaaa', kind: 'tlsRoot',    label: 'Root A', hasPrivateKey: false, thumbprint: 'aa'.repeat(32) });
     const twice  = (kind: string) => certificate({ id: 'dddddddddddddddd', kind, label: 'Both', hasPrivateKey: false, thumbprint: 'dd'.repeat(32) });
+    const self   = (kind: string) => certificate({ id: 'eeeeeeeeeeeeeeee', kind, label: 'Self', hasPrivateKey: kind === 'tlsIdentity', thumbprint: 'ee'.repeat(32) });
 
     const aStore = (): CertificateStore => ({
         directory:           'certs',
         trustAnchors:        [ 'tlsRoot', 'clientRoot' ],
         credentials:         [ 'tlsIdentity' ],
         recognised:          [],
-        kinds:               { tlsRoot:      { description: 'TLS roots',    group: 'trustAnchor', usages: [ 'dns', 'nts' ] },
-                               clientRoot:   { description: 'client roots', group: 'trustAnchor', usages: [] },
-                               tlsIdentity:  { description: 'TLS identity', group: 'credential',  usages: [ 'modbus', 'web' ] } },
+        kinds:               { tlsRoot:      { description: 'TLS roots',    withArticle: 'a TLS root',     group: 'trustAnchor', page: 'certificates', usages: [ 'dns', 'nts' ] },
+                               clientRoot:   { description: 'client roots', withArticle: 'a client root',  group: 'trustAnchor', page: 'certificates', usages: [] },
+                               tlsIdentity:  { description: 'TLS identity', withArticle: 'a TLS identity', group: 'credential',  page: 'identities',   usages: [], needsPrivateKey: true } },
         usages:              [],
         chosen,
-        certificates:        { tlsRoot: [ { ...aRoot }, twice('tlsRoot') ], clientRoot: [ twice('clientRoot') ], tlsIdentity: [] },
-        keysAreUnencrypted:  false
+        certificates:        { tlsRoot:      [ { ...aRoot }, twice('tlsRoot'), ...(selfToo ? [ self('tlsRoot') ] : []) ],
+                               clientRoot:   [ twice('clientRoot') ],
+                               tlsIdentity:  selfToo ? [ self('tlsIdentity') ] : [] },
+        keysAreUnencrypted:  unencrypted
     } as unknown as CertificateStore);
 
     /** What the stand-in finds in a text: one root per BEGIN CERTIFICATE, the second of them unsuitable as an identity. */
@@ -217,9 +249,12 @@ describe('the certificates page, drawn', () => {
         return {
             certificates: Array.from({ length: count }, (_, at) => ({
                 pem: '', id: `${at + 1}`.repeat(16), thumbprint: `${at + 1}`.repeat(64), label: `Found ${at + 1}`, subject: '', issuer: '',
-                notBefore: days(-1), notAfter: days(300), keyAlgorithm: 'ECDSA P-256', hasPrivateKey: false, chainLength: 0,
+                notBefore: days(-1), notAfter: days(300), keyAlgorithm: 'ECDSA P-256', hasPrivateKey: at === 0 && /PRIVATE KEY/.test(text), chainLength: 0,
                 isCA: true, selfSigned: true, inStoreAs: at === 0 ? [] : [ 'tlsRoot' ],
-                unsuitable: { tlsIdentity: 'A TLS identity has to carry its private key.' }
+                // As the node says it: a root that comes with a key is refused as every kind of root.
+                unsuitable: { tlsIdentity: 'A TLS identity has to carry its private key.',
+                              ...(/PRIVATE KEY/.test(text) ? { tlsRoot:     'That file carries a private key, and a trust anchor must not.',
+                                                               clientRoot:  'That file carries a private key, and a trust anchor must not.' } : {}) }
             })),
             pem: text
         };
@@ -273,13 +308,14 @@ describe('the certificates page, drawn', () => {
     const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
 
     async function opened(options:  Parameters<typeof certificatesPage>[0] = {},
-                          path      = '/configuration/certificates'): Promise<HTMLElement> {
+                          path      = '/configuration/certificates',
+                          made      = certificatesPage): Promise<HTMLElement> {
 
         held       = aStore();
         refuse     = false;
         inspected  = 0;
 
-        return open(certificatesPage(options), path, [ 'certificates:read', 'certificates:edit' ], node,
+        return open(made(options), path, [ 'certificates:read', 'certificates:edit' ], node,
                     root => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null);
 
     }
@@ -381,7 +417,7 @@ describe('the certificates page, drawn', () => {
 
     it('says what the box holds, certificate by certificate, once the typing has stopped - and offers no kind none of them can be', async () => {
 
-        const root = await opened();
+        const root = await opened({}, '/configuration/identities', identitiesPage);
 
         type(box(root), twoRoots);
         await until(() => root.querySelectorAll('#upload-found [data-found]').length === 2, 'what the box holds is not said');
@@ -489,7 +525,7 @@ describe('the certificates page, drawn', () => {
         assert.equal(box(root).value, '',               'what was pasted is still in the box - with its keys');
         assert.equal(label(root).value, '',             'what was typed for the upload that went through is still there');
         assert.equal(kindOf(root, 'clientRoot').checked, false, 'the kind stays ticked');
-        assert.match(root.querySelector('#upload-result .went-in')!.textContent!, /Root B: kept as client roots/);
+        assert.match(root.querySelector('#upload-result .went-in')!.textContent!, /Root B: kept as a client root$/, 'said as a sentence says it, not as the cards are called');
         assert.equal(unsaved.any(), false, 'the page is held after its upload went through');
 
     });
@@ -580,6 +616,8 @@ describe('the certificates page, drawn', () => {
 
         assert.deepEqual([ ...both.querySelectorAll<HTMLElement>('tr[data-kind]') ].map(row => row.dataset['kind']), [ 'tlsRoot', 'clientRoot' ]);
         assert.match(root.querySelector('#panel-usage [data-remove="dddddddddddddddd:tlsRoot"]')!.textContent!, /Remove/, 'taken out as one kind, it is said to be deleted');
+        assert.equal(root.querySelector('#panel-usage section[data-kind="tlsRoot"] .also-as .chip')?.textContent, 'also a client root',
+                     'the other kind is named as a sentence names it, not by its id');
 
         both.querySelector<HTMLButtonElement>('[data-remove="dddddddddddddddd:clientRoot"]')!.click();
         await until(() => asked.some(one => one.method === 'DELETE'), 'it was not taken out');
@@ -587,9 +625,44 @@ describe('the certificates page, drawn', () => {
         const deleted = asked.find(one => one.method === 'DELETE')!;
 
         assert.equal(deleted.query.get('kind'), 'clientRoot', 'taken out as every kind');
-        assert.match(said.at(-1)!, /It stays in the store as TLS roots/);
+        assert.match(said.at(-1)!, /Take Both out as a client root\?\n\nIt stays in the store as a TLS root\./);
 
         await until(() => root.querySelector('#panel-all [data-certificate="dddddddddddddddd"] tr[data-kind="clientRoot"]') === null, 'the kind taken out is still listed');
+
+    });
+
+    it('asks before a certificate kept as two kinds is deleted, naming both as a sentence names them', async () => {
+
+        const root = await opened({}, '/configuration/certificates?tab=all');
+
+        root.querySelector<HTMLButtonElement>('#panel-all [data-delete-certificate="dddddddddddddddd"]')!.click();
+        await until(() => asked.some(one => one.method === 'DELETE'), 'it was not deleted');
+
+        assert.match(said.at(-1)!, /^Delete Both, kept as a TLS root and a client root\?/);
+        assert.equal(asked.find(one => one.method === 'DELETE')!.query.get('kind'), null, 'deleted as one kind of the two');
+
+    });
+
+    it('takes a certificate out as this page\'s kind where it is kept as a kind of another page too', async () => {
+
+        selfToo = true;
+
+        try
+        {
+
+            const root = await opened({}, '/configuration/identities?tab=all', identitiesPage);
+            const card = root.querySelector<HTMLElement>('#panel-all [data-certificate="eeeeeeeeeeeeeeee"]');
+
+            assert.ok(card !== null, 'the identity is not listed');
+            assert.equal(card.querySelectorAll('tr[data-kind]').length, 1, 'a kind of another page is listed here');
+            assert.ok(card.querySelector('[data-remove="eeeeeeeeeeeeeeee:tlsIdentity"]') !== null,
+                      'kept as a root as well, it can be deleted only as a whole here');
+
+        }
+        finally
+        {
+            selfToo = false;
+        }
 
     });
 
@@ -614,6 +687,74 @@ describe('the certificates page, drawn', () => {
         {
             chosen = undefined;
         }
+
+    });
+
+    it('keeps each kind on its page: the roots on the certificates, an identity on the identities, nothing on a page with none', async () => {
+
+        unencrypted = true;
+
+        try
+        {
+
+            const certificates = await opened();
+
+            assert.equal(certificates.querySelector('h1')!.textContent, 'Certificates');
+            assert.ok(certificates.querySelector('section[data-kind="tlsRoot"]') !== null, 'the roots are not on the certificates');
+            assert.ok(certificates.querySelector('section[data-kind="tlsIdentity"]') === null, 'an identity is on the certificates');
+            assert.ok(kindOf(certificates, 'tlsIdentity') === null, 'an identity is offered for an upload of certificates');
+            assert.ok(kindOf(certificates, 'tlsRoot') !== null);
+            assert.ok(!/not encrypted/.test(certificates.textContent!), 'the certificates say their keys are not encrypted, and keep none');
+            assert.deepEqual([ ...certificates.querySelectorAll<HTMLOptionElement>('#make-up-group option') ].map(option => option.value), [ 'trustAnchor', 'recognised' ]);
+
+            const identities = await opened({}, '/configuration/identities', identitiesPage);
+
+            assert.equal(identities.querySelector('h1')!.textContent, 'Identities');
+            assert.equal(identities.querySelector('#tab-all')!.textContent!.trim(), 'All identities');
+            assert.ok(identities.querySelector('section[data-kind="tlsIdentity"]') !== null, 'the identity is not on the identities');
+            assert.ok(identities.querySelector('section[data-kind="tlsRoot"]') === null, 'a root is on the identities');
+            assert.deepEqual([ ...identities.querySelectorAll<HTMLInputElement>('#upload-kinds input[name="kind"]') ].map(input => input.value), [ 'tlsIdentity' ]);
+            assert.match(identities.textContent!, /not encrypted/, 'the identities do not say their keys are not encrypted');
+            assert.deepEqual([ ...identities.querySelectorAll<HTMLOptionElement>('#make-up-group option') ].map(option => option.value), [ 'credential' ]);
+            assert.equal(identities.querySelectorAll('#panel-all [data-certificate]').length, 0, 'a root is listed among all identities');
+
+            const servers = await opened({}, '/configuration/server-certificates', serverCertificatesPage);
+
+            assert.equal(servers.querySelector('h1')!.textContent, 'Server certificates');
+            assert.match(servers.querySelector('#kinds')!.textContent!, /keeps nothing of what this page looks after/);
+            assert.ok(servers.querySelector('#upload-make-up') === null, 'a server\'s identity is offered to be made up');
+
+        }
+        finally
+        {
+            unencrypted = false;
+        }
+
+    });
+
+    it('leaves a private key in the box out on the certificates page, says so, and says where it goes', async () => {
+
+        const root = await opened();
+        const key  = '-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----\n';
+
+        type(box(root), twoRoots + key);
+        await until(() => root.querySelectorAll('#upload-found [data-found]').length === 2, 'what the box holds is not said');
+
+        const goesTo  = [ ...root.querySelectorAll('#upload-found .keys-left-out a') ].map(link => link.getAttribute('href') ?? '');
+        const looked  = asked.filter(one => one.path.endsWith('/certificates/inspect')).map(one => (one.body as { pem: string }).pem);
+
+        assert.equal(goesTo.length, 1, 'a page this node keeps nothing on is named');
+        assert.ok(goesTo[0]!.endsWith('/configuration/identities'), 'where a key goes is not said');
+        assert.ok(looked.length > 0 && looked.every(pem => !/PRIVATE KEY/.test(pem)), 'the key went to the node to be looked at');
+        assert.equal(kindOf(root, 'tlsRoot').disabled, false, 'a root is refused for a key that is left out');
+
+        tick(root, 'tlsRoot');
+        submit(root);
+        await until(() => (root.querySelector('#import-note')?.textContent ?? '').startsWith('Imported'), 'the upload did not go through');
+
+        const sent = asked.find(one => one.method === 'POST' && one.path.endsWith('/certificates'))!.body as { pem: string };
+
+        assert.equal(sent.pem, twoRoots.trim(), 'the key went to the node');
 
     });
 
@@ -658,18 +799,18 @@ describe('the certificates page, as a kind of node adds to it', () => {
     let loads = 0;
     let refuseTheSection = false;
 
-    const anIdentity = certificate({ id: 'cccccccccccccccc', kind: 'tlsIdentity', label: 'Meter A', usages: null });
+    const anIdentity = certificate({ id: 'cccccccccccccccc', kind: 'tlsServerIdentity', label: 'Meter A', usages: null });
 
     const aStore = (): CertificateStore => ({
         directory:           'certs',
         trustAnchors:        [ 'tlsRoot' ],
-        credentials:         [ 'tlsIdentity' ],
+        credentials:         [ 'tlsServerIdentity' ],
         recognised:          [],
-        kinds:               { tlsRoot:      { description: 'TLS roots',    usages: [ 'dns', 'nts' ] },
-                               tlsIdentity:  { description: 'TLS identity', usages: [ 'modbus', 'web' ] } },
+        kinds:               { tlsRoot:            { description: 'TLS roots',           page: 'certificates',        usages: [ 'dns', 'nts' ] },
+                               tlsServerIdentity:  { description: 'TLS server identity', page: 'serverCertificates',  usages: [ 'modbus', 'web' ], needsPrivateKey: true } },
         usages:              [],
         certificates:        { tlsRoot: [ certificate({ id: 'aaaaaaaaaaaaaaaa', kind: 'tlsRoot', label: 'Root A', hasPrivateKey: false }) ],
-                               tlsIdentity: [ { ...anIdentity } ] },
+                               tlsServerIdentity: [ { ...anIdentity } ] },
         keysAreUnencrypted:  false,
         // What a meter's store says beyond every node's.
         listeners:           [ 'modbus' ]
@@ -679,8 +820,9 @@ describe('the certificates page, as a kind of node adds to it', () => {
     function node({ method, path, body }: Asked): unknown {
 
         if (method === 'PATCH') {
-            const entry = held.certificates['tlsRoot']![0]!;
-            entry.active = (body as { active?: boolean }).active ?? entry.active;
+            const { kind, active } = body as { kind?: string; active?: boolean };
+            const entry = held.certificates[kind ?? 'tlsRoot']![0]!;
+            entry.active = active ?? entry.active;
             return entry;
         }
 
@@ -691,13 +833,15 @@ describe('the certificates page, as a kind of node adds to it', () => {
 
     }
 
-    async function opened(options: Parameters<typeof certificatesPage>[0]): Promise<HTMLElement> {
+    async function opened(options:  Parameters<typeof certificatesPage>[0],
+                          made      = serverCertificatesPage,
+                          path      = '/configuration/server-certificates'): Promise<HTMLElement> {
 
         held             = aStore();
         loads            = 0;
         refuseTheSection = false;
 
-        return open(certificatesPage(options), '/configuration/certificates', [ 'certificates:read', 'certificates:edit' ], node,
+        return open(made(options), path, [ 'certificates:read', 'certificates:edit' ], node,
                     root => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null);
 
     }
@@ -707,38 +851,49 @@ describe('the certificates page, as a kind of node adds to it', () => {
 
     it('names a kind, with its icon and its hint, as the kind of node calls it, and says in the dialog what one is for', async () => {
 
-        const root = await opened({ kinds: { tlsIdentity: { title: 'TLS identities', icon: 'fa-id-card',
-                                                            hint: html`Shown to <strong>charging stations</strong>.`,
-                                                            uses: html`A listener only ever shows an identity that is for it.` } } });
+        const options = { kinds: { tlsServerIdentity: { title: 'TLS identities', icon: 'fa-id-card',
+                                                        hint: html`Shown to <strong>charging stations</strong>.`,
+                                                        uses: html`A listener only ever shows an identity that is for it.` } } };
 
-        const heading = card(root, 'tlsIdentity').querySelector('h3')!;
+        const root    = await opened(options);
+        const heading = card(root, 'tlsServerIdentity').querySelector('h3')!;
 
         assert.equal(heading.textContent!.trim(), 'TLS identities');
         assert.ok(heading.querySelector('i.fa-id-card') !== null, 'the icon is not in the heading');
-        assert.equal(card(root, 'tlsIdentity').querySelector('p.hint strong')?.textContent, 'charging stations', 'the hint is not drawn as markup');
-        assert.equal(card(root, 'tlsRoot').querySelector('h3')!.textContent!.trim(), 'TLS roots', 'a kind not named lost the store\'s description');
+        assert.equal(card(root, 'tlsServerIdentity').querySelector('p.hint strong')?.textContent, 'charging stations', 'the hint is not drawn as markup');
 
-        root.querySelector<HTMLButtonElement>('#panel-usage [data-usages="cccccccccccccccc:tlsIdentity"]')!.click();
+        root.querySelector<HTMLButtonElement>('#panel-usage [data-usages="cccccccccccccccc:tlsServerIdentity"]')!.click();
         await until(() => document.querySelector('dialog #usages-form') !== null, 'the dialog did not open');
         assert.match(document.querySelector('dialog')!.textContent!, /A listener only ever shows an identity that is for it\./);
+        assert.match(document.querySelector('dialog legend')!.textContent!, /Where it is shown/, 'a server\'s identity is not told the listeners it is shown on');
         document.querySelector('dialog')!.remove();
+
+        const roots = await opened(options, certificatesPage, '/configuration/certificates');
+
+        assert.equal(card(roots, 'tlsRoot').querySelector('h3')!.textContent!.trim(), 'TLS roots', 'a kind not named lost the store\'s description');
 
     });
 
     it('says what the kind of node has to say at the top, and beside a certificate\'s name', async () => {
 
-        const root = await opened({
-            notices:   store => (store as CertificateStore & { listeners: string[] }).listeners.map(listener => html`The ${listener} listener has nothing to show.`),
-            rowChips:  entry => entry.kind === 'tlsIdentity' ? [ html`<span class="chip ok">shown on Modbus/TLS</span>` ] : []
-        });
+        const options = {
+            notices:   (store: CertificateStore) => (store as CertificateStore & { listeners: string[] }).listeners.map(listener => html`The ${listener} listener has nothing to show.`),
+            rowChips:  (entry: Certificate) => entry.kind === 'tlsServerIdentity' ? [ html`<span class="chip ok">shown on Modbus/TLS</span>` ] : []
+        };
+
+        const root = await opened(options);
 
         assert.ok([ ...root.querySelectorAll('.notice') ].some(notice => notice.textContent!.trim() === 'The modbus listener has nothing to show.'),
                   'the notice is not at the top');
-        assert.equal(card(root, 'tlsIdentity').querySelector('.row-chips .chip.ok')?.textContent, 'shown on Modbus/TLS');
-        // ok() and not equal(): a message of equal() would print the element, and with it all of happy-dom's window.
-        assert.ok(card(root, 'tlsRoot').querySelector('.row-chips') === null, 'a row with nothing to add has a line for it');
-        assert.equal(card(root, 'tlsIdentity').querySelector('.usages-of .chip')?.textContent, 'on every listener',
+        assert.equal(card(root, 'tlsServerIdentity').querySelector('.row-chips .chip.ok')?.textContent, 'shown on Modbus/TLS');
+        assert.equal(card(root, 'tlsServerIdentity').querySelector('.usages-of .chip')?.textContent, 'on every listener',
                      'an identity for every listener is said to be for every use');
+
+        const roots = await opened(options, certificatesPage, '/configuration/certificates');
+
+        // ok() and not equal(): a message of equal() would print the element, and with it all of happy-dom's window.
+        assert.ok(card(roots, 'tlsRoot').querySelector('.row-chips') === null, 'a row with nothing to add has a line for it');
+        assert.equal(card(roots, 'tlsRoot').querySelector('.usages-of .chip')?.textContent, 'for every use', 'a root is said to be shown on the listeners');
 
     });
 
@@ -749,6 +904,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         const root = await opened({
             sections: context => [ {
                 below:  'presents',
+                page:   'serverCertificates',
                 load:   async () => { loads++; shownAt = loads; },
                 draw:   () => html`
                     <section class="card" id="requests">
@@ -762,7 +918,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
 
         const section = root.querySelector('#requests')!;
 
-        assert.ok(card(root, 'tlsIdentity').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING,
+        assert.ok(card(root, 'tlsServerIdentity').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING,
                   'the section is not below what the node presents');
         assert.equal(loads, 1, 'what the section needs was not asked for with the store');
         assert.ok(root.querySelector('#may') !== null, 'the section was not told the person may change the store');
@@ -771,8 +927,8 @@ describe('the certificates page, as a kind of node adds to it', () => {
         subject.value = 'CN=meter7.lan';
         subject.focus();
 
-        root.querySelector<HTMLButtonElement>('#panel-usage [data-toggle="aaaaaaaaaaaaaaaa:tlsRoot"]')!.click();
-        await until(() => loads === 2 && root.querySelector('#panel-usage [data-toggle="aaaaaaaaaaaaaaaa:tlsRoot"]')?.textContent?.trim() === 'Switch on',
+        root.querySelector<HTMLButtonElement>('#panel-usage [data-toggle="cccccccccccccccc:tlsServerIdentity"]')!.click();
+        await until(() => loads === 2 && root.querySelector('#panel-usage [data-toggle="cccccccccccccccc:tlsServerIdentity"]')?.textContent?.trim() === 'Switch on',
                     'the section was not asked again with the store after a change');
 
         assert.ok(root.querySelector('#request-form [name="subject"]') === subject, 'the section\'s field was made anew');
@@ -792,6 +948,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         const root = await opened({
             sections: context => [ {
                 below:  'presents',
+                page:   'serverCertificates',
                 reset:  () => { chosen = undefined; },
                 draw:   () => html`
                     <section class="card" id="requests">
@@ -841,7 +998,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         let page: HTMLElement | undefined;
 
         const root = await opened({
-            hints:     { presents:   store => html`Shown on ${(store as CertificateStore & { listeners: string[] }).listeners.length} listener(s).`,
+            hints:     { serves:     store => html`Shown on ${(store as CertificateStore & { listeners: string[] }).listeners.length} listener(s).`,
                          importing:  html`A certificate for a key made here goes in <em>under Signing requests</em>.` },
             sections:  context => { page = context.page; return []; }
         });
@@ -853,11 +1010,30 @@ describe('the certificates page, as a kind of node adds to it', () => {
 
     });
 
+    it('stands a section on the page it names, and by the group it stands below where it names none', async () => {
+
+        const sections = () => [
+            { below: 'presents' as const,                               draw: () => html`<p id="by-presents"></p>` },
+            { below: 'presents' as const, page: 'serverCertificates' as const,  draw: () => html`<p id="on-servers"></p>`  },
+            { below: 'believes' as const,                               draw: () => html`<p id="by-believes"></p>` }
+        ];
+
+        const on = async (made: typeof certificatesPage, path: string) => {
+            const root = await opened({ sections }, made, path);
+            return [ 'by-presents', 'on-servers', 'by-believes' ].filter(id => root.querySelector(`#${id}`) !== null);
+        };
+
+        assert.deepEqual(await on(certificatesPage,       '/configuration/certificates'),        [ 'by-believes' ]);
+        assert.deepEqual(await on(identitiesPage,         '/configuration/identities'),          [ 'by-presents' ]);
+        assert.deepEqual(await on(serverCertificatesPage, '/configuration/server-certificates'), [ 'on-servers'  ]);
+
+    });
+
     it('says the page could not be loaded where what a section needs could not be', async () => {
 
         const root = await opened({
             sections: () => [ { below: 'believes', load: async () => { throw new Error('no requests'); }, draw: () => html`<p id="never"></p>` } ]
-        });
+        }, certificatesPage, '/configuration/certificates');
 
         assert.match(root.querySelector('.error-box')?.textContent ?? '', /could not be loaded: no requests/);
         assert.ok(root.querySelector('#never') === null, 'a section whose load failed was drawn');
@@ -866,7 +1042,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
 
     it('takes a template of view.ts for what it says under a group, drawn as markup', async () => {
 
-        const root = await opened({ hints: { believes: html`Roots <em>this meter</em> believes.` } });
+        const root = await opened({ hints: { believes: html`Roots <em>this meter</em> believes.` } }, certificatesPage, '/configuration/certificates');
 
         assert.ok([ ...root.querySelectorAll('p.hint em') ].some(em => em.textContent === 'this meter'), 'the hint is not drawn as markup');
 

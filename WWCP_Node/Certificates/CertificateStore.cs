@@ -153,7 +153,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public IReadOnlyList<CertificateUsage> Usages { get; }
 
         /// <summary>
-        /// What a TLS identity may be told it is shown on: the listeners its
+        /// What a TLS server identity may be told it is shown on: the listeners its
         /// kind of node names - a meter's "modbus" and "web" - and none by
         /// default, which leaves every identity for every listener.
         /// </summary>
@@ -231,7 +231,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="Kinds">The kinds of certificate this store keeps; all of them by default.</param>
         /// <param name="NodeName">What the node the store belongs to is called in a sentence; "node" by default.</param>
         /// <param name="Usages">The usages the kind of node adds to the node's own, <see cref="CertificateUsages.All"/>.</param>
-        /// <param name="Listeners">The listeners of the kind of node a TLS identity may be told it is shown on; none by default.</param>
+        /// <param name="Listeners">The listeners of the kind of node a TLS server identity may be told it is shown on; none by default.</param>
         public CertificateStore(String                         Directory,
                                 EventLog                       Log,
                                 IEnumerable<CertificateKind>?  Kinds      = null,
@@ -296,8 +296,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <summary>
         /// What a certificate of this kind is offered to be told it is for in
         /// this store by the node itself: the usages for a TLS root or a server
-        /// certificate, the listeners for a TLS identity, and nothing for the
-        /// other kinds.
+        /// certificate, the listeners for a TLS server identity, and nothing for
+        /// the other kinds - a TLS identity, who the node is as a client, among
+        /// them.
         /// </summary>
         /// <remarks>
         /// What a page offers where a certificate is imported or changed, beside
@@ -308,7 +309,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             => Kind == CertificateKind.TLSRoot || Kind == CertificateKind.TLSServer
                    ? Usages
-                   : Kind == CertificateKind.TLSIdentity
+                   : Kind == CertificateKind.TLSServerIdentity
                          ? Listeners
                          : [];
 
@@ -620,6 +621,156 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             }
 
             return kinds;
+
+        }
+
+        #endregion
+
+        #region MoveKind(From, To, out Moved, out Error)
+
+        /// <summary>
+        /// Keep every certificate of one kind as another from now on: its file
+        /// moved into the other kind's directory, its name, its switch and what
+        /// it is for kept - as a kind of node does once at its start where what
+        /// it kept as one kind is now another's, a meter's identities that its
+        /// listeners show becoming TLS server identities.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Asked again, there is nothing left to move, and it says so by moving
+        /// nothing: a kind of node calls it at every start. A file whose name is
+        /// already taken in the other kind's directory is left where it is and
+        /// named in the log, rather than written over.
+        /// </para>
+        /// <para>
+        /// Moved files are read again at once, the store taking in what it
+        /// keeps of them as at a start.
+        /// </para>
+        /// </remarks>
+        /// <param name="From">The kind they were kept as.</param>
+        /// <param name="To">The kind they are kept as from now on.</param>
+        /// <param name="Moved">How many files were moved.</param>
+        /// <param name="Error">Why not, where the other kind's directory could not be made or the index written.</param>
+        public Boolean MoveKind(CertificateKind                  From,
+                                CertificateKind                  To,
+                                out Int32                        Moved,
+                                [NotNullWhen(false)] out String? Error)
+        {
+
+            var done = MoveFiles(From, To, out Moved, out Error);
+
+            if (Moved > 0)
+                Reload();
+
+            return done;
+
+        }
+
+        /// <summary>
+        /// The files and what the index remembers of them, moved under the
+        /// store's lock - see <see cref="MoveKind"/>.
+        /// </summary>
+        private Boolean MoveFiles(CertificateKind                  From,
+                                  CertificateKind                  To,
+                                  out Int32                        Moved,
+                                  [NotNullWhen(false)] out String? Error)
+        {
+
+            Moved = 0;
+            Error = null;
+
+            if (From == To)
+                return true;
+
+            storeLock.Wait();
+
+            try
+            {
+
+                var fromDirectory = Path.Combine(Directory, From.Directory().Replace('/', Path.DirectorySeparatorChar));
+                var toDirectory   = Path.Combine(Directory, To.  Directory().Replace('/', Path.DirectorySeparatorChar));
+
+                if (!System.IO.Directory.Exists(fromDirectory))
+                    return true;
+
+                var files = System.IO.Directory.EnumerateFiles(fromDirectory).
+                                                Where  (file => readableExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase)).
+                                                OrderBy(file => file, StringComparer.Ordinal).
+                                                ToList();
+
+                if (files.Count == 0)
+                    return true;
+
+                try
+                {
+                    System.IO.Directory.CreateDirectory(toDirectory);
+                }
+                catch (Exception exception)
+                {
+                    Error = $"'{toDirectory}' could not be made: {exception.Message}";
+                    return false;
+                }
+
+                foreach (var file in files)
+                {
+
+                    var name     = Path.GetFileName(file);
+                    var target   = Path.Combine(toDirectory, name);
+                    var relative = RelativeName(From, name);
+
+                    if (File.Exists(target))
+                    {
+                        log.Warning($"Certificates: '{relative}' was left where it is - '{RelativeName(To, name)}' is there already.",
+                                    "certificates");
+                        continue;
+                    }
+
+                    try
+                    {
+                        File.Move(file, target);
+                    }
+                    catch (Exception exception)
+                    {
+                        log.Warning($"Certificates: '{relative}' could not be moved to '{RelativeName(To, name)}' - {exception.Message}",
+                                    "certificates");
+                        continue;
+                    }
+
+                    Moved++;
+
+                    // What the index remembers of it goes with it: its name,
+                    // its switch, what it is for.
+                    foreach (var known in entries.Values.Concat(setAside.Values).Where(entry => entry.FileName == relative).ToList())
+                    {
+
+                        entries. Remove((known.Id, known.Kind));
+                        setAside.Remove((known.Id, known.Kind));
+
+                        var moved = known with { Kind = To, FileName = RelativeName(To, name) };
+
+                        if (Keeps(To))
+                            entries [(moved.Id, To)] = moved;
+                        else
+                            setAside[(moved.Id, To)] = moved;
+
+                    }
+
+                    log.Metrological(LogLevel.Notice,
+                                     $"Certificates: '{relative}' is kept as {To.WithArticle()} from now on, as '{RelativeName(To, name)}'.",
+                                     "certificates", "security");
+
+                }
+
+                if (Moved > 0 && !TryWriteIndex(PutBack: false, out Error))
+                    return false;
+
+                return true;
+
+            }
+            finally
+            {
+                storeLock.Release();
+            }
 
         }
 
@@ -2430,7 +2581,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (Usages is null)
                 return true;
 
-            var isIdentity = Kind == CertificateKind.TLSIdentity;
+            var isIdentity = Kind == CertificateKind.TLSServerIdentity;
             var given      = new List<CertificateUsage>();
 
             foreach (var usage in Usages)

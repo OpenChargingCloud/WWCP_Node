@@ -374,15 +374,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region ATLSIdentityIsShownOnTheListenersItIsFor()
+        #region ATLSServerIdentityIsShownOnTheListenersItIsFor()
 
         /// <summary>
         /// What a node shows is a usage too, for a node with more than one
         /// listener: a meter's Modbus/TLS port and its web interface each show
-        /// their own, and an identity never told is shown on every one.
+        /// their own server identity, and one never told is shown on every one.
+        /// Who the node is as a client is offered no listener.
         /// </summary>
         [Test]
-        public void ATLSIdentityIsShownOnTheListenersItIsFor()
+        public void ATLSServerIdentityIsShownOnTheListenersItIsFor()
         {
 
             var store = new CertificateStore(directory, log, Listeners: [ "Modbus", "web" ]);
@@ -394,11 +395,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var everywhere   = new CertificateRequest("CN=meter-001",            everyKey,  HashAlgorithmName.SHA256).
                                          CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
 
-            Assert.That(store.Import(modbusOnly.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ "modbus" ],
+            Assert.That(store.Import(modbusOnly.Export(X509ContentType.Pkcs12), CertificateKind.TLSServerIdentity, null, null, [ "modbus" ],
                                      out var forModbus, out var error),
                         Is.True, error);
 
-            Assert.That(store.Import(everywhere.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, null,
+            Assert.That(store.Import(everywhere.Export(X509ContentType.Pkcs12), CertificateKind.TLSServerIdentity, null, null, null,
                                      out var forEvery, out error),
                         Is.True, error);
 
@@ -407,13 +408,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(forModbus!.Usages,                                                           Is.EqualTo(new CertificateUsage[] { "modbus" }));
                 Assert.That(forEvery!.Usages,                                                            Is.Null, "never told is every listener");
 
-                Assert.That(store.UsableFor(CertificateKind.TLSIdentity, "modbus").Select(entry => entry.Id), Is.EquivalentTo(new[] { forModbus.Id, forEvery.Id }));
-                Assert.That(store.UsableFor(CertificateKind.TLSIdentity, "web").   Select(entry => entry.Id), Is.EqualTo(new[] { forEvery.Id }));
+                Assert.That(store.UsableFor(CertificateKind.TLSServerIdentity, "modbus").Select(entry => entry.Id), Is.EquivalentTo(new[] { forModbus.Id, forEvery.Id }));
+                Assert.That(store.UsableFor(CertificateKind.TLSServerIdentity, "web").   Select(entry => entry.Id), Is.EqualTo(new[] { forEvery.Id }));
 
                 Assert.That(forModbus.ToJSON()["usages"]?.Values<String>(),                             Is.EqualTo(new[] { "modbus" }));
                 Assert.That(forEvery.ToJSON()["usages"]?.Type,                                           Is.EqualTo(JTokenType.Null));
 
-                Assert.That(store.UsagesFor(CertificateKind.TLSIdentity),                                Is.EqualTo(new CertificateUsage[] { "modbus", "web" }));
+                Assert.That(store.UsagesFor(CertificateKind.TLSServerIdentity),                                Is.EqualTo(new CertificateUsage[] { "modbus", "web" }));
+                Assert.That(store.UsagesFor(CertificateKind.TLSIdentity),                                Is.Empty, "who the node is as a client is shown on no listener");
                 Assert.That(store.UsagesFor(CertificateKind.TLSRoot),                                    Is.EqualTo(new CertificateUsage[] { "dns", "nts" }));
                 Assert.That(store.UsagesFor(CertificateKind.ClientRoot),                                 Is.Empty);
 
@@ -442,7 +444,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var identity = new CertificateRequest("CN=meter-001", key, HashAlgorithmName.SHA256).
                                      CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
 
-            var identityForDNS = withListeners.Import(identity.Export(X509ContentType.Pkcs12), CertificateKind.TLSIdentity, null, null, [ CertificateUsages.DNS ], out var marked, out var error);
+            var identityForDNS = withListeners.Import(identity.Export(X509ContentType.Pkcs12), CertificateKind.TLSServerIdentity, null, null, [ CertificateUsages.DNS ], out var marked, out var error);
 
             var withoutThem    = new CertificateStore(Path.Combine(directory, "other"), log);
 
@@ -450,9 +452,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(identityForDNS,                                          Is.True, error);
                 Assert.That(marked!.IsFor("modbus") || marked!.IsFor("web"),          Is.False, "shown on no listener");
-                Assert.That(withListeners.UsagesFor(CertificateKind.TLSIdentity),    Is.EqualTo(new CertificateUsage[] { "modbus", "web" }), "the listeners are what an identity is offered");
+                Assert.That(withListeners.UsagesFor(CertificateKind.TLSServerIdentity),    Is.EqualTo(new CertificateUsage[] { "modbus", "web" }), "the listeners are what an identity is offered");
                 Assert.That(withListeners.UsagesFor(CertificateKind.TLSRoot),        Is.EqualTo(new CertificateUsage[] { "dns", "nts" }),    "and the services what a root is");
-                Assert.That(withoutThem.UsagesFor(CertificateKind.TLSIdentity),      Is.Empty, "a node that names no listeners offers an identity none");
+                Assert.That(withoutThem.UsagesFor(CertificateKind.TLSServerIdentity),      Is.Empty, "a node that names no listeners offers an identity none");
 
             });
 

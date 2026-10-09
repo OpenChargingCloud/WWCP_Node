@@ -348,11 +348,22 @@ export interface Certificate<K extends string = string> {
     usages?:        string[] | null;
 }
 
+/**
+ * The page a kind is looked after on: the certificates alone, who the node is
+ * as a client, or who a server of it is - each with its private key but the
+ * first.
+ */
+export type CertificatePageName = 'certificates' | 'identities' | 'serverCertificates';
+
 /** What the store says about one kind it keeps. */
 export interface CertificateKindInfo {
     description:      string;
+    /** How a sentence names one of it: "a TLS root". */
+    withArticle?:     string;
     /** Which of the three things the node does with one of this kind. */
     group?:           CertificateGroup;
+    /** The page it is looked after on. */
+    page?:            CertificatePageName;
     /** Whether somebody made the kind up where a certificate was imported. */
     custom?:          boolean;
     trustAnchor:      boolean;

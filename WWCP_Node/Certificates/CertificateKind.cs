@@ -56,11 +56,40 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
 
     /// <summary>
+    /// Which page of a node's web interface a kind is looked after on: what
+    /// the node keeps without a private key, who it is as a client, or who it
+    /// is as a server.
+    /// </summary>
+    public enum CertificatePage
+    {
+
+        /// <summary>
+        /// Certificates alone, never with a private key: the roots it believes,
+        /// the servers it recognises, a tariff it checks.
+        /// </summary>
+        Certificates,
+
+        /// <summary>
+        /// Who this node is as a client, with the private key it proves it
+        /// with: what it shows a server that asks, what a vehicle presents.
+        /// </summary>
+        Identities,
+
+        /// <summary>
+        /// Who a server of this node is, with its private key: what a listener
+        /// shows whoever connects to it.
+        /// </summary>
+        ServerCertificates
+
+    }
+
+
+    /// <summary>
     /// What a certificate in a node's store is <i>for</i>.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Eleven kinds come with every node, in groups that behave differently in
+    /// Twelve kinds come with every node, in groups that behave differently in
     /// every respect that matters. A <b>trust anchor</b> is a public certificate
     /// that says which chains the node believes; there may be any number of
     /// them active at once, and none of them is ever chosen for a session. A
@@ -70,12 +99,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// is somebody else's, kept to know them by.
     /// </para>
     /// <para>
-    /// Seven of them are ISO 15118's, which a vehicle keeps. The other four are
-    /// TLS's in general, which any kind of node may keep: the roots a server it
-    /// connects to may chain to - a time server's, a backend's - and the roots a
-    /// client connecting to it has to chain to; the certificate a server it
-    /// connects to presents, kept so that it can be recognised by its
-    /// fingerprint; and what the node presents itself, with its private key.
+    /// Seven of them are ISO 15118's, which a vehicle keeps. Four are TLS's in
+    /// general, which any kind of node may keep: the roots a server it connects
+    /// to may chain to - a time server's, a backend's - and the roots a client
+    /// connecting to it has to chain to; the certificate a server it connects
+    /// to presents, kept so that it can be recognised by its fingerprint; and
+    /// who the node is as a client, with its private key. The twelfth is who a
+    /// server of the node is, with its private key - kept by a kind of node
+    /// with listeners of its own, such as a meter's Modbus/TLS port.
+    /// </para>
+    /// <para>
+    /// Each kind is looked after on one of three pages - see
+    /// <see cref="CertificatePage"/>: the certificates alone, the identities
+    /// a node is as a client, and the identities its servers are.
     /// </para>
     /// <para>
     /// The three roots are kept apart rather than pooled, because they answer
@@ -170,6 +206,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public Boolean           IsCustom                 { get; }
 
         /// <summary>
+        /// The page this kind is looked after on: the certificates alone where
+        /// it keeps no private key, the identities of a server where it is one,
+        /// and the identities of the node as a client otherwise.
+        /// </summary>
+        public CertificatePage   Page                     { get; }
+
+        /// <summary>
         /// Indicates whether this kind is null or empty.
         /// </summary>
         public Boolean           IsNullOrEmpty
@@ -199,7 +242,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                 Int32             SortOrder,
                                 Boolean           NeedsPrivateKey,
                                 Boolean           MayBeIssuingCA,
-                                Boolean           IsCustom)
+                                Boolean           IsCustom,
+                                Boolean           ServerIdentity  = false)
         {
 
             this.InternalId       = Name;
@@ -211,6 +255,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             this.WantsPrivateKey  = NeedsPrivateKey;
             this.MayBeIssuingCA   = MayBeIssuingCA;
             this.IsCustom         = IsCustom;
+            this.Page             = !NeedsPrivateKey ? CertificatePage.Certificates
+                                  : ServerIdentity   ? CertificatePage.ServerCertificates
+                                  :                    CertificatePage.Identities;
 
         }
 
@@ -242,7 +289,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
-        #region (static) Define(Name, Group, Description, NameWithArticle, Directory, SortOrder, NeedsPrivateKey = null, MayBeIssuingCA = false)
+        #region (static) Define(Name, Group, Description, NameWithArticle, Directory, SortOrder, NeedsPrivateKey = null, MayBeIssuingCA = false, ServerIdentity = false)
 
         /// <summary>
         /// Define a kind of certificate in code: what a kind of node keeps beyond
@@ -261,6 +308,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="SortOrder">Where it comes in the order everything is shown in.</param>
         /// <param name="NeedsPrivateKey">Whether a certificate of it is only useful with its private key; a credential's is by default.</param>
         /// <param name="MayBeIssuingCA">Whether a trust anchor of it may be a CA somebody else signed.</param>
+        /// <param name="ServerIdentity">Whether a credential of it is who a server of the node is, rather than who the node is as a client.</param>
         public static CertificateKind Define(String            Name,
                                              CertificateGroup  Group,
                                              String            Description,
@@ -268,7 +316,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                              String            Directory,
                                              Int32             SortOrder,
                                              Boolean?          NeedsPrivateKey  = null,
-                                             Boolean           MayBeIssuingCA   = false)
+                                             Boolean           MayBeIssuingCA   = false,
+                                             Boolean           ServerIdentity   = false)
         {
 
             if (!IsKindName(Name))
@@ -284,7 +333,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                                              SortOrder,
                                                              NeedsPrivateKey ?? Group == CertificateGroup.Credential,
                                                              Group == CertificateGroup.TrustAnchor && MayBeIssuingCA,
-                                                             IsCustom: false));
+                                                             IsCustom:        false,
+                                                             ServerIdentity:  Group == CertificateGroup.Credential && ServerIdentity));
 
         }
 
@@ -316,8 +366,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             var (directory, order) = Group switch {
                 CertificateGroup.TrustAnchor  => ("custom/roots",       8),
-                CertificateGroup.Credential   => ("custom/credentials", 16),
-                _                             => ("custom/recognised",  17)
+                CertificateGroup.Credential   => ("custom/credentials", 17),
+                _                             => ("custom/recognised",  18)
             };
 
             return new CertificateKind(Name,
@@ -441,6 +491,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                    CertificateGroup.TrustAnchor  => "trustAnchor",
                    CertificateGroup.Credential   => "credential",
                    _                             => "recognised"
+               };
+
+        /// <summary>
+        /// A page as it is written on the JSON API.
+        /// </summary>
+        public static String AsText(CertificatePage Page)
+
+            => Page switch {
+                   CertificatePage.Identities          => "identities",
+                   CertificatePage.ServerCertificates  => "serverCertificates",
+                   _                                   => "certificates"
                };
 
         /// <summary>
@@ -639,20 +700,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                      "a server certificate", "tls/servers", 14);
 
         /// <summary>
-        /// A <b>TLS identity</b>: what this node presents in TLS, with its
-        /// private key - its web interface's certificate, or the one it shows a
-        /// server that asks for one.
+        /// A <b>TLS identity</b>: who this node is as a client, with its private
+        /// key - what it shows a server that asks who it is: a CSMS, a backend.
         /// </summary>
         /// <remarks>
-        /// Kept for some uses and not others: a node with more than one listener
-        /// - a meter's Modbus/TLS port and its web interface - says which each
-        /// identity is shown on, by the listeners its kind names
-        /// (<see cref="CertificateStore.Listeners"/>).
+        /// Who a server of the node is, is a <see cref="TLSServerIdentity"/>:
+        /// one kind for both had a meter's web interface certificate and a
+        /// controller's sign-in to its CSMS on one page and offered each the
+        /// other's uses.
         /// </remarks>
         public static CertificateKind TLSIdentity { get; }
             = Define("tlsIdentity", CertificateGroup.Credential,
-                     "TLS identity - what this node presents in TLS, with its private key",
+                     "TLS identity - who this node is to a server that asks, with its private key",
                      "a TLS identity", "tls/identity", 15);
+
+        /// <summary>
+        /// A <b>TLS server identity</b>: who a server of this node is, with its
+        /// private key - what a listener shows whoever connects to it.
+        /// </summary>
+        /// <remarks>
+        /// Kept for some listeners and not others: a node with more than one -
+        /// a meter's Modbus/TLS port and its web interface - says which each
+        /// identity is shown on, by the listeners its kind names
+        /// (<see cref="CertificateStore.Listeners"/>).
+        /// </remarks>
+        public static CertificateKind TLSServerIdentity { get; }
+            = Define("tlsServerIdentity", CertificateGroup.Credential,
+                     "TLS server identity - who a server of this node is to whoever connects, with its private key",
+                     "a TLS server identity", "tls/server-identity", 16,
+                     ServerIdentity: true);
 
         #endregion
 
@@ -1005,7 +1081,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             CertificateKind.OEMProvisioning,
             CertificateKind.TariffVerification,
             CertificateKind.TLSServer,
-            CertificateKind.TLSIdentity
+            CertificateKind.TLSIdentity,
+            CertificateKind.TLSServerIdentity
         ];
 
         /// <summary>

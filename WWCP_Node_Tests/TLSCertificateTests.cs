@@ -416,7 +416,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(CertificateKindExtensions.All,  Is.EquivalentTo(typeof(CertificateKind).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static).
                                                                                                  Where (property => property.PropertyType == typeof(CertificateKind)).
                                                                                                  Select(property => (CertificateKind) property.GetValue(null)!)),  "a kind is missing from All");
-                Assert.That(CertificateKindExtensions.All,  Is.EquivalentTo(CertificateKindExtensions.ISO15118.Concat(CertificateKindExtensions.TLS)));
+                Assert.That(CertificateKindExtensions.All,  Is.EquivalentTo(CertificateKindExtensions.ISO15118.Concat(CertificateKindExtensions.TLS).Append(CertificateKind.TLSServerIdentity)),
+                            "ISO 15118's, TLS's in general, and who a server of a kind of node with listeners is");
                 Assert.That(CertificateKindExtensions.All.Select(kind => kind.SortOrder()),  Is.Ordered.And.Unique);
                 Assert.That(CertificateKindExtensions.All.Select(kind => kind.Directory()),  Is.Unique);
                 Assert.That(CertificateKindExtensions.All.Select(kind => kind.AsText()),     Is.Unique);

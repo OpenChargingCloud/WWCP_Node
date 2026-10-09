@@ -27,8 +27,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// <summary>
     /// What a certificate in the store may be used for, beside what kind of
     /// certificate it is: the servers a TLS root may vouch for, the servers a
-    /// server certificate may be recognised as, the listeners a TLS identity
-    /// is shown on - or whatever somebody marked it for.
+    /// server certificate may be recognised as, the listeners a TLS server
+    /// identity is shown on - or whatever somebody marked it for.
     /// </summary>
     /// <remarks>
     /// <para>

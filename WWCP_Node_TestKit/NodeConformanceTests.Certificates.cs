@@ -223,15 +223,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 {
                     Assert.That(store["kinds"]![kind.AsText()]!["hasUsages"]!.Value<Boolean>(),  Is.EqualTo(Node.Certificates.HasUsages(kind)),  $"whether {kind.WithArticle()} is told what it is for");
                     Assert.That(store["kinds"]![kind.AsText()]!["usages"]!.Values<String>(),     Is.EqualTo(Node.Certificates.KnownUsages(kind).Select(usage => usage.ToString())),  $"what {kind.WithArticle()} is offered");
+                    Assert.That(store["kinds"]![kind.AsText()]!["page"]!.Value<String>(),        Is.EqualTo(CertificateKind.AsText(kind.Page)),  $"the page {kind.WithArticle()} is looked after on");
+                    Assert.That(store["kinds"]![kind.AsText()]!["withArticle"]!.Value<String>(), Is.EqualTo(kind.WithArticle()),  "how a sentence names one of it");
                 }
 
                 if (kinds.Contains(CertificateKind.TLSRoot))
                     Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSRoot).Select(usage => usage.ToString()),  Does.Contain("dns").And.Contain("nts"),
                                 "a TLS root may vouch for the node's name servers and time servers");
 
+                if (kinds.Contains(CertificateKind.TLSServerIdentity))
+                    Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSServerIdentity),  Is.EqualTo(Node.Certificates.Listeners),
+                                "a server identity is told the listeners its kind of node names, and nothing a root vouches for");
+
                 if (kinds.Contains(CertificateKind.TLSIdentity))
-                    Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSIdentity),   Is.EqualTo(Node.Certificates.Listeners),
-                                "an identity is told the listeners its kind of node names, and nothing a root vouches for");
+                    Assert.That(Node.Certificates.UsagesFor(CertificateKind.TLSIdentity),        Is.Empty,
+                                "who the node is as a client is offered no listener");
 
                 Assert.That(store["trustAnchors"]!.Values<String>(),  Is.EquivalentTo(kinds.Where(kind => kind.Group == CertificateGroup.TrustAnchor).Select(kind => kind.AsText())), "what the node believes");
                 Assert.That(store["credentials"]!. Values<String>(),  Is.EquivalentTo(kinds.Where(kind => kind.Group == CertificateGroup.Credential). Select(kind => kind.AsText())), "what it presents");
@@ -473,26 +479,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #region AnIdentityMarkedForSomethingElseIsShownOnNoListener()
 
         /// <summary>
-        /// An identity may be marked with a usage that is no listener of this
-        /// kind of node - for a configuration or code to name later - and is
-        /// then shown on none of its listeners: a usage that is not a listener
-        /// does not make it one.
+        /// A server identity may be marked with a usage that is no listener of
+        /// this kind of node - for a configuration or code to name later - and
+        /// is then shown on none of its listeners: a usage that is not a
+        /// listener does not make it one.
         /// </summary>
         [Test]
         public async Task AnIdentityMarkedForSomethingElseIsShownOnNoListener()
         {
 
-            Keeps(CertificateKind.TLSIdentity);
+            Keeps(CertificateKind.TLSServerIdentity);
 
             using var http  = await SignedIn();
 
             var (status, said) = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                new JProperty("kind",     "tlsIdentity"),
+                                                new JProperty("kind",     "tlsServerIdentity"),
                                                 new JProperty("content",  Identity("Not For A Listener")),
                                                 new JProperty("usages",   new JArray("dns"))
                                             ));
 
-            var stored = Node.Certificates.Get(said.Value<String>("id"), CertificateKind.TLSIdentity);
+            var stored = Node.Certificates.Get(said.Value<String>("id"), CertificateKind.TLSServerIdentity);
 
             Assert.Multiple(() => {
                 Assert.That(status,  Is.EqualTo(HttpStatusCode.Created), said.ToString());

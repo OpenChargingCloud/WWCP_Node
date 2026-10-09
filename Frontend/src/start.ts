@@ -3,7 +3,7 @@ import { auth } from './auth';
 import { fromURL } from './basePath';
 import { must } from './html';
 import { logs, type LogStore } from './logs/store';
-import { certificatesPage, type CertificatesOptions } from './pages/certificates';
+import { certificatesPage, identitiesPage, serverCertificatesPage, type CertificatesOptions } from './pages/certificates';
 import { dnsPage } from './pages/dns';
 import { loginPage, type SignInWords } from './pages/login';
 import { logsPage, type LogsWords } from './pages/logs';
@@ -50,8 +50,10 @@ export const nodeMenu: {
     configuration:  (Children?: MenuEntry[]) => MenuEntry;
     dns:            MenuEntry;
     nts:            MenuEntry;
-    certificates:   MenuEntry;
-    logs:           MenuEntry;
+    certificates:        MenuEntry;
+    identities:          MenuEntry;
+    serverCertificates:  MenuEntry;
+    logs:                MenuEntry;
 } = {
 
     configuration: (Children: MenuEntry[] = []): MenuEntry => ({
@@ -80,6 +82,24 @@ export const nodeMenu: {
         path:        '/configuration/certificates',
         label:       'Certificates',
         icon:        'fa-certificate',
+        permission:  [ 'certificates:read' ]
+    },
+
+    // Who the node is as a client, with its keys - for a kind of node whose
+    // store keeps one of them: a TLS identity, a vehicle's credentials.
+    identities: {
+        path:        '/configuration/identities',
+        label:       'Identities',
+        icon:        'fa-id-card',
+        permission:  [ 'certificates:read' ]
+    },
+
+    // Who its servers are, with their keys - for a kind of node with
+    // listeners of its own, a meter's Modbus/TLS port and web interface.
+    serverCertificates: {
+        path:        '/configuration/server-certificates',
+        label:       'Server certificates',
+        icon:        'fa-server',
         permission:  [ 'certificates:read' ]
     },
 
@@ -154,7 +174,9 @@ export function routesOf(Frontend: NodeFrontend): Route[] {
         { path: '/',                   page: firstPageOfTheMenu,         guard: auth.requireSignIn },
         { path: '/configuration/dns',  page: dnsPage,                    guard: auth.requireSignIn },
         { path: '/configuration/nts',  page: ntsPage,                    guard: auth.requireSignIn },
-        { path: '/configuration/certificates',  page: certificatesPage(Frontend.certificates),  guard: auth.requireSignIn },
+        { path: '/configuration/certificates',         page: certificatesPage(Frontend.certificates),        guard: auth.requireSignIn },
+        { path: '/configuration/identities',           page: identitiesPage(Frontend.certificates),          guard: auth.requireSignIn },
+        { path: '/configuration/server-certificates',  page: serverCertificatesPage(Frontend.certificates),  guard: auth.requireSignIn },
         { path: '/logs',               page: logsPage(Frontend.logs),    guard: toReadTheLog       },
         { path: '/login',              page: loginPage(Frontend.signIn)                            }
 

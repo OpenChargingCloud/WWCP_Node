@@ -39,16 +39,16 @@ describe('what a kind may be told it is for', () => {
         assert.equal(hasUsages(store, 'tlsIdentity'), false);
     });
 
-    it('is the listeners for an identity where a kind of node names some - not the services a root vouches for', () => {
+    it('is the listeners for a server identity where a kind of node names some - not the services a root vouches for', () => {
 
         // The one case that tells what a kind says from what the store says
         // once for all of them: in most stores the two lists are the same,
         // and the page that offered the store's list for every kind passed
         // every other case here.
         const meter = { usages: [ 'dns', 'nts' ],
-                        kinds:  { tlsIdentity: { description: '', trustAnchor: false, needsPrivateKey: true, hasUsages: true, usages: [ 'modbus', 'web' ] } } } as unknown as CertificateStore;
+                        kinds:  { tlsServerIdentity: { description: '', trustAnchor: false, needsPrivateKey: true, hasUsages: true, usages: [ 'modbus', 'web' ] } } } as unknown as CertificateStore;
 
-        assert.deepEqual(usagesOf(meter, 'tlsIdentity'), [ 'modbus', 'web' ]);
+        assert.deepEqual(usagesOf(meter, 'tlsServerIdentity'), [ 'modbus', 'web' ]);
 
     });
 

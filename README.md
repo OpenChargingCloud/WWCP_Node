@@ -123,15 +123,16 @@ Beyond the names, a kind of node adds to the node in eight places:
   station; a kind that hands in none gets `TraceBridge.DefaultTags`, what a
   vehicle and a charging station overhear.
 * **What it keeps certificates of:** `CertificateKinds`, the kinds of
-  certificate its store keeps - all eleven by default, a vehicle's seven and
-  the four of TLS in general. A kind that hands in none has no store
+  certificate its store keeps - all twelve by default, a vehicle's seven and
+  the four of TLS in general, and `tlsServerIdentity` for a kind with
+  listeners of its own. A kind that hands in none has no store
   directory at all: a charging station, a local controller or a gateway keeps
   the keys it dials with in stores of its own, and a store beside every one
   of them holding a vehicle's seven empty directories was a promise nobody
   was keeping. And `CertificateUsages`, what a TLS root or a server
   certificate is offered beside the node's `dns` and `nts` - a backend it
   dials, say - and `CertificateListeners`, which of its listeners a TLS
-  identity is offered. A kind of its own is a `CertificateKind.Define` of its
+  server identity is offered. A kind of its own is a `CertificateKind.Define` of its
   own.
 * **Who may do what:** `Resources`, the names of what it adds for a role to
   read, edit or run, and `RoleDefinitions`, its roles and what each of them
@@ -473,9 +474,18 @@ that signs the clients and nothing else, since the root would let in whatever
 else it signed, and the one trust anchor that may therefore be signed by
 somebody else, as long as it is a CA; `tlsServer`, what a server it
 connects to shows, kept to be recognised - never with a private key, which
-would be that server's key in the wrong place; and `tlsIdentity`, what the
-node shows itself, with its key. A kind of node keeps those it has a use for,
-and `CertificateKindExtensions.ISO15118` and `.TLS` name the two groups.
+would be that server's key in the wrong place; and `tlsIdentity`, who the
+node is as a client, with its key - what it shows a server that asks, a CSMS
+or a backend. The twelfth, `tlsServerIdentity`, is who a server of the node
+is, with its key: what a listener of a kind with listeners of its own shows
+whoever connects - a meter's Modbus/TLS port and its web interface. One kind
+for both had a controller's sign-in to its CSMS and a meter's web interface
+on one page, each offered the other's uses. A kind of node keeps those it has
+a use for, and `CertificateKindExtensions.ISO15118` and `.TLS` name the two
+groups. `MoveKind(from, to)` keeps every certificate of one kind as another
+from then on - its file moved, its name, switch and usages kept - which a
+meter calls at every start, its identities becoming server identities; asked
+again, it moves nothing.
 
 A TLS root and a server certificate are told as well what they are for: the
 name servers, the time servers, both, or what a kind of node adds, such as a
@@ -486,12 +496,13 @@ written then still means it. The time servers are anchored by the TLS roots
 for `nts`, and by the root a server is held to whatever it is kept for: naming
 it in the server's configuration says the same thing, and more narrowly.
 
-A TLS identity is told the same way where it is shown: a node with more than
-one listener - a meter's Modbus/TLS port and its web interface - names them in
-`CertificateListeners` and presents on each the identities for it, and one
-never told is for every listener. `UsagesFor(kind)` is what the node offers a
-kind - the services for a root or a server certificate, the listeners for an
-identity, nothing for the rest. The node itself presents none of them: which
+A TLS server identity is told the same way where it is shown: a node with
+more than one listener - a meter's Modbus/TLS port and its web interface -
+names them in `CertificateListeners` and presents on each the identities for
+it, and one never told is for every listener. `UsagesFor(kind)` is what the
+node offers a kind - the services for a root or a server certificate, the
+listeners for a server identity, nothing for the rest, a client's identity
+among them. The node itself presents none of them: which
 one a listener shows, and when it changes, is its kind's to say.
 
 A usage is a `CertificateUsage`, a name - a letter, then letters, digits, `-`
@@ -528,7 +539,7 @@ kind, and the anchor is kept without it.
 
 **Kinds of one's own.** `CertificateKind` is a name and a group - believed
 (`TrustAnchor`), presented (`Credential`) or recognised (`Recognised`) - and
-the eleven above are its static definitions, with what each of them does. A
+the twelve above are its static definitions, with what each of them does. A
 kind of node may define more with `CertificateKind.Define`, and whoever looks
 after a node may make one up where they import a certificate,
 `CertificateKind.Custom(name, group)`: a mark in its group, as a made-up usage
@@ -959,7 +970,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `index.html` | the page itself, which every kind's webpack names itself into - its title, what it is, the version of its frontend - and the node fills in as it serves it |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
 | `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |
-| `pages/certificates.ts` | the certificate store, in three tabs: by usage - what the node believes, presents and recognises, kind by kind (`certificateUsages.ts`); every certificate once, by name or by fingerprint, with every kind it is kept as; and the upload - a box of text certificates are pasted into and files dropped on, which the node reads into PEM, what is in it said certificate by certificate before anything goes in, and the kinds to keep it as, a kind or a usage made up among them |
+| `pages/certificates.ts` | the certificate store, on three pages - each kind on the one its `page` names: **Certificates** (`/configuration/certificates`), what the node keeps without a private key - the roots it believes, the servers it recognises, a tariff it checks; **Identities** (`/configuration/identities`, `identitiesPage`), who it is as a client, each with its key; and **Server certificates** (`/configuration/server-certificates`, `serverCertificatesPage`), who its servers are, each with its key. Each in three tabs: by usage, kind by kind (`certificateUsages.ts`); every certificate once, by name or by fingerprint, with every kind it is kept as; and the upload - a box of text certificates are pasted into and files dropped on, which the node reads into PEM, what is in it said certificate by certificate before anything goes in, and the kinds to keep it as, a kind or a usage made up among them. The certificates' upload sends no private key, and says where one goes; a section of a kind of node stands on the page it names, or by the group it stands below |
 | `tabs.ts`, `pemBox.ts` | building blocks of a page: tabs that are switched on the page and kept in the address as `?tab=`, every tab drawn so that what is typed into one outlives a look at another; and a box for certificates as text, with a Paste button where the browser lets a page read the clipboard and files dropped on it |
 | `styles/` | what all of it looks like, in the kind's colour |
 
@@ -1018,7 +1029,8 @@ startNode({
             nodeMenu.dns,
             nodeMenu.nts,
             { path: '/configuration/csms', label: 'CSMS connection', icon: 'fa-satellite-dish', permission: [ 'csms:read' ] },
-            { ...nodeMenu.certificates, label: 'Certificate store', icon: 'fa-vault' }
+            { ...nodeMenu.certificates, label: 'Certificate store', icon: 'fa-vault' },
+            nodeMenu.identities
         ]),
         nodeMenu.logs
     ],

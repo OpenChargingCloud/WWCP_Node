@@ -90,7 +90,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                kinds.Select(kind =>
                                    new JProperty(kind.AsText(), new JObject(
                                        new JProperty("description",     kind.Describe(Kind.Name)),
+                                       // How a sentence names one of it: "kept as a TLS
+                                       // root and a client root", where the cards' titles
+                                       // read "kept as TLS roots, Client roots".
+                                       new JProperty("withArticle",     kind.WithArticle()),
                                        new JProperty("group",           CertificateKind.AsText(kind.Group)),
+                                       // The page it is looked after on: the certificates
+                                       // alone, who the node is as a client, or who a
+                                       // server of it is.
+                                       new JProperty("page",            CertificateKind.AsText(kind.Page)),
                                        new JProperty("custom",          kind.IsCustom),
                                        new JProperty("trustAnchor",     kind.IsTrustAnchor()),
                                        new JProperty("needsPrivateKey", kind.NeedsPrivateKey()),

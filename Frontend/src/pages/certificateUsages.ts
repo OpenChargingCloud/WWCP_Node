@@ -7,7 +7,8 @@ import type { CertificateStore } from '../api/client';
  * Apart from the page, because this is the part that decides what the page
  * offers - and it offered one list for every kind: the services a TLS root
  * vouches for, "dns" and "nts", were offered for a TLS identity as well, which
- * is told the listeners it is shown on, and of which most nodes have none.
+ * was told the listeners it is shown on - a TLS server identity is now - and
+ * of which most nodes have none.
  * The EV found it and every kind but the local controller took it; in a page
  * every node shares it would have offered a meter's identity the name
  * servers instead of its Modbus/TLS and web listeners.

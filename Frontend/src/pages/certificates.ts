@@ -1,4 +1,4 @@
-import { ApiError, nodeAPI, type Certificate, type CertificateGroup, type CertificateStore,
+import { ApiError, nodeAPI, type Certificate, type CertificateGroup, type CertificatePageName, type CertificateStore,
          type CertificatesUploaded, type InspectedCertificate } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '../basePath';
@@ -73,6 +73,13 @@ export interface CertificatesSection<S extends CertificateStore = CertificateSto
     /** At the end of which group it stands. */
     below:  'believes' | 'presents' | 'recognises';
     /**
+     * On which page: the certificates where it stands below what the node
+     * believes or recognises, the identities below what it presents - unless
+     * it says otherwise, as a meter's signing requests for its listeners'
+     * identities stand on the server certificates.
+     */
+    page?:  CertificatePageName;
+    /**
      * What it needs beside the store, asked whenever the store is: as the
      * page is loaded, and after every change. A refusal is the page's: it
      * says it could not be loaded, as for the store.
@@ -103,6 +110,7 @@ export interface CertificatesOptions<S extends CertificateStore = CertificateSto
     hints?:         {
                         believes?:     SaidOf<S>;
                         presents?:     SaidOf<S>;
+                        serves?:       SaidOf<S>;
                         recognises?:   SaidOf<S>;
                         unencrypted?:  SaidOf<S>;
                         importing?:    SaidOf<S>;
@@ -192,15 +200,52 @@ export function believedHint(NodeName:      string,
 }
 
 /**
+ * The page a kind is looked after on, as the store says - or, where a node
+ * does not say it, by whether one of it carries its private key.
+ */
+export function pageOf(Store: CertificateStore, Kind: string): CertificatePageName {
+
+    const info = Store.kinds?.[Kind];
+
+    return info?.page
+        ?? (info?.needsPrivateKey ? 'identities' : 'certificates');
+
+}
+
+/** The page a section of a kind of node stands on: its own word, or by the group it stands below. */
+function sectionPage(Section: CertificatesSection<any>): CertificatePageName {
+    return Section.page ?? (Section.below === 'presents' ? 'identities' : 'certificates');
+}
+
+/** Things said one after the other in a sentence: "a, b and c". */
+function sayAll(Things: readonly string[]): string {
+    return Things.length <= 1
+               ? Things.join('')
+               : `${Things.slice(0, -1).join(', ')} and ${Things.at(-1)}`;
+}
+
+/**
+ * A text without the private keys in it: what the certificates page sends,
+ * which keeps certificates alone - a key goes in on the identities or the
+ * server certificates.
+ */
+export function withoutPrivateKeys(Text: string): string {
+    return Text.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----\s*/g, '').trim();
+}
+
+/**
  * Every certificate of the store once, with every kind it is kept as, in the
  * order asked for: by name - its label, which is its common name unless
- * somebody said otherwise - or by its fingerprint.
+ * somebody said otherwise - or by its fingerprint. Of one page's kinds alone,
+ * where a page is given.
  */
 export function certificatesOf(Store:   CertificateStore,
                                Order:   'name' | 'fingerprint' = 'name',
-                               Filter:  string = ''): { id: string; entries: Certificate[] }[] {
+                               Filter:  string = '',
+                               Page?:   CertificatePageName): { id: string; entries: Certificate[] }[] {
 
-    const kindsInOrder = [ ...Store.trustAnchors, ...Store.credentials, ...Store.recognised ];
+    const kindsInOrder = [ ...Store.trustAnchors, ...Store.credentials, ...Store.recognised ].
+                             filter(kind => Page === undefined || pageOf(Store, kind) === Page);
     const byId         = new Map<string, Certificate[]>();
 
     for (const kind of kindsInOrder)
@@ -239,17 +284,77 @@ export function fingerprintOf(Thumbprint: string): string {
 }
 
 
-/** The tabs of the page: what it keeps by kind, everything by name, and the upload. */
-const allTabs: readonly Tab[] = [
-    { id: 'usage',   label: 'By usage',          icon: 'fa-layer-group' },
-    { id: 'all',     label: 'All certificates',  icon: 'fa-list'        },
-    { id: 'upload',  label: 'Upload',            icon: 'fa-file-import' }
-];
+/** What each of the three pages is called, where it is, and what it says of itself. */
+const pageWords: Record<CertificatePageName, { path: string; title: string; all: string; upload: string; subtitle(): string }> = {
+
+    certificates: {
+        path:      '/configuration/certificates',
+        title:     'Certificates',
+        all:       'All certificates',
+        upload:    'Upload certificates',
+        subtitle:  () => `The roots this ${config.nodeName} believes and the certificates it recognises - certificates alone, never with a private key.`
+    },
+
+    identities: {
+        path:      '/configuration/identities',
+        title:     'Identities',
+        all:       'All identities',
+        upload:    'Upload identities',
+        subtitle:  () => `Who this ${config.nodeName} is as a client, each with its private key: what it shows a server that asks who it is.`
+    },
+
+    serverCertificates: {
+        path:      '/configuration/server-certificates',
+        title:     'Server certificates',
+        all:       'All server certificates',
+        upload:    'Upload server certificates',
+        subtitle:  () => `Who the servers of this ${config.nodeName} are, each with its private key: what its listeners show whoever connects.`
+    }
+
+};
+
+/** The tabs of a page: what it keeps by kind, everything by name, and the upload. */
+function tabsOf(Page: CertificatePageName): readonly Tab[] {
+    return [
+        { id: 'usage',   label: 'By usage',             icon: 'fa-layer-group' },
+        { id: 'all',     label: pageWords[Page].all,    icon: 'fa-list'        },
+        { id: 'upload',  label: 'Upload',               icon: 'fa-file-import' }
+    ];
+}
+
+/** The groups a kind may be made up in on a page: none where a server's identity is, which is no mark. */
+function groupsToMakeUp(Page: CertificatePageName): { group: CertificateGroup; label: string }[] {
+    return Page === 'certificates'       ? [ { group: 'trustAnchor', label: 'believed - a root'             },
+                                             { group: 'recognised',  label: 'recognised - somebody else\'s' } ]
+         : Page === 'identities'         ? [ { group: 'credential',  label: 'presented - with its key'      } ]
+         :                                 [];
+}
 
 
 /**
- * This node's own certificate store: everything it believes, what it presents
- * in TLS itself, and the servers it recognises.
+ * Who this node is as a client, each identity with its private key: the
+ * certificates page of the kinds that carry one and are no server's - see
+ * certificatesPage().
+ */
+export function identitiesPage<S extends CertificateStore = CertificateStore>(Options: CertificatesOptions<S> = {}): Page {
+    return certificatesPage(Options, 'identities');
+}
+
+/**
+ * Who the servers of this node are, each with its private key - a meter's
+ * Modbus/TLS port and its web interface: the certificates page of the server
+ * identities - see certificatesPage().
+ */
+export function serverCertificatesPage<S extends CertificateStore = CertificateStore>(Options: CertificatesOptions<S> = {}): Page {
+    return certificatesPage(Options, 'serverCertificates');
+}
+
+
+/**
+ * This node's own certificate store, on three pages - see Page: the
+ * certificates alone, which it believes or recognises somebody by and keeps
+ * without a private key; who it is as a client, with the key; and who its
+ * servers are, with the key.
  *
  * A **root** is believed: any number of each kind may be on at once, and
  * switching one off changes which chains are accepted from the next
@@ -280,10 +385,13 @@ const allTabs: readonly Tab[] = [
  * own (sections) - the energy meter its signing requests and its clients'
  * roles, which had kept a page of 1258 lines of its own for them.
  */
-export function certificatesPage<S extends CertificateStore = CertificateStore>(Options: CertificatesOptions<S> = {}): Page {
+export function certificatesPage<S extends CertificateStore = CertificateStore>(Options:  CertificatesOptions<S> = {},
+                                                                              Page:     CertificatePageName = 'certificates'): Page {
 
-    const title         = Options.title ?? 'Certificates';
+    const words         = pageWords[Page];
+    const title         = Page === 'certificates' ? Options.title ?? words.title : words.title;
     const expiringSoon  = Options.expiringSoon ?? 30;
+    const allTabs       = tabsOf(Page);
 
     return {
 
@@ -292,9 +400,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
         render({ root, url }) {
 
             const content = shell(root, {
-                active:    '/configuration/certificates',
+                active:    words.path,
                 title,
-                subtitle:  Options.subtitle ?? `The roots this ${config.nodeName} believes, what it presents, and the servers it recognises.`,
+                subtitle:  Page === 'certificates' ? Options.subtitle ?? words.subtitle() : words.subtitle(),
                 actions:   reloadButton(() => load())
             });
 
@@ -317,6 +425,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             // is open: the box itself holds its text.
             let found:           InspectedCertificate[] = [];
             let foundProblem:    string | null          = null;
+            let keyInTheBox                             = false;
             let ticked                                  = new Set<string>();
             let madeUp:          { kind: string; group: CertificateGroup }[] = [];
             let usagesTicked:    Record<string, Set<string>> = {};
@@ -325,14 +434,14 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             let inspection                              = 0;
             let inspectTimer:    ReturnType<typeof setTimeout> | undefined;
 
-            /** What the kind of node adds, for as long as the page is open. */
-            const sections = Options.sections?.({
-                                 store:      () => current!,
-                                 mayChange,
-                                 page:       content,
-                                 draw:       () => draw(),
-                                 reload:     () => reloadKinds()
-                             }) ?? [];
+            /** What the kind of node adds to this page, for as long as the page is open. */
+            const sections = (Options.sections?.({
+                                  store:      () => current!,
+                                  mayChange,
+                                  page:       content,
+                                  draw:       () => draw(),
+                                  reload:     () => reloadKinds()
+                              }) ?? []).filter(section => sectionPage(section) === Page);
 
             /** What a kind of node says in a place of the page, from the store where it says it from the store. */
             function hint(name: keyof NonNullable<CertificatesOptions<S>['hints']>, store: S): Said | undefined {
@@ -354,6 +463,38 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** What a kind is called on the page: the kind of node's word, or the store's description. */
             function kindName(kind: string): string {
                 return Options.kinds?.[kind]?.title ?? current?.kinds[kind]?.description ?? kind;
+            }
+
+            /** How a sentence names one of a kind: "a TLS root" - not the card's "TLS roots". */
+            function oneOf(kind: string): string {
+                return current?.kinds[kind]?.withArticle ?? kind;
+            }
+
+            /** Whether a kind is this page's. */
+            function here(kind: string): boolean {
+                return pageOf(current!, kind) === Page;
+            }
+
+            /** Whether one of a kind is told the listeners it is shown on, rather than what it is for. */
+            function shownOnListeners(kind: string): boolean {
+                return pageOf(current!, kind) === 'serverCertificates';
+            }
+
+            /** Where a certificate with its key goes in instead: the pages of the kinds this node keeps, and no page it keeps nothing on. */
+            function whereKeysGo(): TemplateResult {
+
+                const store    = current!;
+                const kept     = new Set([ ...store.trustAnchors, ...store.credentials, ...store.recognised ].map(kind => pageOf(store, kind)));
+                const clients  = kept.has('identities');
+                const servers  = kept.has('serverCertificates');
+                const toClients = html`<a href="${toURL(pageWords.identities.path)}">Identities</a>`;
+                const toServers = html`<a href="${toURL(pageWords.serverCertificates.path)}">Server certificates</a>`;
+
+                return clients && servers ? html`Who this ${config.nodeName} is goes in with its key on ${toClients}, a server of it on ${toServers}.`
+                     : clients            ? html`Who this ${config.nodeName} is goes in with its key on ${toClients}.`
+                     : servers            ? html`A server of this ${config.nodeName} goes in with its key on ${toServers}.`
+                     :                      html`This ${config.nodeName} keeps no certificate with its key.`;
+
             }
 
             /** The group a kind is in, as the store says, or as the list it is in says. */
@@ -389,7 +530,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                 render(content, html`
 
-                    ${store.keysAreUnencrypted ? html`
+                    ${Page !== 'certificates' && store.keysAreUnencrypted ? html`
                         <div class="notice">
                             The private keys in this store are <strong>not encrypted</strong>. Anybody who can read
                             <code>${store.directory}</code>
@@ -404,7 +545,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                     ${(Options.notices?.(store) ?? []).map(notice => html`<div class="notice">${notice}</div>`)}
 
-                    ${tabsView(tabs, shown, show, 'The certificate store')}
+                    ${tabsView(tabs, shown, show, title)}
 
                     <section class="tab-panel" role="tabpanel" id="panel-usage" aria-labelledby="tab-usage" ?hidden=${shown !== 'usage'}>
                         <p class="hint store-where">
@@ -435,29 +576,47 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             // By usage
             // -----------------------------------------------------------------
 
-            /** The three groups of the store, each kind a card - and the sections the kind of node adds, each at the end of its group. */
+            /** The groups of the store this page looks after, each kind a card - and the sections the kind of node adds, each at the end of its group. */
             function kindsView(store: S): TemplateResult {
+
+                const believed    = store.trustAnchors.filter(here);
+                const presented   = store.credentials. filter(here);
+                const recognised  = store.recognised.  filter(here);
+                const below       = (group: CertificatesSection['below']) => sectionsBelow(group, store);
+
+                if (believed.length + presented.length + recognised.length + sections.length === 0)
+                    return html`<p class="hint">This ${config.nodeName} keeps nothing of what this page looks after.</p>`;
 
                 return html`
 
-                    <h2>What this ${config.nodeName} believes</h2>
-                    <p class="hint">
-                        ${hint('believes', store) ?? believedHint(config.nodeName, store.trustAnchors)}
-                    </p>
-                    ${repeat(store.trustAnchors, kind => kind, kind => kindCard(kind))}
-                    ${sectionsBelow('believes', store)}
+                    ${believed.length === 0 && below('believes').length === 0 ? nothing : html`
+                        <h2>What this ${config.nodeName} believes</h2>
+                        <p class="hint">
+                            ${hint('believes', store) ?? believedHint(config.nodeName, believed)}
+                        </p>
+                        ${repeat(believed, kind => kind, kind => kindCard(kind))}
+                        ${below('believes')}
+                    `}
 
-                    <h2>What this ${config.nodeName} presents</h2>
-                    <p class="hint">
-                        ${hint('presents', store) ?? html`
-                            What it shows of itself in TLS, with its private key, where a server asks it for a
-                            certificate.
-                        `}
-                    </p>
-                    ${repeat(store.credentials, kind => kind, kind => kindCard(kind))}
-                    ${sectionsBelow('presents', store)}
+                    ${presented.length === 0 && below('presents').length === 0 ? nothing : html`
+                        <h2>${Page === 'certificates'       ? `What this ${config.nodeName} checks with`
+                            : Page === 'serverCertificates' ? `Who the servers of this ${config.nodeName} are`
+                            :                                 `Who this ${config.nodeName} is`}</h2>
+                        <p class="hint">
+                            ${Page === 'certificates' ? html`
+                                  Certificates it checks something with and presents nothing with: a station's
+                                  signed tariff, say.`
+                            : Page === 'serverCertificates' ? hint('serves', store) ?? html`
+                                  What a listener of this ${config.nodeName} shows whoever connects to it, with its
+                                  private key.`
+                            : hint('presents', store) ?? html`
+                                  What it shows a server that asks who it is, with its private key.`}
+                        </p>
+                        ${repeat(presented, kind => kind, kind => kindCard(kind))}
+                        ${below('presents')}
+                    `}
 
-                    ${store.recognised.length === 0 ? nothing : html`
+                    ${recognised.length === 0 ? nothing : html`
                         <h2>What this ${config.nodeName} recognises</h2>
                         <p class="hint">
                             ${hint('recognises', store) ?? html`
@@ -468,9 +627,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                 offers the ones kept for it.
                             `}
                         </p>
-                        ${repeat(store.recognised, kind => kind, kind => kindCard(kind))}
+                        ${repeat(recognised, kind => kind, kind => kindCard(kind))}
                     `}
-                    ${sectionsBelow('recognises', store)}
+                    ${below('recognises')}
 
                 `;
 
@@ -538,7 +697,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                 return html`<span class="chips usages-of">
                     ${entry.usages === null || entry.usages === undefined
-                          ? html`<span class="chip">${current!.credentials.includes(entry.kind) ? 'on every listener' : 'for every use'}</span>`
+                          ? html`<span class="chip">${shownOnListeners(entry.kind) ? 'on every listener' : 'for every use'}</span>`
                           : entry.usages.map(usage => html`<span class="chip">${usageName(usage, Options.usageNames)}</span>`)}
                 </span>`;
 
@@ -567,7 +726,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                             ${usages === nothing ? nothing : html`<br />${usages}`}
                             ${others.length === 0 ? nothing : html`
                                 <br /><span class="chips also-as">
-                                    ${others.map(other => html`<span class="chip" title="${kindName(other.kind)}">also ${other.kind}</span>`)}
+                                    ${others.map(other => html`<span class="chip" title="${kindName(other.kind)}">also ${oneOf(other.kind)}</span>`)}
                                 </span>`}
                         </td>
                         <td>
@@ -624,8 +783,8 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** Every certificate once, by name or by fingerprint, with every kind it is kept as. */
             function allView(store: S): TemplateResult {
 
-                const listed = certificatesOf(store, order, narrow);
-                const total  = certificatesOf(store).length;
+                const listed = certificatesOf(store, order, narrow, Page);
+                const total  = certificatesOf(store, 'name', '', Page).length;
 
                 return html`
 
@@ -697,7 +856,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                                     </button>
                                                     <button type="button" class="btn small" data-usages="${id}:${entry.kind}" ?disabled=${off}
                                                             @click=${() => editUsages(entry)}>Uses</button>
-                                                    ${entries.length > 1 ? html`
+                                                    ${registrationsOf(id).length > 1 ? html`
                                                         <button type="button" class="btn small danger" data-remove="${id}:${entry.kind}" ?disabled=${off}
                                                                 @click=${() => void remove(entry, `[data-error-of-certificate="${id}"]`, `[data-note-of-certificate="${id}"]`)}>
                                                             Remove
@@ -739,7 +898,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 const store = current!;
 
                 return [
-                    ...[ ...store.trustAnchors, ...store.credentials, ...store.recognised ].map(kind => ({ kind, group: groupOf(kind), madeUpHere: false })),
+                    ...[ ...store.trustAnchors, ...store.credentials, ...store.recognised ].filter(here).map(kind => ({ kind, group: groupOf(kind), madeUpHere: false })),
                     ...madeUp.filter(one => store.kinds[one.kind] === undefined).map(one => ({ ...one, madeUpHere: true }))
                 ];
 
@@ -771,15 +930,18 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                 const groups: { group: CertificateGroup; heading: string }[] = [
                     { group: 'trustAnchor', heading: `Believed by this ${config.nodeName}` },
-                    { group: 'credential',  heading: `Presented by this ${config.nodeName}` },
+                    { group: 'credential',  heading: Page === 'certificates'       ? `Checked with by this ${config.nodeName}`
+                                                   : Page === 'serverCertificates' ? `Shown by the servers of this ${config.nodeName}`
+                                                   :                                 `Presented by this ${config.nodeName}` },
                     { group: 'recognised',  heading: `Recognised by this ${config.nodeName}` }
                 ];
 
-                const offered = kindsOffered();
+                const offered  = kindsOffered();
+                const makeUp   = groupsToMakeUp(Page);
 
                 return html`
                     <section class="card">
-                        <h2><i class="fa-solid fa-file-import"></i> Upload certificates</h2>
+                        <h2><i class="fa-solid fa-file-import"></i> ${words.upload}</h2>
 
                         <form id="import-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void doUpload(event.currentTarget as HTMLFormElement); }}>
 
@@ -792,11 +954,16 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                 onChanged:  () => inspectSoon()
                             })}
                             <p class="hint">
-                                PEM - any number of certificates, and the private keys of the ones this
-                                ${config.nodeName} presents. A file dropped on the box or chosen - PEM, DER or PKCS#12 -
-                                is read by the ${config.nodeName} and put into the box as PEM, its key included; a
-                                certificate it <em>presents</em> has to bring its key. A leaf, the sub-CAs above it and
-                                its key are one certificate; several roots one after the other are several.
+                                ${Page === 'certificates' ? html`
+                                    PEM - any number of certificates. A private key in the box is left out: this page keeps
+                                    certificates alone. ${whereKeysGo()}
+                                    A file dropped on the box or chosen - PEM, DER or PKCS#12 - is read by the
+                                    ${config.nodeName} and put into the box as PEM. Several roots one after the other are
+                                    several certificates.` : html`
+                                    PEM - a certificate, the sub-CAs above it and its private key, which every one of them
+                                    has to bring. A file dropped on the box or chosen - PEM, DER or PKCS#12 - is read by the
+                                    ${config.nodeName} and put into the box as PEM, its key included. A leaf, the sub-CAs
+                                    above it and its key are one certificate.`}
                                 ${hint('importing', store) ?? nothing}
                             </p>
                             <span id="upload-files-note" class="form-error" role="alert"></span>
@@ -818,19 +985,19 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                         </div>
                                     `;
                                 })}
-                                <div class="make-up" id="upload-make-up">
-                                    <span class="kind-group-heading">A kind of your own</span>
-                                    <input type="text" id="make-up-name" maxlength="32" placeholder="backendRoot" aria-label="Its name"
-                                           @keydown=${(event: KeyboardEvent) => onEnter(event, () => makeUpKind())} />
-                                    <select id="make-up-group" aria-label="Its group">
-                                        <option value="trustAnchor" selected>believed - a root</option>
-                                        <option value="credential">presented - with its key</option>
-                                        <option value="recognised">recognised - somebody else's</option>
-                                    </select>
-                                    <button type="button" class="btn small" id="make-up-add" @click=${() => makeUpKind()}>Add</button>
-                                    <span class="hint">A mark for a configuration or code to name later; this ${config.nodeName} acts on it by itself not at all.</span>
-                                    <span class="form-error" role="alert" id="make-up-error"></span>
-                                </div>
+                                ${makeUp.length === 0 ? nothing : html`
+                                    <div class="make-up" id="upload-make-up">
+                                        <span class="kind-group-heading">A kind of your own</span>
+                                        <input type="text" id="make-up-name" maxlength="32" placeholder="${Page === 'certificates' ? 'backendRoot' : 'backendLogin'}" aria-label="Its name"
+                                               @keydown=${(event: KeyboardEvent) => onEnter(event, () => makeUpKind())} />
+                                        <select id="make-up-group" aria-label="Its group" ?hidden=${makeUp.length === 1}>
+                                            ${makeUp.map((one, index) => html`<option value="${one.group}" ?selected=${index === 0}>${one.label}</option>`)}
+                                        </select>
+                                        <button type="button" class="btn small" id="make-up-add" @click=${() => makeUpKind()}>Add</button>
+                                        <span class="hint">A mark for a configuration or code to name later; this ${config.nodeName} acts on it by itself not at all.</span>
+                                        <span class="form-error" role="alert" id="make-up-error"></span>
+                                    </div>
+                                `}
                             </fieldset>
 
                             <label>What to call it, where the box holds one certificate
@@ -887,7 +1054,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                            @keydown=${(event: KeyboardEvent) => onEnter(event, () => addUsage(kind, event.currentTarget as HTMLElement))} />
                                     <button type="button" class="btn small" data-add-usage="${kind}" @click=${(event: Event) => addUsage(kind, event.currentTarget as HTMLElement)}>Add</button>
                                 </span>
-                                <span class="hint">None ticked: ${current!.credentials.includes(kind) ? 'on every listener' : 'for every use'}.</span>
+                                <span class="hint">None ticked: ${shownOnListeners(kind) ? 'on every listener' : 'for every use'}.</span>
                                 <span class="form-error" role="alert" data-usage-error="${kind}"></span>
                             </div>
                         `}
@@ -903,11 +1070,17 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 if (foundProblem !== null)
                     return html`<p class="form-error">${foundProblem}</p>`;
 
+                const keyLeftOut = !keyInTheBox ? nothing : html`
+                    <p class="hint keys-left-out">
+                        The private key in the box is not kept here: this page keeps certificates alone. ${whereKeysGo()}
+                    </p>`;
+
                 if (found.length === 0)
-                    return nothing;
+                    return keyLeftOut;
 
                 return html`
                     <p class="hint">The box holds ${found.length} certificate(s):</p>
+                    ${keyLeftOut}
                     <ul class="found-certificates">
                         ${repeat(found, certificate => certificate.id, certificate => html`
                             <li data-found="${certificate.id}">
@@ -940,7 +1113,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 return html`
                     <ul class="upload-result">
                         ${[ ...byId.values() ].map(entries => html`
-                            <li class="went-in">${entries[0]!.label}: kept as ${entries.map(entry => kindName(entry.kind)).join(', ')}</li>
+                            <li class="went-in">${entries[0]!.label}: kept as ${sayAll(entries.map(entry => oneOf(entry.kind)))}</li>
                         `)}
                         ${uploaded.refused.map(refused => html`
                             <li class="refused" data-refused="${refused.id}"><strong>${refused.label}</strong>: ${refused.error}</li>
@@ -962,8 +1135,14 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                 const box      = content.querySelector<HTMLTextAreaElement>('#upload-pem');
                 const password = content.querySelector<HTMLInputElement>('#import-form [name="password"]')?.value ?? '';
-                const text     = box?.value.trim() ?? '';
+                const raw      = box?.value.trim() ?? '';
+                // What the certificates page would send, without its keys: a
+                // root with its key beside it is refused as every kind of
+                // root, and the key does not go to the node at all.
+                const text     = Page === 'certificates' ? withoutPrivateKeys(raw) : raw;
                 const asked    = ++inspection;
+
+                keyInTheBox = text !== raw;
 
                 if (text.length === 0) {
                     found        = [];
@@ -1107,7 +1286,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 note.textContent  = '';
                 error.textContent = '';
 
-                const text  = box.value.trim();
+                // The certificates page keeps certificates alone: a key in the
+                // box is not sent at all.
+                const text  = Page === 'certificates' ? withoutPrivateKeys(box.value) : box.value.trim();
                 const kinds = kindsOffered().filter(one => ticked.has(one.kind) && whyNot(one.kind) === null);
 
                 if (text.length === 0) {
@@ -1174,6 +1355,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                     // below.
                     found        = [];
                     foundProblem = null;
+                    keyInTheBox  = false;
                     ticked       = new Set();
                     madeUp       = [];
                     usagesTicked = {};
@@ -1231,7 +1413,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                 const offered  = [ ...new Set([ ...usagesOf(current!, entry.kind), ...(entry.usages ?? []) ]) ];
                 const services = offered.every(usage => usage === 'dns' || usage === 'nts') && offered.length > 0;
-                const listener = current!.credentials.includes(entry.kind);
+                const listener = shownOnListeners(entry.kind);
 
                 const dialog = document.createElement('dialog');
 
@@ -1365,8 +1547,8 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                     return;
                 }
 
-                if (!confirm(`Take ${entry.label} out as ${kindName(entry.kind)}?\n\n` +
-                             `It stays in the store as ${others.map(other => kindName(other.kind)).join(', ')}.`))
+                if (!confirm(`Take ${entry.label} out as ${oneOf(entry.kind)}?\n\n` +
+                             `It stays in the store as ${sayAll(others.map(other => oneOf(other.kind)))}.`))
                     return;
 
                 await change(error, note, () => api.certificates.remove(entry.id, entry.kind));
@@ -1379,7 +1561,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                 const kinds = registrationsOf(entry.id);
 
-                if (!confirm(`Delete ${entry.label}${kinds.length > 1 ? `, kept as ${kinds.map(one => kindName(one.kind)).join(', ')}` : ''}?\n\n` +
+                if (!confirm(`Delete ${entry.label}${kinds.length > 1 ? `, kept as ${sayAll(kinds.map(one => oneOf(one.kind)))}` : ''}?\n\n` +
                              `Its file${kinds.length > 1 ? 's are' : ' is'} deleted from the store as well, and ` +
                              `a certificate with a private key cannot be put back without that key.`))
                     return;
@@ -1463,6 +1645,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         current       = loaded;
                         found         = [];
                         foundProblem  = null;
+                        keyInTheBox   = false;
                         ticked        = new Set();
                         madeUp        = [];
                         usagesTicked  = {};
