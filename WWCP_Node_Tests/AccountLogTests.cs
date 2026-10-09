@@ -299,6 +299,48 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region APasswordChangedIsSaidAndNothingOfItsWords()
+
+        /// <summary>
+        /// A password changed on the web interface - SET users/{UserId}/password,
+        /// as the e-mobility provider's profile page sends it - is a line;
+        /// one refused for a wrong current password is not; and neither
+        /// password is anywhere in the log.
+        /// </summary>
+        [Test]
+        public async Task APasswordChangedIsSaidAndNothingOfItsWords()
+        {
+
+            const String newPassword = "Battery-Staple-42-x";
+
+            using var http   = Client();
+
+            var wrong        = await Send(http, "SET", "ext/users/root/password", new JObject(
+                                                                                    new JProperty("currentPassword",  "Not-the-password-1"),
+                                                                                    new JProperty("newPassword",      newPassword)
+                                                                                ));
+
+            Assert.That(wrong.Status, Is.Not.EqualTo(HttpStatusCode.OK));
+            Assert.That(Lines(),      Is.Empty, "a refused change of password is in the log");
+
+            var changed      = await Send(http, "SET", "ext/users/root/password", new JObject(
+                                                                                    new JProperty("currentPassword",  password),
+                                                                                    new JProperty("newPassword",      newPassword)
+                                                                                ));
+
+            Assert.That(changed.Status, Is.EqualTo(HttpStatusCode.OK));
+
+            Assert.Multiple(() => {
+                Assert.That(Lines().Select(line => line.Message), Is.EqualTo(new[] { "'root' changed their password on the web interface." }));
+                Assert.That(Lines().Single().Tags,                Is.EqualTo(new[] { "auth", "security", "web" }));
+                Assert.That(Said().Where(entry => entry.Message.Contains(newPassword) || entry.Message.Contains(password)).Select(entry => entry.Message),
+                                                                  Is.Empty, "a password is in the log");
+            });
+
+        }
+
+        #endregion
+
         #region AKeyInAPathIsSaidByItsBeginning()
 
         [Test]

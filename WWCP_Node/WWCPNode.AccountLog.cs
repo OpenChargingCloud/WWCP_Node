@@ -123,8 +123,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// What a request to the HTTPExt API does to an account, where it does:
-        /// the account's id and the rest of the path below it - "", "APIKeys",
-        /// "APIKeys/{key}", "SSHKeys" or "SSHKeys/{fingerprint}".
+        /// the account's id and the rest of the path below it - "", "password",
+        /// "APIKeys", "APIKeys/{key}", "SSHKeys" or "SSHKeys/{fingerprint}".
         /// </summary>
         private (String Account, String[] Below)? AccountRequest(HTTPRequest Request)
         {
@@ -233,6 +233,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                             ? $"{who} changed {whose} on the web interface: {String.Join(", ", changed)}."
                             : $"{who} saved {whose} on the web interface, changing nothing.",
                         "auth", "web"
+                    );
+
+                    return;
+
+                // Only the account itself may, and only with its current
+                // password: answered 200, it was the account. Nothing of
+                // what was sent is said.
+                case [ "password" ] when Request.HTTPMethod == HTTPMethod.SET:
+
+                    Log.Notice(
+                        asker is null || asker.Id.ToString() == account.Account
+                            ? $"'{account.Account}' changed their password on the web interface."
+                            : $"{who} changed the password of '{account.Account}' on the web interface.",
+                        "auth", "security", "web"
                     );
 
                     return;

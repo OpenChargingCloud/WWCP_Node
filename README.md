@@ -729,8 +729,9 @@ as `sshKeys` takes it. Either kind of key is switched off and on again with
 `{"isDisabled": true|false}`, and removed after a question. What the page
 changes is in the accounts' database file, with the account that did it, and
 in the log as the command line's changes are - who changed which details of
-which account, or gave, switched or took which key, tagged `web` (keys also
-`security`), an API key by its beginning only. The node reads it from what
+which account, or their password (and nothing of it), or gave, switched or
+took which key, tagged `web` (passwords and keys also `security`), an API key
+by its beginning only. The node reads it from what
 these routes answered, so a change that was refused is not in it; and the
 line every request writes says an API key in its path by its beginning too.
 
