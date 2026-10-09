@@ -1,0 +1,46 @@
+// The SSH server's page: facts as a list of terms and what they are, and the
+// lines a person copies - the host key's known_hosts line and public key -
+// broken wherever they have to be, rather than pushing the page sideways.
+
+@use 'tokens' as *;
+
+.facts {
+
+    display:                grid;
+    grid-template-columns:  minmax(8rem, max-content) 1fr;
+    gap:                    0.35rem 1rem;
+    margin:                 0;
+
+    dt {
+        color:        $color-muted;
+    }
+
+    dd {
+        margin:       0;
+        min-width:    0;
+    }
+
+}
+
+.known-hosts,
+.public-key {
+    display:          block;
+    font-family:      $font-mono;
+    word-break:       break-all;
+    margin-bottom:    0.35rem;
+}
+
+.ssh-state {
+    display:          flex;
+    flex-wrap:        wrap;
+    align-items:      center;
+    gap:              0.5rem;
+}
+
+// One column on a narrow screen: the term above what it is.
+@media (max-width: 600px) {
+    .facts {
+        grid-template-columns:  1fr;
+        dt { margin-top: 0.4rem; }
+    }
+}

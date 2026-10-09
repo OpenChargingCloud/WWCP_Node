@@ -14,7 +14,7 @@ import { everyPageIn }       from '../../test/pages.ts';
 
 everyPageIn(new URL('./', import.meta.url), {
 
-    withForms:    [ 'certificates.ts', 'dns.ts', 'nts.ts' ],
+    withForms:    [ 'certificates.ts', 'dns.ts', 'nts.ts', 'ssh.ts' ],
 
     dialogForms:  [ 'pins-form', 'query-form', 'server-form', 'usages-form' ],
 

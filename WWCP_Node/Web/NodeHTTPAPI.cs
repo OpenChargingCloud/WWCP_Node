@@ -230,6 +230,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             AddHandler(HTTPPath.Root + "v1/configuration", GetConfiguration,  HTTPMethod.GET);
 
             RegisterNameAndTimeRoutes();
+            RegisterSSHRoutes();
             RegisterCertificateStoreRoutes();
             RegisterLogRoutes();
 

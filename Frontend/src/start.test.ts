@@ -95,6 +95,8 @@ describe('the routes of a kind of node', () => {
                      'Identities', 'the title a kind gives its certificates is not the identities\' too');
         assert.deepEqual([ nodeMenu.identities.path, nodeMenu.serverCertificates.path ], [ '/configuration/identities', '/configuration/server-certificates' ]);
         assert.deepEqual([ nodeMenu.identities.permission, nodeMenu.serverCertificates.permission ], [ [ 'certificates:read' ], [ 'certificates:read' ] ]);
+        assert.equal(routeFor('/configuration/ssh', routes)?.page.title, 'SSH server', 'the SSH server has no page');
+        assert.deepEqual([ nodeMenu.ssh.path, nodeMenu.ssh.permission ], [ '/configuration/ssh', [ 'ssh:read' ] ], 'the SSH server is not read with a permission of its own');
         assert.equal(routeFor('/',                   routes)?.page,       firstPageOfTheMenu);
 
         auth.set(null);

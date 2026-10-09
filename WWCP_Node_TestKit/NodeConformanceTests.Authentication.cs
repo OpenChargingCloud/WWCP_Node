@@ -46,6 +46,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         [TestCase("api/v1/configuration")]
         [TestCase("api/v1/configuration/dns")]
         [TestCase("api/v1/configuration/nts")]
+        [TestCase("api/v1/configuration/ssh")]
         [TestCase("api/v1/logs")]
         [TestCase("api/v1/certificates")]
         public async Task TheAPIRefusesWithoutASession(String Path)
@@ -77,6 +78,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         [TestCase("PATCH",  "api/v1/certificates/anything")]
         [TestCase("PUT",    "api/v1/configuration/dns")]
         [TestCase("PUT",    "api/v1/configuration/nts")]
+        [TestCase("PUT",    "api/v1/configuration/ssh")]
         public async Task AChangeWithoutASessionIsRefusedBeforeItIsRead(String  Method,
                                                                        String  Path)
         {

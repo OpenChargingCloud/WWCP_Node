@@ -68,9 +68,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         public const String  Certificates   = "certificates";
 
         /// <summary>
+        /// The SSH server the command line is served over: seeing whether it
+        /// runs, where, with which host key, who is connected and with which
+        /// keys every account may sign in - and switching it on and off, moving
+        /// it to another port, and letting passwords open it.
+        /// </summary>
+        /// <remarks>
+        /// A resource of its own and not the configuration's: whoever may move
+        /// the server or let passwords open it decides how this node is reached
+        /// from a shell, which is more than reading what it is made of.
+        /// </remarks>
+        public const String  SSH            = "ssh";
+
+        /// <summary>
         /// All of them.
         /// </summary>
-        public static readonly IReadOnlyList<String>  All = [ Configuration, DNS, NTS, Certificates ];
+        public static readonly IReadOnlyList<String>  All = [ Configuration, DNS, NTS, Certificates, SSH ];
 
     }
 

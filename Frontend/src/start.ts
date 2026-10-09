@@ -4,6 +4,7 @@ import { fromURL } from './basePath';
 import { must } from './html';
 import { logs, type LogStore } from './logs/store';
 import { certificatesPage, identitiesPage, serverCertificatesPage, type CertificatesOptions } from './pages/certificates';
+import { sshPage } from './pages/ssh';
 import { dnsPage } from './pages/dns';
 import { loginPage, type SignInWords } from './pages/login';
 import { logsPage, type LogsWords } from './pages/logs';
@@ -53,6 +54,7 @@ export const nodeMenu: {
     certificates:        MenuEntry;
     identities:          MenuEntry;
     serverCertificates:  MenuEntry;
+    ssh:                 MenuEntry;
     logs:                MenuEntry;
 } = {
 
@@ -101,6 +103,14 @@ export const nodeMenu: {
         label:       'Server certificates',
         icon:        'fa-server',
         permission:  [ 'certificates:read' ]
+    },
+
+    // The SSH server the command line is served over: every node has one.
+    ssh: {
+        path:        '/configuration/ssh',
+        label:       'SSH server',
+        icon:        'fa-terminal',
+        permission:  [ 'ssh:read' ]
     },
 
     logs: {
@@ -177,6 +187,7 @@ export function routesOf(Frontend: NodeFrontend): Route[] {
         { path: '/configuration/certificates',         page: certificatesPage(Frontend.certificates),        guard: auth.requireSignIn },
         { path: '/configuration/identities',           page: identitiesPage(Frontend.certificates),          guard: auth.requireSignIn },
         { path: '/configuration/server-certificates',  page: serverCertificatesPage(Frontend.certificates),  guard: auth.requireSignIn },
+        { path: '/configuration/ssh',                  page: sshPage,                                        guard: auth.requireSignIn },
         { path: '/logs',               page: logsPage(Frontend.logs),    guard: toReadTheLog       },
         { path: '/login',              page: loginPage(Frontend.signIn)                            }
 

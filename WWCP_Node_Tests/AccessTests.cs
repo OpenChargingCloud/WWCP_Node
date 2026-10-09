@@ -524,7 +524,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(error, Does.Contain("'dsn'").
                                And.Contain("this electric vehicle does not have").
-                               And.Contain("configuration, dns, nts, certificates, vehicle, session"));
+                               And.Contain("configuration, dns, nts, certificates, ssh, vehicle, session"));
 
         }
 
@@ -569,7 +569,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var access = Combine(VehicleResources, [ Driver ]);
 
             Assert.That(access.PermissionsOf([ access.RoleNamed("driver")! ]).Select(permission => permission.ToString()),
-                        Is.EqualTo(new[] { "configuration:read", "dns:read", "nts:read", "certificates:read",
+                        Is.EqualTo(new[] { "configuration:read", "dns:read", "nts:read", "certificates:read", "ssh:read",
                                            "vehicle:read", "vehicle:edit", "session:read", "session:run" }));
 
         }
@@ -675,7 +675,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.IsAllowed(alice, NodeResources.DNS,          Operation.Read),  Is.True);
                 Assert.That(node.IsAllowed(alice, NodeResources.DNS,          Operation.Edit),  Is.False);
                 Assert.That(node.PermissionsOf(alice).Select(permission => permission.ToString()),
-                            Is.EqualTo(new[] { "configuration:read", "dns:read", "nts:read", "certificates:read" }));
+                            Is.EqualTo(new[] { "configuration:read", "dns:read", "nts:read", "certificates:read", "ssh:read" }));
 
                 Assert.That(node.RolesOf(robert),                                                   Is.Empty);
                 Assert.That(node.IsAllowed(robert, NodeResources.DNS,          Operation.Read),  Is.False);

@@ -85,9 +85,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public static readonly TimeSpan  SSHLoginGraceTime  = TimeSpan.FromSeconds(30);
 
-        private          SshServer?    sshServer;
-        private readonly IIPAddress    listenAddress;
-        private readonly SSHSettings?  sshSettings;
+        private          SshServer?         sshServer;
+        private readonly IIPAddress         listenAddress;
+        private readonly SSHSettings?       sshSettings;
+
+        /// <summary>
+        /// The "ssh" section of the configuration file as it stands - read at
+        /// the start, and as the SSH server page saved it since.
+        /// </summary>
+        private          SSHConfiguration?  sshFile;
+
+        /// <summary>
+        /// The web interface's port, which the SSH server's default port is
+        /// counted from.
+        /// </summary>
+        private          IPPort             sshWebInterfacePort;
 
         /// <summary>
         /// The fingerprint of the key each connection authenticated with, by
@@ -169,9 +181,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                 IPPort             WebInterfacePort)
         {
 
-            SSHEnabled    = Settings?.Enabled ?? File?.Enabled ?? Settings?.OnByDefault == true;
-            SSHPort       = Settings?.Port    ?? File?.Port    ?? SSHSettings.DefaultPortFor(WebInterfacePort);
-            SSHPasswords  = File?.Passwords   ?? false;
+            sshFile              = File;
+            sshWebInterfacePort  = WebInterfacePort;
+
+            (SSHEnabled, SSHPort, SSHPasswords) = EffectiveSSH(Settings, File, WebInterfacePort);
 
             if (SSHEnabled && SSHPort is null)
             {
@@ -185,6 +198,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
         }
+
+        #endregion
+
+        #region (private static) EffectiveSSH(Settings, File, WebInterfacePort)
+
+        /// <summary>
+        /// Whether the SSH server runs, on which port, and whether passwords open
+        /// it: a switch, then the file, then the program's default.
+        /// </summary>
+        private static (Boolean Enabled, IPPort? Port, Boolean Passwords) EffectiveSSH(SSHSettings?       Settings,
+                                                                                         SSHConfiguration?  File,
+                                                                                         IPPort             WebInterfacePort)
+
+            => (Settings?.Enabled ?? File?.Enabled ?? Settings?.OnByDefault == true,
+                Settings?.Port    ?? File?.Port    ?? SSHSettings.DefaultPortFor(WebInterfacePort),
+                File?.Passwords   ?? false);
 
         #endregion
 
@@ -343,35 +372,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!SSHEnabled || SSHPort is not IPPort port)
                 return;
 
-            var hostKey = await LoadOrCreateSSHHostKey();
-
-            SSHHostKey  = $"{hostKey.AlgorithmNames[0]} {SshFingerprint.Sha256(hostKey.PublicKeyBlob)}";
-
-            var server  = new SshServer(new SshServerOptions {
-                              HostKeys             = [ hostKey ],
-                              Authenticator        = new NodeSSHAuthenticator(this, SSHPasswords),
-                              ShellHandler         = ServeShellAsync,
-                              AuditSink            = new DelegateAuditSink(Audited),
-                              ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
-                              Limits               = new SshServerLimits {
-                                                         LoginGraceTime       = SSHLoginGraceTime,
-                                                         MaxSessions          = 4,
-                                                         ClientAliveInterval  = TimeSpan.FromSeconds(60),
-                                                         ClientAliveCountMax  = 3
-                                                     }
-                          });
-
-            try
-            {
-                await server.StartAsync(new IPSocket(listenAddress, port));
-            }
-            catch (SocketException problem)
-            {
-                await server.DisposeAsync();
-                throw new PortUnavailableException(port, problem, NodePort.SSH);
-            }
-
-            sshServer = server;
+            sshServer = await StartedSSHServer(port, SSHPasswords);
 
             var accounts = AccountsWithSSHKeys();
 
@@ -383,6 +384,64 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        "ssh");
 
         }
+
+        #endregion
+
+        #region (private) StartedSSHServer(Port, Passwords)
+
+        /// <summary>
+        /// An SSH server of this node on the given port, listening - with the
+        /// host key of this node, made now if there is none yet.
+        /// </summary>
+        /// <exception cref="PortUnavailableException">Where the port is taken.</exception>
+        private async Task<SshServer> StartedSSHServer(IPPort   Port,
+                                                       Boolean  Passwords)
+        {
+
+            var hostKey = await LoadOrCreateSSHHostKey();
+
+            SSHHostKey  = $"{hostKey.AlgorithmNames[0]} {SshFingerprint.Sha256(hostKey.PublicKeyBlob)}";
+
+            var server  = new SshServer(new SshServerOptions {
+                              HostKeys             = [ hostKey ],
+                              Authenticator        = new NodeSSHAuthenticator(this, Passwords),
+                              ShellHandler         = ServeShellAsync,
+                              AuditSink            = new DelegateAuditSink(Audited),
+                              ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
+                              Limits               = SSHServerLimits()
+                          });
+
+            try
+            {
+                await server.StartAsync(new IPSocket(listenAddress, Port));
+            }
+            catch (SocketException problem)
+            {
+                await server.DisposeAsync();
+                throw new PortUnavailableException(Port, problem, NodePort.SSH);
+            }
+
+            return server;
+
+        }
+
+        #endregion
+
+        #region (private static) SSHServerLimits()
+
+        /// <summary>
+        /// What the SSH server allows: the server's defaults, and this node's
+        /// own - a sign-in within half a minute, four sessions on a connection,
+        /// a client asked every minute whether it is still there.
+        /// </summary>
+        private static SshServerLimits SSHServerLimits()
+
+            => new () {
+                   LoginGraceTime       = SSHLoginGraceTime,
+                   MaxSessions          = 4,
+                   ClientAliveInterval  = TimeSpan.FromSeconds(60),
+                   ClientAliveCountMax  = 3
+               };
 
         #endregion
 

@@ -34,7 +34,7 @@ a port of their own to connect to.
 | `NodeKind.cs` | the five names a kind of node goes by |
 | `BuiltFrom.cs` | what the node was built from: every assembly of ours it runs, and the commit each was built from - for the banner, the Configuration page and a bug report |
 | `CommandLine/` | `NodeCLI`, the command line every kind of node has: its commands, `syncNTS` among them, and the console from the first prompt until 'quit', Ctrl+C, SIGTERM or the end of a task it is given, after which the log has the screen to itself again. And what a kind's program does before it: the switches every node has, the certificate store's among them, with the rest left for the kind (`NodeArguments`), what -h says of them (`NodeUsage`), why a node could not be set up or could not start and what the command line puts into the store (`NodeProgram`), and the banner, the kind's lines in their places (`NodeBanner`) |
-| `WWCPNode.SSH.cs`, `SecureShell/` | the command line over SSH: the server, its host key, who may sign in with which key (`NodeSSHAuthenticator`, asking the keys kept with the account; `AuthorizedKeysStore`, reading what is handed over), and what the program says about it (`SSHSettings`) - see "The command line over SSH" below |
+| `WWCPNode.SSH.cs`, `WWCPNode.SSHConfiguration.cs`, `SecureShell/` | the command line over SSH: the server, its host key, who may sign in with which key (`NodeSSHAuthenticator`, asking the keys kept with the account; `AuthorizedKeysStore`, reading what is handed over), what the program says about it (`SSHSettings`), and the server as its page shows and changes it - see "The command line over SSH" below |
 | `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles`, `ssh` |
@@ -598,7 +598,7 @@ what it may do: a list of permissions, each an operation on a resource and
 written `dns:edit`. The operations are three and fixed - `read`, `edit`, and
 `run` for asking a server something or running a session - so that "may
 read" means the same on every kind of node. The resources are names:
-`configuration`, `dns`, `nts` and `certificates` for what every node has,
+`configuration`, `dns`, `nts`, `certificates` and `ssh` for what every node has,
 and whatever a kind of node adds - `vehicle`, `v2g` and `session` for a
 vehicle. `*` is every resource there is, the kind's included. The clock, the
 log and the event stream are none of them, and for anybody signed in.
@@ -758,6 +758,24 @@ while no account has a key, how to give one one. A key that is there and
 cannot be read stops the start: a new one would be another machine to every
 client that knew this one. Who signed in, from where and with which key, who
 could not, and what was refused are in the log, tagged `ssh`.
+
+**Configuration > SSH server** (`/configuration/ssh`, `nodeMenu.ssh`) shows
+the server - whether it runs, on which address and port, whether passwords
+open it - and what the file and the command line say of that; its host key,
+as a client shows it the first time and as a `known_hosts` line, each with a
+Copy button; who is at the command line now, from where, since when and with
+which key; the keys every account may sign in with; what the server allows;
+and the algorithms it offers, in the order it prefers them. `GET
+/api/v1/configuration/ssh` at `ssh:read` says all of it; `PUT` at `ssh:edit`
+takes `enabled`, `port` and `passwords`, saves them in the `ssh` section and
+makes them at once (`TryUpdateSSHConfiguration`): a new port is bound before
+the old one is let go, and a port that is taken is a 409 that leaves the
+server where it was and the file as it was. Moved, switched off or told
+otherwise of passwords, the server that ran ends its sessions, which the page
+asks about first. A switch on the command line - `--no-ssh`, `--ssh-port` -
+wins over the file, as at a start: what was sent is saved for the next start
+without it, and the answer's `notice` says so. Who changed it is in the log,
+tagged `ssh`, `web` and `security`.
 
 
 ## The log
@@ -969,6 +987,7 @@ of the same TypeScript and SCSS, and they had begun to differ as the API had.
 | `start.ts` | `startNode()`: the routes, the pages every node has, and following the log while somebody it is for is signed in, and across the browser's back/forward cache - `followAcrossTheCache()`, which a kind with a stream of its own calls for that one too |
 | `index.html` | the page itself, which every kind's webpack names itself into - its title, what it is, the version of its frontend - and the node fills in as it serves it |
 | `pages/login.ts`, `pages/notFound.ts`, `pages/logs.ts` | the sign-in, the page for an address with none, and the log as it happens |
+| `pages/ssh.ts` | the SSH server: its settings, saved and made at once - asked about first where they end the sessions over SSH - its host key with Copy buttons, who is connected, the keys of the accounts, its limits and its algorithms |
 | `pages/dns.ts`, `pages/nts.ts` | the name servers and the time servers - with what counts as legal time, and the clock - and what each server's certificate is held to (`pins.ts`, `pinViews.ts`, `dnsServers.ts`, `ntsServers.ts`) |
 | `pages/certificates.ts` | the certificate store, on three pages - each kind on the one its `page` names: **Certificates** (`/configuration/certificates`), what the node keeps without a private key - the roots it believes, the servers it recognises, a tariff it checks; **Identities** (`/configuration/identities`, `identitiesPage`), who it is as a client, each with its key; and **Server certificates** (`/configuration/server-certificates`, `serverCertificatesPage`), who its servers are, each with its key. Each in three tabs: by usage, kind by kind (`certificateUsages.ts`); every certificate once, by name or by fingerprint, with every kind it is kept as; and the upload - a box of text certificates are pasted into and files dropped on, which the node reads into PEM, what is in it said certificate by certificate before anything goes in, and the kinds to keep it as, a kind or a usage made up among them. The certificates' upload sends no private key, and says where one goes; a section of a kind of node stands on the page it names, or by the group it stands below |
 | `tabs.ts`, `pemBox.ts` | building blocks of a page: tabs that are switched on the page and kept in the address as `?tab=`, every tab drawn so that what is typed into one outlives a look at another; and a box for certificates as text, with a Paste button where the browser lets a page read the clipboard and files dropped on it |

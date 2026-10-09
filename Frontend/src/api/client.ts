@@ -51,7 +51,7 @@ export interface LogPage {
 // ---------------------------------------------------------------------------
 
 /** What a role may be allowed to touch on every node. A kind of node adds its own. */
-export type NodeResource = 'configuration' | 'dns' | 'nts' | 'certificates';
+export type NodeResource = 'configuration' | 'dns' | 'nts' | 'certificates' | 'ssh';
 
 /** How a resource may be touched. */
 export type Operation = 'read' | 'edit' | 'run';
@@ -238,6 +238,46 @@ export interface DNSSettings {
 }
 
 /** How the node resolves names. */
+/** The SSH server the command line is served over, as its page shows it. */
+export interface SSHConfiguration {
+    /** Whether it runs, on which port, and whether passwords open it - as it is now. */
+    enabled:        boolean;
+    port:           number | null;
+    passwords:      boolean;
+    listenAddress:  string;
+    url:            string | null;
+    /** The port it takes where nobody says: 20000 above the web interface's. */
+    defaultPort:    number | null;
+    /** The configuration file it is saved to. */
+    file:           string;
+    /** What the file's "ssh" section says. */
+    configured:     { enabled?: boolean; port?: number; passwords?: boolean };
+    /** What a switch on the command line said, which wins over the file: --no-ssh, --ssh-port. */
+    commandLine:    { enabled?: boolean; port?: number };
+    limits:         { loginGraceTime: number; maxAuthTries: number; maxSessions: number; maxConnections: number;
+                      maxUnauthenticated: number; maxUnauthenticatedPerAddress: number;
+                      clientAliveInterval: number | null; clientAliveCountMax: number };
+    hostKeys:       { algorithm: string; fingerprint: string; publicKey: string; file: string; knownHosts: string }[];
+    /** What it offers, in the order it prefers them. */
+    algorithms:     { keyExchange: string[]; hostKey: string[]; cipher: string[]; mac: string[]; compression: string[] };
+    /** Connections open now, signed in or not. */
+    connections:    number;
+    /** The command line's sessions over SSH, the oldest first. */
+    sessions:       { id: string; account: string; from: string; key: string | null; since: string }[];
+    /** Every account, with the keys it may sign in with. */
+    accounts:       { account: string; keys: { fingerprint: string; algorithm: string; comment: string; label: string | null;
+                                               created: string; createdBy: string | null }[] }[];
+    /** Said beside a change: a switch on the command line that wins over what was saved. */
+    notice?:        string;
+}
+
+/** What may be changed of the SSH server: each saved and made at once. */
+export interface SSHUpdate {
+    enabled?:    boolean;
+    port?:       number;
+    passwords?:  boolean;
+}
+
 export interface DNSConfiguration {
     enabled:    boolean;
     servers:    DNSServer[];
@@ -1107,6 +1147,16 @@ export function nodeAPI<T extends NodeTypes = NodeTypes>() {
 
         /** What time it is here and what that is worth; cheap, and safe to poll. */
         clock:          () => request<Clock>             ('GET', '/clock'),
+
+        ssh: {
+            get:   ()                    => request<SSHConfiguration>('GET', '/configuration/ssh'),
+            /**
+             * Saved and made at once; the answer is the server as it now
+             * stands, with a "notice" where a switch on the command line wins.
+             * A port that is taken is a 409, and the server goes on where it was.
+             */
+            save:  (update: SSHUpdate)   => request<SSHConfiguration>('PUT', '/configuration/ssh', update)
+        },
 
         dns: {
             get:   ()                    => request<DNSConfiguration>('GET', '/configuration/dns'),
