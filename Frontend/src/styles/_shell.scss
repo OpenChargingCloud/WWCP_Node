@@ -152,6 +152,7 @@
         flex-direction: column;
         gap:         0.5rem;
 
+        // The name signed in, and the way to that account's own page.
         .who {
             display:        flex;
             align-items:    center;
@@ -160,6 +161,11 @@
             overflow:       hidden;
             text-overflow:  ellipsis;
             white-space:    nowrap;
+            text-decoration: none;
+
+            &:hover, &.active {
+                text-decoration: underline;
+            }
         }
 
         .versions {

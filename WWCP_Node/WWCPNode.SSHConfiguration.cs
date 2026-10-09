@@ -141,7 +141,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                            new JProperty("comment",      key.Key.PublicKey.Comment),
                                                                            new JProperty("label",        key.Label),
                                                                            new JProperty("created",      key.Created.ToString("o")),
-                                                                           new JProperty("createdBy",    key.CreatedBy)
+                                                                           new JProperty("createdBy",    key.CreatedBy),
+                                                                           new JProperty("isDisabled",   key.IsDisabled)
                                                                        ))
                                                                    ))
                                                                ))

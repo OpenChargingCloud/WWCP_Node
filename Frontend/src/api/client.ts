@@ -266,7 +266,7 @@ export interface SSHConfiguration {
     sessions:       { id: string; account: string; from: string; key: string | null; since: string }[];
     /** Every account, with the keys it may sign in with. */
     accounts:       { account: string; keys: { fingerprint: string; algorithm: string; comment: string; label: string | null;
-                                               created: string; createdBy: string | null }[] }[];
+                                               created: string; createdBy: string | null; isDisabled: boolean }[] }[];
     /** Said beside a change: a switch on the command line that wins over what was saved. */
     notice?:        string;
 }
@@ -276,6 +276,79 @@ export interface SSHUpdate {
     enabled?:    boolean;
     port?:       number;
     passwords?:  boolean;
+}
+
+
+// ---------------------------------------------------------------------------
+// The account signed in, as the HTTPExt API keeps it
+// ---------------------------------------------------------------------------
+
+/** Words in one or more languages, as the HTTPExt API writes them: { "en": "Alice" }. */
+export type I18NText = Record<string, string>;
+
+/**
+ * An account, as the HTTPExt API has it. What the account page shows and
+ * changes is named; the rest is carried through untouched, because a SET of
+ * an account takes the whole of it, and a field left out would be emptied.
+ */
+export interface Account {
+    '@id':          string;
+    '@context':     string;
+    name:           I18NText;
+    description?:   I18NText;
+    email:          string;
+    telephone?:     string;
+    mobilePhone?:   string;
+    homepage?:      string;
+    language?:      string;
+    createdAt?:     string;
+    lastLoginAt?:   string;
+    /** Said by GET: whether the one asking may change it. Not part of the account. */
+    youCanEdit?:    boolean;
+    [more: string]: unknown;
+}
+
+/** An organization an account belongs to, with the ones below it. */
+export interface AccountOrganization {
+    '@id':          string;
+    name?:          I18NText;
+    _childs?:       AccountOrganization[];
+    [more: string]: unknown;
+}
+
+/**
+ * An API key of an account. Its "@id" is the key itself: what a request
+ * carries in its API-Key header, and what removing or switching it names.
+ */
+export interface AccountAPIKey {
+    '@id':          string;
+    userId:         string;
+    description?:   I18NText;
+    accessRights:   'readOnly' | 'readWrite' | 'readWriteNew';
+    created:        string;
+    notBefore?:     string;
+    notAfter?:      string;
+    isDisabled?:    boolean;
+}
+
+/** A new API key: the key itself is made in the browser, and shown once. */
+export interface NewAPIKey {
+    key:            string;
+    description:    string;
+    accessRights:   'readOnly' | 'readWrite';
+    /** ISO 8601, or nothing for a key that does not run out. */
+    notAfter?:      string;
+}
+
+/** An SSH key of an account, as its authorized_keys line was handed in. */
+export interface AccountSSHKey {
+    /** "SHA256:...", as OpenSSH writes it. */
+    fingerprint:    string;
+    line:           string;
+    label?:         string;
+    created:        string;
+    createdBy?:     string;
+    isDisabled?:    boolean;
 }
 
 export interface DNSConfiguration {
@@ -856,6 +929,60 @@ export function onUnauthorized(handler: () => void): void {
 }
 
 
+/**
+ * A request to the HTTPExt API about the account signed in - unlike a
+ * sign-in, where a 401 is a password somebody got wrong, a 401 here is a
+ * session that is gone, and goes the way every other one goes.
+ */
+async function ofTheAccount<T>(method:  string,
+                               path:    string,
+                               body?:   unknown): Promise<T> {
+
+    try
+    {
+        return await extRequest<T>(method, path, body, method === 'GET' ? answerWithin : actWithin);
+    }
+    catch (problem)
+    {
+
+        if (problem instanceof ApiError && problem.isUnauthorized)
+            unauthorizedHandler?.();
+
+        throw problem;
+
+    }
+
+}
+
+
+/** A fingerprint as it goes into a URL: without "SHA256:", in the URL-safe Base64 alphabet. */
+export function fingerprintInURL(Fingerprint: string): string {
+
+    return Fingerprint.replace(/^SHA256:/, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+}
+
+
+/**
+ * An API key, made here: 40 characters of 62, some 238 bits - as the command
+ * line makes them - drawn by the browser's own random source, without the
+ * bias of a remainder: a byte of 248 or more is drawn again.
+ */
+export function newAPIKey(Length: number = 40): string {
+
+    const alphabet  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let   key       = '';
+
+    while (key.length < Length)
+        for (const byte of crypto.getRandomValues(new Uint8Array(Length)))
+            if (byte < 248 && key.length < Length)
+                key += alphabet[byte % 62];
+
+    return key;
+
+}
+
+
 /** Where a route of the node's API is, for what is not asked with request(): a download, a stream. */
 export function apiURL(Path: string): string {
     return config.apiBase + Path;
@@ -1147,6 +1274,42 @@ export function nodeAPI<T extends NodeTypes = NodeTypes>() {
 
         /** What time it is here and what that is worth; cheap, and safe to poll. */
         clock:          () => request<Clock>             ('GET', '/clock'),
+
+        /**
+         * The account signed in: kept by the HTTPExt API, which lets everybody
+         * at their own and nobody at anybody else's.
+         */
+        account: {
+            get:            (id: string)                     => ofTheAccount<Account>('GET', `/users/${encodeURIComponent(id)}`),
+            /** The whole account goes back: SET replaces it. */
+            save:           (account: Account)               => {
+                                                                    const { youCanEdit: _, ...stored } = account;
+                                                                    return ofTheAccount<Account>('SET', `/users/${encodeURIComponent(account['@id'])}`, stored);
+                                                                },
+            organizations:  (id: string)                     => ofTheAccount<AccountOrganization[]>('GET', `/users/${encodeURIComponent(id)}/organizations`),
+
+            apiKeys: {
+                list:       (id: string)                     => ofTheAccount<AccountAPIKey[]>('GET', `/users/${encodeURIComponent(id)}/APIKeys`),
+                add:        (id: string, key: NewAPIKey)     => ofTheAccount<AccountAPIKey>('ADD', `/users/${encodeURIComponent(id)}/APIKeys`, {
+                                                                    '@id':           key.key,
+                                                                    '@context':      'https://opendata.social/contexts/UsersAPI/APIKey',
+                                                                    userId:          id,
+                                                                    description:     { en: key.description },
+                                                                    accessRights:    key.accessRights,
+                                                                    created:         new Date().toISOString(),
+                                                                    ...(key.notAfter !== undefined ? { notAfter: key.notAfter } : {})
+                                                                }),
+                switchTo:   (id: string, key: string, disabled: boolean) => ofTheAccount<AccountAPIKey>('SET', `/users/${encodeURIComponent(id)}/APIKeys/${encodeURIComponent(key)}`, { isDisabled: disabled }),
+                remove:     (id: string, key: string)        => ofTheAccount<AccountAPIKey>('DELETE', `/users/${encodeURIComponent(id)}/APIKeys/${encodeURIComponent(key)}`)
+            },
+
+            sshKeys: {
+                list:       (id: string)                     => ofTheAccount<AccountSSHKey[]>('GET', `/users/${encodeURIComponent(id)}/SSHKeys`),
+                add:        (id: string, line: string, label: string) => ofTheAccount<AccountSSHKey>('ADD', `/users/${encodeURIComponent(id)}/SSHKeys`, { line, label }),
+                switchTo:   (id: string, fingerprint: string, disabled: boolean) => ofTheAccount<AccountSSHKey>('SET', `/users/${encodeURIComponent(id)}/SSHKeys/${fingerprintInURL(fingerprint)}`, { isDisabled: disabled }),
+                remove:     (id: string, fingerprint: string) => ofTheAccount<{ fingerprint: string }>('DELETE', `/users/${encodeURIComponent(id)}/SSHKeys/${fingerprintInURL(fingerprint)}`)
+            }
+        },
 
         ssh: {
             get:   ()                    => request<SSHConfiguration>('GET', '/configuration/ssh'),

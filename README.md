@@ -705,7 +705,27 @@ admin of its admins' organization, `Admins`. A node does not make that
 organization by itself, so until somebody does, another account's keys are
 the console's alone. The console names the account, and may do everything.
 Every key let in or taken out is in the log, tagged `security`, naming who
-did it.
+did it. A key switched off - on the account's page - is listed as switched
+off, and signs nobody in until it is switched on again.
+
+**The account's own page** (`/account`) opens from the name at the foot of
+the menu. Everybody signed in has one, whatever their roles, and it is their
+own account's and nobody else's: it asks the HTTPExt API's own routes below
+`/ext/users/{UserId}`, which let everybody at their own account and nobody
+at another - the system administrator's included, as above. Three tabs:
+**Details** - the name, the e-mail address, telephone and mobile phone, a
+homepage and a description, saved with `SET /ext/users/{UserId}`, which
+takes the whole account, so the page sends back what it was given with what
+the form changed; the organizations the account belongs to are shown, not
+changed. **API keys** - made on the page, 40 letters and digits from the
+browser's random source, read-only unless it says otherwise and valid until
+a day or for good, and shown once, when they are made; the list shows a
+key's beginning. **SSH keys** - an `authorized_keys` line added with a label,
+as `sshKeys` takes it. Either kind of key is switched off and on again with
+`SET .../APIKeys/{key}` or `SET .../SSHKeys/{fingerprint}` and
+`{"isDisabled": true|false}`, and removed after a question. What the page
+changes is in the accounts' database file, with the account that did it, not
+in the log.
 
 **At a first start, bring `root` a key of your own** - this is the way
 recommended:

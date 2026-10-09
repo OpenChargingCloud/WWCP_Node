@@ -40,7 +40,7 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         connections:    1,
         sessions:       [ { id: 'c1', account: 'root', from: '192.0.2.7:51234', key: 'SHA256:rootskey', since: '2026-10-09T08:15:00Z' } ],
         accounts:       [ { account: 'root',    keys: [ { fingerprint: 'SHA256:rootskey', algorithm: 'ssh-ed25519', comment: 'root@laptop',
-                                                          label: 'made up at the first start', created: '2026-10-01T10:00:00Z', createdBy: 'the first start' } ] },
+                                                          label: 'made up at the first start', created: '2026-10-01T10:00:00Z', createdBy: 'the first start', isDisabled: false } ] },
                           { account: 'viewer1', keys: [] } ],
         ...Changes
     };
@@ -147,6 +147,16 @@ describe('the SSH server page', () => {
         assert.equal(field(root, 'enabled').checked, true);
         assert.equal(field(root, 'passwords').checked, false);
         assert.ok(root.querySelector('#command-line-wins') === null, 'a switch is said to win where none said anything');
+        assert.ok(root.querySelector('#ssh-keys [data-key="SHA256:rootskey"] .chip') === null, 'a key that is on is said to be off');
+
+    });
+
+    it('says which key of an account is switched off', async () => {
+
+        const root = await opened({ accounts: [ { account: 'root', keys: [ { fingerprint: 'SHA256:rootskey', algorithm: 'ssh-ed25519', comment: 'root@laptop', label: null,
+                                                                             created: '2026-10-01T10:00:00Z', createdBy: null, isDisabled: true } ] } ] });
+
+        assert.equal(root.querySelector('#ssh-keys [data-key="SHA256:rootskey"] .chip')?.textContent, 'off');
 
     });
 

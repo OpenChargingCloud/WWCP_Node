@@ -156,10 +156,11 @@ export function shell(root:     HTMLElement,
                 ${menuView(visibleMenu(), options.active)}
 
                 <div id="sidebar-foot" class="sidebar-foot">
-                    <div class="who" title="${who?.title ?? ''}">
+                    <a class="who ${options.active === '/account' ? 'active' : ''}" id="who" href="${toURL('/account')}"
+                       title="${who !== null && who !== undefined ? `${who.title}. ` : ''}Your account and its keys">
                         <i class="fa-solid fa-user"></i>
                         <span>${me?.username ?? '-'}</span>
-                    </div>
+                    </a>
                     ${who?.line
                           ? html`<div class="roles small muted">${who.line}</div>`
                           : nothing}

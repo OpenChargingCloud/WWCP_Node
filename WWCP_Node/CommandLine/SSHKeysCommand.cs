@@ -210,6 +210,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             return $"{Key.Fingerprint}  {Key.Created.ToLocalTime():yyyy-MM-dd HH:mm}" +
                    (Key.CreatedBy is not null ? $" by {Key.CreatedBy}" : "") +
                    options +
+                   (Key.IsDisabled ? ", switched off" : "") +
                    (called is not null ? $"  {called}" : "");
 
         }

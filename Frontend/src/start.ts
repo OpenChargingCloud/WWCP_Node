@@ -3,6 +3,7 @@ import { auth } from './auth';
 import { fromURL } from './basePath';
 import { must } from './html';
 import { logs, type LogStore } from './logs/store';
+import { accountPage } from './pages/account';
 import { certificatesPage, identitiesPage, serverIdentitiesPage, type CertificatesOptions } from './pages/certificates';
 import { sshPage } from './pages/ssh';
 import { dnsPage } from './pages/dns';
@@ -203,6 +204,7 @@ export function routesOf(Frontend: NodeFrontend): Route[] {
         // Its address for the few hours it was called "Server certificates".
         { path: '/configuration/server-certificates',  page: movedTo('/configuration/server-identities', 'Server identities'), guard: auth.requireSignIn },
         { path: '/configuration/ssh',                  page: sshPage,                                        guard: auth.requireSignIn },
+        { path: '/account',                            page: accountPage,                                    guard: auth.requireSignIn },
         { path: '/logs',               page: logsPage(Frontend.logs),    guard: toReadTheLog       },
         { path: '/login',              page: loginPage(Frontend.signIn)                            }
 

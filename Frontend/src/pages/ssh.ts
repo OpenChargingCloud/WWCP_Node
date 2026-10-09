@@ -262,7 +262,8 @@ export const sshPage: Page = {
 
                     <p class="hint">
                         The public halves an account may sign in with. They are given on the command line -
-                        <code>sshKeys</code>, or <code>--authorize-ssh-key</code> at a start.
+                        <code>sshKeys</code>, or <code>--authorize-ssh-key</code> at a start - or by the account itself, on its
+                        own page. A key switched off lets nobody in until it is switched on again.
                     </p>
 
                     ${withKeys.length === 0 ? html`<p class="hint">No account has a key yet, so nobody can sign in with one.</p>` : html`
@@ -273,7 +274,7 @@ export const sshPage: Page = {
                                   ${withKeys.flatMap(account => account.keys.map(key => html`
                                       <tr data-key="${key.fingerprint}">
                                           <td>${account.account}</td>
-                                          <td>${key.algorithm}<br /><code class="muted">${key.fingerprint}</code></td>
+                                          <td>${key.algorithm}${key.isDisabled ? html` <span class="chip">off</span>` : nothing}<br /><code class="muted">${key.fingerprint}</code></td>
                                           <td>${key.label ?? key.comment}${key.label !== null && key.comment.length > 0 ? html`<br /><span class="muted">${key.comment}</span>` : nothing}</td>
                                           <td>${when(key.created)}${key.createdBy !== null ? html`<br /><span class="muted">by ${key.createdBy}</span>` : nothing}</td>
                                       </tr>

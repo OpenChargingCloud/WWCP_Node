@@ -126,6 +126,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var listed   = await cli.Execute("sshKeys root");
 
             Assert.That(listed, Has.Length.EqualTo(1).And.Some.StartsWith(fingerprint).And.Some.Contains("by the console").And.Some.Contains("tester"));
+            Assert.That(listed, Has.None.Contains("switched off"));
+
+            // Switched off on the account's page, it is said to be off.
+            Assert.That(await node.ExtAPI.DisableSSHKey(Root, fingerprint), Is.Not.Null);
+            Assert.That(await cli.Execute("sshKeys root"), Has.Some.StartsWith(fingerprint).And.Some.Contains("switched off"));
+            Assert.That(await node.ExtAPI.EnableSSHKey(Root, fingerprint), Is.Not.Null);
 
             // By enough of its beginning, as somebody would type it.
             var removed  = await cli.Execute($"sshKeys root remove {fingerprint["SHA256:".Length..][..10]}");
