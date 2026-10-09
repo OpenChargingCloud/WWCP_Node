@@ -112,8 +112,10 @@ describe('when a session began', () => {
 
             const said = when('2026-10-09T01:38:00Z');
 
-            assert.match(said, /03:38/, 'a session begun at 03:38 in Berlin');
-            assert.doesNotMatch(said, /01:38/, 'said in UTC');
+            // The hour as the browser's language writes it: "03:38" in German,
+            // "3:38 AM" in English.
+            assert.match(said, /(^|\D)0?3:38/, 'a session begun at 03:38 in Berlin');
+            assert.doesNotMatch(said, /(^|\D)0?1:38/, 'said in UTC');
             assert.equal(when('no moment'), 'no moment', 'what is no moment is said as it came');
         }
         finally
