@@ -1017,6 +1017,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      // role it carries can never be held by anybody.
                                      MinUserGroupIdLength:   (Byte) this.Roles.Min(role => role.Length),
 
+                                     // The same for the one organization the
+                                     // accounts are in: what a kind of node
+                                     // calls it is what has to be allowed - a
+                                     // PKI's "PKI" was refused at its first
+                                     // start by a floor of four, and nobody
+                                     // could sign in. Never above Hermod's own
+                                     // floor, only below it where a kind needs.
+                                     MinOrganizationIdLength:  (Byte) Math.Min(this.Kind.Organization.Length, HTTPExtAPI.DefaultMinOrganizationIdLength),
+
                                      LoggingPath:            AccountsPath,
                                      DatabaseFileName:       DefaultAccountsDatabaseFile,
 

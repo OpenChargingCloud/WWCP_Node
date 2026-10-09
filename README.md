@@ -628,7 +628,10 @@ The groups are made at every start rather than only the first, because they
 are the node's vocabulary and not somebody's data: a group deleted by hand
 would otherwise leave a role nobody can ever hold again - and Hermod's floor
 for a group's identification is lowered to the shortest role there is,
-because it is four characters and a charging station's `cpo` is three.
+because it is four characters and a charging station's `cpo` is three. The
+floor for the organization is the kind's `Organization` where that is
+shorter than Hermod's own: a PKI's accounts are in `PKI`, which a floor of
+four refused at its first start (found by the PKI).
 
 What an account may do is asked of the node - `IsAllowed`, `RolesOf`,
 `PermissionsOf` - on every request rather than once at sign-in, so that

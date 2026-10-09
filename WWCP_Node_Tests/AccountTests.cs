@@ -91,12 +91,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (helper) StartedNode(Roles = null)
+        #region (helper) StartedNode(Roles = null, Kind = null)
 
         /// <summary>
-        /// A node of no particular kind, knowing the given roles, started.
+        /// A node of no particular kind - or of the given one - knowing the
+        /// given roles, started.
         /// </summary>
-        private async Task<WWCPNode> StartedNode(IEnumerable<String>? Roles = null)
+        private async Task<WWCPNode> StartedNode(IEnumerable<String>? Roles = null,
+                                                NodeKind?            Kind  = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
@@ -104,6 +106,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             File.WriteAllText(configuration, """{ "nts": { "enabled": false } }""");
 
             return await TestPorts.StartedOnFreshPorts(() => new WWCPNode(
+                           Kind:              Kind,
                            HTTPPort:          IPPort.Parse(TestPorts.Free()),
                            AccountsPath:      Path.Combine(directory, "accounts"),
                            Roles:             Roles,
@@ -220,6 +223,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "systemadmin", "viewer" }));
                 Assert.That(RootIsASystemAdmin(node), Is.True);
             });
+
+        }
+
+        #endregion
+
+        #region AnOrganizationOfThreeLettersIsOneTheAccountsMayBeIn()
+
+        /// <summary>
+        /// A kind of node whose organization is called by three letters - a
+        /// PKI's "PKI" - starts, and its first account may sign in.
+        /// </summary>
+        /// <remarks>
+        /// The HTTPExt API refused an organization below its floor of four,
+        /// and a node without its organization stops at the start: an
+        /// account outside one cannot sign in. The floor is the kind's
+        /// organization now, as the floor of a group is its shortest role.
+        /// </remarks>
+        [Test]
+        public async Task AnOrganizationOfThreeLettersIsOneTheAccountsMayBeIn()
+        {
+
+            await using var node = await StartedNode(Kind: new NodeKind(Name:           "PKI",
+                                                                        Tag:            "pki",
+                                                                        Product:        "PKI",
+                                                                        Organization:   "PKI",
+                                                                        LogFilePrefix:  "pki"));
+
+            Assert.That(RootIsASystemAdmin(node), Is.True);
 
         }
 
