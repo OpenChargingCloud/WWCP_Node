@@ -600,6 +600,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="TraceTags">What a line picked up that way has to contain to be tagged, needle and tag: the kind of node's own table, or null for <see cref="TraceBridge.DefaultTags"/>.</param>
         /// <param name="TimeProvider">The clock, or null for the system one.</param>
         /// <param name="SSH">What the program says about serving the command line over SSH: nothing by default, and then only the configuration file can switch it on - see <see cref="SSHSettings"/>.</param>
+        /// <param name="FrontendSecurityHeaders">The security headers the web interface's pages are served with, or null for Hermod's defaults - which allow nothing from elsewhere: a kind of node whose pages need more, the tiles of a map from a tile server, says so here, and says only that.</param>
         public WWCPNode(NodeKind?                                  Kind               = null,
                         String?                                    Version            = null,
                         IPPort?                                    HTTPPort           = null,
@@ -630,7 +631,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         Boolean                                    BridgeDebugLog     = true,
                         IEnumerable<(String Needle, String Tag)>?  TraceTags          = null,
                         TimeProvider?                              TimeProvider       = null,
-                        SSHSettings?                               SSH                = null)
+                        SSHSettings?                               SSH                = null,
+                        SecurityHeaderOptions?                     FrontendSecurityHeaders  = null)
 
         {
 
@@ -1054,6 +1056,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 this.WebInterface.MapSinglePageApplication(
                     this.Frontend,
                     new SinglePageAppOptions {
+
+                        // Hermod's strict defaults unless the kind says what
+                        // its pages need on top - a map's tiles, say.
+                        SecurityHeaders = FrontendSecurityHeaders ?? SecurityHeaderOptions.Default,
 
                         // Three placeholders for where things are, and not
                         // one. The bundle reads

@@ -97,14 +97,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (helper) Node(Kind, Frontend = null)
+        #region (helper) Node(Kind, Frontend = null, FrontendSecurityHeaders = null)
 
         /// <summary>
         /// A node of the given kind, with name resolution and the time client
-        /// switched off, and the web interface it was handed, if any.
+        /// switched off, and the web interface it was handed, if any - served
+        /// with the security headers it was handed, if any.
         /// </summary>
-        private WWCPNode Node(NodeKind?              Kind,
-                              IStaticContentSource?  Frontend   = null)
+        private WWCPNode Node(NodeKind?               Kind,
+                              IStaticContentSource?   Frontend                 = null,
+                              SecurityHeaderOptions?  FrontendSecurityHeaders  = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
@@ -119,7 +121,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                        Frontend:          Frontend,
                        CertificatesPath:  Path.Combine(directory, "certificates"),
                        LogToConsole:      false,
-                       BridgeDebugLog:    false
+                       BridgeDebugLog:    false,
+                       FrontendSecurityHeaders:  FrontendSecurityHeaders
                    );
 
         }
@@ -208,6 +211,62 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(node.Log.Recent(100).Where(entry => entry.Level == LogLevel.Error).Select(entry => entry.Message),
                         Has.Some.EndsWith("Build the bundle, or point the WWCP node at a directory that has one."));
+
+        }
+
+        #endregion
+
+        #region AKindSaysWhatItsPagesMayLoad()
+
+        /// <summary>
+        /// The pages of the web interface are served with Hermod's strict
+        /// security headers - unless the kind of node says what its pages need
+        /// on top, as a smartphone does for the tiles of its map: then with
+        /// exactly those.
+        /// </summary>
+        [Test]
+        public async Task AKindSaysWhatItsPagesMayLoad()
+        {
+
+            var bundle = Path.Combine(directory, "frontend");
+
+            Directory.CreateDirectory(bundle);
+            File.WriteAllText(Path.Combine(bundle, "index.html"), "<!DOCTYPE html><title>Node</title>");
+
+            var wider = SecurityHeaderOptions.Default with {
+                            ContentSecurityPolicy  = SecurityHeaderOptions.DefaultContentSecurityPolicy.Replace("img-src 'self' data:", "img-src 'self' data: https://tile.example.org"),
+                            PermissionsPolicy      = "camera=(), microphone=(), geolocation=(self)"
+                        };
+
+            async Task<HttpResponseMessage> PageOf(SecurityHeaderOptions? Headers)
+            {
+
+                await using var node = await TestPorts.StartedOnFreshPorts(() => Node(Station, new FileSystemContentSource(bundle), Headers));
+
+                using var client = new HttpClient();
+
+                return await client.GetAsync($"http://127.0.0.1:{node.HTTPPort}/");
+
+            }
+
+            var strict  = await PageOf(null);
+            var said    = await PageOf(wider);
+
+            static String HeaderOf(HttpResponseMessage Response, String Name)
+                => Response.Headers.TryGetValues(Name, out var values) ? String.Join(", ", values) : "";
+
+            Assert.Multiple(() => {
+
+                Assert.That(strict.StatusCode,                              Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(HeaderOf(strict, "Content-Security-Policy"),    Is.EqualTo(SecurityHeaderOptions.DefaultContentSecurityPolicy));
+                Assert.That(HeaderOf(strict, "Permissions-Policy"),         Does.Contain("geolocation=()"));
+
+                Assert.That(said.StatusCode,                                Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(HeaderOf(said,   "Content-Security-Policy"),    Does.Contain("img-src 'self' data: https://tile.example.org;"));
+                Assert.That(HeaderOf(said,   "Content-Security-Policy"),    Does.Contain("style-src 'self';"), "a kind widening one source widened another");
+                Assert.That(HeaderOf(said,   "Permissions-Policy"),         Does.Contain("geolocation=(self)"));
+
+            });
 
         }
 
