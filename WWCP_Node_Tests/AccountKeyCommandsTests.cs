@@ -37,7 +37,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     /// sshKeys and apiKeys at the node's console, which may manage the keys of
     /// every account: a key let in signs in, one taken out does not, a line
     /// that cannot be held to is refused with why, and an API key is shown
-    /// whole once, when it is made, and by its beginning ever after.
+    /// whole - one given taken as it is - and named in the log by its
+    /// beginning only.
     /// </summary>
     [TestFixture]
     public class AccountKeyCommandsTests
@@ -204,10 +205,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region AnAPIKeyIsShownWholeOnceAndByItsBeginningAfter
+        #region AnAPIKeyIsShownWholeAndInTheLogByItsBeginning
 
         [Test]
-        public async Task AnAPIKeyIsShownWholeOnceAndByItsBeginningAfter()
+        public async Task AnAPIKeyIsShownWholeAndInTheLogByItsBeginning()
         {
 
             var made    = await cli.Execute("apiKeys root add readWrite for the dashboard");
@@ -217,7 +218,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var secret  = made[1];
 
             Assert.Multiple(() => {
-                Assert.That(made[0],  Is.EqualTo("'root' has a new API key, ReadWrite. It is shown here once, and never again:"));
+                Assert.That(made[0],  Is.EqualTo("'root' has a new API key, ReadWrite:"));
                 Assert.That(secret,   Has.Length.EqualTo(APIKeysCommand.KeyLength).And.Match("^[A-Za-z0-9]+$"));
                 Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(secret), out var apiKey), Is.True, "the key shown is not the key made");
                 Assert.That(apiKey!.AccessRights,                Is.EqualTo(APIKeyRights.ReadWrite));
@@ -229,18 +230,78 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(listed,                     Has.Length.EqualTo(1));
-                Assert.That(listed[0],                  Does.StartWith(secret[..APIKeysCommand.Shown] + "..."));
-                Assert.That(listed[0],                  Does.Not.Contain(secret), "a list shows the whole key");
+                Assert.That(listed[0],                  Does.StartWith(secret + "  ReadWrite"), "a list does not show the whole key");
                 Assert.That(listed[0],                  Does.Contain("for the dashboard"));
-                lock (said)
-                    Assert.That(said,                   Has.None.Contains(secret), "the whole key is in the log");
             });
 
-            var removed = await cli.Execute($"apiKeys root remove {secret[..APIKeysCommand.Shown]}");
+            var removed = await cli.Execute($"apiKeys root remove {secret[..APIKeysCommand.ShownInTheLog]}");
 
             Assert.Multiple(() => {
-                Assert.That(removed[0],                                                  Does.Contain("signs 'root' in no more"));
+                Assert.That(removed[0],                                                  Is.EqualTo($"The API key {secret} signs 'root' in no more."));
                 Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(secret), out _),   Is.False, "still there");
+                lock (said)
+                {
+                    Assert.That(said,                   Has.None.Contains(secret), "the whole key is in the log");
+                    Assert.That(said,                   Has.Some.Contains($"gave 'root' the API key {secret[..APIKeysCommand.ShownInTheLog]}..."), "the key given is not in the log");
+                    Assert.That(said,                   Has.Some.Contains($"took the API key {secret[..APIKeysCommand.ShownInTheLog]}... from 'root'"), "the key taken back is not in the log");
+                }
+            });
+
+        }
+
+        #endregion
+
+        #region AnAPIKeyGivenIsTakenAsItIs
+
+        [Test]
+        public async Task AnAPIKeyGivenIsTakenAsItIs()
+        {
+
+            var own   = "my-own.key_for~debugging-1";
+            var made  = await cli.Execute($"apiKeys root add readWrite key {own} for the dashboard");
+
+            Assert.That(made, Is.EqualTo(new[] { "'root' has a new API key, ReadWrite:", own }), String.Join("\n", made));
+
+            Assert.Multiple(() => {
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(own), out var apiKey), Is.True, "the key given is not the key made");
+                Assert.That(apiKey!.AccessRights,                Is.EqualTo(APIKeyRights.ReadWrite));
+                Assert.That(apiKey.Description.FirstText(),      Is.EqualTo("for the dashboard"));
+                Assert.That(apiKey.UserId,                       Is.EqualTo(Root));
+                lock (said)
+                    Assert.That(said,                            Has.None.Contains(own), "the whole key is in the log");
+            });
+
+            var again = await cli.Execute($"apiKeys root add key {own}");
+
+            Assert.That(again[0], Does.StartWith("No API key was made:").And.Contain("already exists"));
+
+        }
+
+        #endregion
+
+        #region AnAPIKeyGivenIsRefusedWithOtherCharactersOrTooShort
+
+        [Test]
+        public async Task AnAPIKeyGivenIsRefusedWithOtherCharactersOrTooShort()
+        {
+
+            node.ExtAPI.TryGetUser(Root, out var root);
+
+            var before    = node.ExtAPI.GetAPIKeysForUser(root!).Count();
+
+            var other     = await cli.Execute("apiKeys root add key slash/in/it/long/enough/yes");
+            var umlaut    = await cli.Execute("apiKeys root add key Schlüssel-mit-Umlaut-lang-genug");
+            var tooShort  = await cli.Execute($"apiKeys root add key {new String('a', node.ExtAPI.MinAPIKeyLength - 1)}");
+            var noKey     = await cli.Execute("apiKeys root add readOnly key");
+            var justLong  = await cli.Execute($"apiKeys root add key {new String('a', node.ExtAPI.MinAPIKeyLength)}");
+
+            Assert.Multiple(() => {
+                Assert.That(other,     Is.EqualTo(new[] { "No API key was made: an API key is letters, digits and . _ ~ - only." }));
+                Assert.That(umlaut,    Is.EqualTo(new[] { "No API key was made: an API key is letters, digits and . _ ~ - only." }));
+                Assert.That(tooShort,  Is.EqualTo(new[] { $"No API key was made: an API key has at least {node.ExtAPI.MinAPIKeyLength} characters; this one has {node.ExtAPI.MinAPIKeyLength - 1}." }));
+                Assert.That(noKey,     Has.Length.EqualTo(1).And.Some.StartsWith("Usage: apiKeys"));
+                Assert.That(justLong,  Has.Length.EqualTo(2), String.Join("\n", justLong));
+                Assert.That(node.ExtAPI.GetAPIKeysForUser(root!).Count(), Is.EqualTo(before + 1), "a key refused was made");
             });
 
         }

@@ -401,7 +401,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             mark = screen.Text.Length;
             await shell.WriteAsync("apiKeys add for a script\r");
-            await screen.WaitFor("never again:", mark);
+            await screen.WaitFor("has a new API key, ReadOnly:", mark);
             await screen.WaitFor("WWCP node> ", mark);
 
             var apiKeys = node.ExtAPI.GetAPIKeysForUser(node.ExtAPI.GetUser(kimberly)!).ToArray();
@@ -473,7 +473,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var made = screen.Text.Length;
             await shell.WriteAsync("apiKeys hank add\r");
-            await screen.WaitFor("never again:", made);
+            await screen.WaitFor("has a new API key, ReadOnly:", made);
 
             Assert.Multiple(() => {
                 Assert.That(node.ExtAPI.GetSSHKeys(hank.Id),          Is.Empty);

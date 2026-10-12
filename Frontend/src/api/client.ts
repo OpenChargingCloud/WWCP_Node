@@ -331,7 +331,7 @@ export interface AccountAPIKey {
     isDisabled?:    boolean;
 }
 
-/** A new API key: the key itself is made in the browser, and shown once. */
+/** A new API key: the key itself is the account's own, or made in the browser. */
 export interface NewAPIKey {
     key:            string;
     description:    string;
@@ -968,6 +968,28 @@ export function fingerprintInURL(Fingerprint: string): string {
  * line makes them - drawn by the browser's own random source, without the
  * bias of a remainder: a byte of 248 or more is drawn again.
  */
+/**
+ * The characters an API key of one's own may have: those that go into an
+ * API-Key header and into the path of .../APIKeys/{key} as they are.
+ */
+export const apiKeyCharacters = /^[A-Za-z0-9._~-]+$/;
+
+/** The fewest characters the HTTPExt API takes for an API key (its MinAPIKeyLength). */
+export const leastAPIKeyLength = 20;
+
+/** What is wrong with an API key of one's own, or null where nothing is. */
+export function apiKeyProblem(Key: string): string | null {
+
+    if (!apiKeyCharacters.test(Key))
+        return 'An API key is letters, digits and . _ ~ - only.';
+
+    if (Key.length < leastAPIKeyLength)
+        return `An API key has at least ${leastAPIKeyLength} characters; this one has ${Key.length}.`;
+
+    return null;
+
+}
+
 export function newAPIKey(Length: number = 40): string {
 
     const alphabet  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

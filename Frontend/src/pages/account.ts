@@ -1,4 +1,4 @@
-import { newAPIKey, nodeAPI, type Account, type AccountAPIKey, type AccountOrganization, type AccountSSHKey, type I18NText } from '../api/client';
+import { apiKeyProblem, newAPIKey, nodeAPI, type Account, type AccountAPIKey, type AccountOrganization, type AccountSSHKey, type I18NText } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
 import { must } from '../html';
@@ -20,9 +20,9 @@ import { when } from './ssh';
  * which keeps the accounts and lets everybody at their own. Opened from the
  * name at the foot of the menu.
  *
- * An API key is made here, in the browser, and shown once, when it is made;
- * the list shows its beginning, which is all anybody needs to tell one from
- * another.
+ * An API key is the account's own, typed in, or made here, in the browser;
+ * the list shows each key whole, to copy: it is a secret the account shares
+ * with its programs, and it is on this page for nobody but the account.
  */
 
 const api = nodeAPI();
@@ -32,14 +32,6 @@ const tabs: readonly Tab[] = [
     { id: 'api-keys', label: 'API keys',  icon: 'fa-key'     },
     { id: 'ssh-keys', label: 'SSH keys',  icon: 'fa-terminal' }
 ];
-
-/** How much of an API key a list shows, as the command line shows it. */
-export const shownOfAKey = 8;
-
-/** The beginning of an API key, as a list shows it. */
-export function beginningOf(Key: string): string {
-    return Key.length > shownOfAKey ? `${Key.slice(0, shownOfAKey)}...` : Key;
-}
 
 /** Words in one language: the first the text has. */
 export function firstText(Text: I18NText | undefined): string {
@@ -112,7 +104,6 @@ export const accountPage: Page = {
         let apiKeys:        AccountAPIKey[]       = [];
         let sshKeys:        AccountSSHKey[]       = [];
         /** The key made last, shown until the page is left or reloaded: it is never shown again. */
-        let madeKey:        string | null         = null;
 
 
         function show(tab: string): void {
@@ -220,14 +211,6 @@ export const accountPage: Page = {
                         nothing until it is switched on again; a key removed is gone.
                     </p>
 
-                    ${madeKey === null ? nothing : html`
-                        <div class="notice" id="made-key">
-                            Your new API key. It is shown here once, and never again - copy it now:
-                            <code class="api-key">${madeKey}</code>
-                            <button type="button" class="btn small" @click=${(event: Event) => void copy(madeKey!, event.currentTarget as HTMLElement)}>Copy</button>
-                        </div>
-                    `}
-
                     ${apiKeys.length === 0
                           ? html`<p class="hint" id="no-api-keys">You have no API key.</p>`
                           : html`
@@ -236,8 +219,12 @@ export const accountPage: Page = {
                                   <thead><tr><th>Key</th><th>Description</th><th>May</th><th>Made</th><th>Valid until</th><th>State</th><th></th></tr></thead>
                                   <tbody>
                                       ${repeat(apiKeys, key => key['@id'], key => html`
-                                          <tr data-api-key="${beginningOf(key['@id'])}">
-                                              <td><code>${beginningOf(key['@id'])}</code></td>
+                                          <tr data-api-key="${key['@id']}">
+                                              <td class="api-key-cell">
+                                                  <code class="api-key">${key['@id']}</code>
+                                                  <button type="button" class="btn small" data-copy
+                                                          @click=${(event: Event) => void copy(key['@id'], event.currentTarget as HTMLElement)}>Copy</button>
+                                              </td>
                                               <td>${firstText(key.description)}</td>
                                               <td>${key.accessRights === 'readOnly' ? 'read' : 'read and write'}</td>
                                               <td>${when(key.created)}</td>
@@ -259,6 +246,12 @@ export const accountPage: Page = {
                     <form id="api-key-form" class="form-stack" @submit=${onAddAPIKey}>
 
                         <h3>A new API key</h3>
+
+                        <label>Key
+                            <input type="text" name="key" autocomplete="off" spellcheck="false"
+                                   placeholder="Left empty, one is made: 40 letters and digits" />
+                            <span class="hint">Your own: letters, digits and . _ ~ -, at least 20 of them.</span>
+                        </label>
 
                         <label>Description
                             <input type="text" name="description" placeholder="What it is for: the billing export" />
@@ -448,7 +441,15 @@ export const accountPage: Page = {
                 return;
             }
 
-            const key = newAPIKey();
+            const typed     = String(data.get('key') ?? '').trim();
+            const problem   = typed.length > 0 ? apiKeyProblem(typed) : null;
+
+            if (problem !== null) {
+                error.textContent = problem;
+                return;
+            }
+
+            const key       = typed.length > 0 ? typed : newAPIKey();
 
             void (async () => {
 
@@ -462,7 +463,6 @@ export const accountPage: Page = {
                         ...(notAfter !== null ? { notAfter: notAfter.toISOString() } : {})
                     });
 
-                    madeKey = key;
                     form.reset();
 
                     await loadKeys();
@@ -499,7 +499,7 @@ export const accountPage: Page = {
 
         async function removeAPIKey(Key: AccountAPIKey): Promise<void> {
 
-            if (!confirm(`Remove the API key ${beginningOf(Key['@id'])}? A program that uses it is turned away from now on, and it cannot be brought back.`))
+            if (!confirm(`Remove the API key ${Key['@id']}? A program that uses it is turned away from now on, and it cannot be brought back.`))
                 return;
 
             must<HTMLElement>(content, '#api-key-error').textContent = '';
@@ -617,7 +617,6 @@ export const accountPage: Page = {
                 apiKeys        = loadedAPIKeys;
                 sshKeys        = loadedSSHKeys;
                 organizations  = loadedOrganizations;
-                madeKey        = null;
 
                 // Loaded anew - Reload - is what the node has, the forms too.
                 draw();

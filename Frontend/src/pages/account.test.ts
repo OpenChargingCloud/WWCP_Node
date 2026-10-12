@@ -1,9 +1,9 @@
 /**
  * The account page drawn, in a document of happy-dom, against a stand-in for
  * the HTTPExt API: who the account is, and that a save sends the whole of it
- * back with what was changed; the API keys, shown by their beginning, a new
- * one made here and shown once, switched off and on, and removed after a
- * question; the SSH keys, added, switched and removed the same way.
+ * back with what was changed; the API keys, shown whole, a new one made here
+ * or typed in, switched off and on, and removed after a question; the SSH
+ * keys, added, switched and removed the same way.
  */
 
 import { answer, asked, open, refused, said, until, type Asked } from '../../test/node.ts';
@@ -13,8 +13,8 @@ import { describe, it }      from 'node:test';
 
 import type { Account, AccountAPIKey, AccountSSHKey } from '../api/client.ts';
 
-const { accountPage, beginningOf, organizationNames, typeAndComment, withText } = await import('./account.ts');
-const { fingerprintInURL, newAPIKey } = await import('../api/client.ts');
+const { accountPage, organizationNames, typeAndComment, withText } = await import('./account.ts');
+const { apiKeyProblem, fingerprintInURL, newAPIKey } = await import('../api/client.ts');
 
 
 const theKey = 'AbCdEfGh0123456789abcdefghijklmnopqrstuv';
@@ -107,9 +107,14 @@ const sent   = (method: string, path: string) => asked.filter(one => one.method 
 
 describe('what the account page reads', () => {
 
-    it('shows an API key by its beginning, as the command line does', () => {
-        assert.equal(beginningOf(theKey), 'AbCdEfGh...');
-        assert.equal(beginningOf('short'), 'short');
+    it('takes an API key of letters, digits and . _ ~ -, of 20 characters or more', () => {
+        assert.equal(apiKeyProblem(theKey), null);
+        assert.equal(apiKeyProblem('my-own.key_for~debugging'), null);
+        assert.equal(apiKeyProblem('a'.repeat(20)), null);
+        assert.match(apiKeyProblem('a'.repeat(19)) ?? '', /at least 20 characters; this one has 19/);
+        assert.match(apiKeyProblem('with a space in it, long enough') ?? '', /letters, digits and \. _ ~ - only/);
+        assert.match(apiKeyProblem('slash/in/it/long/enough/yes') ?? '', /letters, digits/);
+        assert.match(apiKeyProblem('Schlüssel-mit-Umlaut-lang-genug') ?? '', /letters, digits/);
     });
 
     it('changes words in the language they were in, and in English where there were none', () => {
@@ -224,18 +229,19 @@ describe('the account page', () => {
 
 describe('the API keys of the account', () => {
 
-    it('are shown by their beginning, never the whole key', async () => {
+    it('are shown whole, each with a button to copy it', async () => {
 
         const root = await opened();
-        const row  = root.querySelector('#account-api-keys [data-api-key="AbCdEfGh..."]');
+        const row  = root.querySelector(`#account-api-keys [data-api-key="${theKey}"]`);
 
         assert.ok(row !== null, 'the key is not listed');
+        assert.equal(row.querySelector('code.api-key')?.textContent, theKey, 'the key is not shown whole');
+        assert.ok(row.querySelector('[data-copy]') !== null, 'no button copies it');
         assert.match(row.textContent!, /billing export/);
-        assert.ok(!root.innerHTML.includes(theKey), 'the whole key is on the page');
 
     });
 
-    it('makes a new one here, sends it as the HTTPExt API takes one, and shows it once', async () => {
+    it('makes a new one here when no key is typed in, and sends it as the HTTPExt API takes one', async () => {
 
         const root = await opened();
 
@@ -245,17 +251,16 @@ describe('the API keys of the account', () => {
 
         submit(root, '#api-key-form');
 
-        await until(() => root.querySelector('#made-key') !== null, 'the new key is not shown');
+        await until(() => root.querySelectorAll('#account-api-keys [data-api-key]').length === 2, 'the new key is not listed');
 
         const add  = sent('ADD', '/ext/users/alice/APIKeys');
 
         assert.equal(add.length, 1);
 
         const body = add[0]!.body as Record<string, unknown>;
-        const made = root.querySelector('#made-key .api-key')!.textContent!;
+        const made = body['@id'] as string;
 
         assert.match(made, /^[A-Za-z0-9]{40}$/);
-        assert.equal(body['@id'],          made, 'the key shown is not the one sent');
         assert.equal(body['@context'],     'https://opendata.social/contexts/UsersAPI/APIKey');
         assert.equal(body['userId'],       'alice');
         assert.deepEqual(body['description'], { en: 'monitoring' });
@@ -263,12 +268,47 @@ describe('the API keys of the account', () => {
         assert.ok(typeof body['created'] === 'string' && !Number.isNaN(Date.parse(body['created'] as string)), 'no time it was made');
         assert.equal(new Date(body['notAfter'] as string).getFullYear(), 2099);
 
-        assert.ok(root.querySelector(`#account-api-keys [data-api-key="${made.slice(0, 8)}..."]`) !== null, 'the new key is not listed');
+        assert.equal(root.querySelector(`#account-api-keys [data-api-key="${made}"] code.api-key`)?.textContent, made, 'the new key is not listed whole');
 
-        // Shown once: a reload of the page has it no more.
-        root.querySelector<HTMLButtonElement>('#reload')!.click();
+    });
 
-        await until(() => root.querySelector('#made-key') === null, 'the new key is still shown after a reload');
+    it('takes the key typed in as it is', async () => {
+
+        const root = await opened();
+        const own  = 'my-own.key_for~debugging-1';
+
+        field(root, '#api-key-form', 'key').value = `  ${own} `;
+        field(root, '#api-key-form', 'description').value = 'debugging';
+
+        submit(root, '#api-key-form');
+
+        await until(() => sent('ADD', '/ext/users/alice/APIKeys').length === 1, 'nothing is sent');
+
+        assert.equal((sent('ADD', '/ext/users/alice/APIKeys')[0]!.body as Record<string, unknown>)['@id'], own);
+
+        await until(() => root.querySelector(`#account-api-keys [data-api-key="${own}"]`) !== null, 'the key typed in is not listed');
+
+        assert.equal(field(root, '#api-key-form', 'key').value, '', 'the form still has the key');
+
+    });
+
+    it('refuses a key typed in with other characters, or too short, and sends nothing', async () => {
+
+        const root  = await opened();
+        const error = () => root.querySelector('#api-key-error')?.textContent ?? '';
+
+        field(root, '#api-key-form', 'key').value = 'a key with spaces, long enough';
+        submit(root, '#api-key-form');
+
+        await until(() => error().length > 0, 'nothing is said of the spaces');
+        assert.match(error(), /letters, digits and \. _ ~ - only/);
+
+        field(root, '#api-key-form', 'key').value = 'short-key';
+        submit(root, '#api-key-form');
+
+        await until(() => /at least 20 characters/.test(error()), 'nothing is said of the length');
+
+        assert.deepEqual(sent('ADD', '/ext/users/alice/APIKeys'), []);
 
     });
 
@@ -289,7 +329,7 @@ describe('the API keys of the account', () => {
     it('switches one off and on again', async () => {
 
         const root = await opened();
-        const row  = () => root.querySelector('#account-api-keys [data-api-key="AbCdEfGh..."]')!;
+        const row  = () => root.querySelector(`#account-api-keys [data-api-key="${theKey}"]`)!;
 
         row().querySelector<HTMLButtonElement>('[data-switch]')!.click();
 
@@ -310,13 +350,12 @@ describe('the API keys of the account', () => {
 
         const root = await opened();
 
-        root.querySelector<HTMLButtonElement>('#account-api-keys [data-api-key="AbCdEfGh..."] [data-remove]')!.click();
+        root.querySelector<HTMLButtonElement>(`#account-api-keys [data-api-key="${theKey}"] [data-remove]`)!.click();
 
         await until(() => root.querySelector('#no-api-keys') !== null, 'it is still listed');
 
         assert.equal(sent('DELETE', `/ext/users/alice/APIKeys/${theKey}`).length, 1);
-        assert.match(said.join('\n'), /Remove the API key AbCdEfGh\.\.\./, 'nobody was asked');
-        assert.ok(!said.join('\n').includes(theKey), 'the question says the whole key');
+        assert.ok(said.join('\n').includes(`Remove the API key ${theKey}?`), 'nobody was asked, or not of the whole key');
 
     });
 

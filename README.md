@@ -693,23 +693,27 @@ does the same for its API keys - at the console and over SSH:
 
 ```
 sshKeys [<account>] [add <authorized_keys line> | remove <fingerprint>]
-apiKeys [<account>] [add [readOnly | readWrite] [<description>] | remove <key>]
+apiKeys [<account>] [add [readOnly | readWrite] [key <key>] [<description>] | remove <key>]
 ```
 
 A fingerprint is written as OpenSSH writes it, `SHA256:...`, or by enough of
-its beginning to be only one key's; an API key by its beginning, which is
-all a list shows of it - the whole key is shown once, when it is made, and
-never again, because whoever has it is signed in as its account. An API key
-is read-only unless `readWrite` says otherwise. Over SSH the account may be
-left out, and is then the one signed in; another account's keys are for
+its beginning to be only one key's; an API key whole, or by enough of its
+beginning. A list shows each API key whole: it is a secret the account
+shares with its programs, shown to the account or to whoever may act for it.
+An API key is read-only unless `readWrite` says otherwise, and is the one
+given after `key` - letters, digits and `. _ ~ -`, at least 20 of them, so
+that it goes into an `API-Key` header and a URL as it is - or else 40
+letters and digits made by the node. Over SSH the account may be left
+out, and is then the one signed in; another account's keys are for
 whoever the HTTPExt API lets act for it - as its routes
 `/ext/users/{UserId}/SSHKeys` and the API keys' own decide - which is an
 admin of its admins' organization, `Admins`. A node does not make that
 organization by itself, so until somebody does, another account's keys are
 the console's alone. The console names the account, and may do everything.
 Every key let in or taken out is in the log, tagged `security`, naming who
-did it. A key switched off - on the account's page - is listed as switched
-off, and signs nobody in until it is switched on again.
+did it - an API key by its beginning only, for the log is read by others.
+A key switched off - on the account's page - is listed as switched off, and
+signs nobody in until it is switched on again.
 
 **The account's own page** (`/account`) opens from the name at the foot of
 the menu. Everybody signed in has one, whatever their roles, and it is their
@@ -720,11 +724,12 @@ at another - the system administrator's included, as above. Three tabs:
 homepage and a description, saved with `SET /ext/users/{UserId}`, which
 takes the whole account, so the page sends back what it was given with what
 the form changed; the organizations the account belongs to are shown, not
-changed. **API keys** - made on the page, 40 letters and digits from the
-browser's random source, read-only unless it says otherwise and valid until
-a day or for good, and shown once, when they are made; the list shows a
-key's beginning. **SSH keys** - an `authorized_keys` line added with a label,
-as `sshKeys` takes it. Either kind of key is switched off and on again with
+changed. **API keys** - typed in, as `apiKeys add ... key` takes one, or
+else made on the page, 40 letters and digits from the browser's random
+source; read-only unless it says otherwise and valid until a day or for
+good; the list shows each key whole, with a button to copy it.
+**SSH keys** - an `authorized_keys` line added with a label, as `sshKeys`
+takes it. Either kind of key is switched off and on again with
 `SET .../APIKeys/{key}` or `SET .../SSHKeys/{fingerprint}` and
 `{"isDisabled": true|false}`, and removed after a question. What the page
 changes is in the accounts' database file, with the account that did it, and

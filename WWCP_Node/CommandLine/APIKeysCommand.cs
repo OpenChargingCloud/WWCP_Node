@@ -34,15 +34,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
     /// <remarks>
     /// <para>
     /// apiKeys [&lt;account&gt;] lists them; apiKeys [&lt;account&gt;] add
-    /// [readOnly | readWrite] [&lt;description&gt;] makes one - read-only unless
-    /// it is said otherwise - and apiKeys [&lt;account&gt;] remove &lt;key&gt;
-    /// takes one back: nobody is signed in with it from that moment on.
+    /// [readOnly | readWrite] [key &lt;key&gt;] [&lt;description&gt;] makes one -
+    /// read-only unless it is said otherwise, the key given or else made here
+    /// - and apiKeys [&lt;account&gt;] remove &lt;key&gt; takes one back: nobody
+    /// is signed in with it from that moment on.
     /// </para>
     /// <para>
-    /// An API key is its own secret: whoever has it is signed in as its
-    /// account. So a list shows only the beginning of each key, enough to tell
-    /// them apart and to name one to remove; the whole key is shown once, when
-    /// it is made, and never again.
+    /// An API key is a secret the account shares with its programs, and the
+    /// list shows each whole: it is shown to the account itself, or to whoever
+    /// may act for it. The log, which others read, names a key by its
+    /// beginning only.
     /// </para>
     /// <para>
     /// Whose keys are whose to manage is decided as for the SSH keys: an
@@ -63,9 +64,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         public const   String  CommandName  = "apiKeys";
 
         /// <summary>
-        /// How much of a key a list shows.
+        /// How much of a key the log shows.
         /// </summary>
-        public const   Int32   Shown        = 8;
+        public const   Int32   ShownInTheLog  = 8;
 
         /// <summary>
         /// How long a key made here is: 40 characters of 62, some 238 bits.
@@ -73,6 +74,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         public const   Int32   KeyLength    = 40;
 
         private const  String  KeyCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+        /// <summary>
+        /// The characters a key given may have besides letters and digits:
+        /// with them, it goes into an API-Key header and into the path of
+        /// .../APIKeys/{key} as it is.
+        /// </summary>
+        public const   String  OtherKeyCharacters = "._~-";
 
         #endregion
 
@@ -160,7 +168,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [<account>] [add [readOnly | readWrite] [<description>] | remove <key>] - the API keys of an account";
+            => $"{CommandName} [<account>] [add [readOnly | readWrite] [key <key>] [<description>] | remove <key>] - the API keys of an account";
 
         #endregion
 
@@ -177,7 +185,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             if (keys.Length == 0)
                 return [ $"'{Account.Id}' has no API key." ];
 
-            return [ .. keys.Select(key => $"{Beginning(key)}  {key.AccessRights}" +
+            return [ .. keys.Select(key => $"{key.Id}  {key.AccessRights}" +
                                            $"  made {key.Created.ToLocalTime():yyyy-MM-dd HH:mm}" +
                                            (key.NotAfter.HasValue ? $", valid until {key.NotAfter.Value.ToLocalTime():yyyy-MM-dd HH:mm}" : "") +
                                            (key.IsDisabled ? ", switched off" : "") +
@@ -185,10 +193,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         }
 
-        private static String Beginning(APIKey Key)
+        private static String ForTheLog(APIKey Key)
         {
             var text = Key.Id.ToString();
-            return text.Length > Shown ? text[..Shown] + "..." : text;
+            return text.Length > ShownInTheLog ? text[..ShownInTheLog] + "..." : text;
         }
 
         #endregion
@@ -208,8 +216,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 Words  = Words[1..];
             }
 
+            String? given = null;
+
+            if (Words.Length > 0 && Words[0].Equals("key", StringComparison.OrdinalIgnoreCase))
+            {
+
+                if (Words.Length < 2)
+                    return [ $"Usage: {Help()}" ];
+
+                given = Words[1];
+                Words = Words[2..];
+
+                if (!given.All(c => Char.IsAsciiLetterOrDigit(c) || OtherKeyCharacters.Contains(c)))
+                    return [ $"No API key was made: an API key is letters, digits and {String.Join(" ", OtherKeyCharacters.ToCharArray())} only." ];
+
+                if (given.Length < cli.Node.ExtAPI.MinAPIKeyLength)
+                    return [ $"No API key was made: an API key has at least {cli.Node.ExtAPI.MinAPIKeyLength} characters; this one has {given.Length}." ];
+
+            }
+
             var description = String.Join(" ", Words).Trim();
-            var secret      = RandomNumberGenerator.GetString(KeyCharacters, KeyLength);
+            var secret      = given ?? RandomNumberGenerator.GetString(KeyCharacters, KeyLength);
 
             var added = await cli.Node.ExtAPI.AddAPIKey(
                                   new APIKey(APIKey_Id.Parse(secret),
@@ -224,12 +251,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 return [ $"No API key was made: {added.Description?.FirstText() ?? added.Result.ToString()}" ];
 
             cli.Node.Log.Notice(
-                $"{cli.Caller.Asker} gave '{Account.Id}' the API key {secret[..Shown]}... ({rights}).",
+                $"{cli.Caller.Asker} gave '{Account.Id}' the API key {secret[..ShownInTheLog]}... ({rights}).",
                 cli.Caller.Tags("api", "auth", "security")
             );
 
             return [
-                $"'{Account.Id}' has a new API key, {rights}. It is shown here once, and never again:",
+                $"'{Account.Id}' has a new API key, {rights}:",
                 secret
             ];
 
@@ -256,14 +283,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             var removed = await cli.Node.ExtAPI.RemoveAPIKey(matching[0], CurrentUserId: cli.Caller.Account?.Id);
 
             if (removed.Result != CommandResult.Success)
-                return [ $"The API key {Beginning(matching[0])} was not taken back: {removed.Description?.FirstText() ?? removed.Result.ToString()}" ];
+                return [ $"The API key {matching[0].Id} was not taken back: {removed.Description?.FirstText() ?? removed.Result.ToString()}" ];
 
             cli.Node.Log.Notice(
-                $"{cli.Caller.Asker} took the API key {Beginning(matching[0])} from '{Account.Id}': nobody is signed in with it from now on.",
+                $"{cli.Caller.Asker} took the API key {ForTheLog(matching[0])} from '{Account.Id}': nobody is signed in with it from now on.",
                 cli.Caller.Tags("api", "auth", "security")
             );
 
-            return [ $"The API key {Beginning(matching[0])} signs '{Account.Id}' in no more." ];
+            return [ $"The API key {matching[0].Id} signs '{Account.Id}' in no more." ];
 
         }
 
