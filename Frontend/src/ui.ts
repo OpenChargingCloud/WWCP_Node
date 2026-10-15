@@ -346,6 +346,7 @@ function isTimestamp(text: string): boolean {
  */
 const acronyms = new Map<string, string>([
     ['id',    'ID'],
+    ['ids',   'IDs'],
     ['url',   'URL'],
     ['uri',   'URI'],
     ['http',  'HTTP'],
