@@ -185,6 +185,17 @@ describe('a change of who is signed in', () => {
         assert.equal(afterASignInChange(null, '/login',  open).toTheSignIn, false);
     });
 
+    it('takes an open page with parameters for every path the router finds it at', () => {
+
+        const withParameters = new Set([ '/login', '/poi/RNs/:rn/CPs' ]);
+
+        assert.equal(afterASignInChange(null, '/poi/RNs/rn1/CPs',      withParameters).toTheSignIn, false);
+        assert.equal(afterASignInChange(null, '/poi/RNs/rn1/CPs/more', withParameters).toTheSignIn, true);
+        assert.equal(afterASignInChange(null, '/poi/RNs//CPs',         withParameters).toTheSignIn, true);
+        assert.equal(afterASignInChange(null, '/poi/RNs/rn1/CSOs',     withParameters).toTheSignIn, true);
+
+    });
+
 });
 
 

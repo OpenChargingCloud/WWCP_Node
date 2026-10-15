@@ -232,8 +232,37 @@ export function afterASignInChange(User:  NodeMe<string> | null,
 
     return {
         followTheLog:  User?.mayReadTheLog === true,
-        toTheSignIn:   User === null && !Open.has(Route)
+        toTheSignIn:   User === null && !isOpen(Route, Open)
     };
+
+}
+
+/**
+ * Whether the path is one of the open ones - which are the paths of routes,
+ * and so may have parameters: "/poi/RNs/:rn/CPs" is open for
+ * "/poi/RNs/rn1/CPs" as the router finds its page there.
+ */
+function isOpen(Path: string, Open: ReadonlySet<string>): boolean {
+
+    if (Open.has(Path))
+        return true;
+
+    const segments = Path.split('/');
+
+    for (const route of Open)
+    {
+
+        const routeSegments = route.split('/');
+
+        if (routeSegments.length === segments.length &&
+            routeSegments.every((segment, index) => segment.startsWith(':') ? segments[index] !== '' : segment === segments[index]))
+        {
+            return true;
+        }
+
+    }
+
+    return false;
 
 }
 

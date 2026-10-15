@@ -156,15 +156,20 @@ export function shell(root:     HTMLElement,
                 ${menuView(visibleMenu(), options.active)}
 
                 <div id="sidebar-foot" class="sidebar-foot">
-                    <a class="who ${options.active === '/account' ? 'active' : ''}" id="who" href="${toURL('/account')}"
-                       title="${who !== null && who !== undefined ? `${who.title}. ` : ''}Your account and its keys">
-                        <i class="fa-solid fa-user"></i>
-                        <span>${me?.username ?? '-'}</span>
-                    </a>
-                    ${who?.line
-                          ? html`<div class="roles small muted">${who.line}</div>`
-                          : nothing}
-                    <button type="button" id="sign-out" class="btn small" @click=${() => void auth.signOut()}>Sign out</button>
+                    ${me === null
+                          // On a page anybody may open: nobody to show, and a way to sign in
+                          // that comes back here.
+                          ? html`<a class="btn small" id="sign-in" href=${toURL(auth.requireSignIn(new URL(location.href)) ?? '/login')}>Sign in</a>`
+                          : html`
+                              <a class="who ${options.active === '/account' ? 'active' : ''}" id="who" href="${toURL('/account')}"
+                                 title="${who !== null && who !== undefined ? `${who.title}. ` : ''}Your account and its keys">
+                                  <i class="fa-solid fa-user"></i>
+                                  <span>${me.username}</span>
+                              </a>
+                              ${who?.line
+                                    ? html`<div class="roles small muted">${who.line}</div>`
+                                    : nothing}
+                              <button type="button" id="sign-out" class="btn small" @click=${() => void auth.signOut()}>Sign out</button>`}
                     <div class="versions small muted">
                         ${versions()}
                     </div>

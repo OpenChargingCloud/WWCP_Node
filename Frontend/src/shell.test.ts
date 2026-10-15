@@ -422,6 +422,23 @@ describe('the frame of a page', () => {
 
     });
 
+    it('offers to sign in on a page anybody may open, coming back to it, and names nobody', () => {
+
+        configureShell({ name: 'Local Controller', icon: 'fa-sitemap', menu });
+        auth.set(null);
+
+        history.replaceState(null, '', '/poi/RNs/rn1/CPs?match=jena');
+
+        const root = document.createElement('div');
+        shell(root, { active: '/poi/RNs', title: 'Charging pools' });
+
+        // Below the base, as every link: the sign-in is the router's, and comes back to the route.
+        assert.ok(root.querySelector('#sign-in')!.getAttribute('href')!.endsWith(`/login?next=${encodeURIComponent('/poi/RNs/rn1/CPs?match=jena')}`));
+        assert.equal(root.querySelector('#sign-out'), null);
+        assert.equal(root.querySelector('#who'),      null);
+
+    });
+
 });
 
 

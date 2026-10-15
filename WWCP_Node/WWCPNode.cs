@@ -454,6 +454,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public HTTPAPI?               WebInterface                 { get; }
 
         /// <summary>
+        /// What answers the web interface's requests with the files of the
+        /// bundle and the application stub; null without a web interface.
+        /// </summary>
+        public SinglePageAppHandler?  WebInterfaceHandler          { get; }
+
+        /// <summary>
         /// The JSON API below "/api" that a kind of node derived from
         /// <see cref="NodeHTTPAPI"/>, once it has made it; null before.
         /// </summary>
@@ -1053,7 +1059,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 this.WebInterface = this.HTTPServer.AddHTTPAPI(this.BasePath);
 
-                this.WebInterface.MapSinglePageApplication(
+                this.WebInterfaceHandler = this.WebInterface.MapSinglePageApplication(
                     this.Frontend,
                     new SinglePageAppOptions {
 
@@ -1187,6 +1193,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+
+        #region WebInterfacePage(Request)
+
+        /// <summary>
+        /// The application stub of the web interface, for a request a browser
+        /// sends to the URL of an API of this node that has a page of its own:
+        /// the page reads where it is from the URL, and asks the very same URL
+        /// for its data, as JSON. 404 where there is no web interface.
+        /// </summary>
+        /// <param name="Request">An HTTP request preferring text/html.</param>
+        public Task<HTTPResponse> WebInterfacePage(HTTPRequest Request)
+
+            => WebInterfaceHandler?.HandleAsync(Request)
+
+               ?? Task.FromResult(
+                      new HTTPResponse.Builder(Request) {
+                          HTTPStatusCode  = HTTPStatusCode.NotFound,
+                          ContentType     = HTTPContentType.Text.PLAIN,
+                          Content         = "This node has no web interface.".ToUTF8Bytes()
+                      }.AsImmutable
+                  );
+
+        #endregion
 
         #region (private static) IsEventStream(Request)
 
