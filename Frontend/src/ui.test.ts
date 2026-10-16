@@ -240,6 +240,8 @@ describe('a key as a label', () => {
         assert.equal(humanizeKey('queryTimeoutSeconds'), 'Query timeout seconds');
         assert.equal(humanizeKey('seccId'),              'SECC ID');
         assert.equal(humanizeKey('brandIds'),            'Brand IDs');
+        assert.equal(humanizeKey('EVSEIds'),             'EVSE IDs');
+        assert.equal(humanizeKey('EVSEGroups'),          'EVSE groups');
         assert.equal(humanizeKey('cdrs'),                'CDRs');
         assert.equal(humanizeKey('evseSoc'),             'EVSE SoC');
         assert.equal(humanizeKey('maxPowerKw'),          'Max power kW');

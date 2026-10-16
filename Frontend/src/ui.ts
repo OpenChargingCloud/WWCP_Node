@@ -392,7 +392,9 @@ const acronyms = new Map<string, string>([
 /** "frontendFiles" reads better as "Frontend files". */
 export function humanizeKey(key: string): string {
 
-    const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').
+    // An acronym before a word is a word of its own: "EVSEIds" is "EVSE Ids", read "EVSE IDs".
+    const words = key.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').
+                      replace(/([a-z0-9])([A-Z])/g, '$1 $2').
                       replace(/_/g, ' ').
                       split(' ').
                       filter(word => word.length > 0).
