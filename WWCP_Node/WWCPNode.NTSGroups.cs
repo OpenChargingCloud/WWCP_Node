@@ -19,6 +19,8 @@
 
 using System.Diagnostics.CodeAnalysis;
 
+using Newtonsoft.Json.Linq;
+
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 
@@ -63,6 +65,67 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public NTSGroup? NTSGroupOf(String Id)
 
             => ntsGroups.FirstOrDefault(group => group.Id == Id);
+
+        #endregion
+
+        #region NTSGroupsJSON()
+
+        /// <summary>
+        /// Every group of time servers of this node, as a page lists them in
+        /// its tabs - and the names it may suggest for one more.
+        /// </summary>
+        /// <remarks>
+        /// The name a page shows is the page's to choose, by its language,
+        /// from the display name; a group without one is "&lt;id&gt; time".
+        /// </remarks>
+        public JObject NTSGroupsJSON()
+        {
+
+            var groups = ntsGroups;
+
+            return new JObject(
+                       new JProperty("groups",     new JArray(groups.Select(NTSGroupJSON))),
+                       new JProperty("suggested",  new JArray(NTSSection.SuggestedIds.Where(id => groups.All(group => group.Id != id)))),
+                       new JProperty("limits",     new JObject(
+                           new JProperty("maxIdLength",           NTSSection.MaxIdLength),
+                           new JProperty("maxDisplayNameLength",  NTSConfiguration.MaxDisplayNameLength)
+                       )),
+                       new JProperty("file",       ConfigFile.Path)
+                   );
+
+        }
+
+        #endregion
+
+        #region NTSGroupJSON(Group)
+
+        /// <summary>
+        /// One group in a few words: what it is called, whether it is asked,
+        /// whom, and what the last check found.
+        /// </summary>
+        public JObject NTSGroupJSON(NTSGroup Group)
+        {
+
+            var checkedAt = Group.LastCheck;
+            var age       = checkedAt.HasValue ? TimeProvider.GetUtcNow() - checkedAt.Value : (TimeSpan?) null;
+
+            return new JObject(
+                       new JProperty("id",            Group.Id),
+                       new JProperty("displayName",   Group.DisplayName is { } name ? NTSConfiguration.DisplayNameJSON(name) : null),
+                       new JProperty("legal",         Group.IsLegal),
+                       new JProperty("enabled",       Group.Enabled),
+                       new JProperty("checking",      Group.IsChecking),
+                       new JProperty("servers",       new JArray(CheckedAgainst(Group))),
+                       new JProperty("minServers",    Group.Sources.MinServers),
+                       new JProperty("everySeconds",  Math.Round(Group.CheckEvery.TotalSeconds, 0)),
+                       new JProperty("checkedAt",     checkedAt?.ToString("o")),
+                       new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),
+                       new JProperty("offset_ms",     Group.LastCheckOffset.HasValue ? Math.Round(Group.LastCheckOffset.Value.TotalMilliseconds, 1) : null),
+                       new JProperty("asked",         Group.LastCheckAsked),
+                       new JProperty("answered",      Group.LastCheckAnswered)
+                   );
+
+        }
 
         #endregion
 

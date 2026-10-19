@@ -333,7 +333,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                             : "unknown"),
 
                        new JProperty("toleranceSeconds",  Math.Round(LegalTimeTolerance.TotalSeconds, 3)),
-                       new JProperty("maxAgeSeconds",     Math.Round(LegalTimeMaxAge.   TotalSeconds, 0))
+                       new JProperty("maxAgeSeconds",     Math.Round(LegalTimeMaxAge.   TotalSeconds, 0)),
+
+                       // Every group, the legal one among them where there is
+                       // one: what each was last found to say about this clock.
+                       // The time above is still this node's own, and only the
+                       // legal group decides the word "legal".
+                       new JProperty("groups",            new JArray(NTSGroups.Select(NTSGroupJSON)))
 
                    );
 

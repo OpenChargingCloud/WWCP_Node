@@ -1761,6 +1761,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             return new JObject(
 
+                       // Which group, as the list of groups names it.
+                       new JProperty("id",           Group.Id),
+                       new JProperty("displayName",  Group.DisplayName is { } displayName ? NTSConfiguration.DisplayNameJSON(displayName) : null),
+                       new JProperty("legal",        Group.IsLegal),
+
                        new JProperty("enabled",      Group.Enabled),
 
                        // What may be changed about the group and the test, as

@@ -47,6 +47,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             AddHandler(HTTPPath.Root + "v1/configuration/nts/sync",   PostNTSSync,           HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/nts/test",   PostNTSTest,           HTTPMethod.POST);
 
+            RegisterNTSGroupRoutes();
+
         }
 
         #endregion
@@ -167,7 +169,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         #region (private) GetNTSConfiguration(Request) / PutNTSConfiguration(Request) / PostNTSSync(Request)
 
         /// <summary>
-        /// GET /api/v1/configuration/nts: where this node gets the time from.
+        /// GET /api/v1/configuration/nts: where this node gets its legal time
+        /// from - the legal group, as /nts/groups/legal says it, and 404 where
+        /// the node has none.
         /// </summary>
         private Task<HTTPResponse> GetNTSConfiguration(HTTPRequest Request)
         {
@@ -175,14 +179,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryAuthorize(Request, Permission.Read(NodeResources.NTS), false, out _, out var refused))
                 return Task.FromResult(refused);
 
+            if (!TryGetNTSGroup(Request, NTSGroup.LegalId, out var legal, out var notFound))
+                return Task.FromResult(notFound);
+
             return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Node.NTSConfigurationJSON())
+                       JSONResponse(Request, HTTPStatusCode.OK, Node.NTSConfigurationJSON(legal))
                    );
 
         }
 
         /// <summary>
-        /// PUT /api/v1/configuration/nts: change what may be changed about it.
+        /// PUT /api/v1/configuration/nts: change what may be changed about the
+        /// legal group.
         /// </summary>
         private Task<HTTPResponse> PutNTSConfiguration(HTTPRequest Request)
         {
@@ -190,17 +198,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryAuthorize(Request, Permission.Edit(NodeResources.NTS), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
-            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return Task.FromResult(errorResponse);
+            if (!TryGetNTSGroup(Request, NTSGroup.LegalId, out var legal, out var notFound))
+                return Task.FromResult(notFound);
 
-            if (!Node.TryUpdateNTSConfiguration(json, out var error, out var notSaved))
-                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
-
-            Log.Notice($"'{user.Id}' changed the time source of this {Node.Kind.Name}.", "nts", "web");
-
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Node.NTSConfigurationJSON())
-                   );
+            return Task.FromResult(ChangeNTSGroup(Request, user, legal));
 
         }
 
@@ -220,19 +221,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryAuthorize(Request, Permission.Run (NodeResources.NTS), true, out var user, out var refused))
                 return refused;
 
-            // A notice rather than information: a request about the clock that
-            // everything this node writes down is stamped with wants somebody's
-            // attention - the energy meter's users asked for it, and it is the
-            // same request on every kind.
-            Log.Notice($"'{user.Id}' asked this {Node.Kind.Name} to synchronise its time.", "nts", "test", "web");
+            if (!TryGetNTSGroup(Request, NTSGroup.LegalId, out var legal, out var notFound))
+                return notFound;
 
-            var result = await Node.SyncTimeAsync(Request.CancellationToken);
-
-            var json   = Node.NTSConfigurationJSON();
-
-            json["result"] = result;
-
-            return JSONResponse(Request, HTTPStatusCode.OK, json);
+            return await SyncNTSGroup(Request, user, legal);
 
         }
 
@@ -267,25 +259,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryAuthorize(Request, Permission.Run (NodeResources.NTS), true, out var user, out var refused))
                 return refused;
 
-            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return errorResponse;
+            if (!TryGetNTSGroup(Request, NTSGroup.LegalId, out var legal, out var notFound))
+                return notFound;
 
-            if (json["host"] is JToken hostToken && hostToken.Type is not (JTokenType.String or JTokenType.Null))
-                return ErrorJSON(Request, HTTPStatusCode.BadRequest, "'host' must be the name or the address of a time server.");
-
-            var host = json.Value<String>("host")?.Trim();
-
-            if (host?.Length == 0)
-                host = null;
-
-            Log.Info($"'{user.Id}' asked this {Node.Kind.Name} to test {(host is null ? "its time server" : $"the time server '{host}'")}.",
-                     "nts", "test", "web");
-
-            return JSONResponse(
-                       Request,
-                       HTTPStatusCode.OK,
-                       await Node.TestTimeServerAsync(host, Request.CancellationToken)
-                   );
+            return await TestNTSGroup(Request, user, legal);
 
         }
 

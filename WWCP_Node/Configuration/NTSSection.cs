@@ -77,6 +77,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                                          "legalTimeMaxAgeSeconds"
                                                      ];
 
+        /// <summary>
+        /// The names a page suggests for a new group: the white paper's two,
+        /// and one for the grid operator's time.
+        /// </summary>
+        public static readonly IReadOnlyList<String> SuggestedIds = [
+                                                         "legal",
+                                                         "local",
+                                                         "grid"
+                                                     ];
+
         private static readonly Regex groupId = new ("^[a-z][a-z0-9-]*$", RegexOptions.CultureInvariant);
 
         #endregion
