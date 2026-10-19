@@ -54,6 +54,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
     /// Neither steps the clock: they say whether the time servers can be
     /// reached and what they think of the local clock.
     ///
+    /// Of the legal group unless the first word names another - "syncNTS
+    /// local", "syncNTS local lc1.local" - as the page asks the group of the
+    /// tab it shows. A first word that is no group's name is a server of the
+    /// legal group, which is what it was before there were groups.
+    ///
     /// Every kind of node had a copy of this, six of them alike but for the
     /// name of the node, and the local controller's older than the rest: no
     /// server to test, and none to complete.
@@ -77,12 +82,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         #region Suggest(Arguments)
 
         /// <summary>
-        /// Complete the command, and then its one argument from the time
-        /// servers the node has.
+        /// Complete the command, then its first argument from the groups and
+        /// the legal group's time servers, and after a group from that
+        /// group's servers.
         /// </summary>
         /// <remarks>
-        /// The servers are offered as soon as the command is whole, and not
-        /// only once something of a server has been typed. The command line
+        /// What there is to offer is offered as soon as the command is whole,
+        /// and not only once something of it has been typed. The command line
         /// is split on whitespace and keeps no empty word at its end, so
         /// "syncNTS " arrives here as "syncNTS" alone - and a Tab there that
         /// answered with the command it already was would never show the list
@@ -91,7 +97,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         public override IEnumerable<SuggestionResponse> Suggest(String[] Arguments)
         {
 
-            #region The command itself - and, once it is whole, the servers
+            #region The command itself - and, once it is whole, what may follow it
 
             if (Arguments.Length == 1)
             {
@@ -99,8 +105,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 if (CommandName.Equals(Arguments[0], StringComparison.CurrentCultureIgnoreCase))
                 {
 
-                    var all = TimeServers().
-                                  Select(server => SuggestionResponse.ParameterPrefix($"{CommandName} {server}")).
+                    var all = FirstWords().
+                                  Select(word => SuggestionResponse.ParameterPrefix($"{CommandName} {word}")).
                                   ToArray();
 
                     return all.Length > 0
@@ -118,31 +124,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             #endregion
 
-            #region ... and the server to test
+            if (!CommandName.Equals(Arguments[0], StringComparison.CurrentCultureIgnoreCase))
+                return [];
 
-            if (Arguments.Length == 2 &&
-                CommandName.Equals(Arguments[0], StringComparison.CurrentCultureIgnoreCase))
-            {
+            #region ... a group, or a server of the legal group
 
-                var list = new List<SuggestionResponse>();
+            if (Arguments.Length == 2)
+                return Offered(FirstWords(), Arguments[1], CommandName);
 
-                foreach (var server in TimeServers())
-                {
+            #endregion
 
-                    if (!server.StartsWith(Arguments[1], StringComparison.CurrentCultureIgnoreCase))
-                        continue;
+            #region ... and after a group, one of its servers
 
-                    list.Add(
-                        server.Equals(Arguments[1], StringComparison.CurrentCultureIgnoreCase)
-                            ? SuggestionResponse.ParameterCompleted($"{CommandName} {server}")
-                            : SuggestionResponse.ParameterPrefix   ($"{CommandName} {server}")
-                    );
-
-                }
-
-                return list;
-
-            }
+            if (Arguments.Length == 3 && cli.Node.NTSGroupOf(Arguments[1]) is NTSGroup group)
+                return Offered(TimeServers(group), Arguments[2], $"{CommandName} {group.Id}");
 
             #endregion
 
@@ -158,7 +153,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                                      CancellationToken  CancellationToken)
         {
 
-            if (Arguments.Length > 2)
+            if (Arguments.Length > 3)
                 return [ $"Usage: {Help()}" ];
 
             // What 'Sync now' and the Test button need on the page: running the
@@ -167,20 +162,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             if (!cli.MayDo(Permission.Run(NodeResources.NTS), CommandName, out var refused))
                 return [ refused ];
 
-            #region One server, in detail
+            #region Which group: the one named first, or the legal one
 
-            if (Arguments.Length == 2)
+            // A word that is the name of a group is that group, and anything
+            // else a server of the legal group, which is what this command was
+            // before there were groups: "syncNTS ptbtime2.ptb.de" still tests
+            // that server.
+            var named  = Arguments.Length >= 2 ? cli.Node.NTSGroupOf(Arguments[1]) : null;
+            var group  = named ?? cli.Node.NTSGroupOf(NTSGroup.LegalId);
+            var next   = named is null ? 1 : 2;
+
+            if (Arguments.Length > next + 1)
+                return [ $"Usage: {Help()}" ];
+
+            if (group is null)
             {
 
-                var wanted  = Arguments[1].Trim().TrimEnd('.');
-                var server  = cli.Node.TimeSources.Sources.FirstOrDefault(source => String.Equals(source.Hostname.Trimmed,
-                                                                                                  wanted,
-                                                                                                  StringComparison.OrdinalIgnoreCase));
+                var groups = cli.Node.NTSGroups.Select(other => other.Id).ToArray();
+
+                return [ groups.Length > 0
+                             ? $"This {cli.Node.Kind.Name} has no legal time to ask about. Name one of its NTS groups: {String.Join(", ", groups)}."
+                             : $"This {cli.Node.Kind.Name} checks its clock against no group of time servers." ];
+
+            }
+
+            #endregion
+
+            #region One server of it, in detail
+
+            if (Arguments.Length == next + 1)
+            {
+
+                var wanted  = Arguments[next].Trim().TrimEnd('.');
+                var server  = group.Sources.Sources.FirstOrDefault(source => String.Equals(source.Hostname.Trimmed,
+                                                                                           wanted,
+                                                                                           StringComparison.OrdinalIgnoreCase));
 
                 // Said and nothing more. Not written to the log either: nothing
                 // was asked of anybody, which is what the log is a book of.
                 if (server is null)
-                    return [ $"'{Arguments[1]}' is none of this {cli.Node.Kind.Name}'s time servers, which are {String.Join(", ", TimeServers())}." ];
+                {
+
+                    var servers = TimeServers(group).ToArray();
+
+                    return [ servers.Length == 0
+                                 ? $"NTS group '{group.Id}' names no time server."
+                                 : group.IsLegal
+                                       ? $"'{Arguments[next]}' is none of this {cli.Node.Kind.Name}'s time servers, which are {String.Join(", ", servers)}."
+                                       : $"'{Arguments[next]}' is none of the time servers of NTS group '{group.Id}', which are {String.Join(", ", servers)}." ];
+
+                }
 
                 // The name as the page sends it for the Test button of that
                 // row - as it is read, without the root's dot - so that the
@@ -190,11 +221,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 var host = server.Hostname.Trimmed;
 
                 cli.Node.Log.Info(
-                    $"{cli.Caller.Asker} asked this {cli.Node.Kind.Name} to test the time server '{host}'.",
+                    $"{cli.Caller.Asker} asked this {cli.Node.Kind.Name} to test the time server '{host}'" +
+                    (group.IsLegal ? "." : $" of the NTS group '{group.Id}'."),
                     cli.Caller.Tags("nts", "test")
                 );
 
-                return Tested(await cli.Node.TestTimeServerAsync(host, CancellationToken));
+                return Tested(await cli.Node.TestTimeServerAsync(group, host, CancellationToken));
 
             }
 
@@ -209,11 +241,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             // asked, because the entries that follow record which servers were
             // asked and what came of it, and nothing in them says who wanted it.
             cli.Node.Log.Notice(
-                $"{cli.Caller.Asker} asked this {cli.Node.Kind.Name} to synchronise its time.",
+                group.IsLegal
+                    ? $"{cli.Caller.Asker} asked this {cli.Node.Kind.Name} to synchronise its time."
+                    : $"{cli.Caller.Asker} asked this {cli.Node.Kind.Name} to check its time against the NTS group '{group.Id}'.",
                 cli.Caller.Tags("nts", "test")
             );
 
-            var result = await cli.Node.SyncTimeAsync(CancellationToken);
+            var result = await cli.Node.SyncTimeAsync(group, CancellationToken);
 
             return Outcome(result);
 
@@ -225,26 +259,75 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [<time server>] - ask the time servers what the time is, as 'Sync now' on the NTS page does, " +
-                "or test one of them in detail, as its Test button does; the clock is not stepped";
+            => $"{CommandName} [<group>] [<time server>] - ask a group of time servers what the time is, the legal one " +
+                "unless another is named, as 'Sync now' on the NTS page does, or test one of its servers in detail, as " +
+                "its Test button does; the clock is not stepped";
 
         #endregion
 
 
-        #region (private) TimeServers()
+        #region (private) FirstWords()
 
         /// <summary>
-        /// The time servers of the node, switched on or not, as somebody
-        /// types them: without the root's dot.
+        /// What may follow the command: the name of every group but the legal
+        /// one, which is what the command asks without a name, and the legal
+        /// group's time servers.
+        /// </summary>
+        private IEnumerable<String> FirstWords()
+        {
+
+            foreach (var group in cli.Node.NTSGroups.Where(group => !group.IsLegal))
+                yield return group.Id;
+
+            if (cli.Node.NTSGroupOf(NTSGroup.LegalId) is NTSGroup legal)
+                foreach (var server in TimeServers(legal))
+                    yield return server;
+
+        }
+
+        #endregion
+
+        #region (private static) TimeServers(Group)
+
+        /// <summary>
+        /// The time servers of a group, switched on or not, as somebody types
+        /// them: without the root's dot.
         /// </summary>
         /// <remarks>
         /// Switched-off ones as well, because the page tests those too: finding
         /// out whether a server answers is what somebody does before switching
         /// it on.
         /// </remarks>
-        private IEnumerable<String> TimeServers()
+        private static IEnumerable<String> TimeServers(NTSGroup Group)
 
-            => cli.Node.TimeSources.Sources.Select(source => source.Hostname.Trimmed);
+            => Group.Sources.Sources.Select(source => source.Hostname.Trimmed);
+
+        #endregion
+
+        #region (private static) Offered(Words, Typed, Before)
+
+        /// <summary>
+        /// The words that begin with what was typed, each after what came
+        /// before it: completed where it is the whole word, a prefix otherwise.
+        /// </summary>
+        private static IEnumerable<SuggestionResponse> Offered(IEnumerable<String>  Words,
+                                                               String               Typed,
+                                                               String               Before)
+        {
+
+            foreach (var word in Words)
+            {
+
+                if (!word.StartsWith(Typed, StringComparison.CurrentCultureIgnoreCase))
+                    continue;
+
+                yield return word.Equals(Typed, StringComparison.CurrentCultureIgnoreCase)
+                                 ? SuggestionResponse.ParameterCompleted($"{Before} {word}")
+                                 : SuggestionResponse.ParameterPrefix   ($"{Before} {word}");
+
+            }
+
+        }
 
         #endregion
 
@@ -392,7 +475,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// and a node in a German locale would otherwise write "+1,2 ms" in
         /// the middle of one.
         /// </summary>
-        private static String Milliseconds(Double? Value, Boolean Signed = false)
+        internal static String Milliseconds(Double? Value, Boolean Signed = false)
 
             => Value is Double value
                    ? value.ToString(Signed ? "+0.0;-0.0;0.0" : "0.0", CultureInfo.InvariantCulture) + " ms"

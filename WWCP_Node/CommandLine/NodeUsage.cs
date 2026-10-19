@@ -154,12 +154,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         /// <summary>
         /// What --config says of a kind of node that keeps nothing of its own
-        /// in the configuration file: the name servers and the time servers.
+        /// in the configuration file: the name servers and the groups of time servers.
         /// </summary>
         /// <param name="Kind">The kind of node.</param>
         public static String DefaultConfigurationSays(NodeKind Kind)
 
-            => $"where the name servers and the time servers of this {Kind.Name} live (default: " +
+            => $"where the name servers and the groups of time servers of this {Kind.Name} live (default: " +
                $"{WWCPConfigFile.DefaultFileName} below the repository root). Without the file the {Kind.Name} " +
                 "runs on the system defaults; the Configuration pages of the web interface write it, and every " +
                 "change there takes effect at once.";

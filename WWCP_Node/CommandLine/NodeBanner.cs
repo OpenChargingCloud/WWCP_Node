@@ -301,6 +301,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                                                       Int32     Room = Int32.MaxValue)
         {
 
+            List<(String Label, String Value)> lines = Node.NTSGroupOf(NTSGroup.LegalId) is null
+                                                           ? [ ("time servers", "none for legal time") ]
+                                                           : LegalTimeServers(Node, Room);
+
+            // Every other group a line of its own, or as many as its servers
+            // need, under one label short enough to leave the column where it
+            // is: a group's name can be 32 characters long, and the column is
+            // what the station's CI reads the banner by.
+            var others = Node.NTSGroups.Where(group => !group.IsLegal).ToArray();
+
+            for (var i = 0; i < others.Length; i++)
+            {
+
+                var group    = others[i];
+                var servers  = group.Sources.Sources.Select(source => source.Hostname.Trimmed).ToArray();
+                var after    = (servers.Length > 1 ? $" - at least {group.Sources.MinServers} must answer" : "") +
+                               (group.Enabled      ? "" : " (switched off)");
+
+                lines.Add((i == 0 ? "NTS groups" : "",
+                           servers.Length == 0
+                               ? $"{group.Id}: no time server yet{after}"
+                               : Fitted([ $"{group.Id}: {servers[0]}", .. servers.Skip(1) ], after, Room)));
+
+            }
+
+            return lines;
+
+        }
+
+        /// <summary>
+        /// The time servers of the legal group, as the banner said them before
+        /// there were others.
+        /// </summary>
+        private static List<(String Label, String Value)> LegalTimeServers(WWCPNode  Node,
+                                                                           Int32     Room)
+        {
+
             var bands  = Node.TimeSources.Bands();
             var asked  = bands.SelectMany(band => band).ToArray();
             var lines  = new List<(String Label, String Value)>();
