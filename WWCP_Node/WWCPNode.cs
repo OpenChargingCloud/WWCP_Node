@@ -202,7 +202,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// each with its servers, its client, its timer and what its last
         /// check found - see <see cref="NTSGroup"/>.
         /// </summary>
-        private readonly  List<NTSGroup>                  ntsGroups = [];
+        /// <remarks>
+        /// Replaced whole, under the reconfiguration lock, and never changed in
+        /// place: a key exchange reads it from wherever it runs, to find what
+        /// its server is held to, and a list being added to under it would be
+        /// a list it cannot read.
+        /// </remarks>
+        private volatile  NTSGroup[]                      ntsGroups = [];
 
 
         #endregion
@@ -472,7 +478,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// ones its configuration names, in its order - or the legal one alone,
         /// where it names none.
         /// </summary>
-        public IEnumerable<NTSGroup>  NTSGroups                    => ntsGroups;
+        public IReadOnlyList<NTSGroup>  NTSGroups                  => Array.AsReadOnly(ntsGroups);
 
         /// <summary>
         /// The group legal time rests on.
@@ -482,8 +488,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// without legal time for charging stations - and then switched off and
         /// not among <see cref="NTSGroups"/>: what asks about legal time is told
         /// "switched off", which is the truth, rather than having nothing to ask.
+        /// Replaced by such a one when the legal group is taken away - see
+        /// <see cref="TryRemoveNTSGroupAsync"/>.
         /// </remarks>
-        public NTSGroup               LegalTime                    { get; }
+        public NTSGroup               LegalTime                    { get; private set; }
 
         /// <summary>
         /// Where this node reads the time: the client of the legal group, which
@@ -812,7 +820,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      ntsClient
                                  );
 
-            this.ntsGroups.Add(this.LegalTime);
+            this.ntsGroups = [ this.LegalTime ];
 
             // Every server asks this node about its certificate at its key
             // exchanges - see WWCPNode.TimeServerCertificates.cs.
@@ -829,7 +837,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 // In the order the file names them, which is the order a page
                 // shows them in.
-                this.ntsGroups.Clear();
+                this.ntsGroups = [];
 
                 foreach (var (id, section) in configuration.NTS.Groups)
                 {
@@ -844,11 +852,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     if (!TryCheckNTSQuorum(group, section, out var quorumError))
                         throw new InvalidOperationException($"{quorumError} Repair or remove '{this.ConfigFile.Path}' and start again.");
 
+                    // Listed before its section is put into effect, so that
+                    // what its servers are held to is among what is compared.
+                    this.ntsGroups = [ .. this.ntsGroups, group ];
+
                     ApplyNTSConfiguration(group, section);
 
                     group.Settings = section;
-
-                    this.ntsGroups.Add(group);
 
                 }
 
@@ -1981,6 +1991,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                          NTSConfiguration                  Update,
                                          [NotNullWhen(false)] out String?  Error,
                                          out Boolean                       NotSaved)
+
+            => TryWriteNTSSection(section => NTSSection.WithGroup(section, Id, Update.ToJSON(), Update.RemovedKeys),
+                                  out Error,
+                                  out NotSaved);
+
+        #endregion
+
+        #region (private) TryWriteNTSSection(Change, out Error, out NotSaved)
+
+        /// <summary>
+        /// Write the "nts" section as a change makes it of what the file says
+        /// now, checked as the next start will read it - or say why not.
+        /// </summary>
+        /// <param name="Change">What the section becomes, from what it is - null where the file has none.</param>
+        /// <param name="Error">Why nothing was written.</param>
+        /// <param name="NotSaved">True where the file could not be read or written.</param>
+        private Boolean TryWriteNTSSection(Func<JObject?, JObject>           Change,
+                                           [NotNullWhen(false)] out String?  Error,
+                                           out Boolean                       NotSaved)
         {
 
             NotSaved = true;
@@ -1996,7 +2025,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return false;
             }
 
-            var written = NTSSection.WithGroup(section as JObject, Id, Update.ToJSON(), Update.RemovedKeys);
+            var written = Change(section as JObject);
 
             if (!NTSSection.TryParse(written, out _, out var problem))
             {
@@ -2711,6 +2740,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
             finally
             {
+
+                // Before the lock, which a check on its way out may still be
+                // waiting for to learn a server's pin.
+                foreach (var group in ntsGroups.Append(LegalTime).Distinct())
+                    await group.DisposeAsync();
 
                 traceBridge?.   Dispose();
                 consoleLog?.    Dispose();

@@ -1000,9 +1000,57 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Ask a group of time servers what the time is - see
         /// <see cref="SyncTimeAsync(CancellationToken)"/>.
         /// </summary>
+        /// <remarks>
+        /// Counted as running against the group for as long as it runs, so that
+        /// taking the group away waits for it; and asked with a token that
+        /// taking it away cancels, so that it does not have to wait long. What
+        /// was cancelled that way is written down nowhere - not into the group,
+        /// which nobody has any more, and not into the log, which says the
+        /// group was removed.
+        /// </remarks>
         /// <param name="Group">The group of time servers.</param>
         public async Task<JObject> SyncTimeAsync(NTSGroup           Group,
                                                  CancellationToken  CancellationToken = default)
+        {
+
+            if (!Group.TryBegin())
+                return Removed();
+
+            try
+            {
+
+                using var asking = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, Group.Stopping);
+
+                return await AskTheGroupAsync(Group, asking.Token);
+
+            }
+            catch (OperationCanceledException) when (Group.Stopping.IsCancellationRequested)
+            {
+                return Removed();
+            }
+            finally
+            {
+                Group.End();
+            }
+
+
+            JObject Removed()
+
+                => new (
+                       new JProperty("ok",      false),
+                       new JProperty("server",  Group.Id),
+                       new JProperty("at",      TimeProvider.GetUtcNow().ToString("o")),
+                       new JProperty("error",   $"NTS group '{Group.Id}' was removed.")
+                   );
+
+        }
+
+        /// <summary>
+        /// What <see cref="SyncTimeAsync(NTSGroup, CancellationToken)"/> does
+        /// once it counts as running.
+        /// </summary>
+        private async Task<JObject> AskTheGroupAsync(NTSGroup           Group,
+                                                     CancellationToken  CancellationToken)
         {
 
             if (!Group.Enabled)
@@ -1022,6 +1070,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 var verdict = await group.Measure(timeEngine, dnsClient, CancellationToken);
+
+                // Taken away while its servers were being asked: whatever came
+                // back - a server cut off in the middle reads as one that did
+                // not answer - belongs to nobody.
+                Group.Stopping.ThrowIfCancellationRequested();
 
                 stopwatch.Stop();
 
@@ -1066,9 +1119,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     // clock that could not be checked is a fact about the time
                     // this node stamps everything with, and why is part of it.
                     LogTime(Group, LogLevel.Error,
-                                     $"NTS: group '{group.Name}' produced no time after {stopwatch.ElapsedMilliseconds} ms: {verdict}.",
-                                     (JObject) failure.DeepClone(),
-                                     "nts", "test");
+                            $"NTS: group '{group.Name}' produced no time after {stopwatch.ElapsedMilliseconds} ms: {verdict}.",
+                            (JObject) failure.DeepClone(),
+                            "nts", "test");
 
                     return Remember(failure);
 
@@ -1114,12 +1167,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // what was asked and what each one answered, and not only the
                 // conclusion.
                 LogTime(Group, LogLevel.Notice,
-                                 AnsweredLine(group.Name, stopwatch.ElapsedMilliseconds, verdict),
-                                 (JObject) answer.DeepClone(),
-                                 "nts", "test");
+                        AnsweredLine(group.Name, stopwatch.ElapsedMilliseconds, verdict),
+                        (JObject) answer.DeepClone(),
+                        "nts", "test");
 
                 return Remember(answer);
 
+            }
+            catch (OperationCanceledException) when (Group.Stopping.IsCancellationRequested)
+            {
+                // See SyncTimeAsync(Group, CancellationToken).
+                throw;
             }
             catch (Exception e)
             {

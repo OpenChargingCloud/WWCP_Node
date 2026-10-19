@@ -67,6 +67,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         private ITimer?  timer;
 
+        /// <summary>
+        /// What ends the checks running against this group, when it is taken
+        /// away in the middle of one.
+        /// </summary>
+        private readonly CancellationTokenSource  stopping  = new ();
+
+        /// <summary>
+        /// The checks running against this group, and what is waited on for
+        /// the last of them to end once it is taken away.
+        /// </summary>
+        private readonly Lock                     gate      = new ();
+        private          Int32                    running;
+        private          TaskCompletionSource?    lastEnded;
+        private          Boolean                  disposed;
+
         #endregion
 
         #region Properties
@@ -162,6 +177,38 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public Boolean          IsChecking
             => timer is not null;
+
+        /// <summary>
+        /// Whether this group was taken away: nothing runs for it any more, and
+        /// nothing new is begun.
+        /// </summary>
+        public Boolean          IsDisposed
+        {
+            get
+            {
+                lock (gate)
+                    return disposed;
+            }
+        }
+
+        /// <summary>
+        /// How many checks are running against this group at the moment.
+        /// </summary>
+        public Int32            Running
+        {
+            get
+            {
+                lock (gate)
+                    return running;
+            }
+        }
+
+        /// <summary>
+        /// Cancelled when this group is taken away: whatever asks its servers
+        /// asks with this, beside its own.
+        /// </summary>
+        internal CancellationToken  Stopping
+            => stopping.Token;
 
         #endregion
 
@@ -300,6 +347,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             StopChecking();
 
+            // A group taken away is checked against no more, whoever asks.
+            if (IsDisposed)
+                return;
+
             timer = TimeProvider.CreateTimer(
                         _ => _ = Check(this),
                         null,
@@ -324,18 +375,99 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (internal) TryBegin() / End()
+
+        /// <summary>
+        /// Count a check as running against this group - or say that the group
+        /// was taken away, and nothing is to be begun for it.
+        /// </summary>
+        /// <remarks>
+        /// Every TryBegin that says yes is followed by one End, whichever way
+        /// the check goes.
+        /// </remarks>
+        internal Boolean TryBegin()
+        {
+            lock (gate)
+            {
+
+                if (disposed)
+                    return false;
+
+                running++;
+                return true;
+
+            }
+        }
+
+        /// <summary>
+        /// A check against this group has ended.
+        /// </summary>
+        internal void End()
+        {
+            lock (gate)
+            {
+
+                running--;
+
+                if (running == 0)
+                    lastEnded?.TrySetResult();
+
+            }
+        }
+
+        #endregion
+
         #region DisposeAsync()
 
         /// <summary>
-        /// End whatever runs for this group.
+        /// End whatever runs for this group: its timer, and every check running
+        /// against it - cancelled, and waited for until it has ended.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// In that order. The timer first, so that no check begins while the
+        /// others are being ended; and waited for, because a check that ends
+        /// after its group was taken away would write what it found into a
+        /// group nobody has, and its log line about a group that is gone.
+        /// </para>
+        /// <para>
+        /// The token source is cancelled and not disposed of: a check that is
+        /// still on its way out reads its token, and a disposed source throws at
+        /// that instead of saying it was cancelled. Without a timeout of its
+        /// own it holds nothing that needs letting go of.
+        /// </para>
+        /// </remarks>
         public async ValueTask DisposeAsync()
         {
 
-            if (timer is not null)
-                await timer.DisposeAsync();
+            Task? waitFor = null;
 
-            timer = null;
+            lock (gate)
+            {
+
+                if (disposed)
+                    return;
+
+                disposed = true;
+
+                if (running > 0)
+                {
+                    lastEnded  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    waitFor    = lastEnded.Task;
+                }
+
+            }
+
+            var ending = timer;
+            timer      = null;
+
+            if (ending is not null)
+                await ending.DisposeAsync();
+
+            stopping.Cancel();
+
+            if (waitFor is not null)
+                await waitFor;
 
         }
 
