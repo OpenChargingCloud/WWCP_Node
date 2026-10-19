@@ -763,10 +763,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             => CertificateEntry.ThumbprintOf(Certificate);
 
         /// <summary>
-        /// The entry of the first time server, as the configuration file says it now.
+        /// The entry of the first time server, as the configuration file says it now:
+        /// in the legal group once something was saved, in the flat section before.
         /// </summary>
         private static JObject ServerEntry(WWCPNode Node)
-            => (JObject) JObject.Parse(File.ReadAllText(Node.ConfigFile.Path))["nts"]!["servers"]![0]!;
+        {
+
+            var nts = JObject.Parse(File.ReadAllText(Node.ConfigFile.Path))["nts"]!;
+
+            return (JObject) (nts["groups"]?["legal"] ?? nts)["servers"]![0]!;
+
+        }
 
         private static String[] Security(WWCPNode Node, UInt64 Since)
 

@@ -104,6 +104,39 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #endregion
 
 
+        #region (private) LogTime(Group, Level, Message, [Data,] params Tags)
+
+        /// <summary>
+        /// Write down something about a group of time servers: into the
+        /// metrological log where it is the legal group, which legal time rests
+        /// on, and into the log like anything else where it is not.
+        /// </summary>
+        /// <remarks>
+        /// The white paper's split: the legal group's checks, failures and
+        /// disagreements are evidence about the time records are stamped with.
+        /// A group for load balancing is an operational matter, and its every
+        /// check in the metrological log would bury what is evidence in what
+        /// is not.
+        /// </remarks>
+        private LogEntry LogTime(NTSGroup         Group,
+                                 LogLevel         Level,
+                                 String           Message,
+                                 params String[]  Tags)
+
+            => LogTime(Group, Level, Message, null, Tags);
+
+        private LogEntry LogTime(NTSGroup         Group,
+                                 LogLevel         Level,
+                                 String           Message,
+                                 JObject?         Data,
+                                 params String[]  Tags)
+
+            => Group.IsLegal
+                   ? Log.Metrological(Level, Message, Data, Tags)
+                   : Log.Log         (Level, Message, Data, Tags);
+
+        #endregion
+
         #region (private) StartCheckingTheClock(Group)
 
         /// <summary>
@@ -127,7 +160,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!Group.Enabled)
             {
-                Log.Metrological(LogLevel.Info, $"The clock of this {Kind.Name} is not being checked: NTS is switched off.", "nts", "clock");
+                LogTime(Group,
+                        LogLevel.Info,
+                        Group.IsLegal
+                            ? $"The clock of this {Kind.Name} is not being checked: NTS is switched off."
+                            : $"The clock of this {Kind.Name} is not being checked against NTS group '{Group.Id}': it is switched off.",
+                        "nts", "clock");
                 return;
             }
 
@@ -144,9 +182,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // somebody reads to find out.
             var asking = CheckedAgainst(Group);
 
-            Log.Metrological(
+            LogTime(
+                Group,
                 LogLevel.Info,
-                $"The clock of this {Kind.Name} will be checked against {String.Join(", ", asking)} every {Group.CheckEvery.TotalMinutes:F0} minute(s)" +
+                $"The clock of this {Kind.Name} will be checked against {(Group.IsLegal ? "" : $"NTS group '{Group.Id}': ")}{String.Join(", ", asking)} every {Group.CheckEvery.TotalMinutes:F0} minute(s)" +
                 (asking.Length > 1 ? $", at least {Group.Sources.MinServers} of which must answer" : "") +
                 (Group.Authority is not null ? $", which the operator says is {Group.Authority}." : "."),
                 "nts", "clock"

@@ -47,12 +47,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// this file says - each one only where it actually speaks.
     /// </remarks>
     /// <param name="DNS">How the node resolves names.</param>
-    /// <param name="NTS">Where the node reads the time.</param>
+    /// <param name="NTS">Where the node reads the time: every group of time servers.</param>
     /// <param name="Certificates">Where the certificates the node believes and presents are kept.</param>
     /// <param name="Roles">Roles beside the ones the node and its kind bring, and what one they brought may do instead.</param>
     /// <param name="SSH">Whether and where the node's command line is served over SSH.</param>
     public sealed record WWCPConfiguration(DNSConfiguration?           DNS            = null,
-                                           NTSConfiguration?           NTS            = null,
+                                           NTSSection?                 NTS            = null,
                                            CertificatesConfiguration?  Certificates   = null,
                                            RolesConfiguration?         Roles          = null,
                                            SSHConfiguration?           SSH            = null)
@@ -121,7 +121,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             #region NTS
 
-            NTSConfiguration? nts = null;
+            NTSSection? nts = null;
 
             if (JSON[NTSConfiguration.SectionName] is JToken ntsToken && ntsToken.Type != JTokenType.Null)
             {
@@ -132,7 +132,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     return false;
                 }
 
-                if (!NTSConfiguration.TryParse(ntsJSON, out nts, out Error))
+                if (!NTSSection.TryParse(ntsJSON, out nts, out Error))
                     return false;
 
             }

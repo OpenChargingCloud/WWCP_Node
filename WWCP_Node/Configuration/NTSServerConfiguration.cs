@@ -110,21 +110,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
-        #region (static) TryParse(JSON, Index, out Configuration, out Error)
+        #region (static) TryParse(JSON, Index, out Configuration, out Error, Section = "nts")
 
         /// <summary>
-        /// Read one server of the "nts.servers" list.
+        /// Read one server of the "servers" list of an NTS group.
         /// </summary>
         /// <param name="Index">Its place in the list, so that a complaint can say which one is wrong.</param>
+        /// <param name="Section">Where the list is in the file: "nts" in the flat section, "nts.groups.local" in a group.</param>
         public static Boolean TryParse(JToken                                       JSON,
                                        Int32                                        Index,
                                        [NotNullWhen(true)]  out NTSServerConfiguration?  Configuration,
-                                       [NotNullWhen(false)] out String?                  Error)
+                                       [NotNullWhen(false)] out String?                  Error,
+                                       String                                       Section = NTSConfiguration.SectionName)
         {
 
             Configuration  = null;
             Error          = null;
-            var where      = $"'nts.servers[{Index}]'";
+            var where      = $"'{Section}.servers[{Index}]'";
 
             // A bare string is the common case written the short way:
             //   "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de" ]
@@ -161,7 +163,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             // What it is held to, beside the usual - the same for a time server
             // as for a name server.
-            if (!ServerPins.TryParse(json, $"nts.servers[{Index}]", out var pins, out Error))
+            if (!ServerPins.TryParse(json, $"{Section}.servers[{Index}]", out var pins, out Error))
                 return false;
 
             if (hostname is null)

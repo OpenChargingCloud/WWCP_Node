@@ -182,7 +182,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) TryPinsAfterAPageSaved(Update, AsShown, out Saved, out Error)
+        #region (private) TryPinsAfterAPageSaved(Update, AsShown, Path, out Saved, out Error)
 
         /// <summary>
         /// The time servers a page sends, each held to what it is held to now
@@ -197,8 +197,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         /// <param name="Update">The section as the page sent it.</param>
         /// <param name="AsShown">What the page showed each server held to, by its place in the list.</param>
+        /// <param name="Path">Where the group is in the file, for a sentence about one of its servers.</param>
         private Boolean TryPinsAfterAPageSaved(NTSConfiguration                           Update,
                                                IReadOnlyDictionary<Int32, ServerPins?>    AsShown,
+                                               String                                     Path,
                                                out NTSConfiguration                       Saved,
                                                [NotNullWhen(false)] out String?           Error)
         {
@@ -223,7 +225,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     continue;
                 }
 
-                if (!ServerPins.TryAfterAPageSaved(now.Pins, shown, servers[index].Pins, $"{NTSConfiguration.SectionName}.servers[{index}]", out var pins, out Error))
+                if (!ServerPins.TryAfterAPageSaved(now.Pins, shown, servers[index].Pins, $"{Path}.servers[{index}]", out var pins, out Error))
                     return false;
 
                 servers[index] = servers[index] with { Pins = pins };
@@ -270,8 +272,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                // Into the group that names the server - only the legal one,
-                // for now, whose section is "nts".
+                // Into the first group that names the server, which is the one
+                // PinsOf reads it from.
                 var group    = ntsGroups.FirstOrDefault(group => group.Settings?.Servers?.Any(server => server.Hostname.Equals(Hostname)) == true);
                 var servers  = group?.Settings?.Servers?.ToList();
                 var index    = servers?.FindIndex(server => server.Hostname.Equals(Hostname)) ?? -1;
@@ -291,7 +293,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 var update   = new NTSConfiguration(Servers: servers);
 
-                if (!ConfigFile.TryMergeSection(NTSConfiguration.SectionName, update.ToJSON(), update.RemovedKeys, out var error))
+                if (!TryWriteNTSGroup(group.Id, update, out var error, out _))
                 {
                     Log.Error($"NTS: what {Hostname.Trimmed} is held to from now on could not be written into '{ConfigFile.Path}': {error}",
                               CertificateUsages.NTS, "certificates", "security");

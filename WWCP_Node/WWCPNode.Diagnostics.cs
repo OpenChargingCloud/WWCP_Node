@@ -706,7 +706,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return Done(Host ?? "", false);
             }
 
-            var configured  = Group.Client;
+            if (Group.Client is not NTSClient configured)
+            {
+                Step("error", $"NTS group '{Group.Id}' names no time server, so nothing was asked.");
+                return Done(Host ?? "", false);
+            }
+
             var wanted      = Host?.Trim();
             var host        = configured.Hostname;
 
@@ -1060,7 +1065,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     // Into the metrological log with what each server said: a
                     // clock that could not be checked is a fact about the time
                     // this node stamps everything with, and why is part of it.
-                    Log.Metrological(LogLevel.Error,
+                    LogTime(Group, LogLevel.Error,
                                      $"NTS: group '{group.Name}' produced no time after {stopwatch.ElapsedMilliseconds} ms: {verdict}.",
                                      (JObject) failure.DeepClone(),
                                      "nts", "test");
@@ -1093,7 +1098,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // log book, and the time is still a time. Both lines read the
                 // same under every culture - see DeviationWarning.
                 if (verdict.DeviationExceeded)
-                    Log.Metrological(LogLevel.Warning, DeviationWarning(group.Name, verdict.Spread!.Value, group.MaxDeviation), "nts", "test");
+                    LogTime(Group, LogLevel.Warning, DeviationWarning(group.Name, verdict.Spread!.Value, group.MaxDeviation), "nts", "test");
 
                 var answer = new JObject(
                                  new JProperty("ok",          true),
@@ -1108,7 +1113,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // With what each server said, which is what a log book records:
                 // what was asked and what each one answered, and not only the
                 // conclusion.
-                Log.Metrological(LogLevel.Notice,
+                LogTime(Group, LogLevel.Notice,
                                  AnsweredLine(group.Name, stopwatch.ElapsedMilliseconds, verdict),
                                  (JObject) answer.DeepClone(),
                                  "nts", "test");
@@ -1119,7 +1124,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             catch (Exception e)
             {
                 stopwatch.Stop();
-                Log.Metrological(LogLevel.Error, $"NTS: asking group '{group.Name}' failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
+                LogTime(Group, LogLevel.Error, $"NTS: asking group '{group.Name}' failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
                 return Remember(Failed(e.Message));
             }
 

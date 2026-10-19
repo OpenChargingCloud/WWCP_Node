@@ -296,6 +296,40 @@ what it is when absent:
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
 
+Those keys are one group of time servers, the legal one. A node may have
+more - the white paper's NTP client groups, of which "legal" and "local" are
+the well-known names - and then the section names them under `groups`, each
+with the keys above:
+
+```json
+"nts": { "groups": {
+  "legal": { "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de" ], "minServers": 2,
+             "legalTimeAuthority": "PTB" },
+  "local": { "servers": [ "lc1.local" ], "checkEverySeconds": 30,
+             "displayName": { "en": "Local time", "de": "Lokale Zeit" } }
+} }
+```
+
+A group's name is lower-case letters, digits and hyphens, beginning with a
+letter. `displayName` is what a page calls it - one text for every language,
+or one per language - and without it a page says "local time". Only the legal
+group may say `legalTimeAuthority`, `legalTimeToleranceSeconds` and
+`legalTimeMaxAgeSeconds`, because legal time rests on it and on nothing else;
+its checks go into the metrological log, every other group's into the log
+like anything else. The legal group naming no server is the PTB's four; any
+other group has no default, is switched off while it names nobody, and is
+refused switched on without a server.
+
+The flat section above is the legal group, and a file written that way stays
+as it is until something is saved: the first save moves it into
+`groups.legal` whole, which is the moment somebody meant the file to be
+written. A section with `groups` and keys beside them is refused at the start,
+since those keys would belong to no group. No `nts` section at all is the
+legal group as the node makes it; `groups` without a legal one is a node
+without legal time, which a country without the idea for charging stations
+has, and whose clock says it is not legal time - and
+`"groups": { }` is a node that checks its clock against nobody.
+
 An entry of `servers` is a host name, or an object saying more than the name:
 
 ```json

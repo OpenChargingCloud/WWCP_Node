@@ -232,7 +232,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             Assert.That(status, Is.EqualTo(HttpStatusCode.OK), answer.ToString());
 
             var sourcesNow   = answer["timeSources"]!.Children<JObject>().ToArray();
-            var file         = JObject.Parse(File.ReadAllText(Node.ConfigFile.Path))["nts"]!["servers"]!;
+            var file         = JObject.Parse(File.ReadAllText(Node.ConfigFile.Path))["nts"]!["groups"]!["legal"]!["servers"]!;
 
             Assert.Multiple(() => {
                 Assert.That(sourcesNow[1].Value<Int32>("priority"),         Is.EqualTo(5),        "the change the page made");

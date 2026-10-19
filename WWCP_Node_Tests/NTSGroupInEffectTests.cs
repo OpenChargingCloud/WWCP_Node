@@ -308,7 +308,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             }
 
-            Assert.That(JObject.Parse(File.ReadAllText(ConfigurationPath))["nts"]?["servers"],  Is.Null,
+            Assert.That(JObject.Parse(File.ReadAllText(ConfigurationPath))["nts"]?["groups"]?["legal"]?["servers"],  Is.Null,
                         "the file still has its list beside the hostname");
 
             await using var restarted = Node();
@@ -1122,7 +1122,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(line,                                            Does.Contain("time servers = a.example, b.example"));
                 Assert.That(line,                                            Does.Not.Contain("a.example."));
-                Assert.That(onDisk["nts"]?["servers"]?[0]?.Value<String>(),  Is.EqualTo("a.example."));
+                Assert.That(onDisk["nts"]?["groups"]?["legal"]?["servers"]?[0]?.Value<String>(),  Is.EqualTo("a.example."));
             });
 
         }

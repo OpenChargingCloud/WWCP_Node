@@ -355,7 +355,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var written = new WWCPConfiguration(
                               DNS:  new DNSConfiguration(Enabled: false),
-                              NTS:  new NTSConfiguration(Enabled: true)
+                              NTS:  new NTSSection([
+                                        new ("legal", new NTSConfiguration(Enabled: true)),
+                                        new ("local", new NTSConfiguration(Enabled: false))
+                                    ])
                           ).ToJSON();
 
             written.Add("ocpp", new JObject(
@@ -370,7 +373,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(read!.DNS?.Enabled,                            Is.False);
-                Assert.That(read.NTS?.Enabled,                             Is.True);
+                Assert.That(read.NTS?["legal"]?.Enabled,                  Is.True);
+                Assert.That(read.NTS?["local"]?.Enabled,                  Is.False);
+                Assert.That(read.NTS?.IsFlat,                              Is.False);
                 Assert.That(read.IsEmpty,                                  Is.False);
                 Assert.That(document!["ocpp"]?.Value<String>("nodeId"),     Is.EqualTo("lc042"),
                             "The kind's own section was lost beside the node's.");

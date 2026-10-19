@@ -100,9 +100,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public TimeSourceGroup  Sources             { get; internal set; }
 
         /// <summary>
-        /// The client the detailed test of a server starts from.
+        /// The client the detailed test of a server starts from - none for a
+        /// group that names no server yet. The legal group always has one.
         /// </summary>
-        public NTSClient        Client              { get; internal set; }
+        public NTSClient?       Client              { get; internal set; }
 
         /// <summary>
         /// What the file said about this group, kept because the parts of it
@@ -123,6 +124,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// at the next start, holds it to two.
         /// </remarks>
         internal Byte           Quorum              { get; set; } = NTSConfiguration.DefaultMinServers;
+
+        /// <summary>
+        /// What this group is called on a page, by language - "*" for every
+        /// language - or null, for "&lt;id&gt; time".
+        /// </summary>
+        public IReadOnlyDictionary<String, String>?  DisplayName
+            => Settings?.DisplayName;
 
         /// <summary>
         /// How often the clock is checked against this group.
@@ -209,10 +217,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         /// <param name="Id">What the group is for, e.g. "legal" or "local".</param>
         /// <param name="Sources">Its servers, and the rules for believing them.</param>
-        /// <param name="Client">The client the detailed test of a server starts from.</param>
+        /// <param name="Client">The client the detailed test of a server starts from, if it names one.</param>
         public NTSGroup(String           Id,
                         TimeSourceGroup  Sources,
-                        NTSClient        Client)
+                        NTSClient?       Client)
         {
 
             this.Id       = Id;

@@ -465,7 +465,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Assert.Multiple(() => {
                 Assert.That(response.StatusCode,           Is.EqualTo(HttpStatusCode.BadRequest));
-                Assert.That(error.Value<String>("error"),  Does.Contain("nts.ntpPort"));
+                Assert.That(error.Value<String>("error"),  Does.Contain("nts.groups.legal.ntpPort"));
             });
 
         }
@@ -618,7 +618,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 // absolute form with the root label on the end - so this is
                 // what a name looks like on its way back out of the file, and
                 // not a stray character.
-                Assert.That(onDisk["nts"]?.Value<String>("hostname"),  Is.EqualTo(Node.NTSClient.Hostname.ToString()));
+                Assert.That(onDisk["nts"]?["groups"]?["legal"]?.Value<String>("hostname"),  Is.EqualTo(Node.NTSClient.Hostname.ToString()),
+                            "in the legal group, where a save puts it");
 
             });
 

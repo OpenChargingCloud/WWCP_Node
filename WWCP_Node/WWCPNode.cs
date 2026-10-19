@@ -181,6 +181,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public const String  FaviconSVG          = "favicon.svg";
 
+        /// <summary>
+        /// How long one exchange with a time server may take, when nobody says
+        /// otherwise.
+        /// </summary>
+        public static readonly TimeSpan  DefaultNTSTimeout  = TimeSpan.FromSeconds(10);
+
         private readonly  DNSClient                       dnsClient;
 
         /// <summary>
@@ -462,19 +468,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public DNSClient              DNSClient                    => dnsClient;
 
         /// <summary>
-        /// The groups of time servers this node checks its clock against.
+        /// The groups of time servers this node checks its clock against: the
+        /// ones its configuration names, in its order - or the legal one alone,
+        /// where it names none.
         /// </summary>
         public IEnumerable<NTSGroup>  NTSGroups                    => ntsGroups;
 
         /// <summary>
         /// The group legal time rests on.
         /// </summary>
+        /// <remarks>
+        /// There even where the configuration names no legal group - a country
+        /// without legal time for charging stations - and then switched off and
+        /// not among <see cref="NTSGroups"/>: what asks about legal time is told
+        /// "switched off", which is the truth, rather than having nothing to ask.
+        /// </remarks>
         public NTSGroup               LegalTime                    { get; }
 
         /// <summary>
-        /// Where this node reads the time: the client of the legal group.
+        /// Where this node reads the time: the client of the legal group, which
+        /// the legal group always has.
         /// </summary>
-        public NTSClient              NTSClient                    => LegalTime.Client;
+        public NTSClient              NTSClient                    => LegalTime.Client!;
 
         /// <summary>
         /// The time servers of the legal group.
@@ -764,7 +779,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var ntsClient      = NTSClient ?? new NTSClient(
                                                   DomainName.Parse(NTSConfiguration.DefaultHostname),
                                                   RemoteCertificateValidator:  TimeServerValidator(DomainName.Parse(NTSConfiguration.DefaultHostname)),
-                                                  Timeout:                     TimeSpan.FromSeconds(10),
+                                                  Timeout:                     DefaultNTSTimeout,
                                                   DNSClient:                   dnsClient,
                                                   TimeProvider:                this.TimeProvider
                                               );
@@ -812,17 +827,37 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (configuration.NTS is not null)
             {
 
-                // Checked here rather than when the file was read: a quorum
-                // on its own is about the servers in effect, and which those
-                // are is only known now.
-                if (!TryCheckNTSQuorum(this.LegalTime, configuration.NTS, out var quorumError))
-                    throw new InvalidOperationException($"{quorumError} Repair or remove '{this.ConfigFile.Path}' and start again.");
+                // In the order the file names them, which is the order a page
+                // shows them in.
+                this.ntsGroups.Clear();
 
-                ApplyNTSConfiguration(this.LegalTime, configuration.NTS);
+                foreach (var (id, section) in configuration.NTS.Groups)
+                {
+
+                    var group = id == NTSGroup.LegalId
+                                    ? this.LegalTime
+                                    : NewNTSGroup(id, section);
+
+                    // Checked here rather than when the file was read: a quorum
+                    // on its own is about the servers in effect, and which those
+                    // are is only known now.
+                    if (!TryCheckNTSQuorum(group, section, out var quorumError))
+                        throw new InvalidOperationException($"{quorumError} Repair or remove '{this.ConfigFile.Path}' and start again.");
+
+                    ApplyNTSConfiguration(group, section);
+
+                    group.Settings = section;
+
+                    this.ntsGroups.Add(group);
+
+                }
+
+                // No legal group in the file: a node without legal time, whose
+                // legal group is switched off and is nobody's to list.
+                if (configuration.NTS[NTSGroup.LegalId] is null)
+                    this.LegalTime.Enabled = false;
 
             }
-
-            this.LegalTime.Settings = configuration.NTS;
 
             #endregion
 
@@ -1723,7 +1758,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        // was told; the group's own, below, can be lower when it
                        // has fewer servers switched on.
                        new JProperty("settings",     new JObject(
-                           new JProperty("timeoutSeconds",             Group.Client.Timeout?.TotalSeconds),
+                           new JProperty("timeoutSeconds",             Group.Client?.Timeout?.TotalSeconds),
                            new JProperty("checkEverySeconds",          Group.CheckEvery.TotalSeconds),
                            new JProperty("minServers",                 Group.Quorum),
                            new JProperty("maxDeviationSeconds",        Group.Sources.MaxDeviation.TotalSeconds),
@@ -1739,10 +1774,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        // What any new client starts with, the group's and the
                        // test's alike.
                        new JProperty("policy",       new JObject(
-                           new JProperty("targetCookieCount",             Group.Client.CookiePoolPolicy.TargetCookieCount),
-                           new JProperty("maxPlaceholders",               Group.Client.CookiePoolPolicy.MaxPlaceholders),
-                           new JProperty("renegotiateWhenExhausted",      Group.Client.CookiePoolPolicy.RenegotiateWhenExhausted),
-                           new JProperty("minimumRenegotiationInterval",  Group.Client.CookiePoolPolicy.MinimumRenegotiationInterval.ToString())
+                           new JProperty("targetCookieCount",             Group.Client?.CookiePoolPolicy.TargetCookieCount),
+                           new JProperty("maxPlaceholders",               Group.Client?.CookiePoolPolicy.MaxPlaceholders),
+                           new JProperty("renegotiateWhenExhausted",      Group.Client?.CookiePoolPolicy.RenegotiateWhenExhausted),
+                           new JProperty("minimumRenegotiationInterval",  Group.Client?.CookiePoolPolicy.MinimumRenegotiationInterval.ToString())
                        )),
 
                        // What the group is actually doing, which is what
@@ -1825,10 +1860,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region TryUpdateNTSConfiguration(JSON, out Error [, out NotSaved])
+        #region TryUpdateNTSConfiguration([Group,] JSON, out Error [, out NotSaved])
 
         /// <summary>
-        /// Change where this node reads the time.
+        /// Change where this node reads its legal time.
         /// </summary>
         /// <remarks>
         /// Pointing the node at another server replaces the client rather
@@ -1840,28 +1875,56 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Boolean TryUpdateNTSConfiguration(JObject                           JSON,
                                                  [NotNullWhen(false)] out String?  Error)
 
-            => TryUpdateNTSConfiguration(JSON, out Error, out _);
+            => TryUpdateNTSConfiguration(LegalTime, JSON, out Error, out _);
 
         /// <summary>
-        /// Change where this node reads the time - and say whether a refusal
-        /// was the file's rather than the change's.
+        /// Change where this node reads its legal time - and say whether a
+        /// refusal was the file's rather than the change's.
         /// </summary>
-        /// <param name="JSON">What the page sent, in the shape of the "nts" section.</param>
+        /// <param name="JSON">What the page sent, in the shape of a group of the "nts" section.</param>
         /// <param name="Error">Why nothing was changed.</param>
         /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
         public Boolean TryUpdateNTSConfiguration(JObject                           JSON,
                                                  [NotNullWhen(false)] out String?  Error,
                                                  out Boolean                       NotSaved)
+
+            => TryUpdateNTSConfiguration(LegalTime, JSON, out Error, out NotSaved);
+
+        /// <summary>
+        /// Change where this node reads the time of a group - and say whether a
+        /// refusal was the file's rather than the change's.
+        /// </summary>
+        /// <remarks>
+        /// Written into the group's place in the file, "nts.groups.&lt;id&gt;" - which
+        /// moves a section still written the way it was before there were
+        /// groups into "nts.groups.legal" first. See <see cref="NTSSection.WithGroup"/>.
+        /// </remarks>
+        /// <param name="Group">The group.</param>
+        /// <param name="JSON">What the page sent, in the shape of a group of the "nts" section.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateNTSConfiguration(NTSGroup                          Group,
+                                                 JObject                           JSON,
+                                                 [NotNullWhen(false)] out String?  Error,
+                                                 out Boolean                       NotSaved)
         {
 
-            NotSaved = false;
+            NotSaved  = false;
 
-            if (!NTSConfiguration.TryParse(JSON, out var sent, out Error))
+            var path  = NTSSection.PathOf(Group.Id);
+
+            if (!ntsGroups.Contains(Group))
+            {
+                Error = $"This {Kind.Name} has no NTS group '{Group.Id}'.";
+                return false;
+            }
+
+            if (!NTSConfiguration.TryParse(JSON, out var sent, out Error, path))
                 return false;
 
             // What the page showed each server held to, where it says - see
             // ServerPins.TryAfterAPageSaved.
-            if (!ServerPins.TryParseAsShown(JSON, NTSConfiguration.SectionName, out var asShown, out Error))
+            if (!ServerPins.TryParseAsShown(JSON, path, out var asShown, out Error))
                 return false;
 
             reconfigureLock.Wait();
@@ -1871,39 +1934,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 // First, and inside the lock: what a server is held to now is
                 // what trust on first use writes under it.
-                if (!TryPinsAfterAPageSaved(sent, asShown, out var configuration, out Error))
+                if (!TryPinsAfterAPageSaved(sent, asShown, path, out var configuration, out Error))
                     return false;
 
                 // Before the file, so that what is refused is not written down
                 // either - and inside the lock, because the servers a quorum on
                 // its own is checked against are the ones in effect.
-                if (!TryCheckNTSQuorum(LegalTime, configuration, out Error))
+                if (!TryCheckNTSQuorum(Group, configuration, out Error))
                     return false;
 
-                // And the file as the next start will read it. Each half can
-                // be fine and the two together not: the quorum the file holds
-                // and a list saved now that is shorter than it would be a
-                // section the next start refuses, and a node that does not
-                // start because of a save that was accepted.
-                if (!ConfigFile.TryPreviewSection(NTSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out var merged, out Error))
-                {
-                    NotSaved = true;
+                if (!TryWriteNTSGroup(Group.Id, configuration, out Error, out NotSaved))
                     return false;
-                }
 
-                if (!NTSConfiguration.TryParse(merged, out _, out var mergedError))
-                {
-                    Error = $"{mergedError} Nothing was changed.";
-                    return false;
-                }
-
-                if (!ConfigFile.TryMergeSection(NTSConfiguration.SectionName, configuration.ToJSON(), configuration.RemovedKeys, out Error))
-                {
-                    NotSaved = true;
-                    return false;
-                }
-
-                ApplyNTSConfiguration(LegalTime, configuration);
+                ApplyNTSConfiguration(Group, configuration);
 
                 return true;
 
@@ -1912,6 +1955,61 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 reconfigureLock.Release();
             }
+
+        }
+
+        #endregion
+
+        #region (private) TryWriteNTSGroup(Id, Update, out Error, out NotSaved)
+
+        /// <summary>
+        /// Write a part of a group into the configuration file, as the next
+        /// start will read it - or say why not.
+        /// </summary>
+        /// <remarks>
+        /// The whole section as the next start will read it is checked before
+        /// anything is written. Each half can be fine and the two together not:
+        /// the quorum the file holds and a list saved now that is shorter than
+        /// it would be a section the next start refuses, and a node that does
+        /// not start because of a save that was accepted.
+        /// </remarks>
+        /// <param name="Id">The group.</param>
+        /// <param name="Update">What to write into it.</param>
+        /// <param name="Error">Why nothing was written.</param>
+        /// <param name="NotSaved">True where the file could not be read or written.</param>
+        private Boolean TryWriteNTSGroup(String                            Id,
+                                         NTSConfiguration                  Update,
+                                         [NotNullWhen(false)] out String?  Error,
+                                         out Boolean                       NotSaved)
+        {
+
+            NotSaved = true;
+
+            if (!ConfigFile.TryLoadDocument(out var document, out Error))
+                return false;
+
+            var section = document[NTSConfiguration.SectionName];
+
+            if (section is not null && section.Type != JTokenType.Null && section is not JObject)
+            {
+                Error = $"'{NTSConfiguration.SectionName}' in '{ConfigFile.Path}' must be a JSON object.";
+                return false;
+            }
+
+            var written = NTSSection.WithGroup(section as JObject, Id, Update.ToJSON(), Update.RemovedKeys);
+
+            if (!NTSSection.TryParse(written, out _, out var problem))
+            {
+                NotSaved  = false;
+                Error     = $"{problem} Nothing was changed.";
+                return false;
+            }
+
+            if (!ConfigFile.TryReplaceSection(NTSConfiguration.SectionName, written, out Error))
+                return false;
+
+            NotSaved = false;
+            return true;
 
         }
 
@@ -1979,6 +2077,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (private) NewNTSGroup(Id, Configuration)
+
+        /// <summary>
+        /// A group other than the legal one, as its section is about to be put
+        /// into effect: no servers and no client yet, and switched on where the
+        /// section says so - or, saying nothing, where it names a server.
+        /// </summary>
+        /// <remarks>
+        /// The legal group has the PTB's four when it names none and is on
+        /// unless told otherwise. No other group has a default worth asking, so
+        /// one that names nobody is off rather than a group failing every check.
+        /// </remarks>
+        /// <param name="Id">The group's name.</param>
+        /// <param name="Configuration">Its section.</param>
+        private static NTSGroup NewNTSGroup(String            Id,
+                                            NTSConfiguration  Configuration)
+
+            => new (Id, new TimeSourceGroup(Id, []), null) {
+                   Enabled = Configuration.Enabled ?? (Configuration.Servers is not null || Configuration.Hostname is not null)
+               };
+
+        #endregion
+
         #region (private) TryCheckNTSQuorum(Group, Configuration, out Error)
 
         /// <summary>
@@ -2009,7 +2130,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (quorum > asked)
                 {
-                    Error = $"'nts.minServers' is {quorum}, which is more servers than the {asked} this {Kind.Name} asks.";
+                    Error = $"'{NTSSection.PathOf(Group.Id)}.minServers' is {quorum}, which is more servers than the {asked} this {Kind.Name} asks in it.";
                     return false;
                 }
 
@@ -2075,7 +2196,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // below.
             var sources       = Configuration.Servers  is not null ||
                                 Configuration.Hostname is not null
-                                    ? Configuration.ToGroup(Configuration.Hostname ?? Group.Client.Hostname).Sources
+                                    ? Configuration.ToGroup(Configuration.Hostname ?? Group.Client?.Hostname ?? DomainName.Parse(NTSConfiguration.DefaultHostname), Group.Id).Sources
                                     : Group.Sources.Sources;
 
             // The quorum and the deviation by the same rule, and on their own as
@@ -2131,13 +2252,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             #endregion
 
-            var hostname = Configuration.Hostname  ?? Group.Client.Hostname;
-            var ntsKE    = Configuration.NTSKEPort ?? Group.Client.NTSKE_Port;
-            var ntp      = Configuration.NTPPort   ?? Group.Client.NTP_Port;
+            // A group that had no client yet - a new one, naming no server until
+            // now - is given one for the first server it names, which is what
+            // the detailed test then starts from. The legal group has had one
+            // from the start.
+            var first    = Group.Client is null ? Group.Sources.Sources.FirstOrDefault() : null;
+            var hostname = Configuration.Hostname  ?? Group.Client?.Hostname   ?? first?.Hostname;
+            var ntsKE    = Configuration.NTSKEPort ?? Group.Client?.NTSKE_Port ?? first?.NTSKEPort ?? NTSClient.DefaultNTSKE_Port;
+            var ntp      = Configuration.NTPPort   ?? Group.Client?.NTP_Port   ?? first?.NTPPort   ?? NTSClient.DefaultNTP_Port;
 
-            if (hostname != Group.Client.Hostname ||
-                ntsKE    != Group.Client.NTSKE_Port ||
-                ntp      != Group.Client.NTP_Port)
+            if (hostname is not null &&
+               (Group.Client is null                 ||
+                hostname != Group.Client.Hostname    ||
+                ntsKE    != Group.Client.NTSKE_Port  ||
+                ntp      != Group.Client.NTP_Port))
             {
 
                 Group.Client = new NTSClient(
@@ -2145,7 +2273,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                    NTSKE_Port:                  ntsKE,
                                    NTP_Port:                    ntp,
                                    RemoteCertificateValidator:  TimeServerValidator(hostname),
-                                   Timeout:                     Configuration.Timeout ?? Group.Client.Timeout,
+                                   Timeout:                     Configuration.Timeout ?? Group.Client?.Timeout ?? DefaultNTSTimeout,
                                    DNSClient:                   dnsClient,
                                    TimeProvider:                TimeProvider
                                );
@@ -2163,7 +2291,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
-            else if (Configuration.Timeout.HasValue && Group.Client.Timeout != Configuration.Timeout.Value)
+            else if (Configuration.Timeout.HasValue && Group.Client is not null && Group.Client.Timeout != Configuration.Timeout.Value)
             {
                 Group.Client.Timeout = Configuration.Timeout.Value;
                 changed.Add($"timeout = {Configuration.Timeout.Value}");
@@ -2193,7 +2321,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 changed.Add($"legal time max age = {Group.MaxAge.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
             if (changed.Count > 0)
-                Log.Metrological(LogLevel.Notice, $"NTS configuration changed: {String.Join(", ", changed)}.", "nts", "config");
+                LogTime(Group,
+                        LogLevel.Notice,
+                        Group.IsLegal
+                            ? $"NTS configuration changed: {String.Join(", ", changed)}."
+                            : $"NTS group '{Group.Id}' changed: {String.Join(", ", changed)}.",
+                        "nts", "config");
 
             // The clock is checked on a timer set when the node started, so
             // whether and how often it is checked has to be put into that timer

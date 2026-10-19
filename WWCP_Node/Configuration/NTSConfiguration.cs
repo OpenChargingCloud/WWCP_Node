@@ -51,6 +51,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Servers">Every time server of this node, or none to ask only the one named by Hostname.</param>
     /// <param name="MinServers">How many of them must answer before their time counts.</param>
     /// <param name="MaxDeviation">How far their answers may be apart before the disagreement is written down.</param>
+    /// <param name="DisplayName">What the group is called on a page, by language - "*" for every language - or nothing, for "&lt;id&gt; time".</param>
     public sealed record NTSConfiguration(Boolean?                                 Enabled               = null,
                                           DomainName?                              Hostname              = null,
                                           IPPort?                                  NTSKEPort             = null,
@@ -62,7 +63,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           TimeSpan?                                LegalTimeMaxAge       = null,
                                           IEnumerable<NTSServerConfiguration>?     Servers               = null,
                                           Byte?                                    MinServers            = null,
-                                          TimeSpan?                                MaxDeviation          = null)
+                                          TimeSpan?                                MaxDeviation          = null,
+                                          IReadOnlyDictionary<String, String>?     DisplayName           = null)
     {
 
         #region Data
@@ -99,6 +101,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// The name of this section in the configuration file.
         /// </summary>
         public const String  SectionName          = "nts";
+
+        /// <summary>
+        /// The longest a display name of a group may be written, in any one
+        /// language.
+        /// </summary>
+        public const Int32   MaxDisplayNameLength = 80;
+
+        /// <summary>
+        /// The language a display name is written under when it is meant for
+        /// every language: a plain string in the file.
+        /// </summary>
+        public const String  AnyLanguage          = "*";
 
         /// <summary>
         /// The time server this node asks when nothing says otherwise.
@@ -189,6 +203,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public Boolean  RemovesLegalTimeAuthority  { get; init; }
 
         /// <summary>
+        /// Whether this section takes the display name away, rather than not
+        /// mentioning it - by the same rule as the authority.
+        /// </summary>
+        public Boolean  RemovesDisplayName         { get; init; }
+
+        /// <summary>
         /// The keys a save of this section takes out of the file rather than
         /// leaving them as they are.
         /// </summary>
@@ -207,6 +227,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 if (RemovesLegalTimeAuthority)
                     yield return "legalTimeAuthority";
 
+                if (RemovesDisplayName)
+                    yield return "displayName";
+
                 if (Hostname is not null && Servers is null)
                     yield return "servers";
 
@@ -216,30 +239,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #endregion
 
 
-        #region (static) TryParse(JSON, out Configuration, out Error)
+        #region (static) TryParse(JSON, out Configuration, out Error, Path = "nts")
 
         /// <summary>
-        /// The "nts" section, or the one sentence that says what is wrong with it.
+        /// The "nts" section, or one group of it, or the one sentence that says
+        /// what is wrong with it.
         /// </summary>
+        /// <param name="Path">Where it is in the file, for the sentence: "nts" for the flat section, "nts.groups.local" for a group.</param>
         public static Boolean TryParse(JObject                                    JSON,
                                        [NotNullWhen(true)]  out NTSConfiguration?  Configuration,
-                                       [NotNullWhen(false)] out String?            Error)
+                                       [NotNullWhen(false)] out String?            Error,
+                                       String                                     Path = SectionName)
         {
 
             Configuration  = null;
             Error          = null;
 
-            if (!ConfigurationReader.TryReadBoolean(JSON, "enabled",         "nts",      out var enabled,   out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "hostname",        "nts", 253, out var hostname,  out Error) ||
-                !ConfigurationReader.TryReadPort   (JSON, "ntsKEPort",       "nts",      out var ntsKEPort, out Error) ||
-                !ConfigurationReader.TryReadPort   (JSON, "ntpPort",         "nts",      out var ntpPort,   out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "timeoutSeconds",  "nts", 0.1, MaxTimeoutSeconds, out var timeout, out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "checkEverySeconds", "nts", MinCheckEverySeconds, MaxCheckEverySeconds, out var checkEvery, out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeToleranceSeconds", "nts", MinToleranceSeconds, MaxToleranceSeconds, out var tolerance, out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeMaxAgeSeconds", "nts", MinMaxAgeSeconds, MaxMaxAgeSeconds, out var maxAge, out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "legalTimeAuthority", "nts", MaxAuthorityLength, out var authority, out Error) ||
-                !ConfigurationReader.TryReadByte   (JSON, "minServers",         "nts",                     out var minServers, out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "maxDeviationSeconds", "nts", MinDeviationSeconds, MaxDeviationSeconds, out var maxDeviation, out Error))
+            if (!ConfigurationReader.TryReadBoolean(JSON, "enabled",         Path,      out var enabled,   out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "hostname",        Path, 253, out var hostname,  out Error) ||
+                !ConfigurationReader.TryReadPort   (JSON, "ntsKEPort",       Path,      out var ntsKEPort, out Error) ||
+                !ConfigurationReader.TryReadPort   (JSON, "ntpPort",         Path,      out var ntpPort,   out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "timeoutSeconds",  Path, 0.1, MaxTimeoutSeconds, out var timeout, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "checkEverySeconds", Path, MinCheckEverySeconds, MaxCheckEverySeconds, out var checkEvery, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeToleranceSeconds", Path, MinToleranceSeconds, MaxToleranceSeconds, out var tolerance, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeMaxAgeSeconds", Path, MinMaxAgeSeconds, MaxMaxAgeSeconds, out var maxAge, out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "legalTimeAuthority", Path, MaxAuthorityLength, out var authority, out Error) ||
+                !ConfigurationReader.TryReadByte   (JSON, "minServers",         Path,                     out var minServers, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "maxDeviationSeconds", Path, MinDeviationSeconds, MaxDeviationSeconds, out var maxDeviation, out Error) ||
+                !TryReadDisplayName                (JSON,                        Path,                     out var displayName, out Error))
             {
                 return false;
             }
@@ -248,6 +275,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             var removesAuthority = authority is null &&
                                    JSON.TryGetValue("legalTimeAuthority", out var authorityToken) &&
                                    authorityToken.Type is JTokenType.Null or JTokenType.String;
+
+            var removesName      = displayName is null &&
+                                   JSON.TryGetValue("displayName", out var nameToken) &&
+                                   nameToken.Type is JTokenType.Null or JTokenType.String;
 
             #region The servers, when there is a list of them
 
@@ -258,7 +289,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
                 if (serversToken is not JArray serverArray)
                 {
-                    Error = "'nts.servers' must be a list!";
+                    Error = $"'{Path}.servers' must be a list!";
                     return false;
                 }
 
@@ -267,7 +298,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 for (var i = 0; i < serverArray.Count; i++)
                 {
 
-                    if (!NTSServerConfiguration.TryParse(serverArray[i], i, out var server, out Error))
+                    if (!NTSServerConfiguration.TryParse(serverArray[i], i, out var server, out Error, Path))
                         return false;
 
                     servers.Add(server);
@@ -279,13 +310,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 // a mistake here.
                 if (servers.Count == 0)
                 {
-                    Error = "'nts.servers' is empty: name a server, or set 'nts.enabled' to false.";
+                    Error = $"'{Path}.servers' is empty: name a server, or set '{Path}.enabled' to false.";
                     return false;
                 }
 
                 if (minServers > servers.Count(server => server.Enabled))
                 {
-                    Error = $"'nts.minServers' is {minServers}, which is more servers than 'nts.servers' has switched on.";
+                    Error = $"'{Path}.minServers' is {minServers}, which is more servers than '{Path}.servers' has switched on.";
                     return false;
                 }
 
@@ -297,7 +328,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             // synchronisation, which could only ever report one server short.
             else if (hostname is not null && minServers > 1)
             {
-                Error = $"'nts.minServers' is {minServers}, which is more servers than a lone 'nts.hostname' is.";
+                Error = $"'{Path}.minServers' is {minServers}, which is more servers than a lone '{Path}.hostname' is.";
                 return false;
             }
 
@@ -307,7 +338,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (hostname is not null && !DomainName.TryParse(hostname, out domainName, out var problem))
             {
-                Error = $"'nts.hostname': {problem}";
+                Error = $"'{Path}.hostname': {problem}";
                 return false;
             }
 
@@ -323,9 +354,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 maxAge,
                                 servers,
                                 minServers,
-                                maxDeviation
+                                maxDeviation,
+                                displayName
                             ) {
-                                RemovesLegalTimeAuthority = removesAuthority
+                                RemovesLegalTimeAuthority = removesAuthority,
+                                RemovesDisplayName        = removesName
                             };
 
             return true;
@@ -347,17 +380,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
-        #region ToGroup(FallbackHostname)
+        #region ToGroup(FallbackHostname, Id = "legal")
 
         /// <summary>
-        /// The time servers of this node as a group that can be asked.
+        /// The time servers of this section as a group that can be asked.
         /// </summary>
         /// <remarks>
-        /// Called "legal" after the white paper's well-known group, because this
-        /// is the clock that billing and certificate validity hang off. A
-        /// node asking a second group for load balancing would name that one
-        /// "local"; there is no such group yet and inventing one now would be
-        /// naming something nobody asks for.
+        /// Called "legal" unless said otherwise, after the white paper's
+        /// well-known group, because that is the clock billing and certificate
+        /// validity hang off. A group for load balancing is "local", by the
+        /// same white paper.
         ///
         /// A section that names a single hostname and no list becomes a group of
         /// one. That is a worse arrangement than four servers and it is the one
@@ -370,7 +402,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// default, made a group that believed whichever of them answered.
         /// </remarks>
         /// <param name="FallbackHostname">The server to use when the section names none at all.</param>
-        public TimeSourceGroup ToGroup(DomainName FallbackHostname)
+        /// <param name="Id">The group's name.</param>
+        public TimeSourceGroup ToGroup(DomainName  FallbackHostname,
+                                       String      Id = "legal")
         {
 
             NTSServerEndpoint[] sources = Servers is not null
@@ -381,7 +415,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                                       NTPPort
                                                   ) ];
 
-            return new ("legal",
+            return new (Id,
                         sources,
                         MinServers ?? QuorumFor(DefaultMinServers, sources),
                         MaxDeviation);
@@ -419,7 +453,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     Update.LegalTimeMaxAge     ?? LegalTimeMaxAge,
                     Update.Servers             ?? (Update.Hostname is not null ? null : Servers),
                     Update.MinServers          ?? MinServers,
-                    Update.MaxDeviation        ?? MaxDeviation);
+                    Update.MaxDeviation        ?? MaxDeviation,
+                    Update.RemovesDisplayName
+                        ? null
+                        : Update.DisplayName ?? DisplayName);
 
         #endregion
 
@@ -469,9 +506,124 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (LegalTimeTolerance.HasValue)  json.Add("legalTimeToleranceSeconds",   LegalTimeTolerance.Value.TotalSeconds);
             if (LegalTimeMaxAge.   HasValue)  json.Add("legalTimeMaxAgeSeconds",      LegalTimeMaxAge.   Value.TotalSeconds);
 
+            if (DisplayName is not null)      json.Add("displayName",                 DisplayNameJSON(DisplayName));
+
             return json;
 
         }
+
+        #endregion
+
+        #region (static) TryReadDisplayName(JSON, Path, out DisplayName, out Error)
+
+        /// <summary>
+        /// The optional "displayName" of a group: a plain string for every
+        /// language, or an object of a text by language - "en", "de", "de-at".
+        /// </summary>
+        /// <remarks>
+        /// Blank texts count as absent, as everywhere else in the file, and so
+        /// does an object holding nothing but those. A language is told apart
+        /// regardless of case, and kept in lower case.
+        /// </remarks>
+        /// <param name="JSON">The group.</param>
+        /// <param name="Path">Where the group is in the file, for the sentence.</param>
+        /// <param name="DisplayName">The texts by language, "*" for every language; null where there are none.</param>
+        public static Boolean TryReadDisplayName(JObject                                   JSON,
+                                                 String                                    Path,
+                                                 out IReadOnlyDictionary<String, String>?  DisplayName,
+                                                 [NotNullWhen(false)] out String?          Error)
+        {
+
+            DisplayName  = null;
+            Error        = null;
+
+            if (!JSON.TryGetValue("displayName", out var token) || token.Type == JTokenType.Null)
+                return true;
+
+            var texts = new Dictionary<String, String>();
+
+            if (token.Type == JTokenType.String)
+                texts[AnyLanguage] = token.Value<String>() ?? "";
+
+            else if (token is JObject byLanguage)
+            {
+                foreach (var (language, text) in byLanguage)
+                {
+
+                    if (!IsLanguage(language))
+                    {
+                        Error = $"'{Path}.displayName.{language}': '{language}' is not a language, which is written like \"en\", \"de\" or \"de-at\".";
+                        return false;
+                    }
+
+                    if (text?.Type is not (JTokenType.String or JTokenType.Null))
+                    {
+                        Error = $"'{Path}.displayName.{language}' must be a string.";
+                        return false;
+                    }
+
+                    texts[language.ToLowerInvariant()] = text?.Value<String>() ?? "";
+
+                }
+            }
+
+            else
+            {
+                Error = $"'{Path}.displayName' must be a string, or an object of a string by language.";
+                return false;
+            }
+
+            foreach (var (language, text) in texts.ToArray())
+            {
+
+                var trimmed = text.Trim();
+
+                if (trimmed.Length == 0)
+                    texts.Remove(language);
+
+                else if (trimmed.Length > MaxDisplayNameLength)
+                {
+                    Error = $"'{Path}.displayName' is longer than {MaxDisplayNameLength} characters.";
+                    return false;
+                }
+
+                else
+                    texts[language] = trimmed;
+
+            }
+
+            DisplayName = texts.Count > 0 ? texts : null;
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) DisplayNameJSON(DisplayName)
+
+        /// <summary>
+        /// A display name as the file writes it: a plain string where it is
+        /// the same in every language, an object by language otherwise.
+        /// </summary>
+        public static JToken DisplayNameJSON(IReadOnlyDictionary<String, String> DisplayName)
+
+            => DisplayName.Count == 1 && DisplayName.TryGetValue(AnyLanguage, out var text)
+                   ? new JValue(text)
+                   : new JObject(DisplayName.Select(byLanguage => new JProperty(byLanguage.Key, byLanguage.Value)));
+
+        #endregion
+
+        #region (static) IsLanguage(Text)
+
+        /// <summary>
+        /// Whether a text is a language as a display name is written under: two
+        /// or three letters, and optionally a region or script after a hyphen -
+        /// or "*" for every language.
+        /// </summary>
+        public static Boolean IsLanguage(String Text)
+
+            => Text == AnyLanguage ||
+               System.Text.RegularExpressions.Regex.IsMatch(Text, "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$");
 
         #endregion
 
