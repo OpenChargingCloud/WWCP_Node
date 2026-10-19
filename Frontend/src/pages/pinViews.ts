@@ -44,8 +44,12 @@ function dayOf(iso: string): string {
 
 /** Where a server's dialog is opened, and what it can offer to be picked. */
 export interface PinsContext {
-    /** "nts" or "dns": which roots and server certificates of the store are for it. */
-    service:  'nts' | 'dns';
+    /** "nts", "dns", or a usage a kind of node brings - a station's "meter": which roots and server certificates of the store are for it. */
+    service:  string;
+    /** What such a server is called in a sentence: "time server" for "nts", "name server" otherwise, where this does not say. */
+    what?:    string;
+    /** Whether what it shows is evidence, written into the metrological log whatever a mismatch comes to: a time server's is, where this does not say. */
+    evidence?: boolean;
     /**
      * The server, and the certificate and root it showed the last time it was
      * asked - which is what a pin is most often written down from.
@@ -61,7 +65,7 @@ export interface PinsContext {
  * signed in may not read it or it cannot be read - the fields are there
  * either way, and a fingerprint can always be typed.
  */
-export async function storeOffers(service: 'nts' | 'dns'): Promise<StoreOffers | null> {
+export async function storeOffers(service: string): Promise<StoreOffers | null> {
 
     if (!auth.can('certificates', 'read'))
         return null;
@@ -179,8 +183,8 @@ export function heldToView(draft:    PinsDraft,
  */
 export function pinsFieldset(draft: PinsDraft, context: PinsContext): TemplateResult {
 
-    const what     = context.service === 'nts' ? 'time server' : 'name server';
-    const evidence = context.service === 'nts';
+    const what     = context.what     ?? (context.service === 'nts' ? 'time server' : 'name server');
+    const evidence = context.evidence ?? context.service === 'nts';
     const shown    = context.shown;
     const offers   = context.offers;
 
@@ -225,7 +229,7 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): TemplateRe
                     <option value="refuse" ?selected=${draft.onMismatch === 'refuse'}>refuse it</option>
                     <option value="record" ?selected=${draft.onMismatch === 'record'}>use it all the same, and write that into the metrological log</option>
                     <option value="accept" ?selected=${draft.onMismatch === 'accept'}>${evidence
-                        ? 'use it all the same - for a time server, that goes into the metrological log either way'
+                        ? `use it all the same - for a ${what}, that goes into the metrological log either way`
                         : 'use it all the same, and write that into the log'}</option>
                 </select>
                 <span class="hint">
