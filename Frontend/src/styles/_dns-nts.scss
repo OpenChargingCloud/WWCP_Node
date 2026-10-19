@@ -202,3 +202,50 @@
     }
 
 }
+
+// What a new group of time servers is called, one line per language: the
+// language short and the name taking the rest. Measured by the fieldset, which
+// is as wide as the form on a phone too.
+fieldset.display-names {
+
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.5rem;
+    margin:          0;
+    padding:         0.75rem 0.9rem 0.9rem;
+    border:          1px solid $color-border;
+    border-radius:   $radius;
+    min-width:       0;
+
+    legend {
+        padding:    0 0.35rem;
+        font-size:  0.85rem;
+        color:      $color-muted;
+    }
+
+    .hint {
+        margin:     0;
+        font-size:  0.8rem;
+    }
+
+}
+
+.display-name-row {
+
+    display:  flex;
+    gap:      0.4rem;
+
+    input {
+        min-width:  0;
+    }
+
+    input:first-child {
+        flex:         0 0 5.5rem;
+        font-family:  $font-mono;
+    }
+
+    input:last-child {
+        flex:  1 1 auto;
+    }
+
+}

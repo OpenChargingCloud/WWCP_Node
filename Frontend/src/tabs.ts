@@ -13,7 +13,7 @@
  * the order Tab walks through.
  */
 
-import { html, repeat, type TemplateResult } from './view';
+import { html, nothing, repeat, type TemplateResult } from './view';
 
 
 /** One tab: what it is called in the address and the page, and its icon. */
@@ -23,6 +23,12 @@ export interface Tab {
     label:  string;
     /** A Font Awesome class. */
     icon?:  string;
+    /**
+     * What the tab is called where its label says nothing - a tab that is an
+     * icon alone, as "+" for one more of something: the button's accessible
+     * name and its tooltip.
+     */
+    title?: string;
 }
 
 
@@ -97,6 +103,8 @@ export function tabsView(Tabs:     readonly Tab[],
                 <button type="button"
                         role="tab"
                         class="tab ${tab.id === Shown ? 'active' : ''}"
+                        aria-label=${tab.title ?? nothing}
+                        title=${tab.title ?? nothing}
                         id="tab-${tab.id}"
                         aria-selected="${tab.id === Shown ? 'true' : 'false'}"
                         aria-controls="panel-${tab.id}"

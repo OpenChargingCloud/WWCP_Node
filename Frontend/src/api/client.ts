@@ -731,8 +731,46 @@ export interface NTSRootCA {
     fingerprint:  string;
 }
 
-/** Where the node gets the time from, and the rules for believing it. */
+/**
+ * What a group of time servers is called on a page: one text for every
+ * language, or one by language - "en", "de", "de-at".
+ */
+export type NTSDisplayName = string | Record<string, string>;
+
+/** One group of time servers in a few words, as the list of groups and the clock say it. */
+export interface NTSGroupSummary {
+    id:            string;
+    displayName:   NTSDisplayName | null;
+    /** Whether legal time rests on it: the group "legal", and no other. */
+    legal:         boolean;
+    enabled:       boolean;
+    /** Whether the clock is checked against it on a timer, which a running node does while it is switched on. */
+    checking:      boolean;
+    servers:       string[];
+    minServers:    number;
+    everySeconds:  number;
+    checkedAt:     string | null;
+    ageSeconds:    number | null;
+    offset_ms:     number | null;
+    asked:         number | null;
+    answered:      number | null;
+}
+
+/** Every group of time servers of the node, and the names left to suggest for one more. */
+export interface NTSGroups {
+    groups:     NTSGroupSummary[];
+    suggested:  string[];
+    limits:     { maxIdLength: number; maxDisplayNameLength: number };
+    file:       string;
+}
+
+/** Where the node gets the time of one group from, and the rules for believing it. */
 export interface NTSConfiguration {
+    /** Which group, as the list of groups names it. */
+    id:           string;
+    displayName:  NTSDisplayName | null;
+    /** Whether legal time rests on it. */
+    legal:        boolean;
     enabled:      boolean;
 
     /**
@@ -819,6 +857,8 @@ export interface Clock {
     why:              string | null;
     toleranceSeconds: number;
     maxAgeSeconds:    number;
+    /** What every group was last found to say about this clock; only the legal one decides "legal" above. */
+    groups:           NTSGroupSummary[];
 }
 
 
@@ -1390,6 +1430,30 @@ export function nodeAPI<T extends NodeTypes = NodeTypes>() {
                                                    'POST', '/configuration/nts/sync', {},
                                                    afterAsking([timeoutSeconds, timeoutSeconds])
                                                )
+        },
+
+        /**
+         * The groups of time servers one by one, each at its name. What /nts
+         * above says of the legal group, these say of any - and of the legal
+         * one as well, which the NTS page asks this way.
+         */
+        ntsGroups: {
+            list:    ()                                    => request<NTSGroups>       ('GET',    '/configuration/nts/groups'),
+            /** A group switched off and naming no server; the answer is the group. */
+            add:     (id: string, displayName?: NTSDisplayName) =>
+                                                              request<NTSConfiguration>('POST',   '/configuration/nts/groups', { id, displayName }),
+            get:     (id: string)                          => request<NTSConfiguration>('GET',    `/configuration/nts/groups/${encodeURIComponent(id)}`),
+            save:    (id: string, update: NTSUpdate)       => request<NTSConfiguration>('PUT',    `/configuration/nts/groups/${encodeURIComponent(id)}`, update),
+            /** Only a group switched off; the answer is the groups that are left. */
+            remove:  (id: string)                          => request<NTSGroups>       ('DELETE', `/configuration/nts/groups/${encodeURIComponent(id)}`),
+            /** As nts.test, of a server of this group. */
+            test:    (id: string, timeoutSeconds: number, host?: string) =>
+                         request<TimeServerTest>('POST', `/configuration/nts/groups/${encodeURIComponent(id)}/test`, { host },
+                                                 afterAsking([timeoutSeconds, timeoutSeconds])),
+            /** As nts.sync, of this group. */
+            sync:    (id: string, timeoutSeconds: number) =>
+                         request<NTSConfiguration>('POST', `/configuration/nts/groups/${encodeURIComponent(id)}/sync`, {},
+                                                   afterAsking([timeoutSeconds, timeoutSeconds]))
         },
 
         certificates: {

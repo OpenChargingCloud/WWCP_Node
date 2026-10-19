@@ -2,21 +2,30 @@
  * The NTS page drawn, in a document of happy-dom, against a node that is a
  * stand-in for fetch: what is typed into one of its two forms outlives the
  * other being saved and "Sync now" being answered, and the form saved shows
- * what the node took.
+ * what the node took - and its groups of time servers, a tab each, made in
+ * the "+" tab and taken away switched off.
  */
 
-import { open, until, type Asked } from '../../test/node.ts';
+import { open, refused, said, until, type Asked } from '../../test/node.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import type { Clock, NTSConfiguration, NTSUpdate } from '../api/client.ts';
+import type { Clock, NTSConfiguration, NTSGroups, NTSGroupSummary, NTSUpdate } from '../api/client.ts';
 
 const { ntsPage } = await import('./nts.ts');
 
 
+/** The legal group, which every test but the ones without it has first. */
 let held: NTSConfiguration;
-const told: NTSUpdate[] = [];
+
+/** Every group of the stand-in node, in its order: the legal one, and whatever a test gives it. */
+let groupsHeld: NTSConfiguration[] = [];
+
+/** What the page told a group, by PUT; made by POST; and taken away by DELETE. */
+const told:     NTSUpdate[] = [];
+const made:     unknown[]   = [];
+const removed:  string[]    = [];
 
 /** What the stand-in node says of its clock, over aClock(). */
 let clockSays: Partial<Clock> = {};
@@ -28,6 +37,9 @@ let synced = 0;
 
 function aConfiguration(): NTSConfiguration {
     return {
+        id:           'legal',
+        displayName:  null,
+        legal:        true,
         enabled:      true,
         timeSources:  [ { hostname: 'ptbtime1.ptb.de', priority: 0, ntsKEPort: 4460, ntpPort: 123, enabled: true },
                         { hostname: 'ptbtime2.ptb.de', priority: 0, ntsKEPort: 4460, ntpPort: 123, enabled: true } ],
@@ -43,58 +55,144 @@ function aConfiguration(): NTSConfiguration {
     } as unknown as NTSConfiguration;
 }
 
+/** A group other than the legal one, as the node makes it: switched off, naming nobody. */
+function aGroup(id: string, more: Partial<NTSConfiguration> = {}): NTSConfiguration {
+    return { ...aConfiguration(), id, legal: false, enabled: false, timeSources: [], ...more } as NTSConfiguration;
+}
+
 const aClock = (): Clock => ({
     now: '2026-10-04T12:00:00Z', source: 'system',
     nts: { enabled: true, group: 'ptb', server: null, servers: null, minServers: 2, lastServer: null, asked: null, answered: null,
            checkedAt: null, ageSeconds: null, offset_ms: null, everySeconds: 900 },
-    legal: false, authority: null, why: 'notClaimed', toleranceSeconds: 1, maxAgeSeconds: 3600
+    legal: false, authority: null, why: 'notClaimed', toleranceSeconds: 1, maxAgeSeconds: 3600, groups: []
 }) as unknown as Clock;
+
+/** A group in a few words, as the list of groups and the clock say it. */
+function summaryOf(group: NTSConfiguration): NTSGroupSummary {
+    return { id: group.id, displayName: group.displayName, legal: group.legal, enabled: group.enabled, checking: group.enabled,
+             servers: group.timeSources.map(source => source.hostname), minServers: group.settings.minServers,
+             everySeconds: group.settings.checkEverySeconds, checkedAt: null, ageSeconds: null, offset_ms: null,
+             asked: null, answered: null };
+}
+
+function theGroups(): NTSGroups {
+    return { groups:     groupsHeld.map(summaryOf),
+             suggested:  [ 'legal', 'local', 'grid' ].filter(id => !groupsHeld.some(group => group.id === id)),
+             limits:     { maxIdLength: 32, maxDisplayNameLength: 80 },
+             file:       'nts.json' };
+}
 
 /** How the stand-in node answers. */
 function node({ method, path, body }: Asked): unknown {
 
     if (path.endsWith('/clock'))
-        return { ...aClock(), ...clockSays };
+        return { ...aClock(), groups: groupsHeld.map(summaryOf), ...clockSays };
 
     if (path.endsWith('/certificates'))
         return { certificates: { tlsRoot: [ { id: rootPrint.slice(0, 16), label: 'PTB Root', thumbprint: rootPrint,
                                               usable: true, usages: [ 'nts' ] } ],
                                  tlsServer: [] } };
 
-    if (path.endsWith('/configuration/nts/sync')) {
-        synced++;
-        return { ...held, result: { ok: true, at: '2026-10-04T12:00:01Z', servers: [],
-                                    group: { answered: 2, required: 2, offset_ms: 0.4, spread_ms: 0.1 } } };
+    if (path === '/configuration/nts/groups' && method === 'GET')
+        return theGroups();
+
+    if (path === '/configuration/nts/groups' && method === 'POST') {
+
+        const { id, displayName } = body as { id: string; displayName?: NTSConfiguration['displayName'] };
+
+        made.push(body);
+
+        if (groupsHeld.some(group => group.id === id))
+            return refused(409, `This Test node has an NTS group '${id}' already.`);
+
+        const group = aGroup(id, { displayName: displayName ?? null });
+
+        groupsHeld.push(group);
+
+        return group;
+
     }
 
-    if (path.endsWith('/configuration/nts') && method === 'PUT') {
+    const at = /^\/configuration\/nts\/groups\/([^/]+)(\/sync|\/test)?$/.exec(path);
+
+    if (at === null)
+        return undefined;
+
+    const id    = decodeURIComponent(at[1]!);
+    const group = groupsHeld.find(one => one.id === id);
+
+    if (group === undefined)
+        return refused(404, `This Test node has no NTS group '${id}'.`);
+
+    if (at[2] === '/sync') {
+        synced++;
+        return { ...group, result: { ok: true, at: '2026-10-04T12:00:01Z', servers: [],
+                                     group: { answered: 2, required: 2, offset_ms: 0.4, spread_ms: 0.1 } } };
+    }
+
+    if (at[2] === '/test')
+        return { host: 'ptbtime1.ptb.de', ok: true, runtime_ms: 1, steps: [] };
+
+    if (method === 'PUT') {
+
         const update = body as NTSUpdate;
+
         told.push(update);
+
         // A node takes what it takes: a check every minute at the most often.
         if (update.checkEverySeconds !== undefined)
             update.checkEverySeconds = Math.max(update.checkEverySeconds, 60);
-        held = { ...held, settings: { ...held.settings,
-                                      ...Object.fromEntries(Object.entries(update).filter(([ key ]) => key in held.settings)) } };
+
+        group.settings = { ...group.settings,
+                           ...Object.fromEntries(Object.entries(update).filter(([ key ]) => key in group.settings)) };
+
+        if (update.enabled !== undefined)
+            group.enabled = update.enabled;
+
+        return group;
+
     }
 
-    if (path.endsWith('/configuration/nts'))
-        return held;
+    if (method === 'DELETE') {
 
-    return undefined;
+        if (group.enabled)
+            return refused(409, `NTS group '${id}' is switched on: switch it off before removing it.`);
+
+        removed.push(id);
+        groupsHeld = groupsHeld.filter(one => one !== group);
+
+        return theGroups();
+
+    }
+
+    return group;
 
 }
 
-async function opened(clock:  Partial<Clock> = {},
-                      shape:  (configuration: NTSConfiguration) => void = () => undefined): Promise<HTMLElement> {
+/**
+ * The page opened at the legal group, or at the tab the address names; the
+ * node's groups shaped by the test, and drawn once what the test waits for is.
+ */
+async function opened(clock:   Partial<Clock> = {},
+                      shape:   (configuration: NTSConfiguration) => void = () => undefined,
+                      others:  NTSConfiguration[] = [],
+                      path     = '/configuration/nts',
+                      drawn:   (root: HTMLElement) => boolean = root => root.querySelector('#legal-form') !== null,
+                      legal    = true): Promise<HTMLElement> {
 
-    clockSays   = clock;
-    held        = aConfiguration();
+    clockSays     = clock;
+    held          = aConfiguration();
     shape(held);
-    told.length = 0;
-    synced      = 0;
+    groupsHeld    = [ ...(legal ? [ held ] : []), ...others ];
+    told.length   = 0;
+    made.length   = 0;
+    removed.length = 0;
+    synced        = 0;
 
-    return open(ntsPage, '/configuration/nts', [ 'nts:edit', 'nts:run', 'certificates:read' ], node,
-                root => root.querySelector('#legal-form') !== null);
+    // The address the tab is remembered in, as a browser has it.
+    history.replaceState(null, '', path);
+
+    return open(ntsPage, path, [ 'nts:edit', 'nts:run', 'certificates:read' ], node, drawn);
 
 }
 
@@ -103,6 +201,12 @@ const field = (root: HTMLElement, form: string, name: string) => root.querySelec
 /** Sent as the browser sends it once the form is valid; happy-dom's step check is not a browser's. */
 const submit = (root: HTMLElement, form: string) =>
     root.querySelector<HTMLFormElement>(`#${form}`)!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+/** The tabs as they read: their text, or the name of one that is an icon. */
+const tabsOf = (root: HTMLElement) => [ ...root.querySelectorAll<HTMLButtonElement>('[role="tab"]') ]
+                                          .map(tab => tab.getAttribute('aria-label') ?? tab.textContent!.replace(/\s+/g, ' ').trim());
+
+const shownTab = (root: HTMLElement) => root.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.id;
 
 
 describe('the NTS page', () => {
@@ -207,6 +311,179 @@ describe('the NTS page', () => {
         assert.equal(told[0]!.checkEverySeconds, 60, 'the stand-in node took sixty, not the thirty typed');
         assert.equal(field(root, 'policy-form', 'checkEverySeconds').value,         '60', 'the field says what was typed, not what the node took');
         assert.equal(field(root, 'policy-form', 'checkEverySeconds').defaultValue,  '60', 'the field still counts as typed into');
+
+    });
+
+});
+
+
+describe('the groups of the NTS page', () => {
+
+    it('shows a tab per group, the legal one first, and a "+" tab that makes one more', async () => {
+
+        const root = await opened({}, () => undefined, [ aGroup('local', { displayName: { en: 'Site clock' } }) ]);
+
+        assert.deepEqual(tabsOf(root), [ 'Legal time', 'Site clock (off)', 'Add an NTS group' ]);
+        assert.equal(shownTab(root), 'tab-legal');
+        assert.equal(root.querySelector('[role="tabpanel"]')?.id, 'panel-legal');
+
+    });
+
+    it('opens the tab the address names, asks that group, and draws no legal time for it', async () => {
+
+        const root = await opened({}, () => undefined, [ aGroup('local', { enabled: true, timeSources: aConfiguration().timeSources }) ],
+                                  '/configuration/nts?tab=local',
+                                  root => root.querySelector('#policy-form') !== null);
+
+        const clock = root.querySelector('#nts-clock h2')!.textContent!.replace(/\s+/g, ' ').trim();
+
+        assert.equal(shownTab(root), 'tab-local');
+        assert.ok(root.querySelector('#nts-legal') === null, 'what counts as legal time is the legal group\'s alone');
+        assert.match(clock, /^The clock against Local time/);
+        assert.doesNotMatch(clock, /legal/);
+        assert.ok(root.querySelector('#nts-remove') === null, 'a group switched on cannot be taken away');
+
+    });
+
+    it('saves, syncs and tests the group of the tab shown', async () => {
+
+        const root = await opened({}, () => undefined, [ aGroup('local', { enabled: true, timeSources: aConfiguration().timeSources }) ],
+                                  '/configuration/nts?tab=local',
+                                  root => root.querySelector('#policy-form') !== null);
+
+        field(root, 'policy-form', 'checkEverySeconds').value = '120';
+        submit(root, 'policy-form');
+        await until(() => told.length === 1, 'the policy was not saved');
+
+        root.querySelector<HTMLButtonElement>('#sync')!.click();
+        await until(() => synced === 1, '"Sync now" did not ask');
+
+        assert.equal(groupsHeld.find(group => group.id === 'local')!.settings.checkEverySeconds, 120);
+        assert.equal(held.settings.checkEverySeconds, 900, 'the legal group was told');
+
+    });
+
+    it('makes a group switched off in the "+" tab, and shows its tab', async () => {
+
+        const root = await opened({}, () => undefined, [], `/configuration/nts?tab=_new`,
+                                  root => root.querySelector('#add-group-form') !== null);
+
+        assert.deepEqual([ ...root.querySelectorAll<HTMLOptionElement>('#nts-group-names option') ].map(option => option.value),
+                         [ 'local', 'grid' ], 'the names not taken yet are offered');
+
+        field(root, 'add-group-form', 'id').value          = 'grid';
+        field(root, 'add-group-form', 'language-0').value  = 'de';
+        field(root, 'add-group-form', 'text-0').value      = 'Netzzeit';
+
+        root.querySelector<HTMLButtonElement>('#add-language')!.click();
+        await until(() => root.querySelector('[name="text-1"]') !== null, 'no second language');
+
+        assert.equal(field(root, 'add-group-form', 'text-0').value, 'Netzzeit', 'the line typed into was drawn anew');
+
+        field(root, 'add-group-form', 'language-1').value  = 'en';
+        field(root, 'add-group-form', 'text-1').value      = 'Grid time';
+
+        submit(root, 'add-group-form');
+        await until(() => shownTab(root) === 'tab-grid' && root.querySelector('#nts-remove') !== null, 'the new group\'s tab was not shown');
+
+        assert.deepEqual(made, [ { id: 'grid', displayName: { de: 'Netzzeit', en: 'Grid time' } } ]);
+        assert.match(location.search, /tab=grid/, 'its tab is not the one the address remembers');
+        assert.equal(root.querySelector<HTMLInputElement>('#enabled')!.checked, false, 'made switched on');
+
+    });
+
+    it('says a name that cannot be a group\'s, and asks the node nothing', async () => {
+
+        const root = await opened({}, () => undefined, [], `/configuration/nts?tab=_new`,
+                                  root => root.querySelector('#add-group-form') !== null);
+
+        field(root, 'add-group-form', 'id').value = 'Grid';
+        submit(root, 'add-group-form');
+
+        await until(() => root.querySelector('#add-group-error')!.textContent !== '', 'nothing was said');
+
+        assert.match(root.querySelector('#add-group-error')!.textContent!, /"Grid" cannot be the name of a group/);
+        assert.deepEqual(made, []);
+
+    });
+
+    it('says what the node refuses, in the "+" tab', async () => {
+
+        const root = await opened({}, () => undefined, [ aGroup('local') ], `/configuration/nts?tab=_new`,
+                                  root => root.querySelector('#add-group-form') !== null);
+
+        field(root, 'add-group-form', 'id').value = 'local';
+        submit(root, 'add-group-form');
+
+        await until(() => root.querySelector('#add-group-error')!.textContent !== '', 'the refusal was not said');
+
+        assert.match(root.querySelector('#add-group-error')!.textContent!, /has an NTS group 'local' already/);
+        assert.equal(shownTab(root), 'tab-_new');
+
+    });
+
+    it('takes a group switched off away once asked, and shows the first tab left', async () => {
+
+        const root = await opened({}, () => undefined, [ aGroup('local') ], '/configuration/nts?tab=local',
+                                  root => root.querySelector('#nts-remove') !== null);
+
+        root.querySelector<HTMLButtonElement>('#remove-group')!.click();
+        await until(() => shownTab(root) === 'tab-legal' && root.querySelector('#legal-form') !== null, 'the first tab left was not shown');
+
+        assert.deepEqual(removed, [ 'local' ]);
+        assert.match(said.find(text => text.startsWith('Remove Local time?')) ?? '', /taken out of nts\.json/);
+        assert.deepEqual(tabsOf(root), [ 'Legal time', 'Add an NTS group' ]);
+
+    });
+
+    it('says what taking the legal group away ends, and leaves the "+" tab where nothing is left', async () => {
+
+        const root = await opened({}, held => { held.enabled = false; }, [], '/configuration/nts',
+                                  root => root.querySelector('#nts-remove') !== null);
+
+        assert.match(root.querySelector('#nts-remove p.hint')!.textContent!, /no legal time from then on/);
+
+        root.querySelector<HTMLButtonElement>('#remove-group')!.click();
+        await until(() => shownTab(root) === 'tab-_new' && root.querySelector('#add-group-form') !== null, 'the "+" tab was not shown');
+
+        assert.deepEqual(removed, [ 'legal' ]);
+        assert.match(said.find(text => text.startsWith('Remove Legal time?')) ?? '', /no legal time from then on/);
+        assert.deepEqual([ ...root.querySelectorAll<HTMLOptionElement>('#nts-group-names option') ].map(option => option.value),
+                         [ 'legal', 'local', 'grid' ], 'the legal group is offered again');
+
+    });
+
+    it('asks before another tab leaves what is typed behind, and stays where it is told to', async () => {
+
+        const root   = await opened({}, () => undefined, [ aGroup('local') ]);
+        const every  = field(root, 'policy-form', 'checkEverySeconds');
+        const asked  = window.confirm;
+
+        every.value  = '600';
+
+        window.confirm = (text?: unknown) => { said.push(String(text)); return false; };
+
+        try
+        {
+            root.querySelector<HTMLButtonElement>('#tab-local')!.click();
+        }
+        finally
+        {
+            window.confirm = asked;
+        }
+
+        assert.equal(shownTab(root), 'tab-legal', 'the tab was left all the same');
+        assert.ok(said.some(text => text.includes('has not been told about')), 'nobody was asked');
+        assert.equal(field(root, 'policy-form', 'checkEverySeconds').value, '600', 'what was typed is gone');
+
+    });
+
+    it('shows a node without a group of time servers its "+" tab alone', async () => {
+
+        const root = await opened({}, () => undefined, [], '/configuration/nts',
+                                  root => root.querySelector('#add-group-form') !== null, false);
+
+        assert.deepEqual(tabsOf(root), [ 'Add an NTS group' ]);
 
     });
 

@@ -1,12 +1,14 @@
-import { nodeAPI, type Clock, type NTSConfiguration, type NTSServerEntry, type NTSServerResult, type NTSSyncResult, type NTSTimeSource, type NTSUpdate, type TimeServerTest } from '../api/client';
+import { nodeAPI, type Clock, type NTSConfiguration, type NTSGroups, type NTSGroupSummary, type NTSServerEntry, type NTSServerResult, type NTSSyncResult, type NTSTimeSource, type NTSUpdate, type TimeServerTest } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
 import { must } from '../html';
 import type { Page } from '../router';
 import { mayButNot, reloadButton, shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, numberField, whileSaving } from '../ui';
+import { rememberTab, tabFromURL, tabsView, type Tab } from '../tabs';
 import { typedSinceDrawn, unsaved } from '../unsaved';
-import { html, live, nothing, render, repeat, type TemplateResult } from '../view';
+import { html, keyed, live, nothing, render, repeat, type TemplateResult } from '../view';
+import { displayNameOf, firstLanguage, isGroupId, labelOf, NewGroupTab, type DisplayNameRow } from './ntsGroups';
 import { nameTaken, readable, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
 import { asShown, draftOf, withPins, type StoreOffers } from './pins';
 import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers } from './pinViews';
@@ -27,8 +29,17 @@ const api = nodeAPI();
 
 
 /**
- * Where this node reads the time: its time servers, and the rules for
- * believing them.
+ * Where this node reads the time: its groups of time servers, one tab each,
+ * and the rules for believing them.
+ *
+ * A tab per group - "Legal time" first where there is one, and whatever else
+ * the node has: "local" for load balancing, as the white paper has it, or any
+ * other - and a "+" tab that makes one more, switched off, as it has nothing
+ * to ask yet. A group switched off has a card that takes it away.
+ *
+ * Only the tab shown is drawn, from the group's own answer; another tab is
+ * asked for when it is opened, and leaving a form typed into asks first, as
+ * leaving the page does.
  *
  * The page is the group, because the group is what the clock is checked
  * against. It used to lead with a form for one server "for the detailed test"
@@ -56,7 +67,7 @@ export const ntsPage: Page = {
 
     title: 'NTS client',
 
-    render({ root }) {
+    render({ root, url }) {
 
         const content = shell(root, {
             active:    '/configuration/nts',
@@ -71,9 +82,19 @@ export const ntsPage: Page = {
         const mayTest   = auth.can('nts', 'run');
 
         let cancelled = false;
+        let groups:  NTSGroups        | null = null;
         let current: NTSConfiguration | null = null;
         let clock:   Clock            | null = null;
         let syncing = false;
+
+        /** The tab shown: a group's name, or NewGroupTab. */
+        let shown   = '';
+
+        /** The address the page was opened at, which names the tab to show first; Reload reads the one rememberTab left. */
+        let opened: URL | undefined = url;
+
+        /** The lines of the display name the "+" tab offers, one more for each "Another language". */
+        let nameRows: DisplayNameRow[] = [ { language: firstLanguage(), text: '' } ];
 
         /**
          * The roots and server certificates the store keeps for the time
@@ -101,13 +122,56 @@ export const ntsPage: Page = {
         }
 
 
+        /** A tab per group, and the "+" tab for whoever may make one. */
+        function tabs(): Tab[] {
+
+            const made: Tab[] = (groups?.groups ?? []).map(group => ({
+                                    id:     group.id,
+                                    label:  group.enabled ? labelOf(group) : `${labelOf(group)} (off)`,
+                                    icon:   group.legal ? 'fa-scale-balanced' : 'fa-clock'
+                                }));
+
+            return mayChange
+                       ? [ ...made, { id: NewGroupTab, label: '', icon: 'fa-plus', title: 'Add an NTS group' } ]
+                       : made;
+
+        }
+
+
+        /** What the list says of the group shown, or undefined. */
+        function summaryOf(id: string): NTSGroupSummary | undefined {
+            return groups?.groups.find(group => group.id === id);
+        }
+
+
+        /**
+         * Show another tab: asked for anew, after asking whether what is typed
+         * into the one shown may be left behind.
+         */
+        function show(tab: string): void {
+
+            if (tab === shown || !unsaved.mayBeLost())
+                return;
+
+            shown    = tab;
+            current  = null;
+            rememberTab(tabs(), tab);
+
+            draw();
+
+            if (tab !== NewGroupTab)
+                void loadGroup(tab);
+
+        }
+
+
         /** The whole page, from what the node last said. */
         function draw(): void {
 
-            if (current === null)
+            if (groups === null)
                 return;
 
-            const configuration = current;
+            const all = tabs();
 
             render(content, html`
 
@@ -117,9 +181,37 @@ export const ntsPage: Page = {
                     </div>
                 `}
 
+                ${all.length === 0
+                      ? html`<p class="muted">This ${config.nodeName} checks its clock against no group of time servers.</p>`
+                      : html`
+                            ${tabsView(all, shown, show, 'Groups of time servers')}
+
+                            <div id="panel-${shown}" role="tabpanel" aria-labelledby="tab-${shown}">
+                                ${keyed(shown, shown === NewGroupTab
+                                                    ? addView(groups)
+                                                    : current === null || current.id !== shown
+                                                          ? html`<div class="loading">Loading ...</div>`
+                                                          : groupView(current))}
+                            </div>
+                        `}
+
+            `);
+
+        }
+
+
+        /** One group's cards, read from the top down. */
+        function groupView(configuration: NTSConfiguration): TemplateResult {
+
+            return html`
+
                 <div class="cards stacked">
 
-                    <section class="card" id="nts-clock" ?hidden=${clock === null}>${clock === null ? nothing : clockView(clock)}</section>
+                    <section class="card" id="nts-clock" ?hidden=${clock === null}>${clock === null
+                                                                                          ? nothing
+                                                                                          : configuration.legal
+                                                                                                ? clockView(clock)
+                                                                                                : groupClockView(configuration, clock.groups?.find(group => group.id === configuration.id))}</section>
 
                     <section class="card" id="nts-switch">${switchView(configuration)}</section>
 
@@ -127,7 +219,9 @@ export const ntsPage: Page = {
 
                     <section class="card" id="nts-policy">${policyView(configuration)}</section>
 
-                    <section class="card" id="nts-legal">${legalView(configuration)}</section>
+                    ${configuration.legal
+                          ? html`<section class="card" id="nts-legal">${legalView(configuration)}</section>`
+                          : nothing}
 
                     <section class="card">
                         <h2><i class="fa-solid fa-scale-balanced"></i> Cookie pool policy</h2>
@@ -147,9 +241,13 @@ export const ntsPage: Page = {
 
                     <section class="card" id="nts-sync">${syncView()}</section>
 
+                    ${configuration.enabled
+                          ? nothing
+                          : html`<section class="card" id="nts-remove">${removeView(configuration)}</section>`}
+
                 </div>
 
-            `);
+            `;
 
         }
 
@@ -248,11 +346,63 @@ export const ntsPage: Page = {
                 </label>
 
                 <p class="hint">
-                    Switched off, this ${config.nodeName} asks its time servers nothing at all - "Sync now" and the
-                    tests below are refused rather than quietly doing nothing.
+                    Switched off, this ${config.nodeName} asks the time servers of ${configuration.legal ? 'its legal time' : labelOf(configuration)}
+                    nothing at all - "Sync now" and the tests below are refused rather than quietly doing nothing -
+                    and the group can be removed.
                 </p>
 
                 <span id="switch-error" class="form-error" role="alert"></span>
+
+            `;
+
+        }
+
+
+        /**
+         * What a group other than the legal one found about this clock.
+         *
+         * Never the word "legal": legal time rests on the legal group and on
+         * nothing else. What another group says is how far this node's clock
+         * is from its servers, which is what load balancing between stations
+         * needs to agree on.
+         */
+        function groupClockView(configuration:  NTSConfiguration,
+                                found:          NTSGroupSummary | undefined): TemplateResult {
+
+            return html`
+
+                <h2>
+                    <i class="fa-solid fa-hourglass-half"></i> The clock against ${labelOf(configuration)}
+                    <span class="chip ${found?.checkedAt ? 'ok' : 'warn'}">
+                        ${found?.checkedAt ? 'checked' : 'not checked yet'}
+                    </span>
+                </h2>
+
+                <div class="kv-list">
+
+                    <div class="kv">
+                        <span class="k">Last checked</span>
+                        <span class="v">
+                            ${found?.checkedAt
+                                  ? html`${formatValue(found.checkedAt)}${
+                                        found.answered !== null && found.asked !== null
+                                            ? html` <span class="muted small">- ${found.answered} of ${found.asked} answered</span>`
+                                            : nothing}`
+                                  : 'never'}
+                        </span>
+                    </div>
+
+                    <div class="kv">
+                        <span class="k">Off by</span>
+                        <span class="v">${ms(found?.offset_ms, true)}</span>
+                    </div>
+
+                </div>
+
+                <p class="hint">
+                    How far this ${config.nodeName}'s own clock is from the servers of this group. Whether its time
+                    is legal time is not this group's to say, only the legal group's.
+                </p>
 
             `;
 
@@ -464,6 +614,123 @@ export const ntsPage: Page = {
 
 
         /**
+         * The "+" tab: a group made, switched off - it has no time server to
+         * ask yet, and is switched on in its own tab once it has.
+         *
+         * Its name is offered from the white paper's and the grid's, of those
+         * not taken yet, and may be any other. What a page calls it may be said
+         * in as many languages as there are lines; said in none, it is
+         * "<name> time".
+         */
+        function addView(list: NTSGroups): TemplateResult {
+
+            const suggested = list.suggested;
+
+            return html`
+
+                <div class="cards stacked">
+
+                    <section class="card" id="nts-add">
+
+                        <h2><i class="fa-solid fa-plus"></i> A new NTS group</h2>
+
+                        <p class="hint">
+                            A group has time servers and rules of its own, and the clock is checked against each group
+                            on its own. Legal time rests on the group "legal" alone; "local" is the white paper's name
+                            for the servers stations share for load balancing, a local controller's say.
+                        </p>
+
+                        <form id="add-group-form" class="form-stack" @submit=${addGroup}>
+
+                            <label>Name
+                                <input type="text" name="id" list="nts-group-names" required
+                                       maxlength="${list.limits.maxIdLength}" placeholder="${suggested[0] ?? 'local'}"
+                                       autocomplete="off" spellcheck="false" />
+                                <datalist id="nts-group-names">
+                                    ${suggested.map(name => html`<option value="${name}"></option>`)}
+                                </datalist>
+                                <span class="hint">
+                                    Lower-case letters, digits and hyphens, beginning with a letter: the group's name in
+                                    the file, in the address and in the log.
+                                    ${suggested.length > 0 ? html`Not taken yet: ${suggested.join(', ')}.` : nothing}
+                                </span>
+                            </label>
+
+                            <fieldset class="display-names">
+                                <legend>What this page calls it</legend>
+                                ${nameRows.map((row, index) => html`
+                                    <div class="display-name-row">
+                                        <input type="text" name="language-${index}" value="${row.language}" size="6"
+                                               aria-label="Language" placeholder="en" autocomplete="off" spellcheck="false" />
+                                        <input type="text" name="text-${index}" value="${row.text}"
+                                               maxlength="${list.limits.maxDisplayNameLength}"
+                                               aria-label="Display name" placeholder="Local time" />
+                                    </div>
+                                `)}
+                                <div class="form-actions">
+                                    <button type="button" class="btn small" id="add-language" @click=${addLanguage}>
+                                        <i class="fa-solid fa-plus"></i> Another language
+                                    </button>
+                                </div>
+                                <span class="hint">
+                                    Optional, and one line per language - "en", "de", "de-at", or "*" for every language.
+                                    Without one, the page says "<name> time".
+                                </span>
+                            </fieldset>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn primary">Save</button>
+                                <span id="add-group-error" class="form-error" role="alert"></span>
+                            </div>
+
+                            <span class="hint">
+                                Saved to <span class="path">${list.file}</span>, switched off.
+                            </span>
+
+                        </form>
+
+                    </section>
+
+                </div>
+
+            `;
+
+        }
+
+
+        /**
+         * The card that takes a group away, in a group switched off: switching
+         * it off is the decision, taking it away the tidying.
+         */
+        function removeView(configuration: NTSConfiguration): TemplateResult {
+
+            return html`
+
+                <h2><i class="fa-solid fa-trash"></i> Remove NTS group</h2>
+
+                <p class="hint">
+                    Takes ${labelOf(configuration)} away: its timer, any check still running against it, its client,
+                    and its place in <span class="path">${configuration.file}</span>.
+                    ${configuration.legal
+                          ? html`This ${config.nodeName} has no legal time from then on, until a group called "legal"
+                                 is added again.`
+                          : nothing}
+                </p>
+
+                <div class="form-actions">
+                    <button type="button" class="btn danger" id="remove-group" ?disabled=${!mayChange}
+                            @click=${() => void removeGroup(configuration)}>
+                        <i class="fa-solid fa-trash"></i> Remove NTS group
+                    </button>
+                    <span id="remove-error" class="form-error" role="alert"></span>
+                </div>
+
+            `;
+
+        }
+
+
+        /**
          * One time server: who it is, what it said last, and what can be done
          * with it.
          *
@@ -642,7 +909,7 @@ export const ntsPage: Page = {
 
                 try
                 {
-                    current = await whileSaving(dialog, null, () => api.nts.save({ servers }));
+                    current = await whileSaving(dialog, null, () => api.ntsGroups.save(configuration.id, { servers }));
                 }
                 catch (problem)
                 {
@@ -843,7 +1110,7 @@ export const ntsPage: Page = {
 
             try
             {
-                result = await api.nts.test(current?.settings.timeoutSeconds ?? theClientsOwnTimeout, host);
+                result = await api.ntsGroups.test(shown, current?.settings.timeoutSeconds ?? theClientsOwnTimeout, host);
             }
             catch (problem)
             {
@@ -931,7 +1198,7 @@ export const ntsPage: Page = {
             try
             {
                 current = await whileSaving(must<HTMLElement>(content, '#nts-switch'), null,
-                                            () => api.nts.save({ enabled: on }));
+                                            () => api.ntsGroups.save(shown, { enabled: on }));
             }
             catch (problem)
             {
@@ -944,7 +1211,10 @@ export const ntsPage: Page = {
 
             draw();
 
-            // Whether the time may be called legal depends on it.
+            // The tab says whether it is off, and the card that takes a group
+            // away is there while it is - and whether the time may be called
+            // legal depends on it.
+            await refreshGroups();
             await refreshClock();
 
         }
@@ -968,7 +1238,7 @@ export const ntsPage: Page = {
             try
             {
                 current = await whileSaving(must<HTMLElement>(content, Card), must<HTMLElement>(content, NoteAt),
-                                            () => api.nts.save(Update));
+                                            () => api.ntsGroups.save(shown, Update));
             }
             catch (problem)
             {
@@ -1006,7 +1276,7 @@ export const ntsPage: Page = {
                 // The answer carries the whole configuration as well as the
                 // result, because an exchange moves the cookies and the record
                 // of the last key exchange that each row is showing.
-                current = await api.nts.sync(current?.settings.timeoutSeconds ?? theClientsOwnTimeout);
+                current = await api.ntsGroups.sync(shown, current?.settings.timeoutSeconds ?? theClientsOwnTimeout);
             }
             catch (problem)
             {
@@ -1053,6 +1323,173 @@ export const ntsPage: Page = {
         }
 
 
+        /**
+         * The groups again - their tabs, and whether each is switched on -
+         * after something that changed one of them, asked in a try of its own
+         * for the same reason as the clock.
+         */
+        async function refreshGroups(): Promise<void> {
+
+            try
+            {
+                groups = await api.ntsGroups.list();
+            }
+            catch
+            {
+                return;
+            }
+
+            if (!cancelled)
+                draw();
+
+        }
+
+
+        /** The group of a tab just opened, from its own answer. */
+        async function loadGroup(id: string): Promise<void> {
+
+            try
+            {
+                const loaded = await api.ntsGroups.get(id);
+
+                if (!cancelled && shown === id) {
+                    current = loaded;
+                    draw();
+                }
+            }
+            catch (problem)
+            {
+                if (!cancelled && shown === id)
+                    render(must<HTMLElement>(content, '[role="tabpanel"]'), html`
+                        <div class="error-box">The NTS group could not be loaded: ${errorMessage(problem)}</div>
+                    `);
+            }
+
+        }
+
+
+        /** One more line for the display name of a new group, the lines typed into kept as they are. */
+        function addLanguage(): void {
+            nameRows = [ ...nameRows, { language: '', text: '' } ];
+            draw();
+        }
+
+
+        /**
+         * Make the group the "+" tab says, and show its tab - where it is
+         * switched off, with no time server yet and a card that takes it away
+         * again.
+         */
+        async function addGroup(event: SubmitEvent): Promise<void> {
+
+            event.preventDefault();
+
+            if (groups === null)
+                return;
+
+            const form   = event.currentTarget as HTMLFormElement;
+            const data   = new FormData(form);
+            const id     = String(data.get('id') ?? '').trim();
+            const error  = must<HTMLElement>(content, '#add-group-error');
+
+            error.textContent = '';
+
+            if (!isGroupId(id, groups.limits.maxIdLength)) {
+                error.textContent = `"${id}" cannot be the name of a group, which is lower-case letters, digits and hyphens, beginning with a letter, and at most ${groups.limits.maxIdLength} of them.`;
+                return;
+            }
+
+            const name = displayNameOf(nameRows.map((_, index) => ({
+                             language:  String(data.get(`language-${index}`) ?? ''),
+                             text:      String(data.get(`text-${index}`)     ?? '')
+                         })));
+
+            if (name.error !== undefined) {
+                error.textContent = name.error;
+                return;
+            }
+
+            let made: NTSConfiguration;
+
+            try
+            {
+                made = await whileSaving(must<HTMLElement>(content, '#nts-add'), null, () => api.ntsGroups.add(id, name.name));
+            }
+            catch (problem)
+            {
+                error.textContent = errorMessage(problem);
+                return;
+            }
+
+            if (cancelled)
+                return;
+
+            // Its tab, without asking whether the form may be left: it was
+            // just saved.
+            nameRows  = [ { language: firstLanguage(), text: '' } ];
+            current   = made;
+            shown     = made.id;
+
+            await refreshGroups();
+
+            rememberTab(tabs(), made.id);
+            draw();
+
+            await refreshClock();
+
+        }
+
+
+        /**
+         * Take a group away, switched off as it is, once it is said what that
+         * ends - and show the first tab that is left.
+         */
+        async function removeGroup(configuration: NTSConfiguration): Promise<void> {
+
+            if (!confirm(`Remove ${labelOf(configuration)}?\n\n` +
+                         `Its timer, any check still running against it and its client end, and it is taken out of ${configuration.file}.` +
+                         (configuration.legal ? `\n\nThis ${config.nodeName} has no legal time from then on.` : '')))
+                return;
+
+            const error = must<HTMLElement>(content, '#remove-error');
+
+            error.textContent = '';
+
+            let left: NTSGroups;
+
+            try
+            {
+                left = await whileSaving(must<HTMLElement>(content, '#nts-remove'), null, () => api.ntsGroups.remove(configuration.id));
+            }
+            catch (problem)
+            {
+                error.textContent = errorMessage(problem);
+                return;
+            }
+
+            if (cancelled)
+                return;
+
+            groups   = left;
+            current  = null;
+
+            const all = tabs();
+
+            shown = all[0]?.id ?? '';
+
+            if (all.length > 0)
+                rememberTab(all, shown);
+
+            draw();
+
+            if (shown !== '' && shown !== NewGroupTab)
+                void loadGroup(shown);
+
+            await refreshClock();
+
+        }
+
+
         async function load(): Promise<void> {
 
             try
@@ -1063,17 +1500,33 @@ export const ntsPage: Page = {
                 // beside them and not after: it only names fingerprints and
                 // offers them in the dialog, and a store this person may not
                 // read is no reason to show no page.
-                const [loaded, now, kept] = await Promise.all([api.nts.get(), api.clock(), storeOffers('nts')]);
+                const [list, now, kept] = await Promise.all([api.ntsGroups.list(), api.clock(), storeOffers('nts')]);
 
-                if (!cancelled) {
-                    current = loaded;
-                    clock   = now;
-                    offers  = kept;
-                    draw();
-                    // Loaded anew - Reload - is what the node has, the forms
-                    // too, which a draw on its own would leave as typed.
-                    content.querySelectorAll('form').forEach(form => form.reset());
-                }
+                if (cancelled)
+                    return;
+
+                groups  = list;
+                clock   = now;
+                offers  = kept;
+
+                // The tab the address names, or the first - the legal group
+                // where there is one, which the node lists first.
+                const all = tabs();
+
+                shown   = all.length > 0 ? tabFromURL(all, opened) : '';
+                opened  = undefined;
+                current = shown === '' || shown === NewGroupTab ? null : await api.ntsGroups.get(shown);
+
+                if (cancelled)
+                    return;
+
+                nameRows = [ { language: firstLanguage(), text: '' } ];
+
+                draw();
+
+                // Loaded anew - Reload - is what the node has, the forms
+                // too, which a draw on its own would leave as typed.
+                content.querySelectorAll('form').forEach(form => form.reset());
             }
             catch (problem)
             {
@@ -1085,8 +1538,9 @@ export const ntsPage: Page = {
 
         }
 
-        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#policy-form')) ||
-                                             typedSinceDrawn(content.querySelector('#legal-form')));
+        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#policy-form'))    ||
+                                             typedSinceDrawn(content.querySelector('#legal-form'))     ||
+                                             typedSinceDrawn(content.querySelector('#add-group-form')));
 
         void load();
 
