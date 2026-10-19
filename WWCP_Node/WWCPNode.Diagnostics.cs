@@ -659,7 +659,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// among the ones the configured exchange named, or nothing for the
         /// configured server itself.
         /// </param>
-        public async Task<JObject> TestTimeServerAsync(String?            Host                = null,
+        public Task<JObject> TestTimeServerAsync(String?            Host                = null,
+                                                 CancellationToken  CancellationToken   = default)
+
+            => TestTimeServerAsync(LegalTime, Host, CancellationToken);
+
+
+        /// <summary>
+        /// Ask one time server of a group everything there is to ask, and write
+        /// down each answer as it comes - see
+        /// <see cref="TestTimeServerAsync(String, CancellationToken)"/>.
+        /// </summary>
+        /// <param name="Group">The group whose client and servers the test starts from.</param>
+        /// <param name="Host">Which time server, as there.</param>
+        public async Task<JObject> TestTimeServerAsync(NTSGroup           Group,
+                                                       String?            Host                = null,
                                                        CancellationToken  CancellationToken   = default)
         {
 
@@ -686,13 +700,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             #region Which server, and with which settings
 
-            if (!NTSEnabled)
+            if (!Group.Enabled)
             {
                 Step("error", $"Time synchronisation is switched off on this {Kind.Name}, so nothing was asked.");
                 return Done(Host ?? "", false);
             }
 
-            var configured  = ntsClient;
+            var configured  = Group.Client;
             var wanted      = Host?.Trim();
             var host        = configured.Hostname;
 
@@ -737,7 +751,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // its own row, and a server with a port of its own was asked on
             // the usual one and reported as not answering.
             var entry      = directedAt is null
-                                 ? timeSources.Sources.FirstOrDefault(source => source.Hostname.Equals(host))
+                                 ? Group.Sources.Sources.FirstOrDefault(source => source.Hostname.Equals(host))
                                  : null;
 
             var ntsKEPort  = entry?.NTSKEPort ?? configured.NTSKE_Port;
@@ -972,16 +986,27 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// own path: one server, its key exchange, its cookies, its round trip.
         /// A group cannot answer that, having four of each.
         /// </remarks>
-        public async Task<JObject> SyncTimeAsync(CancellationToken CancellationToken = default)
+        public Task<JObject> SyncTimeAsync(CancellationToken CancellationToken = default)
+
+            => SyncTimeAsync(LegalTime, CancellationToken);
+
+
+        /// <summary>
+        /// Ask a group of time servers what the time is - see
+        /// <see cref="SyncTimeAsync(CancellationToken)"/>.
+        /// </summary>
+        /// <param name="Group">The group of time servers.</param>
+        public async Task<JObject> SyncTimeAsync(NTSGroup           Group,
+                                                 CancellationToken  CancellationToken = default)
         {
 
-            if (!NTSEnabled)
+            if (!Group.Enabled)
             {
                 Log.Warning($"Time synchronisation was not run: NTS is switched off on this {Kind.Name}.", "nts", "test");
                 return Failed($"NTS is switched off on this {Kind.Name}.");
             }
 
-            var group      = timeSources;
+            var group      = Group.Sources;
             var asked      = group.Bands().SelectMany(band => band).Select(source => source.Hostname.ToString()).ToArray();
             var asking     = asked.Select(hostname => hostname.TrimEnd('.')).ToArray();
             var stopwatch  = Stopwatch.StartNew();
@@ -1049,20 +1074,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // offset is the whole of the result: it is the difference
                 // between what this node believes and what servers that know
                 // were saying at the same moment.
-                lastTimeCheck          = TimeProvider.GetUtcNow();
-                lastTimeCheckOffset    = verdict.Offset;
-                lastTimeCheckAsked     = asked.Length;
-                lastTimeCheckAnswered  = verdict.Answered;
-
                 // A name only where naming one is the truth. Four servers
                 // answering is not "checked against ptbtime1", and picking one
                 // of them to print would be the nicer-looking lie. Nor is it
                 // "legal (2 of 4 server(s))", which is what this used to say:
                 // a screen puts it behind "checked against" in its own
-                // language, and the numbers above are what it says it with.
-                lastTimeCheckServer    = asked.Length == 1
-                                             ? asking[0]
-                                             : null;
+                // language, and the numbers are what it says it with.
+                Group.Checked(TimeProvider.GetUtcNow(),
+                              verdict.Offset,
+                              asked.Length,
+                              verdict.Answered,
+                              asked.Length == 1
+                                  ? asking[0]
+                                  : null);
 
                 // Written down rather than acted on, which is what the white
                 // paper asks for: the disagreement belongs in the metrological
@@ -1105,7 +1129,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 var json = new JObject(
                                new JProperty("ok",      false),
-                               new JProperty("server",  timeSources.Name),
+                               new JProperty("server",  Group.Sources.Name),
                                new JProperty("at",      TimeProvider.GetUtcNow().ToString("o")),
                                new JProperty("error",   Error)
                            );
@@ -1118,10 +1142,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             JObject Remember(JObject Result)
-            {
-                lastTimeSync = Result;
-                return Result;
-            }
+
+                => Group.Synced(Result);
 
         }
 

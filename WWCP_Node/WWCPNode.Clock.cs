@@ -17,7 +17,6 @@
 
 #region Usings
 
-using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using Newtonsoft.Json.Linq;
 
@@ -60,29 +59,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region Properties
 
         /// <summary>
-        /// How often this node checks its clock.
+        /// How often this node checks its clock against the legal group.
         /// </summary>
         public TimeSpan        TimeCheckEvery
-            => ntsSettings?.CheckEvery ?? NTSConfiguration.DefaultCheckEvery;
+            => LegalTime.CheckEvery;
 
         /// <summary>
         /// Who the operator says stands behind the time of the configured
         /// server, or null when nobody has said.
         /// </summary>
         public String?         LegalTimeAuthority
-            => ntsSettings?.LegalTimeAuthority;
+            => LegalTime.Authority;
 
         /// <summary>
         /// How far this node's clock may be off and still count.
         /// </summary>
         public TimeSpan        LegalTimeTolerance
-            => ntsSettings?.LegalTimeTolerance ?? NTSConfiguration.DefaultLegalTolerance;
+            => LegalTime.Tolerance;
 
         /// <summary>
         /// How old the last check may be and still count.
         /// </summary>
         public TimeSpan        LegalTimeMaxAge
-            => ntsSettings?.LegalTimeMaxAge ?? NTSConfiguration.DefaultLegalMaxAge;
+            => LegalTime.MaxAge;
 
         /// <summary>
         /// Whether this node's clock has been checked against its time servers
@@ -100,15 +99,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Modbus/TLS energy meter had this before it was a node.
         /// </remarks>
         public Boolean         ClockIsSynchronised
-            => lastTimeCheck.HasValue;
+            => LegalTime.LastCheck.HasValue;
 
         #endregion
 
 
-        #region (private) StartCheckingTheClock()
+        #region (private) StartCheckingTheClock(Group)
 
         /// <summary>
-        /// Begin checking this node's clock against its time server.
+        /// Begin checking this node's clock against a group of time servers -
+        /// or, where the group is switched off, stop.
         /// </summary>
         /// <remarks>
         /// Through the node's own <see cref="TimeProvider"/> rather than a
@@ -119,24 +119,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// display that says "unverified" for a minute after a start is telling
         /// the truth.
         /// </remarks>
-        private void StartCheckingTheClock()
+        /// <param name="Group">The group of time servers.</param>
+        private void StartCheckingTheClock(NTSGroup Group)
         {
 
-            timeCheckTimer?.Dispose();
-            timeCheckTimer = null;
+            Group.StopChecking();
 
-            if (!NTSEnabled)
+            if (!Group.Enabled)
             {
                 Log.Metrological(LogLevel.Info, $"The clock of this {Kind.Name} is not being checked: NTS is switched off.", "nts", "clock");
                 return;
             }
 
-            timeCheckTimer = TimeProvider.CreateTimer(
-                                 _ => _ = CheckTheClockAsync(),
-                                 null,
-                                 TimeSpan.FromMinutes(1),
-                                 TimeCheckEvery
-                             );
+            Group.StartChecking(TimeProvider, CheckTheClockAsync, TimeSpan.FromMinutes(1));
 
             // Named rather than counted, because this is written once at a
             // start and somebody reading it is checking that the file took
@@ -147,13 +142,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // groups arrived, so naming one server described neither what was
             // asked nor what had to answer - and did it in the one line
             // somebody reads to find out.
-            var asking = CheckedAgainst();
+            var asking = CheckedAgainst(Group);
 
             Log.Metrological(
                 LogLevel.Info,
-                $"The clock of this {Kind.Name} will be checked against {String.Join(", ", asking)} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
-                (asking.Length > 1 ? $", at least {timeSources.MinServers} of which must answer" : "") +
-                (LegalTimeAuthority is not null ? $", which the operator says is {LegalTimeAuthority}." : "."),
+                $"The clock of this {Kind.Name} will be checked against {String.Join(", ", asking)} every {Group.CheckEvery.TotalMinutes:F0} minute(s)" +
+                (asking.Length > 1 ? $", at least {Group.Sources.MinServers} of which must answer" : "") +
+                (Group.Authority is not null ? $", which the operator says is {Group.Authority}." : "."),
                 "nts", "clock"
             );
 
@@ -161,7 +156,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) CheckTheClockAsync()
+        #region (private) CheckTheClockAsync(Group)
 
         /// <summary>
         /// One check, quietly.
@@ -173,13 +168,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// for ten minutes is a thing that happens, and the display already
         /// says the time is unverified when the last check has gone stale.
         /// </remarks>
-        private async Task CheckTheClockAsync()
+        /// <param name="Group">The group of time servers.</param>
+        private async Task CheckTheClockAsync(NTSGroup Group)
         {
 
             try
             {
 
-                var result = await SyncTimeAsync();
+                var result = await SyncTimeAsync(Group);
 
                 if (result.Value<Boolean>("ok") != true)
                     Log.Warning(
@@ -197,11 +193,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) CheckedAgainst()
+        #region (private) CheckedAgainst(Group)
 
         /// <summary>
-        /// The time servers the clock check asks: those switched on, in the
-        /// order their bands are asked in.
+        /// The time servers the clock check asks in a group: those switched
+        /// on, in the order their bands are asked in.
         /// </summary>
         /// <remarks>
         /// Trimmed, because both places this goes are read by somebody: a
@@ -209,9 +205,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// belongs on a name going back into a file, not in the middle of
         /// prose, where it reads as a typing mistake.
         /// </remarks>
-        private String[] CheckedAgainst()
+        /// <param name="Group">The group of time servers.</param>
+        private static String[] CheckedAgainst(NTSGroup Group)
 
-            => [.. timeSources.Bands().SelectMany(band => band).Select(source => source.Hostname.Trimmed)];
+            => [.. Group.Sources.Bands().SelectMany(band => band).Select(source => source.Hostname.Trimmed)];
 
         #endregion
 
@@ -231,9 +228,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         {
 
             var now       = TimeProvider.GetUtcNow();
-            var asking    = timeSources.Bands().SelectMany(band => band).ToArray();
-            var checkedAt = lastTimeCheck;
-            var offset    = lastTimeCheckOffset;
+            var asking    = LegalTime.Sources.Bands().SelectMany(band => band).ToArray();
+            var checkedAt = LegalTime.LastCheck;
+            var offset    = LegalTime.LastCheckOffset;
             var age       = checkedAt.HasValue ? now - checkedAt.Value : (TimeSpan?) null;
 
             var fresh     = age.HasValue && age.Value <= LegalTimeMaxAge;
@@ -266,15 +263,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        // numbers a screen can put into its own language.
                        new JProperty("nts",             new JObject(
                            new JProperty("enabled",       NTSEnabled),
-                           new JProperty("group",         NTSEnabled ? timeSources.Name : null),
+                           new JProperty("group",         NTSEnabled ? LegalTime.Sources.Name : null),
                            new JProperty("server",        NTSEnabled && asking.Length == 1
                                                               ? asking[0].Hostname.Trimmed
                                                               : null),
-                           new JProperty("servers",       NTSEnabled ? new JArray(CheckedAgainst()) : null),
-                           new JProperty("minServers",    NTSEnabled ? timeSources.MinServers : null),
-                           new JProperty("lastServer",    lastTimeCheckServer),
-                           new JProperty("asked",         lastTimeCheckAsked),
-                           new JProperty("answered",      lastTimeCheckAnswered),
+                           new JProperty("servers",       NTSEnabled ? new JArray(CheckedAgainst(LegalTime)) : null),
+                           new JProperty("minServers",    NTSEnabled ? LegalTime.Sources.MinServers : null),
+                           new JProperty("lastServer",    LegalTime.LastCheckServer),
+                           new JProperty("asked",         LegalTime.LastCheckAsked),
+                           new JProperty("answered",      LegalTime.LastCheckAnswered),
                            new JProperty("checkedAt",     checkedAt?.ToString("o")),
                            new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),
                            new JProperty("offset_ms",     offset.HasValue ? Math.Round(offset.Value.TotalMilliseconds, 1) : null),

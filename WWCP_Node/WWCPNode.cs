@@ -59,12 +59,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region Data
 
         /// <summary>
-        /// How the last time synchronisation went, as the web interface reads
-        /// it, or null while none has been asked for.
-        /// </summary>
-        protected JObject? lastTimeSync;
-
-        /// <summary>
         /// The record types the DNS test offers, of the several hundred that
         /// exist. Anything else may still be typed - this is the list of what
         /// somebody is likely to want, not of what is allowed.
@@ -188,7 +182,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public const String  FaviconSVG          = "favicon.svg";
 
         private readonly  DNSClient                       dnsClient;
-        private           NTSClient                       ntsClient;
 
         /// <summary>
         /// The log on the console, in a file, and what the libraries below
@@ -199,37 +192,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected readonly  TraceBridge?                  traceBridge;
 
         /// <summary>
-        /// When this node last managed to check its clock, what it found,
-        /// and against whom.
+        /// The groups of time servers this node checks its clock against,
+        /// each with its servers, its client, its timer and what its last
+        /// check found - see <see cref="NTSGroup"/>.
         /// </summary>
-        /// <remarks>
-        /// Separate fields rather than one object because they are written from
-        /// one place and read from another, and the alternative - digging them
-        /// back out of the JSON of the last check - would make a page or a
-        /// screen depend on the shape of a diagnostic.
-        ///
-        /// The server is a host name only where there is one of them. A group
-        /// of four is counted instead, in numbers, because a screen puts this
-        /// behind "checked against" in whichever language it is showing, and a
-        /// phrase assembled here would arrive in the wrong one.
-        /// </remarks>
-        private           DateTimeOffset?                 lastTimeCheck;
-        private           TimeSpan?                       lastTimeCheckOffset;
-        private           String?                         lastTimeCheckServer;
-        private           Int32?                          lastTimeCheckAsked;
-        private           Int32?                          lastTimeCheckAnswered;
-
-        /// <summary>
-        /// The clock that makes this node check its own, when NTS is on.
-        /// </summary>
-        private           ITimer?                         timeCheckTimer;
-
-        /// <summary>
-        /// What the file said about the time client, kept because the parts of
-        /// it that are not the client itself - how often to check, and what the
-        /// operator claims about the server - are read long afterwards.
-        /// </summary>
-        private           NTSConfiguration?               ntsSettings;
+        private readonly  List<NTSGroup>                  ntsGroups = [];
 
 
         #endregion
@@ -495,14 +462,24 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public DNSClient              DNSClient                    => dnsClient;
 
         /// <summary>
-        /// Where this node reads the time.
+        /// The groups of time servers this node checks its clock against.
         /// </summary>
-        public NTSClient              NTSClient                    => ntsClient;
+        public IEnumerable<NTSGroup>  NTSGroups                    => ntsGroups;
 
         /// <summary>
-        /// The time servers of this node, as a group.
+        /// The group legal time rests on.
         /// </summary>
-        public TimeSourceGroup        TimeSources                  => timeSources;
+        public NTSGroup               LegalTime                    { get; }
+
+        /// <summary>
+        /// Where this node reads the time: the client of the legal group.
+        /// </summary>
+        public NTSClient              NTSClient                    => LegalTime.Client;
+
+        /// <summary>
+        /// The time servers of the legal group.
+        /// </summary>
+        public TimeSourceGroup        TimeSources                  => LegalTime.Sources;
 
         /// <summary>
         /// Whether this node resolves names at all.
@@ -510,34 +487,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Boolean                DNSEnabled                   { get; private set; } = true;
 
         /// <summary>
-        /// Whether this node asks a time server at all.
+        /// Whether this node asks the servers of the legal group at all.
         /// </summary>
-        public Boolean                NTSEnabled                   { get; private set; } = true;
-
-        /// <summary>
-        /// Every time server of this node, and the rules for believing them.
-        /// </summary>
-        /// <remarks>
-        /// Beside the single client rather than instead of it, because the two
-        /// answer different questions. The group answers "what is the time",
-        /// which several servers should agree on before a clock moves. The
-        /// client answers "what is that one server doing", which is what the
-        /// detailed test on the page asks and which a group would only blur.
-        /// </remarks>
-        private           TimeSourceGroup                 timeSources;
-
-        /// <summary>
-        /// How many of those servers this node was told must answer: by the
-        /// last section that named "minServers", or the default of two.
-        /// </summary>
-        /// <remarks>
-        /// Kept apart from the group's own quorum, which cannot be more than the
-        /// servers it has switched on. A lone hostname holds a group to one, and
-        /// if that one were all that was remembered, a list of four arriving
-        /// afterwards would be held to one as well - where the same file, read
-        /// at the next start, holds it to two.
-        /// </remarks>
-        private           Byte                            ntsQuorum       = NTSConfiguration.DefaultMinServers;
+        public Boolean                NTSEnabled                   => LegalTime.Enabled;
 
         /// <summary>
         /// What actually asks the servers of a group.
@@ -809,7 +761,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // The clock goes to the time client too: a node that reads one
             // clock itself and disciplines another would have two, which is one
             // more than a node may have.
-            this.ntsClient     = NTSClient ?? new NTSClient(
+            var ntsClient      = NTSClient ?? new NTSClient(
                                                   DomainName.Parse(NTSConfiguration.DefaultHostname),
                                                   RemoteCertificateValidator:  TimeServerValidator(DomainName.Parse(NTSConfiguration.DefaultHostname)),
                                                   Timeout:                     TimeSpan.FromSeconds(10),
@@ -830,20 +782,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // when nobody handed it a client either. A caller that named its
             // own server means that server, and a group naming four others
             // beside it would be a report about somebody else's clock.
-            this.timeSources   = NTSClient is null
-                                     ? NTSConfiguration.DefaultGroup()
-                                     : new TimeSourceGroup(
-                                           "legal",
-                                           [ new NTSServerEndpoint(
-                                                 ntsClient.Hostname,
-                                                 ntsClient.NTSKE_Port,
-                                                 ntsClient.NTP_Port
-                                             ) ]
-                                       );
+            this.LegalTime     = new NTSGroup(
+                                     NTSGroup.LegalId,
+                                     NTSClient is null
+                                         ? NTSConfiguration.DefaultGroup()
+                                         : new TimeSourceGroup(
+                                               NTSGroup.LegalId,
+                                               [ new NTSServerEndpoint(
+                                                     ntsClient.Hostname,
+                                                     ntsClient.NTSKE_Port,
+                                                     ntsClient.NTP_Port
+                                                 ) ]
+                                           ),
+                                     ntsClient
+                                 );
+
+            this.ntsGroups.Add(this.LegalTime);
 
             // Every server asks this node about its certificate at its key
             // exchanges - see WWCPNode.TimeServerCertificates.cs.
-            AttachValidators(this.timeSources);
+            AttachValidators(this.LegalTime.Sources);
 
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
@@ -857,14 +815,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // Checked here rather than when the file was read: a quorum
                 // on its own is about the servers in effect, and which those
                 // are is only known now.
-                if (!TryCheckNTSQuorum(configuration.NTS, out var quorumError))
+                if (!TryCheckNTSQuorum(this.LegalTime, configuration.NTS, out var quorumError))
                     throw new InvalidOperationException($"{quorumError} Repair or remove '{this.ConfigFile.Path}' and start again.");
 
-                ApplyNTSConfiguration(configuration.NTS);
+                ApplyNTSConfiguration(this.LegalTime, configuration.NTS);
 
             }
 
-            this.ntsSettings = configuration.NTS;
+            this.LegalTime.Settings = configuration.NTS;
 
             #endregion
 
@@ -1729,11 +1687,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #region NTS
 
-        #region NTSConfigurationJSON()
+        #region NTSConfigurationJSON([Group])
 
         /// <summary>
-        /// Where this node gets the time from, and how the key exchange
+        /// Where this node gets its legal time from, and how the key exchange
         /// behind it is doing.
+        /// </summary>
+        public JObject NTSConfigurationJSON()
+
+            => NTSConfigurationJSON(LegalTime);
+
+        /// <summary>
+        /// Where this node gets the time of a group from, and how the key
+        /// exchange behind it is doing.
         /// </summary>
         /// <remarks>
         /// The group, and nothing about the single client the detailed test
@@ -1744,38 +1710,39 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// servers with key exchanges of its own, one per server, and those
         /// are what each server's entry below reports.
         /// </remarks>
-        public JObject NTSConfigurationJSON()
+        /// <param name="Group">The group of time servers.</param>
+        public JObject NTSConfigurationJSON(NTSGroup Group)
         {
 
             return new JObject(
 
-                       new JProperty("enabled",      NTSEnabled),
+                       new JProperty("enabled",      Group.Enabled),
 
                        // What may be changed about the group and the test, as
                        // it is in effect. The quorum is the one this node
                        // was told; the group's own, below, can be lower when it
                        // has fewer servers switched on.
                        new JProperty("settings",     new JObject(
-                           new JProperty("timeoutSeconds",             ntsClient.Timeout?.TotalSeconds),
-                           new JProperty("checkEverySeconds",          TimeCheckEvery.TotalSeconds),
-                           new JProperty("minServers",                 ntsQuorum),
-                           new JProperty("maxDeviationSeconds",        timeSources.MaxDeviation.TotalSeconds),
+                           new JProperty("timeoutSeconds",             Group.Client.Timeout?.TotalSeconds),
+                           new JProperty("checkEverySeconds",          Group.CheckEvery.TotalSeconds),
+                           new JProperty("minServers",                 Group.Quorum),
+                           new JProperty("maxDeviationSeconds",        Group.Sources.MaxDeviation.TotalSeconds),
                            // What legal time rests on, which a page edits
                            // beside the servers: who the operator says stands
                            // behind them, and how close and how recent a check
                            // has to be.
-                           new JProperty("legalTimeAuthority",         LegalTimeAuthority),
-                           new JProperty("legalTimeToleranceSeconds",  LegalTimeTolerance.TotalSeconds),
-                           new JProperty("legalTimeMaxAgeSeconds",     LegalTimeMaxAge.TotalSeconds)
+                           new JProperty("legalTimeAuthority",         Group.Authority),
+                           new JProperty("legalTimeToleranceSeconds",  Group.Tolerance.TotalSeconds),
+                           new JProperty("legalTimeMaxAgeSeconds",     Group.MaxAge.TotalSeconds)
                        )),
 
                        // What any new client starts with, the group's and the
                        // test's alike.
                        new JProperty("policy",       new JObject(
-                           new JProperty("targetCookieCount",             ntsClient.CookiePoolPolicy.TargetCookieCount),
-                           new JProperty("maxPlaceholders",               ntsClient.CookiePoolPolicy.MaxPlaceholders),
-                           new JProperty("renegotiateWhenExhausted",      ntsClient.CookiePoolPolicy.RenegotiateWhenExhausted),
-                           new JProperty("minimumRenegotiationInterval",  ntsClient.CookiePoolPolicy.MinimumRenegotiationInterval.ToString())
+                           new JProperty("targetCookieCount",             Group.Client.CookiePoolPolicy.TargetCookieCount),
+                           new JProperty("maxPlaceholders",               Group.Client.CookiePoolPolicy.MaxPlaceholders),
+                           new JProperty("renegotiateWhenExhausted",      Group.Client.CookiePoolPolicy.RenegotiateWhenExhausted),
+                           new JProperty("minimumRenegotiationInterval",  Group.Client.CookiePoolPolicy.MinimumRenegotiationInterval.ToString())
                        )),
 
                        // What the group is actually doing, which is what
@@ -1789,7 +1756,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        // because it was switched off would be deleted by the next
                        // save of anything else.
                        new JProperty("timeSources",  new JArray(
-                           timeSources.Sources.Select(source => {
+                           Group.Sources.Sources.Select(source => {
 
                                var held = timeEngine.KeyExchanges.TryGetValue(source.Hostname, out var state) ? state : null;
 
@@ -1829,11 +1796,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            })
                        )),
                        new JProperty("group",        new JObject(
-                           new JProperty("name",                 timeSources.Name),
-                           new JProperty("minServers",           timeSources.MinServers),
-                           new JProperty("maxDeviationSeconds",  timeSources.MaxDeviation.TotalSeconds)
+                           new JProperty("name",                 Group.Sources.Name),
+                           new JProperty("minServers",           Group.Sources.MinServers),
+                           new JProperty("maxDeviationSeconds",  Group.Sources.MaxDeviation.TotalSeconds)
                        )),
-                       new JProperty("lastSync",     lastTimeSync),
+                       new JProperty("lastSync",     Group.LastSync),
 
                        new JProperty("limits",       new JObject(
                            new JProperty("maxTimeout",         NTSConfiguration.MaxTimeoutSeconds),
@@ -1910,7 +1877,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // Before the file, so that what is refused is not written down
                 // either - and inside the lock, because the servers a quorum on
                 // its own is checked against are the ones in effect.
-                if (!TryCheckNTSQuorum(configuration, out Error))
+                if (!TryCheckNTSQuorum(LegalTime, configuration, out Error))
                     return false;
 
                 // And the file as the next start will read it. Each half can
@@ -1936,7 +1903,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return false;
                 }
 
-                ApplyNTSConfiguration(configuration);
+                ApplyNTSConfiguration(LegalTime, configuration);
 
                 return true;
 
@@ -2012,11 +1979,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) TryCheckNTSQuorum(Configuration, out Error)
+        #region (private) TryCheckNTSQuorum(Group, Configuration, out Error)
 
         /// <summary>
         /// Whether a quorum named on its own can be met by the servers this
-        /// node asks.
+        /// node asks in a group.
         /// </summary>
         /// <remarks>
         /// A section naming its servers as well had its quorum checked against
@@ -2024,7 +1991,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// servers in effect, which the section cannot know and this node
         /// does.
         /// </remarks>
-        private Boolean TryCheckNTSQuorum(NTSConfiguration                  Configuration,
+        /// <param name="Group">The group the section is about.</param>
+        /// <param name="Configuration">The section.</param>
+        private Boolean TryCheckNTSQuorum(NTSGroup                          Group,
+                                          NTSConfiguration                  Configuration,
                                           [NotNullWhen(false)] out String?  Error)
         {
 
@@ -2035,7 +2005,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Configuration.Hostname   is null)
             {
 
-                var asked = timeSources.Sources.Count(source => source.Enabled);
+                var asked = Group.Sources.Sources.Count(source => source.Enabled);
 
                 if (quorum > asked)
                 {
@@ -2051,13 +2021,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) ApplyNTSConfiguration(Configuration)
+        #region (private) ApplyNTSConfiguration(Group, Configuration)
 
         /// <summary>
-        /// Put an NTS section into effect. What it does not mention is left as
-        /// it is.
+        /// Put an NTS section into effect for a group. What it does not mention
+        /// is left as it is.
         /// </summary>
-        private void ApplyNTSConfiguration(NTSConfiguration Configuration)
+        /// <param name="Group">The group the section is about.</param>
+        /// <param name="Configuration">The section.</param>
+        private void ApplyNTSConfiguration(NTSGroup          Group,
+                                           NTSConfiguration  Configuration)
         {
 
             // Kept whole: what this method does with the client is only half of
@@ -2070,25 +2043,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // nothing else - and replaced by that, how often to check and who
             // stands behind the time went back to their defaults until the
             // next start read them from the file again.
-            var wasCheckingEvery  = TimeCheckEvery;
-            var wasEnabled        = NTSEnabled;
+            var wasCheckingEvery  = Group.CheckEvery;
+            var wasEnabled        = Group.Enabled;
             var wasPins           = Pins();
-            var wasAuthority      = LegalTimeAuthority;
-            var wasTolerance      = LegalTimeTolerance;
-            var wasMaxAge         = LegalTimeMaxAge;
+            var wasAuthority      = Group.Authority;
+            var wasTolerance      = Group.Tolerance;
+            var wasMaxAge         = Group.MaxAge;
 
-            ntsSettings = ntsSettings?.OverriddenBy(Configuration) ?? Configuration;
+            Group.Settings = Group.Settings?.OverriddenBy(Configuration) ?? Configuration;
 
             var changed  = new List<String>();
 
             #region The group of time servers
 
-            var wasServers    = timeSources.Describe();
-            var wasQuorum     = timeSources.MinServers;
-            var wasDeviation  = timeSources.MaxDeviation;
+            var wasServers    = Group.Sources.Describe();
+            var wasQuorum     = Group.Sources.MinServers;
+            var wasDeviation  = Group.Sources.MaxDeviation;
 
             if (Configuration.MinServers.HasValue)
-                ntsQuorum = Configuration.MinServers.Value;
+                Group.Quorum = Configuration.MinServers.Value;
 
             // The servers only when the section says something about them. That
             // is this method's rule everywhere else, and it earns its place here
@@ -2102,24 +2075,24 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // below.
             var sources       = Configuration.Servers  is not null ||
                                 Configuration.Hostname is not null
-                                    ? Configuration.ToGroup(Configuration.Hostname ?? ntsClient.Hostname).Sources
-                                    : timeSources.Sources;
+                                    ? Configuration.ToGroup(Configuration.Hostname ?? Group.Client.Hostname).Sources
+                                    : Group.Sources.Sources;
 
             // The quorum and the deviation by the same rule, and on their own as
             // well. They used to count only beside a list or a hostname, so a
             // section saying nothing but "minServers": 3 was read, reported as
             // NTS configuration, and changed nothing; and a list without a
             // quorum was held to one, whatever had been agreed before.
-            timeSources       = new TimeSourceGroup(
-                                    timeSources.Name,
+            Group.Sources     = new TimeSourceGroup(
+                                    Group.Sources.Name,
                                     sources,
-                                    NTSConfiguration.QuorumFor(ntsQuorum, sources),
-                                    Configuration.MaxDeviation ?? timeSources.MaxDeviation
+                                    NTSConfiguration.QuorumFor(Group.Quorum, sources),
+                                    Configuration.MaxDeviation ?? Group.Sources.MaxDeviation
                                 );
 
-            AttachValidators(timeSources);
+            AttachValidators(Group.Sources);
 
-            var nowServers    = timeSources.Describe();
+            var nowServers    = Group.Sources.Describe();
 
             if (wasServers != nowServers)
                 changed.Add($"time servers = {nowServers}");
@@ -2150,44 +2123,39 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
-            if (wasQuorum != timeSources.MinServers)
-                changed.Add($"quorum = {timeSources.MinServers}");
+            if (wasQuorum != Group.Sources.MinServers)
+                changed.Add($"quorum = {Group.Sources.MinServers}");
 
-            if (wasDeviation != timeSources.MaxDeviation)
-                changed.Add($"agreed deviation = {timeSources.MaxDeviation.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+            if (wasDeviation != Group.Sources.MaxDeviation)
+                changed.Add($"agreed deviation = {Group.Sources.MaxDeviation.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
             #endregion
 
-            var hostname = Configuration.Hostname  ?? ntsClient.Hostname;
-            var ntsKE    = Configuration.NTSKEPort ?? ntsClient.NTSKE_Port;
-            var ntp      = Configuration.NTPPort   ?? ntsClient.NTP_Port;
+            var hostname = Configuration.Hostname  ?? Group.Client.Hostname;
+            var ntsKE    = Configuration.NTSKEPort ?? Group.Client.NTSKE_Port;
+            var ntp      = Configuration.NTPPort   ?? Group.Client.NTP_Port;
 
-            if (hostname != ntsClient.Hostname ||
-                ntsKE    != ntsClient.NTSKE_Port ||
-                ntp      != ntsClient.NTP_Port)
+            if (hostname != Group.Client.Hostname ||
+                ntsKE    != Group.Client.NTSKE_Port ||
+                ntp      != Group.Client.NTP_Port)
             {
 
-                ntsClient = new NTSClient(
-                                hostname,
-                                NTSKE_Port:                  ntsKE,
-                                NTP_Port:                    ntp,
-                                RemoteCertificateValidator:  TimeServerValidator(hostname),
-                                Timeout:                     Configuration.Timeout ?? ntsClient.Timeout,
-                                DNSClient:                   dnsClient,
-                                TimeProvider:                TimeProvider
-                            );
+                Group.Client = new NTSClient(
+                                   hostname,
+                                   NTSKE_Port:                  ntsKE,
+                                   NTP_Port:                    ntp,
+                                   RemoteCertificateValidator:  TimeServerValidator(hostname),
+                                   Timeout:                     Configuration.Timeout ?? Group.Client.Timeout,
+                                   DNSClient:                   dnsClient,
+                                   TimeProvider:                TimeProvider
+                               );
 
                 // The old client's cookies went with it, so what the page shows
                 // about the last exchange belongs to a server this node no
                 // longer asks - and so does what the last check found, which
                 // legal time would otherwise go on resting on, as the meter's
                 // did before it was a node.
-                lastTimeSync           = null;
-                lastTimeCheck          = null;
-                lastTimeCheckOffset    = null;
-                lastTimeCheckServer    = null;
-                lastTimeCheckAsked     = null;
-                lastTimeCheckAnswered  = null;
+                Group.ForgetChecks();
 
                 // Without the root's dot, as every other sentence names a
                 // server; what goes into the file keeps it.
@@ -2195,34 +2163,34 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
-            else if (Configuration.Timeout.HasValue && ntsClient.Timeout != Configuration.Timeout.Value)
+            else if (Configuration.Timeout.HasValue && Group.Client.Timeout != Configuration.Timeout.Value)
             {
-                ntsClient.Timeout = Configuration.Timeout.Value;
+                Group.Client.Timeout = Configuration.Timeout.Value;
                 changed.Add($"timeout = {Configuration.Timeout.Value}");
             }
 
-            if (Configuration.Enabled.HasValue && NTSEnabled != Configuration.Enabled.Value)
+            if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)
             {
-                NTSEnabled = Configuration.Enabled.Value;
-                changed.Add(NTSEnabled ? "switched on" : "switched off");
+                Group.Enabled = Configuration.Enabled.Value;
+                changed.Add(Group.Enabled ? "switched on" : "switched off");
             }
 
-            if (TimeCheckEvery != wasCheckingEvery)
-                changed.Add($"clock checked every {TimeCheckEvery.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+            if (Group.CheckEvery != wasCheckingEvery)
+                changed.Add($"clock checked every {Group.CheckEvery.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
             // What legal time rests on - who stands behind it, and how close and
             // how recent a check has to be for it to hold - is written down like
             // a change of the servers.
-            if (LegalTimeAuthority != wasAuthority)
-                changed.Add(LegalTimeAuthority is null
+            if (Group.Authority != wasAuthority)
+                changed.Add(Group.Authority is null
                                 ? "no legal time authority"
-                                : $"legal time authority = {LegalTimeAuthority}");
+                                : $"legal time authority = {Group.Authority}");
 
-            if (LegalTimeTolerance != wasTolerance)
-                changed.Add($"legal time tolerance = {LegalTimeTolerance.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+            if (Group.Tolerance != wasTolerance)
+                changed.Add($"legal time tolerance = {Group.Tolerance.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
-            if (LegalTimeMaxAge != wasMaxAge)
-                changed.Add($"legal time max age = {LegalTimeMaxAge.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+            if (Group.MaxAge != wasMaxAge)
+                changed.Add($"legal time max age = {Group.MaxAge.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
             if (changed.Count > 0)
                 Log.Metrological(LogLevel.Notice, $"NTS configuration changed: {String.Join(", ", changed)}.", "nts", "config");
@@ -2233,9 +2201,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // waits for the next start. Before the start there is no timer yet,
             // and the start sets one from what this left behind.
             if (started &&
-               (TimeCheckEvery != wasCheckingEvery || NTSEnabled != wasEnabled))
+               (Group.CheckEvery != wasCheckingEvery || Group.Enabled != wasEnabled))
             {
-                StartCheckingTheClock();
+                StartCheckingTheClock(Group);
             }
 
         }
@@ -2336,11 +2304,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    // none.
                    new JProperty("time",       new JObject(
                        new JProperty("ntsEnabled",      NTSEnabled),
-                       new JProperty("timeServers",     timeSources.Describe()),
-                       new JProperty("minServers",      timeSources.MinServers),
-                       new JProperty("checkedEvery",    TimeCheckEvery.ToString()),
-                       new JProperty("lastSync",        lastTimeSync?.Value<String>("at")),
-                       new JProperty("lastSyncResult",  LastSyncSaid(lastTimeSync)),
+                       new JProperty("timeServers",     LegalTime.Sources.Describe()),
+                       new JProperty("minServers",      LegalTime.Sources.MinServers),
+                       new JProperty("checkedEvery",    LegalTime.CheckEvery.ToString()),
+                       new JProperty("lastSync",        LegalTime.LastSync?.Value<String>("at")),
+                       new JProperty("lastSyncResult",  LastSyncSaid(LegalTime.LastSync)),
                        new JProperty("now",             TimeProvider.GetUtcNow().ToString("o"))
                    )),
 
@@ -2429,7 +2397,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
-            StartCheckingTheClock();
+            foreach (var group in ntsGroups)
+                StartCheckingTheClock(group);
 
             started = true;
 
@@ -2505,8 +2474,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             Log.Metrological(LogLevel.Notice, $"The {Kind.Name} is shutting down.", Kind.Tag);
 
-            timeCheckTimer?.Dispose();
-            timeCheckTimer = null;
+            foreach (var group in ntsGroups)
+                group.StopChecking();
 
             try
             {

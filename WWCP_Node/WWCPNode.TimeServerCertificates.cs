@@ -151,11 +151,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// The configuration of the given time server, where the configuration
-        /// names it in its list.
+        /// of a group names it in its list.
         /// </summary>
+        /// <remarks>
+        /// By its name across every group, as what it was last believed with
+        /// and what this node last made of its certificate are: a server is
+        /// one server, whichever group asks it.
+        /// </remarks>
         private NTSServerConfiguration? PinsOf(DomainName Hostname)
 
-            => ntsSettings?.Servers?.FirstOrDefault(server => server.Hostname.Equals(Hostname));
+            => ntsGroups.Select(group => group.Settings?.Servers?.FirstOrDefault(server => server.Hostname.Equals(Hostname))).
+                         FirstOrDefault(server => server is not null);
 
         /// <summary>
         /// What each server of the configuration is held to, or learns, by its
@@ -166,7 +172,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var pins = new Dictionary<DomainName, ServerPins>();
 
-            foreach (var server in ntsSettings?.Servers ?? [])
+            foreach (var server in ntsGroups.SelectMany(group => group.Settings?.Servers ?? []))
                 if (server.Pins is { SaysAnything: true } held)
                     pins.TryAdd(server.Hostname, held);
 
@@ -264,10 +270,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                var servers  = ntsSettings?.Servers?.ToList();
+                // Into the group that names the server - only the legal one,
+                // for now, whose section is "nts".
+                var group    = ntsGroups.FirstOrDefault(group => group.Settings?.Servers?.Any(server => server.Hostname.Equals(Hostname)) == true);
+                var servers  = group?.Settings?.Servers?.ToList();
                 var index    = servers?.FindIndex(server => server.Hostname.Equals(Hostname)) ?? -1;
 
-                if (servers is null || index < 0)
+                if (group is null || servers is null || index < 0)
                     return false;
 
                 var pins     = servers[index].Pins ?? ServerPins.None;
@@ -289,7 +298,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return false;
                 }
 
-                ntsSettings = ntsSettings!.OverriddenBy(update);
+                group.Settings = group.Settings!.OverriddenBy(update);
 
                 return true;
 
