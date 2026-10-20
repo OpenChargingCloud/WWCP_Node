@@ -117,8 +117,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             File.WriteAllText(ConfigFile, CommandLine
-                                              ? """{ "nts": { "enabled": false } }"""
-                                              : $$"""{ "nts": { "enabled": false }, "ssh": { "enabled": true, "port": {{Port}} } }""");
+                                              ? """{ "nts": { "groups": { "legal": { "enabled": false } } } }"""
+                                              : $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "ssh": { "enabled": true, "port": {{Port}} } }""");
 
             var node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
                                     AccountsPath:      Path.Combine(directory, "accounts"),

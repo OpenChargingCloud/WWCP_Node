@@ -231,12 +231,14 @@ that one file can be written once and copied:
 ```json
 {
   "dns": { "enabled": true, "servers": [ "192.168.1.1" ] },
-  "nts": { "enabled": true,
-           "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
-                        "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
-           "minServers": 2,
-           "checkEverySeconds": 900,
-           "legalTimeAuthority": "PTB" }
+  "nts": { "groups": {
+    "legal": { "enabled": true,
+               "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
+                            "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
+               "minServers": 2,
+               "checkEverySeconds": 900,
+               "legalTimeAuthority": "PTB" }
+  } }
 }
 ```
 
@@ -279,8 +281,8 @@ node made of its certificate last and what it was last believed with, and a
 test of the name servers says what was made of every certificate it met.
 
 The `nts` block above is what a node asks when the file says nothing at all:
-the PTB's four, of which two have to answer. Every key of the section, and
-what it is when absent:
+the PTB's four, of which two have to answer, as its legal group. Every key of
+a group, and what it is when absent:
 
 | Key | Default | |
 |---|---|---|
@@ -298,10 +300,9 @@ what it is when absent:
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
 
-Those keys are one group of time servers, the legal one. A node may have
-more - the white paper's NTP client groups, of which "legal" and "local" are
-the well-known names - and then the section names them under `groups`, each
-with the keys above:
+The section names its groups under `groups`, and the one above is the legal
+one. A node may have more - the white paper's NTP client groups, of which
+"legal" and "local" are the well-known names - each with the keys above:
 
 ```json
 "nts": { "groups": {
@@ -333,12 +334,12 @@ run. Changing a group's servers or switching it off starts the count from
 none, and the log says why. The count is kept in memory and starts from none
 at every start.
 
-The flat section above is the legal group, and a file written that way stays
-as it is until something is saved: the first save moves it into
-`groups.legal` whole, which is the moment somebody meant the file to be
-written. A section with `groups` and keys beside them is refused at the start,
-since those keys would belong to no group. No `nts` section at all is the
-legal group as the node makes it; `groups` without a legal one is a node
+A section with keys outside of `groups` is refused at the start, with where
+they belong: the flat section of the files from before there were groups is
+not read any more, and a save never moves it into a group for anybody - it is
+refused as the next start would refuse it, and the file is left as it was.
+No `nts` section at all, and `"nts": { }`, is the legal group as the node
+makes it; `groups` without a legal one is a node
 without legal time, which a country without the idea for charging stations
 has, and whose clock says it is not legal time - and
 `"groups": { }` is a node that checks its clock against nobody.
@@ -424,10 +425,8 @@ client: see above.
 Servers sharing a priority are one band and are asked together; a lower
 priority is asked first. The four above share priority 0 because they are
 peers, and putting them in separate bands would say something about them that
-is not true. A section naming a single `hostname` and no list becomes a group
-of one, which is what every file written before there were groups says, and it
-keeps working; a group of one is held to a quorum of one, and a section asking
-two of it is refused. A lone `hostname` saved from a page replaces the list,
+is not true. A group naming a single `hostname` and no list is a group of
+one, held to a quorum of one, and a group asking two of it is refused. A lone `hostname` saved from a page replaces the list,
 in effect and in the file alike - the file used to keep its list beside the
 new name, and the next start made the list again. And `legalTimeAuthority`
 sent as `null`, or as nothing between the quotes, takes the authority away,

@@ -169,7 +169,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
             File.WriteAllText(configuration, $$"""
-                                              { "nts": { "servers": [ {{Held(Pins)}} ], "minServers": 1{{(More.Length > 0 ? ", " + More : "")}} } }
+                                              { "nts": { "groups": { "legal": { "servers": [ {{Held(Pins)}} ], "minServers": 1{{(More.Length > 0 ? ", " + More : "")}} } } } }
                                               """);
 
             // Somebody to ask, so that the cache is consulted at all - at a port

@@ -1923,9 +1923,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// refusal was the file's rather than the change's.
         /// </summary>
         /// <remarks>
-        /// Written into the group's place in the file, "nts.groups.&lt;id&gt;" - which
-        /// moves a section still written the way it was before there were
-        /// groups into "nts.groups.legal" first. See <see cref="NTSSection.WithGroup"/>.
+        /// Written into the group's place in the file, "nts.groups.&lt;id&gt;" - see
+        /// <see cref="NTSSection.WithGroup"/>.
         /// </remarks>
         /// <param name="Group">The group.</param>
         /// <param name="JSON">What the page sent, in the shape of a group of the "nts" section.</param>
@@ -1941,12 +1940,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var path  = NTSSection.PathOf(Group.Id);
 
-            if (!ntsGroups.Contains(Group))
-            {
-                Error = $"This {Kind.Name} has no NTS group '{Group.Id}'.";
-                return false;
-            }
-
             if (!NTSConfiguration.TryParse(JSON, out var sent, out Error, path))
                 return false;
 
@@ -1959,6 +1952,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+
+                // Inside the lock, where a removal cannot come in between: a group
+                // taken away while this save waited for the lock would otherwise be
+                // written back into the file, switched on at the next start.
+                if (!ntsGroups.Contains(Group))
+                {
+                    Error = $"This {Kind.Name} has no NTS group '{Group.Id}'.";
+                    return false;
+                }
 
                 // First, and inside the lock: what a server is held to now is
                 // what trust on first use writes under it.

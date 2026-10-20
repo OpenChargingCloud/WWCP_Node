@@ -116,7 +116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// Read one server of the "servers" list of an NTS group.
         /// </summary>
         /// <param name="Index">Its place in the list, so that a complaint can say which one is wrong.</param>
-        /// <param name="Section">Where the list is in the file: "nts" in the flat section, "nts.groups.local" in a group.</param>
+        /// <param name="Section">Where the list is in the file: "nts.groups.local".</param>
         public static Boolean TryParse(JToken                                       JSON,
                                        Int32                                        Index,
                                        [NotNullWhen(true)]  out NTSServerConfiguration?  Configuration,

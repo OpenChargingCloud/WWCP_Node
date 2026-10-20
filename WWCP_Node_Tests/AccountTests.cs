@@ -103,7 +103,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
-            File.WriteAllText(configuration, """{ "nts": { "enabled": false } }""");
+            File.WriteAllText(configuration, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             return await TestPorts.StartedOnFreshPorts(() => new WWCPNode(
                            Kind:              Kind,

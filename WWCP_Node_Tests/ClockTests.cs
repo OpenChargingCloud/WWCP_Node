@@ -128,7 +128,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                        directory,
                                        new JObject(
                                            new JProperty("nts", new JObject(
-                                               new JProperty("legalTimeAuthority", "PTB")
+                                               new JProperty("groups", new JObject(
+                                                   new JProperty("legal", new JObject(
+                                                       new JProperty("legalTimeAuthority", "PTB")
+                                                   ))
+                                               ))
                                            ))
                                        )
                                    );
@@ -162,8 +166,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                        directory,
                                        new JObject(
                                            new JProperty("nts", new JObject(
-                                               new JProperty("enabled",            false),
-                                               new JProperty("legalTimeAuthority", "PTB")
+                                               new JProperty("groups", new JObject(
+                                                   new JProperty("legal", new JObject(
+                                                       new JProperty("enabled",            false),
+                                                       new JProperty("legalTimeAuthority", "PTB")
+                                                   ))
+                                               ))
                                            ))
                                        )
                                    );
@@ -196,8 +204,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                        directory,
                                        new JObject(
                                            new JProperty("nts", new JObject(
-                                               new JProperty("legalTimeToleranceSeconds",  0.5),
-                                               new JProperty("legalTimeMaxAgeSeconds",     900)
+                                               new JProperty("groups", new JObject(
+                                                   new JProperty("legal", new JObject(
+                                                       new JProperty("legalTimeToleranceSeconds",  0.5),
+                                                       new JProperty("legalTimeMaxAgeSeconds",     900)
+                                                   ))
+                                               ))
                                            ))
                                        )
                                    );

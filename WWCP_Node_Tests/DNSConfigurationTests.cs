@@ -395,7 +395,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             File.WriteAllText(ConfigurationPath, """
-                                                 { "nts": { "enabled": false },
+                                                 { "nts": { "groups": { "legal": { "enabled": false } } },
                                                    "dns": { "servers": [ { "address": "127.0.0.1", "port": 5353, "transport": "UDP", "queryTimeoutSeconds": 1 } ] } }
                                                  """);
 

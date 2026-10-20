@@ -67,7 +67,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Directory.CreateDirectory(directory);
 
-            Configure("""{ "nts": { "enabled": false } }""");
+            Configure("""{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
         }
 
@@ -242,7 +242,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void ASwitchWinsOverTheFileAndTheFileOverTheDefault()
         {
 
-            Configure("""{ "nts": { "enabled": false }, "ssh": { "enabled": true, "port": 30022, "passwords": true } }""");
+            Configure("""{ "nts": { "groups": { "legal": { "enabled": false } } }, "ssh": { "enabled": true, "port": 30022, "passwords": true } }""");
 
             Assert.Multiple(() => {
 
@@ -256,7 +256,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             });
 
-            Configure("""{ "nts": { "enabled": false }, "ssh": { "enabled": false } }""");
+            Configure("""{ "nts": { "groups": { "legal": { "enabled": false } } }, "ssh": { "enabled": false } }""");
 
             Assert.That(Node(SSHSettings.ByDefault).SSHEnabled, Is.False, "the file over the program's default");
 

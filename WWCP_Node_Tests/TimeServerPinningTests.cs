@@ -153,7 +153,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
-            File.WriteAllText(configuration, $$"""{ "nts": { "servers": {{Servers}} } }""");
+            File.WriteAllText(configuration, $$"""{ "nts": { "groups": { "legal": { "servers": {{Servers}} } } } }""");
 
             return new WWCPNode(
                        AccountsPath:      Path.Combine(directory, "accounts"),
@@ -1248,6 +1248,100 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(server["heldTo"]!.Value<String>("root"),                Is.EqualTo(Fingerprint(ca)),   "learned on first use");
                 Assert.That(server["heldTo"]!.Value<String>("trustOnFirstUse"),     Is.EqualTo("root"));
                 Assert.That(server["known"]!.Value<String>("certificate"),          Is.EqualTo(Fingerprint(leaf)));
+            });
+
+        }
+
+        #endregion
+
+
+        #region (helper) NodeWithGroups(Groups)
+
+        /// <summary>
+        /// A node whose "nts.groups" are what the JSON given says.
+        /// </summary>
+        private WWCPNode NodeWithGroups(String Groups)
+        {
+
+            var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
+
+            File.WriteAllText(configuration, $$"""{ "nts": { "groups": {{Groups}} } }""");
+
+            return new WWCPNode(
+                       AccountsPath:      Path.Combine(directory, "accounts"),
+                       ConfigFile:        new WWCPConfigFile(configuration),
+                       CertificatesPath:  Path.Combine(directory, "certificates"),
+                       LogToConsole:      false,
+                       BridgeDebugLog:    false
+                   );
+
+        }
+
+        #endregion
+
+        #region APinHoldsWhicheverGroupTheFileNamesFirst()
+
+        /// <summary>
+        /// A group that names a server without a word about its certificate -
+        /// its own list of the same servers, say - does not unpin it for the
+        /// group that pinned it, though the file names that group first.
+        /// </summary>
+        [Test]
+        public async Task APinHoldsWhicheverGroupTheFileNamesFirst()
+        {
+
+            await using var node = NodeWithGroups($$"""
+                                       { "local": { "enabled": false, "servers": [ "time.example.org" ] },
+                                         "legal": { "servers": [ { "hostname": "time.example.org", "certificateFingerprint": "{{Fingerprint(leaf)}}" } ] } }
+                                       """);
+
+            var (chain, errors) = Trusted(otherLeaf, ca);
+
+            using (chain)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, otherLeaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Accepted,  Is.False, "the other certificate was believed, as if nobody had pinned one");
+                    Assert.That(judgement.Outcome,   Is.EqualTo("pinMismatch"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region WhatIsLearnedIsWrittenWhereItWasAskedFor()
+
+        /// <summary>
+        /// Trust on first use asked for by the group the file names second is
+        /// learned, and written into that group's entry - not into the first
+        /// group that names the server without asking for anything.
+        /// </summary>
+        [Test]
+        public async Task WhatIsLearnedIsWrittenWhereItWasAskedFor()
+        {
+
+            await using var node = NodeWithGroups("""
+                                       { "local": { "enabled": false, "servers": [ "time.example.org" ] },
+                                         "legal": { "servers": [ { "hostname": "time.example.org", "trustOnFirstUse": "certificate" } ] } }
+                                       """);
+
+            var (chain, errors) = Trusted(leaf, ca);
+
+            ServerJudgement first;
+
+            using (chain)
+                first = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+            var groups = JObject.Parse(File.ReadAllText(node.ConfigFile.Path))["nts"]!["groups"]!;
+
+            Assert.Multiple(() => {
+                Assert.That(first.Learned,                                                        Is.EqualTo(TrustOnFirstUse.Certificate));
+                Assert.That(groups["legal"]!["servers"]![0]!.Value<String>("certificateFingerprint"),  Is.EqualTo(Fingerprint(leaf)));
+                Assert.That(groups["local"]!["servers"]![0]!.Type,                                     Is.EqualTo(JTokenType.String), "the group that asked for nothing was left as it was");
             });
 
         }

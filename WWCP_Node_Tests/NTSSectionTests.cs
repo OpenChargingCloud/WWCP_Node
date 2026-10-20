@@ -29,8 +29,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 {
 
     /// <summary>
-    /// The "nts" section as a whole: its groups, the flat form every file had
-    /// before there were groups, and what saving one group does to it.
+    /// The "nts" section as a whole: its groups, the flat form of the files
+    /// from before there were groups that it refuses, and what saving one
+    /// group does to it.
     /// </summary>
     public class NTSSectionTests
     {
@@ -62,23 +63,45 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region AFlatSectionIsTheLegalGroup()
+        #region AFlatSectionIsRefusedAndToldWhereItBelongs()
 
         /// <summary>
-        /// Every file written before there were groups: one group, the legal
-        /// one, without saying so.
+        /// The section of the files from before there were groups is not read
+        /// any more, nor guessed at: refused, with where its settings belong.
         /// </summary>
         [Test]
-        public void AFlatSectionIsTheLegalGroup()
+        public void AFlatSectionIsRefusedAndToldWhereItBelongs()
         {
 
-            var section = Parsed("""{ "enabled": false, "hostname": "a.example" }""");
+            var one   = Refusal("""{ "enabled": false }""");
+            var more  = Refusal("""{ "enabled": false, "hostname": "a.example" }""");
 
             Assert.Multiple(() => {
-                Assert.That(section.IsFlat,                                   Is.True);
+                Assert.That(one,   Does.Contain("'enabled'").And.Contain("move it into 'nts.groups.legal'"));
+                Assert.That(more,  Does.Contain("'enabled', 'hostname'").And.Contain("move them into 'nts.groups.legal'"));
+            });
+
+        }
+
+        #endregion
+
+        #region AnEmptySectionIsTheLegalGroupAsTheNodeMakesIt()
+
+        /// <summary>
+        /// <c>"nts": { }</c> says nothing, and is as good as no section: the
+        /// legal group, with the PTB's four.
+        /// </summary>
+        [Test]
+        public void AnEmptySectionIsTheLegalGroupAsTheNodeMakesIt()
+        {
+
+            var section = Parsed("""{ }""");
+
+            Assert.Multiple(() => {
                 Assert.That(section.Groups.Select(group => group.Key),        Is.EqualTo(new[] { "legal" }));
-                Assert.That(section["legal"]?.Enabled,                        Is.False);
-                Assert.That(section["legal"]?.Hostname?.ToString(),           Is.EqualTo("a.example."));
+                Assert.That(section["legal"]?.Servers,                        Is.Null, "the node's own four, not a list of its own");
+                Assert.That(section.ToJSON().ToString(Newtonsoft.Json.Formatting.None),
+                            Is.EqualTo("""{"groups":{"legal":{}}}"""));
             });
 
         }
@@ -100,7 +123,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                               """);
 
             Assert.Multiple(() => {
-                Assert.That(section.IsFlat,                                   Is.False);
                 Assert.That(section.Groups.Select(group => group.Key),        Is.EqualTo(new[] { "local", "legal", "grid" }));
                 Assert.That(section["local"]?.Enabled,                        Is.False);
                 Assert.That(section["legal"]?.MinServers,                     Is.EqualTo(2));
@@ -127,7 +149,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(some["legal"],   Is.Null);
                 Assert.That(none.Groups,     Is.Empty,  "no group at all: a node checking its clock against nobody");
-                Assert.That(none.IsFlat,     Is.False);
             });
 
         }
@@ -253,7 +274,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(Refusal("""{ "groups": { "local": { "servers": [ ] } } }"""),                              Does.Contain("'nts.groups.local.servers' is empty"));
                 Assert.That(Refusal("""{ "groups": { "local": { "servers": [ "a.example" ], "minServers": 2 } } }"""), Does.Contain("'nts.groups.local.minServers' is 2"));
                 Assert.That(Refusal("""{ "groups": { "grid": { "servers": [ { "priority": 1 } ] } } }"""),              Does.Contain("'nts.groups.grid.servers[0]' names no host"));
-                Assert.That(Refusal("""{ "ntpPort": 0 }"""),                                                            Does.Contain("'nts.ntpPort'"),  "and the flat section where it was");
+                Assert.That(Refusal("""{ "ntpPort": 0 }"""),                                                            Does.Contain("move it into 'nts.groups.legal'"),  "and the flat section is not read at all");
             });
 
         }
@@ -309,44 +330,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region SavingIntoAFlatSectionMovesItIntoTheLegalGroup()
+        #region SavingIntoAFlatSectionMovesNothing()
 
         /// <summary>
-        /// The first save is where a file changes its form: everything the flat
-        /// section said goes into "groups.legal", and nothing stays beside it.
+        /// A save never moves a flat section into a group for anybody: it is
+        /// left as it is, and what the save would write is refused the way the
+        /// next start would refuse it.
         /// </summary>
         [Test]
-        public void SavingIntoAFlatSectionMovesItIntoTheLegalGroup()
+        public void SavingIntoAFlatSectionMovesNothing()
         {
 
             var flat     = JObject.Parse("""{ "hostname": "a.example", "checkEverySeconds": 600, "enabled": true }""");
-            var written  = NTSSection.WithGroup(flat, "legal", new JObject(new JProperty("enabled", false)), []);
+            var written  = NTSSection.WithGroup   (flat, "legal", new JObject(new JProperty("enabled", false)), []);
+            var without  = NTSSection.WithoutGroup(flat, "legal");
 
             Assert.Multiple(() => {
-                Assert.That(written.Properties().Select(property => property.Name),  Is.EqualTo(new[] { "groups" }));
-                Assert.That(JToken.DeepEquals(written["groups"]?["legal"],
-                                              JObject.Parse("""{ "hostname": "a.example", "checkEverySeconds": 600, "enabled": false }""")),
-                            Is.True,  written.ToString());
-                Assert.That(flat.Value<Boolean>("enabled"),  Is.True,  "the section it was given is left as it was");
-            });
-
-        }
-
-        #endregion
-
-        #region SavingAnotherGroupIntoAFlatSectionKeepsTheLegalOne()
-
-        [Test]
-        public void SavingAnotherGroupIntoAFlatSectionKeepsTheLegalOne()
-        {
-
-            var flat     = JObject.Parse("""{ "hostname": "a.example" }""");
-            var written  = NTSSection.WithGroup(flat, "local", JObject.Parse("""{ "enabled": false, "displayName": "Local time" }"""), []);
-
-            Assert.Multiple(() => {
-                Assert.That(((JObject) written["groups"]!).Properties().Select(property => property.Name),  Is.EqualTo(new[] { "legal", "local" }));
-                Assert.That(written["groups"]?["legal"]?.Value<String>("hostname"),                        Is.EqualTo("a.example"));
-                Assert.That(written["groups"]?["local"]?.Value<String>("displayName"),                     Is.EqualTo("Local time"));
+                Assert.That(JToken.DeepEquals(written, flat),                       Is.True,   written.ToString());
+                Assert.That(JToken.DeepEquals(without, flat),                       Is.True,   without.ToString());
+                Assert.That(NTSSection.TryParse(written, out _, out var error),     Is.False);
+                Assert.That(error,                                                  Does.Contain("move them into 'nts.groups.legal'"));
             });
 
         }
@@ -405,14 +408,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region TakingAGroupAwayKeepsItAway()
 
         /// <summary>
-        /// Without the legal group, a flat section would come back as the
-        /// default at the next start; "groups" without it does not.
+        /// Without the legal group, no section would come back as the default
+        /// at the next start; "groups" without it does not.
         /// </summary>
         [Test]
         public void TakingAGroupAwayKeepsItAway()
         {
 
-            var written = NTSSection.WithoutGroup(JObject.Parse("""{ "enabled": false }"""), "legal");
+            var written = NTSSection.WithoutGroup(null, "legal");
 
             Assert.Multiple(() => {
                 Assert.That(JToken.DeepEquals(written, JObject.Parse("""{ "groups": { } }""")),  Is.True,  written.ToString());
@@ -423,19 +426,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region ASectionIsWrittenInTheFormItWasReadIn()
+        #region ASectionIsWrittenWithItsGroups()
 
         [Test]
-        public void ASectionIsWrittenInTheFormItWasReadIn()
+        public void ASectionIsWrittenWithItsGroups()
         {
 
-            var flat     = Parsed("""{ "enabled": false }""").ToJSON();
-            var grouped  = Parsed("""{ "groups": { "legal": { "enabled": false }, "local": { "servers": [ "lc1.local" ] } } }""").ToJSON();
+            var grouped = Parsed("""{ "groups": { "legal": { "enabled": false }, "local": { "servers": [ "lc1.local" ] } } }""").ToJSON();
 
             Assert.Multiple(() => {
-                Assert.That(JToken.DeepEquals(flat,    JObject.Parse("""{ "enabled": false }""")),  Is.True,  flat.   ToString());
-                Assert.That(grouped["groups"]?["legal"]?.Value<Boolean>("enabled"),                Is.False, grouped.ToString());
-                Assert.That(grouped["groups"]?["local"]?["servers"]?[0]?.Value<String>(),          Is.EqualTo("lc1.local."));
+                Assert.That(grouped.Properties().Select(property => property.Name),         Is.EqualTo(new[] { "groups" }));
+                Assert.That(grouped["groups"]?["legal"]?.Value<Boolean>("enabled"),        Is.False, grouped.ToString());
+                Assert.That(grouped["groups"]?["local"]?["servers"]?[0]?.Value<String>(),  Is.EqualTo("lc1.local."));
             });
 
         }

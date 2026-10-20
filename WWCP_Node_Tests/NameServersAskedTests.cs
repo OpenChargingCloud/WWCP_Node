@@ -255,7 +255,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
-            File.WriteAllText(configuration, $$"""{ "dns": {{DNS}}, "nts": { "enabled": false } }""");
+            File.WriteAllText(configuration, $$"""{ "dns": {{DNS}}, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             return new WWCPNode(
                        HTTPPort:          IPPort.Parse(TestPorts.Free()),

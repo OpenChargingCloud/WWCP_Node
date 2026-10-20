@@ -245,7 +245,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var configuration  = Path.Combine(here, WWCPConfigFile.DefaultFileName);
 
             Directory.CreateDirectory(here);
-            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             return new WWCPNode(
                        HTTPPort:          IPPort.Parse(Port),
@@ -296,7 +296,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var configuration  = Path.Combine(here, WWCPConfigFile.DefaultFileName);
 
             Directory.CreateDirectory(here);
-            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             var node = new WatchedNode(
                            HTTPPort:          IPPort.Parse(Port),

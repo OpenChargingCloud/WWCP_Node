@@ -158,7 +158,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             try
             {
-                made = NewNode(elsewhere, JObject.Parse("""{ "dns": { "servers": [ "udp://213.133.98.98:53" ] }, "nts": { "enabled": false } }"""));
+                made = NewNode(elsewhere, JObject.Parse("""{ "dns": { "servers": [ "udp://213.133.98.98:53" ] }, "nts": { "groups": { "legal": { "enabled": false } } } }"""));
             }
             catch (Exception e)
             {

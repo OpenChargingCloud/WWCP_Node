@@ -92,7 +92,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Directory.CreateDirectory(directory);
 
-            File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName), """{ "nts": { "enabled": false } }""");
+            File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName), """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
         }
 

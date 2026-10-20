@@ -109,7 +109,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 var configuration = Path.Combine(here, WWCPConfigFile.DefaultFileName);
 
                 Directory.CreateDirectory(here);
-                File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+                File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
                 return new FailingToStop(
                            HTTPPort:          IPPort.Parse(TestPorts.Free()),

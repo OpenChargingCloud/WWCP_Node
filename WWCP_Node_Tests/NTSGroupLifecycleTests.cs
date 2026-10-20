@@ -178,7 +178,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void AddingToAFlatFileMovesItIntoTheLegalGroup()
         {
 
-            var node = Node("""{ "nts": { "hostname": "a.example", "checkEverySeconds": 600 } }""");
+            var node = Node("""{ "nts": { "groups": { "legal": { "hostname": "a.example", "checkEverySeconds": 600 } } } }""");
 
             Added(node, "grid");
 
@@ -283,6 +283,53 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(removed,  Is.False);
                 Assert.That(error,    Does.Contain("has no NTS group 'local'"));
             });
+
+        }
+
+        #endregion
+
+        #region ASaveRacingTheRemovalDoesNotBringTheGroupBack()
+
+        /// <summary>
+        /// A save that came in while its group was being taken away: whichever
+        /// is first, what the node has and what the file says agree afterwards -
+        /// the save does not write the removed group back into the file, where
+        /// it would come back switched on at the next start.
+        /// </summary>
+        /// <remarks>
+        /// The two are started together, many times, because the window was
+        /// the time a save took between asking whether its group is there and
+        /// taking the lock.
+        /// </remarks>
+        [Test]
+        public async Task ASaveRacingTheRemovalDoesNotBringTheGroupBack()
+        {
+
+            var node = Node();
+
+            for (var round = 0; round < 200; round++)
+            {
+
+                var local = Added(node, "local");
+                var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                var save    = Task.Run(async () => { await start.Task; return node.TryUpdateNTSConfiguration(local, JObject.Parse("""{ "servers": [ "lc1.local" ] }"""), out _, out _); });
+                var remove  = Task.Run(async () => { await start.Task; return (await node.TryRemoveNTSGroupAsync("local")).Removed; });
+
+                start.SetResult();
+
+                await Task.WhenAll(save, remove);
+
+                var inFile = OnDisk["nts"]?["groups"]?["local"] is not null;
+                var inNode = node.NTSGroupOf("local") is not null;
+
+                Assert.That(inFile, Is.EqualTo(inNode),
+                            $"round {round}: the file {(inFile ? "names" : "does not name")} 'local', the node {(inNode ? "has" : "has not")} - saved {save.Result}, removed {remove.Result}");
+
+                if (inNode)
+                    Assert.That((await node.TryRemoveNTSGroupAsync("local")).Removed, Is.True);
+
+            }
 
         }
 

@@ -160,8 +160,40 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         private NTSServerConfiguration? PinsOf(DomainName Hostname)
 
-            => ntsGroups.Select(group => group.Settings?.Servers?.FirstOrDefault(server => server.Hostname.Equals(Hostname))).
-                         FirstOrDefault(server => server is not null);
+            => EntryOf(Hostname)?.Server;
+
+        /// <summary>
+        /// The entry that says what the given time server is held to, and the
+        /// group whose list it is in: the first that says anything - a pin, or
+        /// trust on first use - and the first that names it where none does.
+        /// </summary>
+        /// <remarks>
+        /// The first that says anything, as <see cref="Pins"/> takes it: a group
+        /// that names the server without a word about its certificate - its
+        /// own list of the PTB's servers, say - must not unpin it for the group
+        /// that pinned it, whichever of the two the file names first.
+        /// </remarks>
+        private (NTSGroup Group, NTSServerConfiguration Server)? EntryOf(DomainName Hostname)
+        {
+
+            (NTSGroup Group, NTSServerConfiguration Server)? first = null;
+
+            foreach (var group in ntsGroups)
+            {
+
+                if (group.Settings?.Servers?.FirstOrDefault(server => server.Hostname.Equals(Hostname)) is not NTSServerConfiguration server)
+                    continue;
+
+                if (server.Pins is { SaysAnything: true })
+                    return (group, server);
+
+                first ??= (group, server);
+
+            }
+
+            return first;
+
+        }
 
         /// <summary>
         /// What each server of the configuration is held to, or learns, by its
@@ -272,9 +304,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                // Into the first group that names the server, which is the one
-                // PinsOf reads it from.
-                var group    = ntsGroups.FirstOrDefault(group => group.Settings?.Servers?.Any(server => server.Hostname.Equals(Hostname)) == true);
+                // Into the entry that said to learn it, which is the one PinsOf
+                // reads it from.
+                var group    = EntryOf(Hostname)?.Group;
                 var servers  = group?.Settings?.Servers?.ToList();
                 var index    = servers?.FindIndex(server => server.Hostname.Equals(Hostname)) ?? -1;
 

@@ -163,7 +163,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             File.WriteAllText(configuration,
                               $$"""
                               {
-                                "nts": { "enabled": false },
+                                "nts": { "groups": { "legal": { "enabled": false } } },
                                 "dns": { "servers": [ { "address": "127.0.0.1", "port": {{port.ToUInt16()}}, "transport": "TLS" {{Entry}} } ],
                                          "maxRetries": 0, "useCache": false }
                               }

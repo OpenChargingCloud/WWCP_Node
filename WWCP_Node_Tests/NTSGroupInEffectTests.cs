@@ -127,7 +127,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AQuorumOnItsOwnHoldsTheServersInEffectToIt()
         {
 
-            await using var node = Node("""{ "nts": { "minServers": 3 } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "minServers": 3 } } } }""");
 
             Assert.Multiple(() =>
             {
@@ -145,7 +145,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ADeviationOnItsOwnAppliesToTheServersInEffect()
         {
 
-            await using var node = Node("""{ "nts": { "maxDeviationSeconds": 0.5 } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "maxDeviationSeconds": 0.5 } } } }""");
 
             Assert.Multiple(() =>
             {
@@ -168,7 +168,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void AQuorumTheServersInEffectCannotReachStopsTheStart()
         {
 
-            var problem = Assert.Throws<InvalidOperationException>(() => Node("""{ "nts": { "minServers": 5 } }"""));
+            var problem = Assert.Throws<InvalidOperationException>(() => Node("""{ "nts": { "groups": { "legal": { "minServers": 5 } } } }"""));
 
             Assert.That(problem?.Message,  Does.Contain("minServers").And.Contain(ConfigurationPath));
 
@@ -257,7 +257,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ASaveOfPartOfTheSectionLeavesTheRestInEffect()
         {
 
-            await using var node = Node("""{ "nts": { "checkEverySeconds": 600, "legalTimeAuthority": "PTB" } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "checkEverySeconds": 600, "legalTimeAuthority": "PTB" } } } }""");
 
             Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "enabled": true }"""), out var error),  Is.True,  error);
 
@@ -299,7 +299,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ALoneHostnameReplacesTheListHereAndInTheFile()
         {
 
-            await using (var node = Node("""{ "nts": { "servers": [ "a.example", "b.example", "c.example" ] } }"""))
+            await using (var node = Node("""{ "nts": { "groups": { "legal": { "servers": [ "a.example", "b.example", "c.example" ] } } } }"""))
             {
 
                 Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "hostname": "d.example" }"""), out var error),  Is.True,  error);
@@ -338,7 +338,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AnAuthorityTakenAwayStaysAway(String TakenAwayAs)
         {
 
-            await using (var node = Node("""{ "nts": { "checkEverySeconds": 600, "legalTimeAuthority": "PTB" } }"""))
+            await using (var node = Node("""{ "nts": { "groups": { "legal": { "checkEverySeconds": 600, "legalTimeAuthority": "PTB" } } } }"""))
             {
 
                 var before = node.Log.LastId;
@@ -380,7 +380,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task WhatLegalTimeRestsOnIsShownAndItsChangesWrittenDown()
         {
 
-            await using var node = Node("""{ "nts": { "legalTimeAuthority": "PTB", "legalTimeToleranceSeconds": 0.25 } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "legalTimeAuthority": "PTB", "legalTimeToleranceSeconds": 0.25 } } } }""");
 
             var json     = node.NTSConfigurationJSON();
             var settings = json["settings"] as JObject;
@@ -425,7 +425,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await using var node = Node("""
-                                          { "nts": { "servers": [ "a.example", "b.example", "c.example" ], "minServers": 3 } }
+                                          { "nts": { "groups": { "legal": { "servers": [ "a.example", "b.example", "c.example" ], "minServers": 3 } } } }
                                           """);
 
             var before = File.ReadAllText(ConfigurationPath);
@@ -470,8 +470,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await using var node = Node("""
-                                          { "nts": { "servers": [ "a.example",
-                                                                  { "hostname": "b.example", "ntsKEPort": 4461, "enabled": false } ] } }
+                                          { "nts": { "groups": { "legal": { "servers": [ "a.example",
+                                                                  { "hostname": "b.example", "ntsKEPort": 4461, "enabled": false } ] } } } }
                                           """);
 
             var listed = node.NTSConfigurationJSON()["timeSources"] as JArray;
@@ -502,7 +502,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task TheQuorumWantedAndTheQuorumHeldAreBothShown()
         {
 
-            await using var node = Node("""{ "nts": { "hostname": "a.example" } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "hostname": "a.example" } } } }""");
 
             var shown = node.NTSConfigurationJSON();
 
@@ -532,7 +532,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AChangeToOneServerIsWrittenDown()
         {
 
-            await using var node = Node("""{ "nts": { "servers": [ "a.example", "b.example" ] } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "servers": [ "a.example", "b.example" ] } } } }""");
 
             var before = node.Log.LastId;
 
@@ -609,9 +609,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await using var node = Node("""
-                                          { "nts": { "servers": [ "a.example",
+                                          { "nts": { "groups": { "legal": { "servers": [ "a.example",
                                                                   { "hostname": "b.example", "priority": 5 },
-                                                                  { "hostname": "c.example", "enabled": false } ] } }
+                                                                  { "hostname": "c.example", "enabled": false } ] } } } }
                                           """);
 
             var time  = node.ConfigurationJSON()["time"] as JObject;
@@ -651,7 +651,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ADeviationStaysWhenTheServersChange()
         {
 
-            await using var node = Node("""{ "nts": { "maxDeviationSeconds": 0.5 } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "maxDeviationSeconds": 0.5 } } } }""");
 
             Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""{ "servers": [ "a.example", "b.example" ] }"""), out var error),  Is.True,  error);
 
@@ -679,9 +679,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await using var node = Node("""
-                                          { "nts": { "servers": [ { "hostname": "b.example", "priority": 5 },
+                                          { "nts": { "groups": { "legal": { "servers": [ { "hostname": "b.example", "priority": 5 },
                                                                   "a.example",
-                                                                  { "hostname": "c.example", "enabled": false } ] } }
+                                                                  { "hostname": "c.example", "enabled": false } ] } } } }
                                           """);
 
             var nts = (JObject) node.ClockJSON()["nts"]!;
@@ -726,7 +726,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             JObject one, four;
 
-            await using (var node = Node("""{ "nts": { "servers": [ "a.example" ] } }"""))
+            await using (var node = Node("""{ "nts": { "groups": { "legal": { "servers": [ "a.example" ] } } } }"""))
                 one  = (JObject) node.ClockJSON()["nts"]!;
 
             // The default four, which a file saying nothing leaves in place.
@@ -762,7 +762,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AClockThatIsNotCheckedNamesNobody()
         {
 
-            await using var node = Node("""{ "nts": { "enabled": false } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             var nts = (JObject) node.ClockJSON()["nts"]!;
 
@@ -853,9 +853,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var node = Node("""
                                         { "dns": { "enabled": false },
-                                          "nts": { "servers": [ "a.example",
+                                          "nts": { "groups": { "legal": { "servers": [ "a.example",
                                                                 { "hostname": "b.example", "ntsKEPort": 4461, "ntpPort": 1234 } ],
-                                                   "timeoutSeconds": 1 } }
+                                                   "timeoutSeconds": 1 } } } }
                                         """);
 
             var result = await node.TestTimeServerAsync("b.example");
@@ -888,7 +888,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var node = Node("""
                                         { "dns": { "enabled": false },
-                                          "nts": { "servers": [ "a.example", "b.example" ], "timeoutSeconds": 1 } }
+                                          "nts": { "groups": { "legal": { "servers": [ "a.example", "b.example" ], "timeoutSeconds": 1 } } } }
                                         """);
 
             var before  = node.Log.LastId;
@@ -923,7 +923,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var node = Node("""
                                         { "dns": { "enabled": false },
-                                          "nts": { "servers": [ "a.example", "b.example" ], "timeoutSeconds": 1 } }
+                                          "nts": { "groups": { "legal": { "servers": [ "a.example", "b.example" ], "timeoutSeconds": 1 } } } }
                                         """);
 
             Assert.That(node.NTSEnabled, Is.True, "the test's own premise");
@@ -980,7 +980,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ASectionThatOnlySwitchesNTSLeavesTheServersAlone()
         {
 
-            await using var node = Node("""{ "nts": { "enabled": false } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             Assert.Multiple(() => {
                 Assert.That(node.NTSEnabled,                  Is.False);
@@ -1033,7 +1033,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AClockCheckedAgainstOneServerNamesIt()
         {
 
-            await using var node = Node("""{ "nts": { "hostname": "a.example" } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "hostname": "a.example" } } } }""");
 
             Assert.That(node.ClockJSON()["nts"]?.Value<String>("server"),  Is.EqualTo("a.example"));
 
@@ -1081,9 +1081,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await using var node = Node("""
-                                        { "nts": { "enabled": false,
+                                        { "nts": { "groups": { "legal": { "enabled": false,
                                                    "servers": [ "a.example", "b.example", "c.example" ],
-                                                   "minServers": 3 } }
+                                                   "minServers": 3 } } } }
                                         """);
 
             Assert.That(node.TryUpdateNTSConfiguration(new JObject(new JProperty("enabled", false)), out var error),  Is.True,  error);
@@ -1108,7 +1108,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AChangeOfServersIsWrittenDownAsTheyAreRead()
         {
 
-            await using var node = Node("""{ "nts": { "enabled": false } }""");
+            await using var node = Node("""{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             Assert.That(node.TryUpdateNTSConfiguration(new JObject(new JProperty("servers", new JArray("a.example", "b.example"))), out var error),
                         Is.True,
@@ -1201,7 +1201,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AnAddressIsAskedWithTheCookiesOfTheSingleClientsExchange(String Typed)
         {
 
-            await using var node = Node("""{ "dns": { "enabled": false }, "nts": { "timeoutSeconds": 1 } }""");
+            await using var node = Node("""{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "timeoutSeconds": 1 } } } }""");
 
             var result = await node.TestTimeServerAsync(Typed);
 
@@ -1240,12 +1240,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                 new JProperty("enabled",  false)
                                             )),
                                             new JProperty("nts", new JObject(
-                                                new JProperty("enabled",  true),
-                                                new JProperty("servers",  new JArray(
-                                                    new JObject(
-                                                        new JProperty("hostname",   "127.0.0.1"),
-                                                        new JProperty("ntsKEPort",  TestKit.TestPorts.Free())
-                                                    )
+                                                new JProperty("groups", new JObject(
+                                                    new JProperty("legal", new JObject(
+                                                        new JProperty("enabled",  true),
+                                                        new JProperty("servers",  new JArray(
+                                                            new JObject(
+                                                                new JProperty("hostname",   "127.0.0.1"),
+                                                                new JProperty("ntsKEPort",  TestKit.TestPorts.Free())
+                                                            )
+                                                        ))
+                                                    ))
                                                 ))
                                             ))
                                         ).ToString());

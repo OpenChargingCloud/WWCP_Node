@@ -73,7 +73,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Directory.CreateDirectory(directory);
 
             var configFile = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
-            File.WriteAllText(configFile, """{ "nts": { "enabled": false } }""");
+            File.WriteAllText(configFile, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             // This test's own: a node of the test before may still log while it goes.
             List<LogEntry> logged = this.logged = [];

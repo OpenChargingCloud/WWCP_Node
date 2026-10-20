@@ -375,7 +375,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(read!.DNS?.Enabled,                            Is.False);
                 Assert.That(read.NTS?["legal"]?.Enabled,                  Is.True);
                 Assert.That(read.NTS?["local"]?.Enabled,                  Is.False);
-                Assert.That(read.NTS?.IsFlat,                              Is.False);
                 Assert.That(read.IsEmpty,                                  Is.False);
                 Assert.That(document!["ocpp"]?.Value<String>("nodeId"),     Is.EqualTo("lc042"),
                             "The kind's own section was lost beside the node's.");

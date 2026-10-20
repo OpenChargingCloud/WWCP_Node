@@ -161,7 +161,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A node of no particular kind, started with the given configuration
         /// file - on a port nobody else has, and without asking a time server.
         /// </summary>
-        private Task<WWCPNode> StartedNode(String Configuration = """{ "nts": { "enabled": false } }""")
+        private Task<WWCPNode> StartedNode(String Configuration = """{ "nts": { "groups": { "legal": { "enabled": false } } } }""")
 
             => TestPorts.StartedOnFreshPorts(() => NodeWith(Configuration));
 
@@ -615,7 +615,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var node = await StartedNode("""
                                                      {
-                                                       "nts":   { "enabled": false },
+                                                       "nts":   { "groups": { "legal": { "enabled": false } } },
                                                        "roles": { "support": [ "dns:read", "nts:read" ] }
                                                      }
                                                      """);
@@ -640,7 +640,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void ANodeWhoseFileNamesAResourceItDoesNotHaveDoesNotStart()
         {
 
-            Assert.That(() => NodeWith("""{ "nts": { "enabled": false }, "roles": { "support": [ "dsn:read" ] } }"""),
+            Assert.That(() => NodeWith("""{ "nts": { "groups": { "legal": { "enabled": false } } }, "roles": { "support": [ "dsn:read" ] } }"""),
                         Throws.InvalidOperationException.With.Message.Contains("'dsn'").
                                                           And.Message.Contains("Repair or remove"));
 

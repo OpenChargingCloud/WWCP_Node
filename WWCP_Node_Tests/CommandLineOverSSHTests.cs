@@ -126,7 +126,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             directory = Path.Combine(Path.GetTempPath(), "node-cli-ssh-" + Guid.NewGuid().ToString("N")[..12]);
             Directory.CreateDirectory(directory);
 
-            File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName), """{ "nts": { "enabled": false } }""");
+            File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName), """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             List<String>   said     = this.said    = [];
             List<LogEntry> entries  = this.entries = [];

@@ -307,7 +307,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             var configuration = new JObject(
                                     new JProperty("nts", new JObject(
-                                        new JProperty("enabled", false)
+                                        new JProperty("groups", new JObject(
+                                            new JProperty("legal", new JObject(
+                                                new JProperty("enabled", false)
+                                            ))
+                                        ))
                                     ))
                                 );
 
@@ -347,10 +351,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 case NodeSetup.TimeClientOn:
 
                     configuration["nts"] = new JObject(
-                                               new JProperty("enabled",    true),
-                                               new JProperty("hostname",   "127.0.0.1"),
-                                               new JProperty("ntsKEPort",  TestPorts.Free()),
-                                               new JProperty("ntpPort",    TestPorts.Free())
+                                               new JProperty("groups", new JObject(
+                                                   new JProperty("legal", new JObject(
+                                                       new JProperty("enabled",    true),
+                                                       new JProperty("hostname",   "127.0.0.1"),
+                                                       new JProperty("ntsKEPort",  TestPorts.Free()),
+                                                       new JProperty("ntpPort",    TestPorts.Free())
+                                                   ))
+                                               ))
                                            );
                     break;
 
@@ -364,7 +372,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                             new JProperty("trustOnFirstUse",      "root")
                                         );
 
-                    configuration["nts"]!["servers"] = new JArray(
+                    configuration["nts"]!["groups"]!["legal"]!["servers"] = new JArray(
                                                            new JObject(
                                                                new JProperty("hostname",         TimeServerToLearn),
                                                                new JProperty("trustOnFirstUse",  "root")

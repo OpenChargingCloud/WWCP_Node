@@ -30,8 +30,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
     /// <summary>
     /// What a node makes of a file with several groups of time servers, and
-    /// what saving one of them does to the file - the flat section of a file
-    /// from before there were groups included.
+    /// what saving one of them does to the file - and that the flat section of
+    /// the files from before there were groups is refused, not read.
     /// </summary>
     /// <remarks>
     /// The nodes are constructed and never started, as in
@@ -220,79 +220,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region AFileThatIsOnlyReadIsNotRewritten()
+        #region AFlatFileIsRefusedAtTheStart()
 
         /// <summary>
-        /// A flat file stays flat until somebody saves something: the node does
-        /// not rewrite a file behind the back of whoever wrote it.
+        /// The section of the files from before there were groups: the node
+        /// does not start with it, says where its settings belong, and leaves
+        /// the file as it was.
         /// </summary>
         [Test]
-        public void AFileThatIsOnlyReadIsNotRewritten()
+        public void AFlatFileIsRefusedAtTheStart()
         {
 
             const String file = """{ "nts": { "hostname": "a.example", "checkEverySeconds": 600 } }""";
 
-            var node = Node(file);
+            var problem = Assert.Throws<InvalidOperationException>(() => Node(file));
 
             Assert.Multiple(() => {
+                Assert.That(problem!.Message,                     Does.Contain("'hostname', 'checkEverySeconds'").
+                                                                  And.Contain("move them into 'nts.groups.legal'"));
                 Assert.That(File.ReadAllText(ConfigurationPath),  Is.EqualTo(file));
-                Assert.That(node.TimeCheckEvery,                  Is.EqualTo(TimeSpan.FromSeconds(600)));
             });
 
         }
 
         #endregion
 
-        #region SavingTheLegalGroupMovesAFlatFileIntoIt()
+        #region ASaveIntoAFileMadeFlatByHandIsRefused()
 
         /// <summary>
-        /// The first save of anything is where a file changes its form, and
-        /// nothing it said is lost on the way: the next start reads it as it
-        /// was, with the change.
+        /// A file written flat by hand while the node runs is not moved into a
+        /// group by the next save: the save is refused as the next start would
+        /// refuse the file, and the file is left as it was.
         /// </summary>
         [Test]
-        public void SavingTheLegalGroupMovesAFlatFileIntoIt()
+        public void ASaveIntoAFileMadeFlatByHandIsRefused()
         {
 
-            var node   = Node("""{ "dns": { "enabled": false }, "nts": { "hostname": "a.example", "checkEverySeconds": 600, "legalTimeAuthority": "PTB" } }""");
-
-            Assert.That(node.TryUpdateNTSConfiguration(new JObject(new JProperty("enabled", false)), out var error),  Is.True,  error);
-
-            var nts    = (JObject) OnDisk["nts"]!;
-            var again  = Node();
-
-            Assert.Multiple(() => {
-
-                Assert.That(nts.Properties().Select(property => property.Name),  Is.EqualTo(new[] { "groups" }));
-                Assert.That(JToken.DeepEquals(nts["groups"]?["legal"],
-                                              JObject.Parse("""{ "hostname": "a.example", "checkEverySeconds": 600, "legalTimeAuthority": "PTB", "enabled": false }""")),
-                            Is.True,  nts.ToString());
-                Assert.That(OnDisk["dns"]?.Value<Boolean>("enabled"),            Is.False,  "and every other section is as it was");
-
-                Assert.That(again.NTSEnabled,                                    Is.False);
-                Assert.That(again.TimeCheckEvery,                                Is.EqualTo(TimeSpan.FromSeconds(600)));
-                Assert.That(again.LegalTimeAuthority,                            Is.EqualTo("PTB"));
-                Assert.That(again.NTSClient.Hostname.Trimmed,                    Is.EqualTo("a.example"));
-
-            });
-
-        }
-
-        #endregion
-
-        #region ASaveThatIsRefusedLeavesAFlatFileAsItWas()
-
-        [Test]
-        public void ASaveThatIsRefusedLeavesAFlatFileAsItWas()
-        {
+            var node = Node("""{ "nts": { "groups": { "legal": { "servers": [ "a.example", "b.example" ] } } } }""");
 
             const String file = """{ "nts": { "servers": [ "a.example", "b.example" ] } }""";
 
-            var node = Node(file);
+            File.WriteAllText(ConfigurationPath, file);
 
             Assert.Multiple(() => {
-                Assert.That(node.TryUpdateNTSConfiguration(new JObject(new JProperty("minServers", 3)), out var error),  Is.False);
-                Assert.That(error,                                Does.Contain("'nts.groups.legal.minServers' is 3"));
+                Assert.That(node.TryUpdateNTSConfiguration(new JObject(new JProperty("minServers", 2)), out var error),  Is.False);
+                Assert.That(error,                                Does.Contain("move it into 'nts.groups.legal'"));
                 Assert.That(File.ReadAllText(ConfigurationPath),  Is.EqualTo(file));
             });
 

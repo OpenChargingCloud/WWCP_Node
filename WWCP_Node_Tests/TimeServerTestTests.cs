@@ -112,12 +112,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 var configuration = new JObject(
                                         new JProperty("nts", new JObject(
-                                            new JProperty("servers", new JArray(new JObject(
-                                                new JProperty("hostname",   "localhost"),
-                                                new JProperty("ntsKEPort",  ntsKEPort.Number.ToUInt16()),
-                                                new JProperty("ntpPort",    ntpPort.  ToUInt16())
-                                            ))),
-                                            new JProperty("timeoutSeconds", 5)
+                                            new JProperty("groups", new JObject(
+                                                new JProperty("legal", new JObject(
+                                                    new JProperty("servers", new JArray(new JObject(
+                                                        new JProperty("hostname",   "localhost"),
+                                                        new JProperty("ntsKEPort",  ntsKEPort.Number.ToUInt16()),
+                                                        new JProperty("ntpPort",    ntpPort.  ToUInt16())
+                                                    ))),
+                                                    new JProperty("timeoutSeconds", 5)
+                                                ))
+                                            ))
                                         ))
                                     );
 

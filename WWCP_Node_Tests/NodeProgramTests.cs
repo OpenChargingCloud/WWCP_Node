@@ -107,8 +107,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                           : $$"""{ "enabled": true, "servers": {{NameServers}} }""";
 
             var nts = TimeServers is null
-                          ?    """{ "enabled": false }"""
-                          : $$"""{ "enabled": false, "servers": {{TimeServers}} }""";
+                          ?    """{ "groups": { "legal": { "enabled": false } } }"""
+                          : $$"""{ "groups": { "legal": { "enabled": false, "servers": {{TimeServers}} } } }""";
 
             File.WriteAllText(configuration, $$"""{ "dns": {{dns}}, "nts": {{nts}} }""");
 
@@ -750,7 +750,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
-            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             var brief  = new StringWriter();
             var whole  = new StringWriter();
@@ -824,7 +824,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
-            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "enabled": false } }""");
+            File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             var said = new StringWriter();
 

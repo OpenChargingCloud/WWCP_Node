@@ -283,7 +283,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// The "nts" section, or one group of it, or the one sentence that says
         /// what is wrong with it.
         /// </summary>
-        /// <param name="Path">Where it is in the file, for the sentence: "nts" for the flat section, "nts.groups.local" for a group.</param>
+        /// <param name="Path">Where it is in the file, for the sentence: "nts.groups.local".</param>
         public static Boolean TryParse(JObject                                    JSON,
                                        [NotNullWhen(true)]  out NTSConfiguration?  Configuration,
                                        [NotNullWhen(false)] out String?            Error,

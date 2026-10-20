@@ -39,11 +39,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// instances of any name; "legal" and "local" are the well-known ones.
     /// </para>
     /// <para>
-    /// The flat section every file had before there were groups is read as the
-    /// legal group, and stays as it is until something is saved into it: then
-    /// it is moved into "groups.legal" as a whole - see
-    /// <see cref="WithGroup"/>. A file the node only reads is never rewritten
-    /// behind somebody's back.
+    /// A section with settings and no "groups" is refused, with a sentence that
+    /// says where they belong: the flat section of the files from before there
+    /// were groups is not read any more. <c>"nts": { }</c> is no setting at
+    /// all, and as good as no section.
     /// </para>
     /// <para>
     /// No section at all is the legal group as the node makes it, the PTB's
@@ -99,12 +98,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public IReadOnlyList<KeyValuePair<String, NTSConfiguration>>  Groups  { get; }
 
         /// <summary>
-        /// Whether the section was written the way it was before there were
-        /// groups: one group, the legal one, without saying so.
-        /// </summary>
-        public Boolean                                                IsFlat  { get; }
-
-        /// <summary>
         /// The group of the given name, or null where the section names none.
         /// </summary>
         public NTSConfiguration? this[String Id]
@@ -119,12 +112,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// The "nts" section as a whole.
         /// </summary>
         /// <param name="Groups">Every group, by its name, in the order the section names them.</param>
-        /// <param name="IsFlat">Whether it was written the way it was before there were groups.</param>
-        public NTSSection(IEnumerable<KeyValuePair<String, NTSConfiguration>>  Groups,
-                          Boolean                                              IsFlat = false)
+        public NTSSection(IEnumerable<KeyValuePair<String, NTSConfiguration>> Groups)
         {
-            this.Groups  = [.. Groups];
-            this.IsFlat  = IsFlat;
+            this.Groups = [.. Groups];
         }
 
         #endregion
@@ -164,8 +154,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #region (static) TryParse(JSON, out Section, out Error)
 
         /// <summary>
-        /// The "nts" section, in either of its forms, or the one sentence that
-        /// says what is wrong with it.
+        /// The "nts" section, or the one sentence that says what is wrong with it.
         /// </summary>
         public static Boolean TryParse(JObject                                JSON,
                                        [NotNullWhen(true)]  out NTSSection?    Section,
@@ -174,20 +163,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             Section = null;
 
-            #region The flat section of a file from before there were groups
-
             if (!JSON.TryGetValue(GroupsKey, out var groupsToken))
             {
 
-                if (!NTSConfiguration.TryParse(JSON, out var legal, out Error))
-                    return false;
+                // No setting at all is as good as no section: the legal group as
+                // the node makes it, the PTB's four.
+                if (!JSON.HasValues)
+                {
 
-                Section = new NTSSection([ new (NTSGroup.LegalId, legal) ], IsFlat: true);
-                return true;
+                    if (!NTSConfiguration.TryParse(JSON, out var legal, out Error, PathOf(NTSGroup.LegalId)))
+                        return false;
+
+                    Section = new NTSSection([ new (NTSGroup.LegalId, legal) ]);
+                    return true;
+
+                }
+
+                // The flat section of the files from before there were groups:
+                // not read any more, and not guessed at either - said where it
+                // belongs instead.
+                Error = $"'{NTSConfiguration.SectionName}' names its time servers in groups, and says '{String.Join("', '", JSON.Properties().Select(property => property.Name))}' outside of them: " +
+                        $"move {(JSON.Count == 1 ? "it" : "them")} into '{PathOf(NTSGroup.LegalId)}' - \"{NTSConfiguration.SectionName}\": {{ \"{GroupsKey}\": {{ \"{NTSGroup.LegalId}\": {{ ... }} }} }}.";
+                return false;
 
             }
-
-            #endregion
 
             Error = null;
 
@@ -270,42 +269,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #region ToJSON()
 
         /// <summary>
-        /// The section as it is written to the file, in the form it was read
-        /// in: flat where it was flat, with groups otherwise.
+        /// The section as it is written to the file.
         /// </summary>
         public JObject ToJSON()
 
-            => IsFlat && this[NTSGroup.LegalId] is NTSConfiguration legal
-                   ? legal.ToJSON()
-                   : new JObject(
-                         new JProperty(GroupsKey, new JObject(
-                             Groups.Select(group => new JProperty(group.Key, group.Value.ToJSON()))
-                         ))
-                     );
+            => new (
+                   new JProperty(GroupsKey, new JObject(
+                       Groups.Select(group => new JProperty(group.Key, group.Value.ToJSON()))
+                   ))
+               );
 
         #endregion
 
         #region (static) Grouped(Section)
 
         /// <summary>
-        /// The section as it is written with groups, whichever way it was
-        /// written: a copy, never the section itself.
+        /// The section as it is written with groups: a copy, never the section
+        /// itself.
         /// </summary>
         /// <remarks>
-        /// The flat section becomes "groups.legal" as a whole, and no section at
-        /// all becomes a legal group that says nothing - which is still the
-        /// PTB's four, now said beside whatever group is added.
+        /// No section, or one that says nothing, becomes a legal group that says
+        /// nothing - which is still the PTB's four, now said beside whatever
+        /// group is added. A section with settings outside of "groups" is copied
+        /// as it is, for <see cref="TryParse"/> to refuse with the sentence that
+        /// says where they belong: a save never moves them for anybody.
         /// </remarks>
         /// <param name="Section">The "nts" section of the file, or null where it has none.</param>
         public static JObject Grouped(JObject? Section)
         {
 
-            if (Section?[GroupsKey] is JObject)
+            if (Section is not null && Section.HasValues)
                 return (JObject) Section.DeepClone();
 
             return new JObject(
                        new JProperty(GroupsKey, new JObject(
-                           new JProperty(NTSGroup.LegalId, Section?.DeepClone() ?? new JObject())
+                           new JProperty(NTSGroup.LegalId, new JObject())
                        ))
                    );
 
@@ -317,15 +315,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         /// <summary>
         /// The section with the given fields written into one of its groups and
-        /// the given keys taken out of it, leaving everything else alone - and
-        /// written with groups from now on.
+        /// the given keys taken out of it, leaving everything else alone.
         /// </summary>
         /// <remarks>
-        /// What saving a group does to the file. A section still written flat is
-        /// moved into "groups.legal" first, by <see cref="Grouped"/>: the first
-        /// save of anything is where a file changes its form, because a save is
-        /// a moment somebody meant the file to be written. A group the section
-        /// does not name yet is added after the others.
+        /// What saving a group does to the file. A group the section does not
+        /// name yet is added after the others. A section with settings outside
+        /// of "groups" is left as it is, for <see cref="TryParse"/> to refuse.
         ///
         /// Arrays are replaced rather than merged, as in every section: a list
         /// of servers is one value.
@@ -340,8 +335,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                         IEnumerable<String>  Removed)
         {
 
-            var grouped  = Grouped(Section);
-            var groups   = (JObject) grouped[GroupsKey]!;
+            var grouped = Grouped(Section);
+
+            if (grouped[GroupsKey] is not JObject groups)
+                return grouped;
 
             if (groups[Id] is not JObject group)
             {
@@ -368,9 +365,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #region (static) WithoutGroup(Section, Id)
 
         /// <summary>
-        /// The section without one of its groups, written with groups from now
-        /// on - so that a legal group taken away stays away, and does not come
-        /// back as the default at the next start.
+        /// The section without one of its groups - written with "groups" where
+        /// the file had no section, so that a legal group taken away stays away,
+        /// and does not come back as the default at the next start.
         /// </summary>
         /// <param name="Section">The "nts" section of the file, or null where it has none.</param>
         /// <param name="Id">The group.</param>
@@ -380,7 +377,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             var grouped = Grouped(Section);
 
-            ((JObject) grouped[GroupsKey]!).Remove(Id);
+            if (grouped[GroupsKey] is JObject groups)
+                groups.Remove(Id);
 
             return grouped;
 

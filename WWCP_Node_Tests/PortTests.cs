@@ -152,7 +152,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var path = Path.Combine(Directory, WWCPConfigFile.DefaultFileName);
 
-            File.WriteAllText(path, """{ "nts": { "enabled": false } }""");
+            File.WriteAllText(path, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             return new WWCPConfigFile(path);
 
