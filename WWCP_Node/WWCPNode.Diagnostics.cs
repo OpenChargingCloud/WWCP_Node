@@ -1123,6 +1123,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                             (JObject) failure.DeepClone(),
                             "nts", "test");
 
+                    CountTheFailure(Group);
+
                     return Remember(failure);
 
                 }
@@ -1171,6 +1173,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         (JObject) answer.DeepClone(),
                         "nts", "test");
 
+                // After the line saying what it found, so that the log reads
+                // "answered", then "a time again after ...".
+                CountTheSuccess(Group);
+
                 return Remember(answer);
 
             }
@@ -1183,6 +1189,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 stopwatch.Stop();
                 LogTime(Group, LogLevel.Error, $"NTS: asking group '{group.Name}' failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
+                CountTheFailure(Group);
                 return Remember(Failed(e.Message));
             }
 

@@ -314,7 +314,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("checkedAt",     checkedAt?.ToString("o")),
                            new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),
                            new JProperty("offset_ms",     offset.HasValue ? Math.Round(offset.Value.TotalMilliseconds, 1) : null),
-                           new JProperty("everySeconds",  Math.Round(TimeCheckEvery.TotalSeconds, 0))
+                           new JProperty("everySeconds",  Math.Round(TimeCheckEvery.TotalSeconds, 0)),
+                           // The checks in a row that produced no time, and
+                           // whether that limits what rests on legal time:
+                           // beside the word "legal" below, which rests on
+                           // the last check that produced one alone.
+                           new JProperty("errorsInARow",  LegalTime.ErrorsInARow),
+                           new JProperty("maxErrors",     LegalTime.MaxErrors),
+                           new JProperty("limited",       LegalTime.IsLimited)
                        )),
 
                        new JProperty("legal",           legal),

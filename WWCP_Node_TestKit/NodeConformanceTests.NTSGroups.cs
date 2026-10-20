@@ -107,6 +107,50 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AGroupCountsItsFailedChecksToNumbersOfItsOwn()
+
+        /// <summary>
+        /// The white paper's "errorLogging" and "maxErrors": five and fifty for
+        /// a local group where nothing says otherwise, changed by a save,
+        /// refused outside their range, and the count beside them.
+        /// </summary>
+        [Test]
+        public async Task AGroupCountsItsFailedChecksToNumbersOfItsOwn()
+        {
+
+            using var http          = await SignedIn();
+
+            await Send(http, HttpMethod.Post, NTSGroupsPath, JObject.Parse("""{ "id": "local" }"""));
+
+            var made                = await GetJSON(http, $"{NTSGroupsPath}/local");
+            var (saved,   after)    = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "errorLogging": 3, "maxErrors": 20 }"""));
+            var (refused, error)    = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "maxErrors": 0 }"""));
+            var listed              = await GetJSON(http, NTSGroupsPath);
+
+            Assert.Multiple(() => {
+
+                Assert.That(made["settings"]?.Value<Int32>("errorLogging"),  Is.EqualTo(5));
+                Assert.That(made["settings"]?.Value<Int32>("maxErrors"),     Is.EqualTo(50),  "the white paper's for the local group");
+                Assert.That(made["errors"]?.  Value<Int32>("inARow"),        Is.EqualTo(0));
+                Assert.That(made["errors"]?.  Value<Boolean>("limited"),     Is.False);
+
+                Assert.That(saved,                                           Is.EqualTo(HttpStatusCode.OK),  after.ToString());
+                Assert.That(after["settings"]?.Value<Int32>("errorLogging"), Is.EqualTo(3));
+                Assert.That(after["settings"]?.Value<Int32>("maxErrors"),    Is.EqualTo(20));
+                Assert.That(OnDisk["nts"]?["groups"]?["local"]?.Value<Int32>("maxErrors"),  Is.EqualTo(20),  "and written down");
+
+                Assert.That(refused,                                         Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(error.Value<String>("error"),                    Is.EqualTo("'nts.groups.local.maxErrors' must be between 1 and 65535."));
+
+                Assert.That(listed["groups"]?[1]?.Value<Int32>("maxErrors"),     Is.EqualTo(20));
+                Assert.That(listed["groups"]?[1]?.Value<Int32>("errorsInARow"),  Is.EqualTo(0));
+
+            });
+
+        }
+
+        #endregion
+
         #region AGroupOfANameTakenIsAConflict()
 
         [Test]

@@ -129,7 +129,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                   (Group.LastCheckAnswered is Int32 answered && Group.LastCheckAsked is Int32 of ? $", {answered} of {of} answered" : "")
                                 : "never checked";
 
-            return $"{asked}; {every}; {checkedAt}" +
+            // The run of failed checks only where there is one: a line for
+            // every group saying "no errors" would bury the one that has.
+            var errors    = Group.ErrorsInARow > 0
+                                ? $"; {Group.ErrorsInARow} in a row produced no time, " +
+                                  (Group.IsLimited ? "limited" : $"limited after {Group.MaxErrors}")
+                                : "";
+
+            return $"{asked}; {every}; {checkedAt}{errors}" +
                    (Group.IsLegal && Group.Authority is String authority ? $"; legal time of {authority}, as the operator says" : "");
 
         }

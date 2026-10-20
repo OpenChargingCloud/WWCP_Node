@@ -122,7 +122,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),
                        new JProperty("offset_ms",     Group.LastCheckOffset.HasValue ? Math.Round(Group.LastCheckOffset.Value.TotalMilliseconds, 1) : null),
                        new JProperty("asked",         Group.LastCheckAsked),
-                       new JProperty("answered",      Group.LastCheckAnswered)
+                       new JProperty("answered",      Group.LastCheckAnswered),
+                       new JProperty("errorsInARow",  Group.ErrorsInARow),
+                       new JProperty("errorLogging",  Group.ErrorLogging),
+                       new JProperty("maxErrors",     Group.MaxErrors),
+                       new JProperty("limited",       Group.IsLimited)
                    );
 
         }

@@ -45,12 +45,13 @@ function aConfiguration(): NTSConfiguration {
                         { hostname: 'ptbtime2.ptb.de', priority: 0, ntsKEPort: 4460, ntpPort: 123, enabled: true } ],
         group:        { name: 'ptb', minServers: 2, maxDeviationSeconds: 0.5 },
         settings:     { timeoutSeconds: null, checkEverySeconds: 900, minServers: 2, maxDeviationSeconds: 0.5,
-                        legalTimeAuthority: null, legalTimeToleranceSeconds: 1, legalTimeMaxAgeSeconds: 3600 },
+                        legalTimeAuthority: null, legalTimeToleranceSeconds: 1, legalTimeMaxAgeSeconds: 3600,
+                        errorLogging: 5, maxErrors: 10 },
         policy:       {},
         lastSync:     null,
         limits:       { maxTimeout: 30, minCheckEvery: 60, maxCheckEvery: 86400, minDeviation: 0.001, maxDeviation: 60,
                         minTolerance: 0.001, maxTolerance: 60, minMaxAge: 60, maxMaxAge: 86400, maxAuthorityLength: 100,
-                        defaultNTSKEPort: 4460, defaultNTPPort: 123 },
+                        minErrorCount: 1, maxErrorCount: 65535, defaultNTSKEPort: 4460, defaultNTPPort: 123 },
         file:         'nts.json'
     } as unknown as NTSConfiguration;
 }
@@ -314,6 +315,40 @@ describe('the NTS page', () => {
 
     });
 
+    it('saves how many failed checks in a row are written down and limit what rests on the group', async () => {
+
+        const root = await opened();
+
+        assert.equal(field(root, 'policy-form', 'errorLogging').value, '5');
+        assert.equal(field(root, 'policy-form', 'maxErrors').value,    '10');
+
+        field(root, 'policy-form', 'maxErrors').value = '20';
+
+        submit(root, 'policy-form');
+        await until(() => told.length === 1, 'the policy was not saved');
+
+        assert.equal(told[0]!.errorLogging, 5);
+        assert.equal(told[0]!.maxErrors,    20);
+        assert.equal(held.settings.maxErrors, 20, 'the group was not told');
+
+    });
+
+    it('says how many checks in a row produced no time, and when that limits legal time', async () => {
+
+        const errors = (root: HTMLElement) => root.querySelector('#nts-errors .v')!.textContent!.replace(/s+/g, ' ').trim();
+
+        const none     = await opened();
+        assert.equal(errors(none), 'none');
+
+        const running  = await opened({ nts: { ...aClock().nts, errorsInARow: 3, maxErrors: 10, limited: false } });
+        assert.equal(errors(running), '3 - limited after 10');
+
+        const limited  = await opened({ nts: { ...aClock().nts, errorsInARow: 12, maxErrors: 10, limited: true } });
+        assert.equal(errors(limited), '12 limited');
+        assert.ok(limited.querySelector('#nts-errors .chip.bad') !== null, 'a limited group is not marked as one');
+
+    });
+
 });
 
 
@@ -342,6 +377,21 @@ describe('the groups of the NTS page', () => {
         assert.match(clock, /^The clock against Local time/);
         assert.doesNotMatch(clock, /legal/);
         assert.ok(root.querySelector('#nts-remove') === null, 'a group switched on cannot be taken away');
+
+    });
+
+    it('says how many checks of a group in a row produced no time, and writes its run into the log and not the metrological log', async () => {
+
+        const local = aGroup('local', { enabled: true, timeSources: aConfiguration().timeSources });
+        const root  = await opened({ groups: [ { ...summaryOf(local), errorsInARow: 4, maxErrors: 50, limited: false } ] },
+                                   () => undefined, [ local ], '/configuration/nts?tab=local',
+                                   root => root.querySelector('#policy-form') !== null);
+
+        const hint  = field(root, 'policy-form', 'errorLogging').closest('label')!.textContent!.replace(/s+/g, ' ');
+
+        assert.equal(root.querySelector('#nts-errors .v')!.textContent!.replace(/s+/g, ' ').trim(), '4 - limited after 50');
+        assert.match(hint, /Into the log,/);
+        assert.match(field(root, 'policy-form', 'maxErrors').closest('label')!.textContent!, /load management/);
 
     });
 

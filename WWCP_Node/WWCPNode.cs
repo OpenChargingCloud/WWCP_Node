@@ -1783,7 +1783,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            // has to be.
                            new JProperty("legalTimeAuthority",         Group.Authority),
                            new JProperty("legalTimeToleranceSeconds",  Group.Tolerance.TotalSeconds),
-                           new JProperty("legalTimeMaxAgeSeconds",     Group.MaxAge.TotalSeconds)
+                           new JProperty("legalTimeMaxAgeSeconds",     Group.MaxAge.TotalSeconds),
+                           // How many checks in a row may produce no time
+                           // before that is written down, and before what
+                           // rests on the group is limited.
+                           new JProperty("errorLogging",               Group.ErrorLogging),
+                           new JProperty("maxErrors",                  Group.MaxErrors)
+                       )),
+
+                       // How the count of those stands.
+                       new JProperty("errors",       new JObject(
+                           new JProperty("inARow",                     Group.ErrorsInARow),
+                           new JProperty("limited",                    Group.IsLimited)
                        )),
 
                        // What any new client starts with, the group's and the
@@ -1863,6 +1874,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("minMaxAge",          NTSConfiguration.MinMaxAgeSeconds),
                            new JProperty("maxMaxAge",          NTSConfiguration.MaxMaxAgeSeconds),
                            new JProperty("maxAuthorityLength", NTSConfiguration.MaxAuthorityLength),
+                           new JProperty("minErrorCount",      NTSConfiguration.MinErrorCount),
+                           new JProperty("maxErrorCount",      NTSConfiguration.MaxErrorCount),
                            new JProperty("defaultNTSKEPort",   NTSClient.DefaultNTSKE_Port.ToUInt16()),
                            new JProperty("defaultNTPPort",     NTSClient.DefaultNTP_Port.  ToUInt16())
                        )),
@@ -2204,6 +2217,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
+            var wasErrorLogging   = Group.ErrorLogging;
+            var wasMaxErrors      = Group.MaxErrors;
 
             Group.Settings = Group.Settings?.OverriddenBy(Configuration) ?? Configuration;
 
@@ -2354,6 +2369,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Group.MaxAge != wasMaxAge)
                 changed.Add($"legal time max age = {Group.MaxAge.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
 
+            if (Group.ErrorLogging != wasErrorLogging)
+                changed.Add($"errors written down after {Group.ErrorLogging} in a row");
+
+            if (Group.MaxErrors != wasMaxErrors)
+                changed.Add($"limited after {Group.MaxErrors} errors in a row");
+
             if (changed.Count > 0)
                 LogTime(Group,
                         LogLevel.Notice,
@@ -2361,6 +2382,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
                             ? $"NTS configuration changed: {String.Join(", ", changed)}."
                             : $"NTS group '{Group.Id}' changed: {String.Join(", ", changed)}.",
                         "nts", "config");
+
+            // A run of failed checks is about the servers that failed, and
+            // about a group that was asked: neither holds once the servers are
+            // changed or the group is switched off. Counting on would limit
+            // new servers for what old ones did - see WWCPNode.NTSErrors.cs.
+            if (wasServers != nowServers)
+                CountAgain(Group, "its time servers changed");
+
+            else if (wasEnabled && !Group.Enabled)
+                CountAgain(Group, "it was switched off");
+
+            else if (Group.MaxErrors != wasMaxErrors)
+                ReconsiderTheLimit(Group);
 
             // The clock is checked on a timer set when the node started, so
             // whether and how often it is checked has to be put into that timer

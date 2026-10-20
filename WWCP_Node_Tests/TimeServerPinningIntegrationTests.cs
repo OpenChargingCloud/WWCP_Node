@@ -162,13 +162,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A node whose one time server is the test's, held to what is given,
         /// and which trusts the test's CA as a TLS root.
         /// </summary>
-        private WWCPNode Node(String Pins = "")
+        private WWCPNode Node(String Pins = "",
+                              String More = "")
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
             File.WriteAllText(configuration, $$"""
-                                              { "nts": { "servers": [ {{Held(Pins)}} ], "minServers": 1 } }
+                                              { "nts": { "servers": [ {{Held(Pins)}} ], "minServers": 1{{(More.Length > 0 ? ", " + More : "")}} } }
                                               """);
 
             // Somebody to ask, so that the cache is consulted at all - at a port
@@ -332,6 +333,57 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(second.Value<Boolean>("ok"),              Is.False,  "the key exchange from before the pin was reused: " + second);
                 Assert.That(node.LastJudgementOf(hostname)?.Outcome,  Is.EqualTo("pinMismatch"));
+            });
+
+        }
+
+        #endregion
+
+        #region ARunOfFailuresEndsWithATimeAndIsWrittenDownAsEnded()
+
+        /// <summary>
+        /// A server refused for its certificate twice in a row - "errorLogging"
+        /// and "maxErrors" reached - and then held to the one it shows: the
+        /// check that produces a time ends the run, in the metrological log,
+        /// and what rests on legal time is no longer limited.
+        /// </summary>
+        /// <remarks>
+        /// The same server throughout, so that the run is not counted from
+        /// none for servers that changed: only what it is held to does.
+        /// </remarks>
+        [Test]
+        public async Task ARunOfFailuresEndsWithATimeAndIsWrittenDownAsEnded()
+        {
+
+            await using var node = Node($$""" "certificateFingerprint": "{{CertificateEntry.ThumbprintOf(another)}}" """,
+                                        """ "errorLogging": 1, "maxErrors": 2 """);
+
+            var told    = new List<Boolean>();
+
+            node.OnNTSGroupLimited += (_, limited) => told.Add(limited);
+
+            for (var i = 0; i < 2; i++)
+                Assert.That((await node.SyncTimeAsync()).Value<Boolean>("ok"),  Is.False);
+
+            var limited = node.LegalTime.IsLimited;
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse($$"""{ "servers": [ {{Held($$""" "certificateFingerprint": "{{CertificateEntry.ThumbprintOf(served)}}" """)}} ] }"""),
+                                                       out var error),
+                        Is.True,
+                        error);
+
+            var before  = node.Log.LastId;
+            var result  = await node.SyncTimeAsync();
+            var said    = Metrological(node, before);
+
+            Assert.Multiple(() => {
+                Assert.That(limited,                            Is.True);
+                Assert.That(result.Value<Boolean>("ok"),        Is.True,  result.ToString());
+                Assert.That(said.Last(),                        Is.EqualTo("NTS: group 'legal' produced a time again after 2 checks in a row that produced none; what rests on its time is no longer limited."),
+                            "after the line saying what it found: " + String.Join(" | ", said));
+                Assert.That(node.LegalTime.ErrorsInARow,        Is.EqualTo(0));
+                Assert.That(node.LegalTime.IsLimited,           Is.False);
+                Assert.That(told,                               Is.EqualTo(new[] { true, false }));
             });
 
         }

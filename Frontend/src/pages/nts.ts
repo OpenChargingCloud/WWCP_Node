@@ -304,6 +304,8 @@ export const ntsPage: Page = {
                         <span class="v">${ms(now.nts.offset_ms, true)}</span>
                     </div>
 
+                    ${errorsView(now.nts.errorsInARow, now.nts.maxErrors, now.nts.limited)}
+
                     <div class="kv">
                         <span class="k">Authority</span>
                         <span class="v">${now.authority ?? html`<span class="muted">none claimed</span>`}</span>
@@ -397,6 +399,8 @@ export const ntsPage: Page = {
                         <span class="v">${ms(found?.offset_ms, true)}</span>
                     </div>
 
+                    ${errorsView(found?.errorsInARow, found?.maxErrors, found?.limited)}
+
                 </div>
 
                 <p class="hint">
@@ -404,6 +408,34 @@ export const ntsPage: Page = {
                     is legal time is not this group's to say, only the legal group's.
                 </p>
 
+            `;
+
+        }
+
+
+        /**
+         * The checks in a row that produced no time, as a row of a clock card:
+         * none, how many and what limits the group, or that it is limited.
+         * What is limited is not the page's to say, nor the node's - it is up
+         * to whatever rests on the group's time.
+         */
+        function errorsView(inARow:     number  | undefined,
+                            maxErrors:  number  | undefined,
+                            limited:    boolean | undefined): TemplateResult {
+
+            const count = inARow ?? 0;
+
+            return html`
+                <div class="kv" id="nts-errors">
+                    <span class="k">Failed in a row</span>
+                    <span class="v">${count === 0
+                                          ? 'none'
+                                          : limited
+                                                ? html`${count} <span class="chip bad">limited</span>`
+                                                : html`${count}${maxErrors === undefined
+                                                                    ? nothing
+                                                                    : html` <span class="muted small">- limited after ${maxErrors}</span>`}`}</span>
+                </div>
             `;
 
         }
@@ -496,6 +528,27 @@ export const ntsPage: Page = {
                         <input type="number" name="checkEverySeconds" step="1"
                                min="${limits.minCheckEvery}" max="${limits.maxCheckEvery}"
                                value="${settings.checkEverySeconds}" ?disabled=${off} />
+                    </label>
+
+                    <label>Write down after ... failed checks in a row
+                        <input type="number" name="errorLogging" step="1"
+                               min="${limits.minErrorCount ?? 1}" max="${limits.maxErrorCount ?? 65535}"
+                               value="${settings.errorLogging ?? ''}" ?disabled=${off} />
+                        <span class="hint">
+                            Into the ${configuration.legal ? 'metrological log' : 'log'}, and again once a check
+                            produces a time. Every failed check is written down besides.
+                        </span>
+                    </label>
+
+                    <label>Limit after ... failed checks in a row
+                        <input type="number" name="maxErrors" step="1"
+                               min="${limits.minErrorCount ?? 1}" max="${limits.maxErrorCount ?? 65535}"
+                               value="${settings.maxErrors ?? ''}" ?disabled=${off} />
+                        <span class="hint">
+                            ${configuration.legal
+                                  ? 'What rests on legal time, such as a dynamic tariff, is limited until a check produces a time again.'
+                                  : 'What rests on the time of this group, such as load management, is limited until a check produces a time again.'}
+                        </span>
                     </label>
 
                     <label>Timeout of a test in seconds
@@ -1157,7 +1210,9 @@ export const ntsPage: Page = {
             const update: NTSUpdate = {
                 minServers:           numberField(form, 'minServers'),
                 maxDeviationSeconds:  numberField(form, 'maxDeviationSeconds'),
-                checkEverySeconds:    numberField(form, 'checkEverySeconds')
+                checkEverySeconds:    numberField(form, 'checkEverySeconds'),
+                errorLogging:         numberField(form, 'errorLogging'),
+                maxErrors:            numberField(form, 'maxErrors')
             };
 
             // Left empty, the client's own is what a test allows.

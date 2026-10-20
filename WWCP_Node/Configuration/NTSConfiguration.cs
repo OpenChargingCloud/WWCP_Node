@@ -52,6 +52,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="MinServers">How many of them must answer before their time counts.</param>
     /// <param name="MaxDeviation">How far their answers may be apart before the disagreement is written down.</param>
     /// <param name="DisplayName">What the group is called on a page, by language - "*" for every language - or nothing, for "&lt;id&gt; time".</param>
+    /// <param name="ErrorLogging">How many checks in a row may produce no time before that is written down, and written down again once one does.</param>
+    /// <param name="MaxErrors">How many checks in a row may produce no time before what rests on the group's time is limited, until one does.</param>
     public sealed record NTSConfiguration(Boolean?                                 Enabled               = null,
                                           DomainName?                              Hostname              = null,
                                           IPPort?                                  NTSKEPort             = null,
@@ -64,7 +66,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           IEnumerable<NTSServerConfiguration>?     Servers               = null,
                                           Byte?                                    MinServers            = null,
                                           TimeSpan?                                MaxDeviation          = null,
-                                          IReadOnlyDictionary<String, String>?     DisplayName           = null)
+                                          IReadOnlyDictionary<String, String>?     DisplayName           = null,
+                                          UInt16?                                  ErrorLogging          = null,
+                                          UInt16?                                  MaxErrors             = null)
     {
 
         #region Data
@@ -184,6 +188,40 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public const Double  MinMaxAgeSeconds     = 10;
         public const Double  MaxMaxAgeSeconds     = 86400;
 
+        /// <summary>
+        /// How many checks in a row may produce no time before that is written
+        /// down, when nobody says otherwise: the white paper's five, for every
+        /// group.
+        /// </summary>
+        public const UInt16  DefaultErrorLogging  = 5;
+
+        /// <summary>
+        /// How many checks in a row may produce no time before what rests on a
+        /// group's time is limited, when nobody says otherwise: the white
+        /// paper's ten - for the legal group, whose time a dynamic tariff
+        /// rests on, and for every group it names no number for.
+        /// </summary>
+        public const UInt16  DefaultMaxErrors     = 10;
+
+        /// <summary>
+        /// The same for the "local" group, by the white paper: fifty, because
+        /// what rests on it is load management, which a station can do without
+        /// for a while, and which stopping costs more than a tariff.
+        /// </summary>
+        public const UInt16  DefaultLocalMaxErrors = 50;
+
+        /// <summary>
+        /// The id of the group the white paper names for load management.
+        /// </summary>
+        public const String  LocalId              = "local";
+
+        /// <summary>
+        /// The fewest and the most checks in a row a group may be told to
+        /// count to: one, and as many as the white paper's UInt16 holds.
+        /// </summary>
+        public const UInt16  MinErrorCount        = 1;
+        public const UInt16  MaxErrorCount        = UInt16.MaxValue;
+
         #endregion
 
         #region Properties
@@ -266,6 +304,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !ConfigurationReader.TryReadString (JSON, "legalTimeAuthority", Path, MaxAuthorityLength, out var authority, out Error) ||
                 !ConfigurationReader.TryReadByte   (JSON, "minServers",         Path,                     out var minServers, out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "maxDeviationSeconds", Path, MinDeviationSeconds, MaxDeviationSeconds, out var maxDeviation, out Error) ||
+                !ConfigurationReader.TryReadUInt32 (JSON, "errorLogging",        Path, MinErrorCount, MaxErrorCount, out var errorLogging, out Error) ||
+                !ConfigurationReader.TryReadUInt32 (JSON, "maxErrors",           Path, MinErrorCount, MaxErrorCount, out var maxErrors,    out Error) ||
                 !TryReadDisplayName                (JSON,                        Path,                     out var displayName, out Error))
             {
                 return false;
@@ -355,7 +395,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 servers,
                                 minServers,
                                 maxDeviation,
-                                displayName
+                                displayName,
+                                (UInt16?) errorLogging,
+                                (UInt16?) maxErrors
                             ) {
                                 RemovesLegalTimeAuthority = removesAuthority,
                                 RemovesDisplayName        = removesName
@@ -456,7 +498,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     Update.MaxDeviation        ?? MaxDeviation,
                     Update.RemovesDisplayName
                         ? null
-                        : Update.DisplayName ?? DisplayName);
+                        : Update.DisplayName ?? DisplayName,
+                    Update.ErrorLogging        ?? ErrorLogging,
+                    Update.MaxErrors           ?? MaxErrors);
 
         #endregion
 
@@ -481,6 +525,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (static) DefaultMaxErrorsOf(Id)
+
+        /// <summary>
+        /// How many checks in a row a group may produce no time before what
+        /// rests on it is limited, when the file names no number: fifty for the
+        /// "local" group and ten for every other, as the white paper has it.
+        /// </summary>
+        /// <param name="Id">The group's id.</param>
+        public static UInt16 DefaultMaxErrorsOf(String Id)
+
+            => Id == LocalId
+                   ? DefaultLocalMaxErrors
+                   : DefaultMaxErrors;
+
+        #endregion
+
         #region ToJSON()
 
         /// <summary>
@@ -497,6 +557,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Servers  is not null)  json.Add("servers",         new JArray(Servers.Select(server => server.ToJSON())));
             if (MinServers.HasValue)   json.Add("minServers",      MinServers.  Value);
             if (MaxDeviation.HasValue) json.Add("maxDeviationSeconds", MaxDeviation.Value.TotalSeconds);
+            if (ErrorLogging.HasValue) json.Add("errorLogging",    ErrorLogging.Value);
+            if (MaxErrors.   HasValue) json.Add("maxErrors",       MaxErrors.   Value);
             if (NTSKEPort.HasValue)    json.Add("ntsKEPort",       NTSKEPort.Value.ToUInt16());
             if (NTPPort.  HasValue)    json.Add("ntpPort",         NTPPort.  Value.ToUInt16());
             if (Timeout.  HasValue)    json.Add("timeoutSeconds",  Timeout.  Value.TotalSeconds);

@@ -82,6 +82,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         private          TaskCompletionSource?    lastEnded;
         private          Boolean                  disposed;
 
+        /// <summary>
+        /// The checks in a row that produced no time, and whether that has been
+        /// written down and has limited what rests on this group - counted
+        /// under the gate, because the timer's check and "Sync now" can end at
+        /// the same moment.
+        /// </summary>
+        private          Int32                    errorsInARow;
+        private          Boolean                  errorsWritten;
+        private          Boolean                  limited;
+
         #endregion
 
         #region Properties
@@ -173,6 +183,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
             => Settings?.LegalTimeMaxAge ?? NTSConfiguration.DefaultLegalMaxAge;
 
         /// <summary>
+        /// How many checks in a row may produce no time before that is written
+        /// down - and written down again once one does.
+        /// </summary>
+        public UInt16           ErrorLogging
+            => Settings?.ErrorLogging ?? NTSConfiguration.DefaultErrorLogging;
+
+        /// <summary>
+        /// How many checks in a row may produce no time before what rests on
+        /// this group's time is limited, until one does.
+        /// </summary>
+        public UInt16           MaxErrors
+            => Settings?.MaxErrors ?? NTSConfiguration.DefaultMaxErrorsOf(Id);
+
+        /// <summary>
         /// Whether the clock is being checked against this group on a timer.
         /// </summary>
         public Boolean          IsChecking
@@ -255,6 +279,42 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public JObject?         LastSync            { get; private set; }
 
+        /// <summary>
+        /// How many checks in a row have produced no time - none since the
+        /// last that did, since this node started, or since the count started
+        /// over.
+        /// </summary>
+        /// <remarks>
+        /// Kept in memory only: a node that starts again has not failed to
+        /// check anything yet, and the log says what the count was before.
+        /// </remarks>
+        public Int32            ErrorsInARow
+        {
+            get
+            {
+                lock (gate)
+                    return errorsInARow;
+            }
+        }
+
+        /// <summary>
+        /// Whether what rests on this group's time is limited: <see cref="MaxErrors"/>
+        /// checks in a row produced no time, and none has since.
+        /// </summary>
+        /// <remarks>
+        /// What is limited is for whatever rests on the group to decide - a
+        /// dynamic tariff on the legal group, load management on the local one.
+        /// This only says so, here and through <see cref="WWCPNode.OnNTSGroupLimited"/>.
+        /// </remarks>
+        public Boolean          IsLimited
+        {
+            get
+            {
+                lock (gate)
+                    return limited;
+            }
+        }
+
         #endregion
 
         #region Constructor(s)
@@ -326,6 +386,88 @@ namespace cloud.charging.open.protocols.WWCP.Node
             LastCheckServer    = null;
             LastCheckAsked     = null;
             LastCheckAnswered  = null;
+        }
+
+        #endregion
+
+        #region (internal) CountFailure()
+
+        /// <summary>
+        /// Count a check that produced no time - and say which of the two
+        /// numbers it reached, which each are said once, when they are reached.
+        /// </summary>
+        /// <remarks>
+        /// Reached and not equalled: a number lowered below the count by a
+        /// save in the middle of a run of failures is reached by the next one.
+        /// </remarks>
+        internal (Int32 InARow, Boolean ToBeWritten, Boolean ToBeLimited) CountFailure()
+        {
+            lock (gate)
+            {
+
+                errorsInARow++;
+
+                var write  = !errorsWritten && errorsInARow >= ErrorLogging;
+                var limit  = !limited       && errorsInARow >= MaxErrors;
+
+                errorsWritten |= write;
+                limited       |= limit;
+
+                return (errorsInARow, write, limit);
+
+            }
+        }
+
+        #endregion
+
+        #region (internal) CountAgain()
+
+        /// <summary>
+        /// Start counting from none: a check produced a time, or the count is
+        /// about servers or a switch this group no longer has. Says what the
+        /// count was, and whether it had been written down or had limited
+        /// anything - which is what decides whether that ending is written down.
+        /// </summary>
+        internal (Int32 InARow, Boolean WasWritten, Boolean WasLimited) CountAgain()
+        {
+            lock (gate)
+            {
+
+                var was        = (errorsInARow, errorsWritten, limited);
+
+                errorsInARow   = 0;
+                errorsWritten  = false;
+                limited        = false;
+
+                return was;
+
+            }
+        }
+
+        #endregion
+
+        #region (internal) ReconsiderLimit()
+
+        /// <summary>
+        /// Whether the count limits what rests on this group by a
+        /// <see cref="MaxErrors"/> just changed: true where it limits it now
+        /// and did not, false where it no longer does, and null where nothing
+        /// changed.
+        /// </summary>
+        internal Boolean? ReconsiderLimit()
+        {
+            lock (gate)
+            {
+
+                var now = errorsInARow >= MaxErrors;
+
+                if (now == limited)
+                    return null;
+
+                limited = now;
+                return now;
+
+            }
         }
 
         #endregion

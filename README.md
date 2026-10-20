@@ -292,6 +292,8 @@ what it is when absent:
 | `ntsKEPort`, `ntpPort` | `4460`, `123` | for that one server |
 | `timeoutSeconds` | `10` | per request |
 | `checkEverySeconds` | `900` | how often the clock is checked |
+| `errorLogging` | `5` | failed checks in a row before that is written down |
+| `maxErrors` | `10`, `50` for "local" | failed checks in a row before what rests on the group is limited |
 | `legalTimeAuthority` | - | who the operator says stands behind it |
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
@@ -319,6 +321,17 @@ its checks go into the metrological log, every other group's into the log
 like anything else. The legal group naming no server is the PTB's four; any
 other group has no default, is switched off while it names nobody, and is
 refused switched on without a server.
+
+Every group counts its checks that produced no time, by the white paper's
+two numbers: at `errorLogging` in a row (5) that is written down, and at
+`maxErrors` (10, and 50 for "local") what rests on the group's time is
+limited - a dynamic tariff on legal time, load management on local time.
+Whatever rests on a group decides what that takes away; the node says so in
+`NTSGroup.IsLimited`, `OnNTSGroupLimited`, the group's JSON and on its tab.
+The first check that produces a time again is written down as the end of the
+run. Changing a group's servers or switching it off starts the count from
+none, and the log says why. The count is kept in memory and starts from none
+at every start.
 
 The flat section above is the legal group, and a file written that way stays
 as it is until something is saved: the first save moves it into

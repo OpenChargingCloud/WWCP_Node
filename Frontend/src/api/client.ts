@@ -639,6 +639,10 @@ export interface NTSUpdate {
     legalTimeAuthority?:         string | null;
     legalTimeToleranceSeconds?:  number;
     legalTimeMaxAgeSeconds?:     number;
+    /** How many checks in a row may produce no time before that is written down. */
+    errorLogging?:               number;
+    /** How many checks in a row may produce no time before what rests on the group is limited. */
+    maxErrors?:                  number;
 }
 
 /**
@@ -754,6 +758,12 @@ export interface NTSGroupSummary {
     offset_ms:     number | null;
     asked:         number | null;
     answered:      number | null;
+    /** The checks in a row that produced no time, and what they are written down and limited after. */
+    errorsInARow?: number;
+    errorLogging?: number;
+    maxErrors?:    number;
+    /** Whether that many in a row limit what rests on the group's time. */
+    limited?:      boolean;
 }
 
 /** Every group of time servers of the node, and the names left to suggest for one more. */
@@ -794,7 +804,12 @@ export interface NTSConfiguration {
         legalTimeAuthority:         string | null;
         legalTimeToleranceSeconds:  number;
         legalTimeMaxAgeSeconds:     number;
+        /** How many checks in a row may produce no time before that is written down, and before what rests on the group is limited. */
+        errorLogging?:              number;
+        maxErrors?:                 number;
     };
+    /** How the count of checks in a row that produced no time stands. */
+    errors?:      { inARow: number; limited: boolean };
     /** What any new client starts with. */
     policy:       Record<string, unknown>;
     lastSync:     NTSSyncResult | null;
@@ -809,6 +824,8 @@ export interface NTSConfiguration {
         minMaxAge:           number;
         maxMaxAge:           number;
         maxAuthorityLength:  number;
+        minErrorCount?:      number;
+        maxErrorCount?:      number;
         defaultNTSKEPort:    number;
         defaultNTPPort:      number;
     };
@@ -850,6 +867,10 @@ export interface Clock {
         ageSeconds:    number | null;
         offset_ms:     number | null;
         everySeconds:  number;
+        /** The checks in a row that produced no time, what limits legal time, and whether it is limited. */
+        errorsInARow?: number;
+        maxErrors?:    number;
+        limited?:      boolean;
     };
     legal:            boolean;
     authority:        string | null;
