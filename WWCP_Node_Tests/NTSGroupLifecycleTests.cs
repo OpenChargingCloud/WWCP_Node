@@ -569,6 +569,65 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AGroupTakenAwayWhileItsTimerIsMadeKeepsNone()
+
+        /// <summary>
+        /// A group switched on, and taken away while its timer is being made:
+        /// it is left with no timer, and the one made is let go of.
+        /// </summary>
+        /// <remarks>
+        /// Taken away from another thread, from inside the clock's CreateTimer,
+        /// and waited for a moment there: where asking whether the group was
+        /// taken away and giving it its timer are not done under the gate that
+        /// taking it away takes its timer under, it is taken away in that
+        /// moment, lets go of no timer, and is then given one it keeps. Under
+        /// the gate, it waits for the timer and lets go of it.
+        /// </remarks>
+        [Test]
+        public async Task AGroupTakenAwayWhileItsTimerIsMadeKeepsNone()
+        {
+
+            var clock    = new CountingClock();
+
+            var node     = await TestKit.TestPorts.StartedOnFreshPorts(() => new WWCPNode(
+                                   HTTPPort:          IPPort.Parse(TestKit.TestPorts.Free()),
+                                   AccountsPath:      Path.Combine(directory, "accounts"),
+                                   ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                                   CertificatesPath:  Path.Combine(directory, "certificates"),
+                                   LogToConsole:      false,
+                                   BridgeDebugLog:    false,
+                                   TimeProvider:      clock
+                               ));
+
+            var atStart  = clock.Live;
+            var local    = Added(node, "local");
+            Task? takingAway = null;
+
+            clock.WhileACheckTimerIsMade = () => {
+                takingAway = Task.Run(async () => await local.DisposeAsync());
+                takingAway.Wait(TimeSpan.FromMilliseconds(300));
+            };
+
+            Updated(node, local, """{ "servers": [ "lc1.local" ], "enabled": true }""");
+
+            clock.WhileACheckTimerIsMade = null;
+
+            await takingAway!.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var left     = clock.Live;
+
+            await node.DisposeAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(local.IsDisposed,  Is.True);
+                Assert.That(local.IsChecking,  Is.False,           "a group taken away kept the timer it was given while it was");
+                Assert.That(left,              Is.EqualTo(atStart), "and the timer made then was not let go of");
+            });
+
+        }
+
+        #endregion
+
 
         #region (class) CountingClock
 
@@ -587,6 +646,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             public Int32 CheckTimers  => Volatile.Read(ref checkTimers);
 
+            /// <summary>
+            /// What happens while a clock check's timer is being made, before
+            /// it is handed back.
+            /// </summary>
+            public Action? WhileACheckTimerIsMade { get; set; }
+
             public override DateTimeOffset GetUtcNow()
                 => TimeProvider.System.GetUtcNow();
 
@@ -601,7 +666,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 if (DueTime == TimeSpan.FromMinutes(1))
                     Interlocked.Increment(ref checkTimers);
 
-                return new Counted(this, DueTime == TimeSpan.FromMinutes(1));
+                var made = new Counted(this, DueTime == TimeSpan.FromMinutes(1));
+
+                if (DueTime == TimeSpan.FromMinutes(1))
+                    WhileACheckTimerIsMade?.Invoke();
+
+                return made;
 
             }
 

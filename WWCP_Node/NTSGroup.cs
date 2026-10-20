@@ -200,7 +200,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Whether the clock is being checked against this group on a timer.
         /// </summary>
         public Boolean          IsChecking
-            => timer is not null;
+        {
+            get
+            {
+                lock (gate)
+                    return timer is not null;
+            }
+        }
 
         /// <summary>
         /// Whether this group was taken away: nothing runs for it any more, and
@@ -482,23 +488,38 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="TimeProvider">The clock of the node, which the timer runs on.</param>
         /// <param name="Check">What checking the clock against this group is.</param>
         /// <param name="FirstIn">How long until the first check.</param>
+        /// <remarks>
+        /// Asked whether the group was taken away, and given its timer, under
+        /// the gate - which taking it away takes its timer under. Asked first and
+        /// given the timer afterwards, a group taken away in between got a timer
+        /// after it had let go of the one it had, and kept it: checking against
+        /// nothing, every period, for as long as the node ran.
+        /// </remarks>
         internal void StartChecking(TimeProvider          TimeProvider,
                                     Func<NTSGroup, Task>  Check,
                                     TimeSpan              FirstIn)
         {
 
-            StopChecking();
+            ITimer? replaced;
 
-            // A group taken away is checked against no more, whoever asks.
-            if (IsDisposed)
-                return;
+            lock (gate)
+            {
 
-            timer = TimeProvider.CreateTimer(
-                        _ => _ = Check(this),
-                        null,
-                        FirstIn,
-                        CheckEvery
-                    );
+                replaced = timer;
+                timer    = null;
+
+                // A group taken away is checked against no more, whoever asks.
+                if (!disposed)
+                    timer = TimeProvider.CreateTimer(
+                                _ => _ = Check(this),
+                                null,
+                                FirstIn,
+                                CheckEvery
+                            );
+
+            }
+
+            replaced?.Dispose();
 
         }
 
@@ -511,8 +532,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         internal void StopChecking()
         {
-            timer?.Dispose();
-            timer = null;
+
+            ITimer? ending;
+
+            lock (gate)
+            {
+                ending = timer;
+                timer  = null;
+            }
+
+            ending?.Dispose();
+
         }
 
         #endregion
@@ -582,7 +612,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public async ValueTask DisposeAsync()
         {
 
-            Task? waitFor = null;
+            Task?   waitFor = null;
+            ITimer? ending;
 
             lock (gate)
             {
@@ -598,10 +629,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     waitFor    = lastEnded.Task;
                 }
 
-            }
+                // Under the gate, as StartChecking gives it: see there.
+                ending = timer;
+                timer  = null;
 
-            var ending = timer;
-            timer      = null;
+            }
 
             if (ending is not null)
                 await ending.DisposeAsync();

@@ -2054,7 +2054,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return false;
             }
 
-            if (!ConfigFile.TryReplaceSection(NTSConfiguration.SectionName, written, out Error))
+            // Into the document it was made from, and not through
+            // TryReplaceSection, which reads the file again: the section was
+            // made from this read, and laid into a later one it would write
+            // back what this one said, over whatever was saved into it by hand
+            // in between. One read, one write.
+            document[NTSConfiguration.SectionName] = written;
+
+            if (!ConfigFile.TryWrite(document, out Error))
                 return false;
 
             NotSaved = false;
