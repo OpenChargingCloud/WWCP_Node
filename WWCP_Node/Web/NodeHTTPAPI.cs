@@ -530,6 +530,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryGetUser(Request, out User, out Refused))
                 return false;
 
+            // A read-only API key may only read, whatever its account's roles allow: the limit of the key itself,
+            // on top of the groups. So a key handed to a monitoring job can not change anything, even when it is the
+            // key of an administrator (the only account any interface gives a role to).
+            if (Required.Any(permission => permission.Operation != Operation.Read) &&
+                AuthenticatedByReadOnlyAPIKey(Request))
+            {
+
+                Log.Warning(
+                    $"'{User.Id}' was refused {String.Join(", ", Required)} on {Request.HTTPMethod} {Request.Path}: the API key used is read-only.",
+                    "web", "auth"
+                );
+
+                Refused  = ErrorJSON(Request, HTTPStatusCode.Forbidden, "The API key used is read-only and may only read.");
+                User     = null;
+                return false;
+
+            }
+
             if (!Node.IsAllowed(User, Required))
             {
                 Refused  = RefusePermission(Request, User, Required, null);
@@ -541,6 +559,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             return true;
 
         }
+
+        #endregion
+
+        #region (private) AuthenticatedByReadOnlyAPIKey(Request)
+
+        /// <summary>
+        /// Whether the request was let in by an API key that is marked read-only. The cookie and HTTP Basic auth of the
+        /// web interface carry no such key, so they are unaffected; a programmatic caller sending a read-only API key is
+        /// held to reading, even when it also sends other credentials (then the strictest wins).
+        /// </summary>
+        private Boolean AuthenticatedByReadOnlyAPIKey(HTTPRequest Request)
+
+            => Request.API_Key is not null &&
+               ExtAPI.TryGetValidAPIKey(Request.API_Key, out var apiKey) &&
+               apiKey is not null &&
+               apiKey.AccessRights == APIKeyRights.ReadOnly;
 
         #endregion
 
