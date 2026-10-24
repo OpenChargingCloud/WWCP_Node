@@ -1049,6 +1049,23 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      DisableLogging:         false
                                  );
 
+            //    Who the client of a request is, where the configuration file
+            //    names reverse proxies in front of this node: the one header it
+            //    names, believed from those proxies and nobody else. Asked by
+            //    an API key bound to addresses and by the count of password
+            //    guesses; without it, and on an API that was handed in - whose
+            //    owner says it - the client is the TCP peer.
+            if (configuration.Web?.TrustedProxies is { Count: > 0 } trustedProxies)
+            {
+                if (this.OwnsExtAPI)
+                    this.ExtAPI.ClientAddressOf = new ClientBehindProxies(
+                                                      trustedProxies,
+                                                      configuration.Web.Header ?? ClientAddressHeader.XForwardedFor
+                                                  ).AddressOf;
+                else
+                    this.Log.Warning($"'{WebConfiguration.SectionName}.trustedProxies' is not used: the accounts' API was handed in, and who the client is is its owner's to say.", "config", "web");
+            }
+
             // 2) The web interface at "/": the files of the bundle, and the
             //    single-page-application stub for every other page URL, so
             //    that a reload on /logs and a bookmark to it both work. The

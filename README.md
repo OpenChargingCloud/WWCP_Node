@@ -192,11 +192,11 @@ answer that fits on a screen.
 The file has sections, and `WWCPConfigFile` knows nothing about what they
 mean: it reads and writes sections, and what a section says is the business
 of whoever asked for it. `WWCPConfiguration` takes the sections every node
-has - `dns`, `nts`, `certificates`, `roles` - and passes the others over
-without a word; the kind of node takes its own from the same document. That
-is what lets a vehicle keep its battery in the same file its name servers
-are in, and what lets a file written by a newer node still start an older
-one.
+has - `dns`, `nts`, `certificates`, `roles`, `ssh`, `web` - and passes the
+others over without a word; the kind of node takes its own from the same
+document. That is what lets a vehicle keep its battery in the same file its
+name servers are in, and what lets a file written by a newer node still start
+an older one.
 
 Every section is optional and so is every field inside it. A section that is
 absent is not a section set to nothing: it means the file has no opinion, and
@@ -697,6 +697,28 @@ makes land in the same set - an account in `systemadmin` is an administrator
 of every one of them. Told apart by the first path segment rather than by
 the port: everything of a node sits below its `BasePath`, which is the root
 for a node on a port of its own.
+
+Behind a reverse proxy every request comes from the proxy, and who the client
+is matters twice: an API key bound to addresses opens the door only from
+them, and password guesses are counted per client. Only the proxy knows, and
+says so in a header - which anybody can write. The `web` section names the
+proxies that are believed, by address or network, and the one header they
+write:
+
+```json
+"web": { "trustedProxies": [ "127.0.0.1", "::1" ], "clientAddressHeader": "X-Forwarded-For" }
+```
+
+`X-Forwarded-For` where the header is not named, as nginx writes it with
+`$proxy_add_x_forwarded_for`; `Forwarded` (RFC 7239) and `X-Real-IP` are the
+others. One header and not the first of several that is there, because a
+proxy that writes one of them passes the others on as the client wrote them.
+It is read from the right: every proxy appends whom it got the request from,
+so the first address from the right that is no trusted proxy is the client,
+and whatever stands left of it is the client's own word; an entry that is no
+address ends the search. A request from anybody else is its TCP peer's,
+whatever its headers say, and so is every request without the section. Read
+at the start; on an `HTTPExtAPI` that was handed in it is the owner's to say.
 
 
 ## The command line over SSH
