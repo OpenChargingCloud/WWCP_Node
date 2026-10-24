@@ -357,6 +357,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AReadOnlyAPIKeyMayOnlyRead_EvenOfTheSystemAdministrator()
+
+        /// <summary>
+        /// Two API keys of root, the system administrator: the read-only one
+        /// reads the name resolution, and is refused changing it with a 403
+        /// that says why - alone, and sent beside root's password too, where
+        /// the stricter limit wins; the read-write one changes it.
+        /// </summary>
+        [Test]
+        public async Task AReadOnlyAPIKeyMayOnlyRead_EvenOfTheSystemAdministrator()
+        {
+
+            var node       = await Started();
+            var readOnly   = "Read0only0key0"  + Guid.NewGuid().ToString("N");
+            var readWrite  = "Read0write0key0" + Guid.NewGuid().ToString("N");
+
+            using var http    = Client(node);
+            using var anybody = new HttpClient { BaseAddress = new Uri(node.WebInterfaceURL.ToString()), Timeout = TimeSpan.FromSeconds(20) };
+
+            foreach (var (key, rights) in new[] { (readOnly, "readOnly"), (readWrite, "readWrite") })
+            {
+
+                var added = await Send(http, "ADD", "ext/users/root/APIKeys", new JObject(
+                                                                                 new JProperty("@id",           key),
+                                                                                 new JProperty("@context",      "https://opendata.social/contexts/UsersAPI/APIKey"),
+                                                                                 new JProperty("userId",        "root"),
+                                                                                 new JProperty("description",   new JObject(new JProperty("en", rights))),
+                                                                                 new JProperty("accessRights",  rights),
+                                                                                 new JProperty("created",       DateTime.UtcNow.ToString("o")),
+                                                                                 new JProperty("notAfter",      DateTime.UtcNow.AddYears(1).ToString("o"))
+                                                                             ));
+
+                Assert.That(added.Status, Is.EqualTo(HttpStatusCode.OK), $"the {rights} key was refused: " + added.Text);
+
+            }
+
+            var read          = await Send(anybody, "GET", "api/v1/configuration/dns",             APIKey: readOnly);
+            var change        = new JObject(new JProperty("enabled", false));
+            var edited        = await Send(anybody, "PUT", "api/v1/configuration/dns", change,     APIKey: readOnly);
+            var editedBeside  = await Send(http,    "PUT", "api/v1/configuration/dns", change,     APIKey: readOnly);
+            var editedRW      = await Send(anybody, "PUT", "api/v1/configuration/dns", change,     APIKey: readWrite);
+
+            Assert.Multiple(() => {
+                Assert.That(read.Status,          Is.EqualTo(HttpStatusCode.OK),         "the read-only key reads nothing: " + read.Text);
+                Assert.That(edited.Status,        Is.EqualTo(HttpStatusCode.Forbidden),  "a change with the read-only key was not refused as read-only: " + edited.Text);
+                Assert.That(edited.Text,          Does.Contain("read-only"));
+                Assert.That(editedBeside.Status,  Is.EqualTo(HttpStatusCode.Forbidden),  "a change with the read-only key beside root's password was not refused as read-only: " + editedBeside.Text);
+                Assert.That(editedRW.Status,      Is.EqualTo(HttpStatusCode.OK),         "the read-write key changes nothing: " + editedRW.Text);
+            });
+
+        }
+
+        #endregion
+
         #region AnSSHKeySwitchedOffLetsNobodyInUntilSwitchedOn()
 
         /// <summary>
