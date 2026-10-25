@@ -27,6 +27,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using cloud.charging.open.protocols.WWCP.Node.CommandLine;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
+using cloud.charging.open.protocols.WWCP.Node.Web;
 
 #endregion
 
@@ -322,6 +323,132 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             });
 
         }
+
+        #endregion
+
+
+        #region AnAPIKeyBoundToAddressesIsMadeListedAndLoggedWithThem
+
+        /// <summary>
+        /// "from" before "key" and after it, each address once, the description
+        /// saying "from" itself further on: the key is bound to the addresses,
+        /// and the answer, the list and the log say so - a key bound to nothing
+        /// says nothing of it.
+        /// </summary>
+        [Test]
+        public async Task AnAPIKeyBoundToAddressesIsMadeListedAndLoggedWithThem()
+        {
+
+            var own    = "Bound0by0the0command0line0abc";
+            var made   = await cli.Execute($"apiKeys root add from 192.0.2.7,2001:db8::7,192.0.2.7 key {own} data from the hub");
+            var other  = "Bound0the0other0way0round0abc";
+            var also   = await cli.Execute($"apiKeys root add readWrite key {other} from ::1");
+            var free   = await cli.Execute("apiKeys root add");
+            var listed = await cli.Execute("apiKeys root");
+
+            Assert.Multiple(() => {
+
+                Assert.That(made,  Is.EqualTo(new[] { "'root' has a new API key, ReadOnly, only from 192.0.2.7, 2001:db8::7:", own }), String.Join("\n", made));
+                Assert.That(also,  Is.EqualTo(new[] { "'root' has a new API key, ReadWrite, only from ::1:", other }),                  String.Join("\n", also));
+                Assert.That(free[0], Is.EqualTo("'root' has a new API key, ReadOnly:"));
+
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(own), out var apiKey), Is.True, "not made");
+                Assert.That(apiKey!.ValidRemoteIPAddresses.Select(address => System.Net.IPAddress.Parse(address.ToString()!.Trim('[', ']')).ToString()), Is.EqualTo(new[] { "192.0.2.7", "2001:db8::7" }));
+                Assert.That(apiKey.Description.FirstText(),  Is.EqualTo("data from the hub"));
+
+                Assert.That(listed, Has.Some.StartsWith(own).And.Some.Contains(", only from 192.0.2.7, 2001:db8::7"));
+                Assert.That(listed, Has.Some.StartsWith(other).And.Some.Contains(", only from ::1"));
+                Assert.That(listed.Single(line => line.StartsWith(free[1])), Does.Not.Contain("only from"));
+
+                lock (said)
+                    Assert.That(said, Has.Some.Contains($"gave 'root' the API key {own[..APIKeysCommand.ShownInTheLog]}... (ReadOnly, only from 192.0.2.7, 2001:db8::7)."));
+
+            });
+
+        }
+
+        #endregion
+
+        #region WhatAnAPIKeyCannotBeBoundToSaysWhy
+
+        /// <summary>
+        /// A network, an address with a zone, what is no address - "192.7"
+        /// among them, which would be 192.0.0.7 - and "from" with nothing after
+        /// it each make no key, and say why as the page says it.
+        /// </summary>
+        [Test]
+        public async Task WhatAnAPIKeyCannotBeBoundToSaysWhy()
+        {
+
+            node.ExtAPI.TryGetUser(Root, out var root);
+
+            var before   = node.ExtAPI.GetAPIKeysForUser(root!).Count();
+
+            var network  = await cli.Execute("apiKeys root add from 192.0.2.7,10.0.0.0/8");
+            var zone     = await cli.Execute("apiKeys root add from fe80::1%eth0");
+            var wrongs   = new[] { "192.7", "300.1.1.1", "1.2.3.4.5", "1.2.3.", "proxy.example", "2001:db8::7::1", "12345::1" };
+            var refused  = new List<String[]>();
+
+            foreach (var wrong in wrongs)
+                refused.Add(await cli.Execute($"apiKeys root add from 192.0.2.7,{wrong}"));
+
+            var nothing  = await cli.Execute("apiKeys root add from ,");
+            var missing  = await cli.Execute("apiKeys root add from");
+
+            Assert.Multiple(() => {
+                Assert.That(network,   Is.EqualTo(new[] { "No API key was made: '10.0.0.0/8' is a network; an API key is bound to addresses, one by one." }));
+                Assert.That(zone,      Is.EqualTo(new[] { "No API key was made: 'fe80::1%eth0' names a zone; an API key is bound to the address without it." }));
+                for (var i = 0; i < wrongs.Length; i++)
+                    Assert.That(refused[i], Is.EqualTo(new[] { $"No API key was made: '{wrongs[i]}' is no IP address." }), wrongs[i]);
+                Assert.That(nothing,   Is.EqualTo(new[] { "No API key was made: 'from' names no address." }));
+                Assert.That(missing,   Has.Length.EqualTo(1).And.Some.StartsWith("Usage: apiKeys"));
+                Assert.That(node.ExtAPI.GetAPIKeysForUser(root!).Count(), Is.EqualTo(before), "a key refused was made");
+            });
+
+        }
+
+        #endregion
+
+        #region AnAPIKeyBoundHereOpensTheDoorOnlyFromThere
+
+        /// <summary>
+        /// Made over the command line, bound to 127.0.0.1 it opens the node's
+        /// API to a client at 127.0.0.1, and bound to 192.0.2.7 it does not.
+        /// </summary>
+        [Test]
+        public async Task AnAPIKeyBoundHereOpensTheDoorOnlyFromThere()
+        {
+
+            _ = new PageAPI(node);
+
+            var here       = (await cli.Execute("apiKeys root add from 127.0.0.1"))[1];
+            var elsewhere  = (await cli.Execute("apiKeys root add from 192.0.2.7"))[1];
+
+            using var http = new HttpClient { BaseAddress = new Uri(node.WebInterfaceURL.ToString()), Timeout = TimeSpan.FromSeconds(20) };
+
+            async Task<System.Net.HttpStatusCode> With(String Key)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, "api/v1/auth/me");
+                request.Headers.Add("API-Key", Key);
+                using var response = await http.SendAsync(request);
+                return response.StatusCode;
+            }
+
+            var fromHere       = await With(here);
+            var fromElsewhere  = await With(elsewhere);
+
+            Assert.Multiple(() => {
+                Assert.That(fromHere,       Is.EqualTo(System.Net.HttpStatusCode.OK),            "the key bound to 127.0.0.1 is refused from 127.0.0.1");
+                Assert.That(fromElsewhere,  Is.EqualTo(System.Net.HttpStatusCode.Unauthorized),  "the key bound to 192.0.2.7 opens the door from 127.0.0.1");
+            });
+
+        }
+
+        /// <summary>
+        /// The JSON API every node has, as a kind of node brings it: /api/v1/auth/me.
+        /// </summary>
+        private sealed class PageAPI(WWCPNode TheNode)
+            : NodeHTTPAPI(TheNode.HTTPServer, TheNode, TheNode.ExtAPI, TheNode.Log);
 
         #endregion
 

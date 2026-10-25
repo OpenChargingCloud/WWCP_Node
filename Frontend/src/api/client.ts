@@ -329,6 +329,8 @@ export interface AccountAPIKey {
     notBefore?:     string;
     notAfter?:      string;
     isDisabled?:    boolean;
+    /** The only addresses the key opens the door from; from anywhere where there are none. */
+    validRemoteIPAddresses?: string[];
 }
 
 /** A new API key: the key itself is the account's own, or made in the browser. */
@@ -338,6 +340,8 @@ export interface NewAPIKey {
     accessRights:   'readOnly' | 'readWrite';
     /** ISO 8601, or nothing for a key that does not run out. */
     notAfter?:      string;
+    /** The only addresses it opens the door from; from anywhere where none are given. */
+    from?:          string[];
 }
 
 /** An SSH key of an account, as its authorized_keys line was handed in. */
@@ -1025,11 +1029,6 @@ export function fingerprintInURL(Fingerprint: string): string {
 
 
 /**
- * An API key, made here: 40 characters of 62, some 238 bits - as the command
- * line makes them - drawn by the browser's own random source, without the
- * bias of a remainder: a byte of 248 or more is drawn again.
- */
-/**
  * The characters an API key of one's own may have: those that go into an
  * API-Key header and into the path of .../APIKeys/{key} as they are.
  */
@@ -1051,6 +1050,86 @@ export function apiKeyProblem(Key: string): string | null {
 
 }
 
+/**
+ * The addresses an API key is to open the door from, as they were typed:
+ * separated by commas or spaces, none for a key that opens it from anywhere.
+ */
+export function boundAddresses(Text: string): string[] {
+    return [ ...new Set(Text.split(/[\s,]+/).filter(one => one.length > 0)) ];
+}
+
+/**
+ * What is wrong with the addresses an API key is to be bound to, or null
+ * where nothing is - as the command line says it. Addresses one by one, as
+ * the HTTPExt API compares them: not a network, which it would never match,
+ * and not with a zone, which it leaves out; an IPv4 address in its four
+ * parts, for "192.7" would be 192.0.0.7.
+ */
+export function boundAddressesProblem(Addresses: string[]): string | null {
+
+    for (const address of Addresses) {
+
+        if (address.includes('/'))
+            return `'${address}' is a network; an API key is bound to addresses, one by one.`;
+
+        if (address.includes('%'))
+            return `'${address}' names a zone; an API key is bound to the address without it.`;
+
+        if (!isIPv4(address) && !isIPv6(address))
+            return `'${address}' is no IP address.`;
+
+    }
+
+    return null;
+
+}
+
+/**
+ * An address as people write it: the HTTPExt API writes an IPv6 address with
+ * every one of its zeros, and some in brackets - "2001:0db8:0000:...", "[::1]".
+ */
+export function shownAddress(Address: string): string {
+
+    const bare = Address.replace(/^\[(.*)\]$/, '$1');
+
+    if (!bare.includes(':'))
+        return bare;
+
+    try {
+        return new URL(`http://[${bare}]/`).hostname.replace(/^\[(.*)\]$/, '$1');
+    }
+    catch {
+        return Address;
+    }
+
+}
+
+function isIPv4(Text: string): boolean {
+    const parts = Text.split('.');
+    return parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
+function isIPv6(Text: string): boolean {
+
+    // What the browser takes between the brackets of a URL is an IPv6 address.
+    if (!Text.includes(':'))
+        return false;
+
+    try {
+        new URL(`http://[${Text}]/`);
+        return true;
+    }
+    catch {
+        return false;
+    }
+
+}
+
+/**
+ * An API key, made here: 40 characters of 62, some 238 bits - as the command
+ * line makes them - drawn by the browser's own random source, without the
+ * bias of a remainder: a byte of 248 or more is drawn again.
+ */
 export function newAPIKey(Length: number = 40): string {
 
     const alphabet  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -1380,7 +1459,8 @@ export function nodeAPI<T extends NodeTypes = NodeTypes>() {
                                                                     description:     { en: key.description },
                                                                     accessRights:    key.accessRights,
                                                                     created:         new Date().toISOString(),
-                                                                    ...(key.notAfter !== undefined ? { notAfter: key.notAfter } : {})
+                                                                    ...(key.notAfter !== undefined ? { notAfter: key.notAfter } : {}),
+                                                                    ...(key.from !== undefined && key.from.length > 0 ? { validRemoteIPAddresses: key.from } : {})
                                                                 }),
                 switchTo:   (id: string, key: string, disabled: boolean) => ofTheAccount<AccountAPIKey>('SET', `/users/${encodeURIComponent(id)}/APIKeys/${encodeURIComponent(key)}`, { isDisabled: disabled }),
                 remove:     (id: string, key: string)        => ofTheAccount<AccountAPIKey>('DELETE', `/users/${encodeURIComponent(id)}/APIKeys/${encodeURIComponent(key)}`)

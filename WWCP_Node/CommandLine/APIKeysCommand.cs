@@ -18,9 +18,11 @@
 #region Usings
 
 using System.Security.Cryptography;
+using System.Diagnostics.CodeAnalysis;
 
 using org.GraphDefined.Vanaheimr.CLI;
 using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 #endregion
@@ -34,10 +36,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
     /// <remarks>
     /// <para>
     /// apiKeys [&lt;account&gt;] lists them; apiKeys [&lt;account&gt;] add
-    /// [readOnly | readWrite] [key &lt;key&gt;] [&lt;description&gt;] makes one -
-    /// read-only unless it is said otherwise, the key given or else made here
-    /// - and apiKeys [&lt;account&gt;] remove &lt;key&gt; takes one back: nobody
-    /// is signed in with it from that moment on.
+    /// [readOnly | readWrite] [key &lt;key&gt;] [from &lt;address&gt;[,&lt;address&gt;]]
+    /// [&lt;description&gt;] makes one - read-only unless it is said otherwise,
+    /// the key given or else made here, opening the door from anywhere unless
+    /// it is bound to addresses - and apiKeys [&lt;account&gt;] remove &lt;key&gt;
+    /// takes one back: nobody is signed in with it from that moment on.
+    /// </para>
+    /// <para>
+    /// A key bound to addresses opens the door only from them, as the HTTPExt
+    /// API compares them: one by one, so no network, and without a zone.
+    /// Behind a reverse proxy it is the client the "web" section of the
+    /// configuration file believes the proxy about.
     /// </para>
     /// <para>
     /// An API key is a secret the account shares with its programs, and the
@@ -168,7 +177,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [<account>] [add [readOnly | readWrite] [key <key>] [<description>] | remove <key>] - the API keys of an account";
+            => $"{CommandName} [<account>] [add [readOnly | readWrite] [key <key>] [from <address>[,<address>]] [<description>] | remove <key>] - the API keys of an account";
 
         #endregion
 
@@ -188,6 +197,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             return [ .. keys.Select(key => $"{key.Id}  {key.AccessRights}" +
                                            $"  made {key.Created.ToLocalTime():yyyy-MM-dd HH:mm}" +
                                            (key.NotAfter.HasValue ? $", valid until {key.NotAfter.Value.ToLocalTime():yyyy-MM-dd HH:mm}" : "") +
+                                           OnlyFrom(key.ValidRemoteIPAddresses) +
                                            (key.IsDisabled ? ", switched off" : "") +
                                            (key.Description.IsNotNullOrEmpty() ? $"  {key.Description.FirstText()}" : "")) ];
 
@@ -197,6 +207,28 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         {
             var text = Key.Id.ToString();
             return text.Length > ShownInTheLog ? text[..ShownInTheLog] + "..." : text;
+        }
+
+        /// <summary>
+        /// ", only from 192.0.2.7, 2001:db8::7" for a key bound to addresses, nothing for one that is not.
+        /// </summary>
+        private static String OnlyFrom(IEnumerable<IIPAddress> Addresses)
+
+            => Addresses.Any()
+                   ? $", only from {String.Join(", ", Addresses.Select(Shown))}"
+                   : "";
+
+        /// <summary>
+        /// An address as people write it: Hermod writes an IPv6 address with
+        /// every one of its zeros, and some in brackets - "2001:0db8:0000:...",
+        /// "[::1]" - where 2001:db8::7 and ::1 are what was typed.
+        /// </summary>
+        private static String Shown(IIPAddress Address)
+        {
+            var text = Address.ToString() ?? "";
+            return System.Net.IPAddress.TryParse(text.Trim('[', ']'), out var parsed)
+                       ? parsed.ToString()
+                       : text;
         }
 
         #endregion
@@ -216,22 +248,46 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 Words  = Words[1..];
             }
 
-            String? given = null;
+            String?            given  = null;
+            List<IIPAddress>?  from   = null;
 
-            if (Words.Length > 0 && Words[0].Equals("key", StringComparison.OrdinalIgnoreCase))
+            // "key" and "from", each at most once and in either order, before
+            // the description - which may say "key" or "from" itself further on.
+            while (Words.Length > 0)
             {
 
-                if (Words.Length < 2)
-                    return [ $"Usage: {Help()}" ];
+                if (given is null && Words[0].Equals("key", StringComparison.OrdinalIgnoreCase))
+                {
 
-                given = Words[1];
-                Words = Words[2..];
+                    if (Words.Length < 2)
+                        return [ $"Usage: {Help()}" ];
 
-                if (!given.All(c => Char.IsAsciiLetterOrDigit(c) || OtherKeyCharacters.Contains(c)))
-                    return [ $"No API key was made: an API key is letters, digits and {String.Join(" ", OtherKeyCharacters.ToCharArray())} only." ];
+                    given = Words[1];
+                    Words = Words[2..];
 
-                if (given.Length < cli.Node.ExtAPI.MinAPIKeyLength)
-                    return [ $"No API key was made: an API key has at least {cli.Node.ExtAPI.MinAPIKeyLength} characters; this one has {given.Length}." ];
+                    if (!given.All(c => Char.IsAsciiLetterOrDigit(c) || OtherKeyCharacters.Contains(c)))
+                        return [ $"No API key was made: an API key is letters, digits and {String.Join(" ", OtherKeyCharacters.ToCharArray())} only." ];
+
+                    if (given.Length < cli.Node.ExtAPI.MinAPIKeyLength)
+                        return [ $"No API key was made: an API key has at least {cli.Node.ExtAPI.MinAPIKeyLength} characters; this one has {given.Length}." ];
+
+                }
+
+                else if (from is null && Words[0].Equals("from", StringComparison.OrdinalIgnoreCase))
+                {
+
+                    if (Words.Length < 2)
+                        return [ $"Usage: {Help()}" ];
+
+                    if (!TryParseAddresses(Words[1], out from, out var problem))
+                        return [ $"No API key was made: {problem}" ];
+
+                    Words = Words[2..];
+
+                }
+
+                else
+                    break;
 
             }
 
@@ -243,7 +299,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                              Account.Id,
                                              Description:   description.Length > 0 ? I18NString.Create(description) : null,
                                              AccessRights:  rights,
-                                             Created:       Timestamp.Now),
+                                             Created:       Timestamp.Now,
+                                             ValidRemoteIPAddresses:  from),
                                   CurrentUserId: cli.Caller.Account?.Id
                               );
 
@@ -251,12 +308,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 return [ $"No API key was made: {added.Description?.FirstText() ?? added.Result.ToString()}" ];
 
             cli.Node.Log.Notice(
-                $"{cli.Caller.Asker} gave '{Account.Id}' the API key {secret[..ShownInTheLog]}... ({rights}).",
+                $"{cli.Caller.Asker} gave '{Account.Id}' the API key {secret[..ShownInTheLog]}... ({rights}{OnlyFrom(from ?? [])}).",
                 cli.Caller.Tags("api", "auth", "security")
             );
 
             return [
-                $"'{Account.Id}' has a new API key, {rights}:",
+                $"'{Account.Id}' has a new API key, {rights}{OnlyFrom(from ?? [])}:",
                 secret
             ];
 
@@ -291,6 +348,64 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             );
 
             return [ $"The API key {matching[0].Id} signs '{Account.Id}' in no more." ];
+
+        }
+
+        #endregion
+
+        #region (static) TryParseAddresses(Text, out Addresses, out Problem)
+
+        /// <summary>
+        /// The addresses an API key is to be bound to, separated by commas,
+        /// each once - or what is wrong with one of them, as the account page
+        /// says it.
+        /// </summary>
+        /// <remarks>
+        /// Addresses one by one, as the HTTPExt API compares them: a network
+        /// would never be matched, and a zone is left out of the comparison.
+        /// Hermod's IPAddress.TryParse takes an IPv4 address in its four parts
+        /// only - not "192.7", which System.Net's takes for 192.0.0.7.
+        /// </remarks>
+        public static Boolean TryParseAddresses(String                                      Text,
+                                                [NotNullWhen(true)]  out List<IIPAddress>?  Addresses,
+                                                [NotNullWhen(false)] out String?            Problem)
+        {
+
+            Addresses  = [];
+            Problem    = null;
+
+            foreach (var address in Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+
+                if (address.Contains('/'))
+                    Problem = $"'{address}' is a network; an API key is bound to addresses, one by one.";
+
+                else if (address.Contains('%'))
+                    Problem = $"'{address}' names a zone; an API key is bound to the address without it.";
+
+                else if (!IPAddress.TryParse(address, out var bound))
+                    Problem = $"'{address}' is no IP address.";
+
+                else
+                {
+                    if (!Addresses.Contains(bound))
+                        Addresses.Add(bound);
+                    continue;
+                }
+
+                Addresses = null;
+                return false;
+
+            }
+
+            if (Addresses.Count == 0)
+            {
+                Addresses  = null;
+                Problem    = "'from' names no address.";
+                return false;
+            }
+
+            return true;
 
         }
 

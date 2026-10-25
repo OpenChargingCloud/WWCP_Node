@@ -1,8 +1,9 @@
 /**
  * The account page drawn, in a document of happy-dom, against a stand-in for
  * the HTTPExt API: who the account is, and that a save sends the whole of it
- * back with what was changed; the API keys, shown whole, a new one made here
- * or typed in, switched off and on, and removed after a question; the SSH
+ * back with what was changed; the API keys, shown whole with the addresses
+ * they are bound to, a new one made here or typed in, bound to addresses or
+ * not, switched off and on, and removed after a question; the SSH
  * keys, added, switched and removed the same way.
  */
 
@@ -14,7 +15,7 @@ import { describe, it }      from 'node:test';
 import type { Account, AccountAPIKey, AccountSSHKey } from '../api/client.ts';
 
 const { accountPage, organizationNames, typeAndComment, withText } = await import('./account.ts');
-const { apiKeyProblem, fingerprintInURL, newAPIKey } = await import('../api/client.ts');
+const { apiKeyProblem, boundAddresses, boundAddressesProblem, fingerprintInURL, newAPIKey } = await import('../api/client.ts');
 
 
 const theKey = 'AbCdEfGh0123456789abcdefghijklmnopqrstuv';
@@ -90,10 +91,10 @@ function node({ method, path, body }: Asked): unknown {
 
 }
 
-async function opened(Path = '/account'): Promise<HTMLElement> {
+async function opened(Path = '/account', Keys?: AccountAPIKey[]): Promise<HTMLElement> {
 
     account = anAccount();
-    apiKeys = [ { '@id': theKey, userId: 'alice', description: { en: 'billing export' }, accessRights: 'readOnly', created: '2026-10-02T10:00:00Z' } ];
+    apiKeys = Keys ?? [ { '@id': theKey, userId: 'alice', description: { en: 'billing export' }, accessRights: 'readOnly', created: '2026-10-02T10:00:00Z' } ];
     sshKeys = [ { fingerprint: 'SHA256:abc+def/ghi', line: 'from="192.0.2.0/24" ssh-ed25519 AAAAC3key alice@laptop', label: 'laptop', created: '2026-10-03T10:00:00Z' } ];
 
     return open(accountPage, Path, [], node, root => root.querySelector('#account-form') !== null || root.querySelector('.error-box') !== null);
@@ -115,6 +116,21 @@ describe('what the account page reads', () => {
         assert.match(apiKeyProblem('with a space in it, long enough') ?? '', /letters, digits and \. _ ~ - only/);
         assert.match(apiKeyProblem('slash/in/it/long/enough/yes') ?? '', /letters, digits/);
         assert.match(apiKeyProblem('Schlüssel-mit-Umlaut-lang-genug') ?? '', /letters, digits/);
+    });
+
+    it('reads the addresses a key is bound to, separated by commas or spaces, each once', () => {
+        assert.deepEqual(boundAddresses(''), []);
+        assert.deepEqual(boundAddresses('  '), []);
+        assert.deepEqual(boundAddresses('192.0.2.7, 2001:db8::7  192.0.2.7,,'), [ '192.0.2.7', '2001:db8::7' ]);
+    });
+
+    it('takes addresses one by one, and says what is no address, a network or one with a zone', () => {
+        assert.equal(boundAddressesProblem([]), null);
+        assert.equal(boundAddressesProblem([ '192.0.2.7', '2001:db8::7', '::ffff:192.0.2.7', '::1', '0.0.0.0' ]), null);
+        assert.equal(boundAddressesProblem([ '192.0.2.0/24' ]), "'192.0.2.0/24' is a network; an API key is bound to addresses, one by one.");
+        assert.equal(boundAddressesProblem([ 'fe80::1%eth0' ]), "'fe80::1%eth0' names a zone; an API key is bound to the address without it.");
+        for (const wrong of [ '192.7', '300.1.1.1', '1.2.3.4.5', 'proxy.example', '2001:db8::7::1', '12345::1', '1.2.3.' ])
+            assert.equal(boundAddressesProblem([ '192.0.2.7', wrong ]), `'${wrong}' is no IP address.`, wrong);
     });
 
     it('changes words in the language they were in, and in English where there were none', () => {
@@ -238,6 +254,57 @@ describe('the API keys of the account', () => {
         assert.equal(row.querySelector('code.api-key')?.textContent, theKey, 'the key is not shown whole');
         assert.ok(row.querySelector('[data-copy]') !== null, 'no button copies it');
         assert.match(row.textContent!, /billing export/);
+
+    });
+
+    it('say which addresses they open the door from, as people write them, and anywhere for the others', async () => {
+
+        const bound = 'Bound0to0two0addresses0abcdefgh';
+        const root  = await opened('/account', [
+                          { '@id': theKey, userId: 'alice', accessRights: 'readOnly', created: '2026-10-02T10:00:00Z' },
+                          { '@id': bound,  userId: 'alice', accessRights: 'readOnly', created: '2026-10-02T11:00:00Z', validRemoteIPAddresses: [ '192.0.2.7', '2001:0db8:0000:0000:0000:0000:0000:0007', '[::1]' ] }
+                      ]);
+
+        assert.equal(root.querySelector(`[data-api-key="${bound}"]  .api-key-from`)?.textContent?.trim(), '192.0.2.7, 2001:db8::7, ::1', 'not as people write them');
+        assert.equal(root.querySelector(`[data-api-key="${theKey}"] .api-key-from`)?.textContent?.trim(), 'anywhere');
+
+    });
+
+    it('binds a new one to the addresses typed in, each once, and to none where none are', async () => {
+
+        const root = await opened();
+
+        field(root, '#api-key-form', 'from').value = ' 192.0.2.7, 2001:db8::7  192.0.2.7 ';
+        submit(root, '#api-key-form');
+
+        await until(() => sent('ADD', '/ext/users/alice/APIKeys').length === 1, 'nothing is sent');
+
+        assert.deepEqual((sent('ADD', '/ext/users/alice/APIKeys')[0]!.body as Record<string, unknown>)['validRemoteIPAddresses'], [ '192.0.2.7', '2001:db8::7' ]);
+
+        await until(() => root.querySelectorAll('#account-api-keys [data-api-key]').length === 2, 'the new key is not listed');
+
+        assert.equal(field(root, '#api-key-form', 'from').value, '', 'the form still has the addresses');
+
+        submit(root, '#api-key-form');
+
+        await until(() => sent('ADD', '/ext/users/alice/APIKeys').length === 2, 'the second is not sent');
+
+        assert.ok(!('validRemoteIPAddresses' in (sent('ADD', '/ext/users/alice/APIKeys')[1]!.body as Record<string, unknown>)), 'a key bound to nothing was sent with addresses');
+
+    });
+
+    it('refuses to bind one to a network, and sends nothing', async () => {
+
+        const root  = await opened();
+        const error = () => root.querySelector('#api-key-error')?.textContent ?? '';
+
+        field(root, '#api-key-form', 'from').value = '192.0.2.7 10.0.0.0/8';
+        submit(root, '#api-key-form');
+
+        await until(() => error().length > 0, 'nothing is said of the network');
+
+        assert.equal(error(), "'10.0.0.0/8' is a network; an API key is bound to addresses, one by one.");
+        assert.deepEqual(sent('ADD', '/ext/users/alice/APIKeys'), []);
 
     });
 

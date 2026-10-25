@@ -1,4 +1,4 @@
-import { apiKeyProblem, newAPIKey, nodeAPI, type Account, type AccountAPIKey, type AccountOrganization, type AccountSSHKey, type I18NText } from '../api/client';
+import { apiKeyProblem, boundAddresses, boundAddressesProblem, newAPIKey, nodeAPI, shownAddress, type Account, type AccountAPIKey, type AccountOrganization, type AccountSSHKey, type I18NText } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
 import { must } from '../html';
@@ -208,7 +208,8 @@ export const accountPage: Page = {
 
                     <p class="hint">
                         What a program sends in its <code>API-Key</code> header to act as you. A key switched off opens
-                        nothing until it is switched on again; a key removed is gone.
+                        nothing until it is switched on again; a key removed is gone. A key bound to addresses opens the
+                        door only from them.
                     </p>
 
                     ${apiKeys.length === 0
@@ -216,7 +217,7 @@ export const accountPage: Page = {
                           : html`
                             <div class="table-scroll">
                               <table class="records">
-                                  <thead><tr><th>Key</th><th>Description</th><th>May</th><th>Made</th><th>Valid until</th><th>State</th><th></th></tr></thead>
+                                  <thead><tr><th>Key</th><th>Description</th><th>May</th><th>From</th><th>Made</th><th>Valid until</th><th>State</th><th></th></tr></thead>
                                   <tbody>
                                       ${repeat(apiKeys, key => key['@id'], key => html`
                                           <tr data-api-key="${key['@id']}">
@@ -227,6 +228,9 @@ export const accountPage: Page = {
                                               </td>
                                               <td>${firstText(key.description)}</td>
                                               <td>${key.accessRights === 'readOnly' ? 'read' : 'read and write'}</td>
+                                              <td class="api-key-from">${key.validRemoteIPAddresses !== undefined && key.validRemoteIPAddresses.length > 0
+                                                                             ? key.validRemoteIPAddresses.map(shownAddress).join(', ')
+                                                                             : html`<span class="muted">anywhere</span>`}</td>
                                               <td>${when(key.created)}</td>
                                               <td>${key.notAfter !== undefined ? when(key.notAfter) : html`<span class="muted">-</span>`}</td>
                                               <td>${key.isDisabled ? html`<span class="chip">off</span>` : html`<span class="chip ok">on</span>`}</td>
@@ -267,6 +271,16 @@ export const accountPage: Page = {
                         <label>Valid until
                             <input type="date" name="notAfter" />
                             <span class="hint">Left empty, it does not run out.</span>
+                        </label>
+
+                        <label>Only from
+                            <input type="text" name="from" autocomplete="off" spellcheck="false"
+                                   placeholder="Left empty, from anywhere: 192.0.2.7, 2001:db8::7" />
+                            <span class="hint">
+                                Addresses, one by one and not networks, separated by commas or spaces. Behind a reverse
+                                proxy the node has to be told whom to believe about the client: the <code>web</code>
+                                section of its configuration file.
+                            </span>
                         </label>
 
                         <div class="form-actions">
@@ -449,6 +463,14 @@ export const accountPage: Page = {
                 return;
             }
 
+            const from      = boundAddresses(String(data.get('from') ?? ''));
+            const unbound   = boundAddressesProblem(from);
+
+            if (unbound !== null) {
+                error.textContent = unbound;
+                return;
+            }
+
             const key       = typed.length > 0 ? typed : newAPIKey();
 
             void (async () => {
@@ -460,7 +482,8 @@ export const accountPage: Page = {
                         key,
                         description:   String(data.get('description') ?? '').trim(),
                         accessRights:  data.get('accessRights') === 'readWrite' ? 'readWrite' : 'readOnly',
-                        ...(notAfter !== null ? { notAfter: notAfter.toISOString() } : {})
+                        ...(notAfter !== null ? { notAfter: notAfter.toISOString() } : {}),
+                        ...(from.length > 0 ? { from } : {})
                     });
 
                     form.reset();

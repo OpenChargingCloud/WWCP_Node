@@ -761,7 +761,7 @@ does the same for its API keys - at the console and over SSH:
 
 ```
 sshKeys [<account>] [add <authorized_keys line> | remove <fingerprint>]
-apiKeys [<account>] [add [readOnly | readWrite] [key <key>] [<description>] | remove <key>]
+apiKeys [<account>] [add [readOnly | readWrite] [key <key>] [from <address>[,<address>]] [<description>] | remove <key>]
 ```
 
 A fingerprint is written as OpenSSH writes it, `SHA256:...`, or by enough of
@@ -771,7 +771,11 @@ shares with its programs, shown to the account or to whoever may act for it.
 An API key is read-only unless `readWrite` says otherwise, and is the one
 given after `key` - letters, digits and `. _ ~ -`, at least 20 of them, so
 that it goes into an `API-Key` header and a URL as it is - or else 40
-letters and digits made by the node. Over SSH the account may be left
+letters and digits made by the node. After `from` it is bound to addresses,
+and opens the door only from them, as the HTTPExt API compares them: one by
+one, so no network, without a zone, and an IPv4 address in its four parts -
+behind a reverse proxy the client is the one the `web` section believes the
+proxy about; the list says `only from ...`. Over SSH the account may be left
 out, and is then the one signed in; another account's keys are for
 whoever the HTTPExt API lets act for it - as its routes
 `/ext/users/{UserId}/SSHKeys` and the API keys' own decide - which is an
@@ -794,8 +798,10 @@ takes the whole account, so the page sends back what it was given with what
 the form changed; the organizations the account belongs to are shown, not
 changed. **API keys** - typed in, as `apiKeys add ... key` takes one, or
 else made on the page, 40 letters and digits from the browser's random
-source; read-only unless it says otherwise and valid until a day or for
-good; the list shows each key whole, with a button to copy it.
+source; read-only unless it says otherwise, valid until a day or for good,
+and bound to the addresses typed in or to none, as `from` takes them; the
+list shows each key whole, with a button to copy it, and where it opens the
+door from.
 **SSH keys** - an `authorized_keys` line added with a label, as `sshKeys`
 takes it. Either kind of key is switched off and on again with
 `SET .../APIKeys/{key}` or `SET .../SSHKeys/{fingerprint}` and
