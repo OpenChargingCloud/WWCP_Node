@@ -968,7 +968,10 @@ it out - `sshKeys root add <your key.pub's line>`, then `sshKeys root remove
 `root@<kind>-first-start`. An account that is switched off, or holds none of
 the node's roles, is not let in; a password only where the file says
 `"passwords": true`, and never for an account with a second factor on the
-web interface, for which SSH would be the way around it.
+web interface, for which SSH would be the way around it. A password guessed
+over SSH counts against the web interface's sign-in: the same ration of
+guesses per client address and per account, and a name that opens nothing
+takes as long to refuse as one that does.
 
 What an account may do there is what its roles let it do on the web
 interface: a command asks `MayDo` the question its route asks, and is

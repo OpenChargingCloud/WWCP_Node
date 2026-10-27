@@ -214,6 +214,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region ProxyHostOf(Request)
+
+        /// <summary>
+        /// The name the browser asked for as a trusted proxy in front of this
+        /// node says it - "host" of "Forwarded", or X-Forwarded-Host, with its
+        /// port where it names one - or null where no trusted proxy says one.
+        /// </summary>
+        /// <remarks>
+        /// What a page of the node's own may be called besides the request's
+        /// Host: a request another site made a browser send is refused, and
+        /// behind a proxy that does not pass the browser's Host on, the node's
+        /// own pages would otherwise be another site to it.
+        /// </remarks>
+        /// <param name="Request">An HTTP request.</param>
+        public String? ProxyHostOf(HTTPRequest Request)
+
+            => clientBehindProxies?.HostOf(Request);
+
+        #endregion
+
         #region NoticesFor(Roles)
 
         /// <summary>

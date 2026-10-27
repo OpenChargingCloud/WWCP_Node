@@ -1172,6 +1172,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     this.Log.Warning($"'{WebConfiguration.SectionName}.trustedProxies' is not used for the accounts: their API was handed in, and who the client is, and whether its cookie is a secure one, is its owner's to say.", "config", "web");
             }
 
+            //    And whatever at "/ext" is not a read, another site may not make
+            //    a browser send: the HTTPExt API's routes read their bodies as
+            //    JSON whatever they are said to be, so a form of "text/plain" on
+            //    another site's page would reach them - see CrossSitePipeline.
+            //    The same rule as the JSON API's; on an API that was handed in,
+            //    its owner's to set.
+            if (this.OwnsExtAPI)
+                this.HTTPServer.AddPipeline(
+                    new CrossSitePipeline(
+                        this.ExtAPI.RootPath,
+                        ProxyHostOf
+                    )
+                );
+
             // 2) The web interface at "/": the files of the bundle, and the
             //    single-page-application stub for every other page URL, so
             //    that a reload on /logs and a bookmark to it both work. The

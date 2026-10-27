@@ -253,7 +253,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private Task<HTTPResponse> Logout(HTTPRequest Request)
         {
 
-            if (RefuseCrossSite(Request) is HTTPResponse refused)
+            if (RefuseCrossSite(Request, Node.ProxyHostOf(Request)) is HTTPResponse refused)
                 return Task.FromResult(refused);
 
             // The session is ended where it lives, and not only forgotten by
@@ -521,7 +521,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             User = null;
 
-            if (StateChanging && RefuseCrossSite(Request) is HTTPResponse crossSite)
+            if (StateChanging && RefuseCrossSite(Request, Node.ProxyHostOf(Request)) is HTTPResponse crossSite)
             {
                 Refused = crossSite;
                 return false;
@@ -622,7 +622,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
-        #region (protected static) RefuseCrossSite(Request)
+        #region (protected static) RefuseCrossSite(Request, HostAskedFor = null)
 
         /// <summary>
         /// The 403 for a request that another site made the browser send, or
@@ -633,34 +633,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// without a session anyway. This is the second lock on the same door:
         /// browsers say where a request came from (Sec-Fetch-Site, Origin), and
         /// a state-changing request from anywhere but this origin is refused
-        /// before it is even read.
+        /// before it is even read. The rule is <see cref="CrossSite"/>'s, which the
+        /// HTTPExt API's requests that are not reads are held to as well.
         /// </remarks>
         protected static HTTPResponse? RefuseCrossSite(HTTPRequest Request)
-        {
 
-            var site = Request.GetHeaderField("Sec-Fetch-Site");
+            => RefuseCrossSite(Request, null);
 
-            if (site is not null && site is not ("same-origin" or "none"))
-                return ErrorJSON(Request, HTTPStatusCode.Forbidden, "Cross-site requests are refused.");
+        /// <summary>
+        /// The 403 for a request that another site made the browser send, or
+        /// null when the request is our own page's - which, behind a trusted
+        /// proxy, may also be the page of the name the proxy says the browser
+        /// asked for.
+        /// </summary>
+        /// <param name="Request">The request.</param>
+        /// <param name="HostAskedFor">What a trusted proxy in front of the node says the browser asked for, or null where none says it.</param>
+        protected static HTTPResponse? RefuseCrossSite(HTTPRequest  Request,
+                                                       String?      HostAskedFor)
 
-            var origin = Request.GetHeaderField("Origin");
-
-            if (origin is not null && origin != "null")
-            {
-
-                var host = Request.GetHeaderField("Host") ?? "";
-
-                if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) ||
-                    !uri.Authority.Equals(host, StringComparison.OrdinalIgnoreCase))
-                {
-                    return ErrorJSON(Request, HTTPStatusCode.Forbidden, "Cross-site requests are refused.");
-                }
-
-            }
-
-            return null;
-
-        }
+            => CrossSite.IsCrossSite(Request, HostAskedFor)
+                   ? ErrorJSON(Request, HTTPStatusCode.Forbidden, CrossSite.Refusal)
+                   : null;
 
         #endregion
 

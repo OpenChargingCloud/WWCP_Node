@@ -126,22 +126,63 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #region AuthorizePasswordAsync(Username, Password, CancellationToken)
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Whether the given password opens the given account, guessed from an
+        /// address nobody said: counted against the one ration of every such guess.
+        /// </summary>
         public ValueTask<Boolean> AuthorizePasswordAsync(String             Username,
                                                          String             Password,
                                                          CancellationToken  CancellationToken = default)
+
+            => AuthorizePasswordAsync(Username, Password, null, CancellationToken);
+
+        #endregion
+
+        #region AuthorizePasswordAsync(Username, Password, Client, CancellationToken)
+
+        /// <summary>
+        /// Whether the given password opens the given account, guessed from the
+        /// given address.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Asked as the web interface's sign-in asks it, and counted against the
+        /// same ration of guesses, per client and per account, and with one of
+        /// the HTTPExt API's few password verifiers - so that SSH is
+        /// neither a faster way to guess a password nor a way to keep everybody's
+        /// sign-in waiting. One ration for both doors rather than one each: both
+        /// guess at the same password, and two rations would be twice the guesses.
+        /// </para>
+        /// <para>
+        /// A name that opens nothing - no such account, one switched off or
+        /// without a role here, one with a second factor - costs a hash all the
+        /// same, so that how long the answer takes does not say which it is.
+        /// </para>
+        /// </remarks>
+        /// <param name="Username">The account's name.</param>
+        /// <param name="Password">The password guessed.</param>
+        /// <param name="Client">The address of the client, or null where it can not be told.</param>
+        /// <param name="CancellationToken">An optional token to cancel the wait for a password verifier.</param>
+        public async ValueTask<Boolean> AuthorizePasswordAsync(String                 Username,
+                                                               String                 Password,
+                                                               System.Net.IPAddress?  Client,
+                                                               CancellationToken      CancellationToken = default)
         {
 
             if (!passwords)
-                return ValueTask.FromResult(false);
+                return false;
 
             var user = AccountMaySignIn(Username);
 
-            return ValueTask.FromResult(
-                       user is not null &&
-                       user.Use2AuthFactor == Use2AuthFactor.None &&
-                       node.ExtAPI.VerifyPassword(user.Id, Password)
-                   );
+            return await node.ExtAPI.VerifySignInPassword(
+                             Client,
+                             Username,
+                             user is not null && user.Use2AuthFactor == Use2AuthFactor.None
+                                 ? user.Id
+                                 : null,
+                             Password,
+                             CancellationToken
+                         );
 
         }
 
