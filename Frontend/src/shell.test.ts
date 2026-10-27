@@ -439,6 +439,39 @@ describe('the frame of a page', () => {
 
     });
 
+    it('says what the node says above every page to whoever is signed in, between the heading and the page, as text', () => {
+
+        configureShell({ name: 'Local Controller', icon: 'fa-sitemap', menu });
+        auth.set({ ...signedIn('configuration:read'), roles: [ 'systemadmin' ], notices: [ 'Served over <b>plain HTTP</b> beyond this machine.' ] });
+
+        const root    = document.createElement('div');
+        const content = shell(root, { active: '/configuration', title: 'Configuration' });
+        const notices = [ ...root.querySelectorAll<HTMLElement>('main.content > .notice[role="alert"]') ];
+
+        assert.deepEqual(notices.map(notice => notice.textContent!.trim()), [ 'Served over <b>plain HTTP</b> beyond this machine.' ]);
+        assert.equal(notices[0]!.querySelector('b'), null, 'the notice was written as markup');
+        assert.ok(notices[0]!.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING, 'the notice is not above the page');
+        assert.ok(root.querySelector('.page-head')!.compareDocumentPosition(notices[0]!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the notice is not below the heading');
+
+    });
+
+    it('says nothing above the page where the node says nothing, or is too old to say anything', () => {
+
+        configureShell({ name: 'Local Controller', icon: 'fa-sitemap', menu });
+
+        for (const me of [ { ...signedIn('configuration:read'), notices: [] }, signedIn('configuration:read') ]) {
+
+            auth.set(me);
+
+            const root = document.createElement('div');
+            shell(root, { active: '/configuration', title: 'Configuration' });
+
+            assert.equal(root.querySelectorAll('main.content > .notice').length, 0);
+
+        }
+
+    });
+
 });
 
 

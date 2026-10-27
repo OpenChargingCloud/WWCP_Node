@@ -23,7 +23,10 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
 
@@ -92,6 +95,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 ("event stream",   $"{Node.APIURL}v1/events"),
                 ("HTTPExt API",    $"{Node.WebInterfaceURL}{extPath}/")
             };
+
+            // How it is reached safely: the certificate it shows and where from,
+            // the port that redirects to it, HSTS - and the proxies in front
+            // whose word is believed.
+            if (Node.WebCertificate is WebServerCertificate certificate)
+            {
+
+                var shown = certificate.Current;
+
+                interfaces.Add(("TLS",      (shown is not null
+                                                 ? $"{shown.Certificate.Subject}, until {shown.Certificate.NotAfter.ToUniversalTime():yyyy-MM-dd}\n"
+                                                 : "nothing to show yet: every connection is refused\n") +
+                                            (certificate.StoreEntry is CertificateEntry entry
+                                                 ? $"from the store's '{entry.Label}'"
+                                                 : $"from {certificate.Source}") +
+                                            (Node.RedirectPort is IPPort redirect ? $"\nport {redirect} redirects to it" : "") +
+                                            (Node.StrictTransportSecurity is String hsts ? $"\nHSTS {hsts}" : "")));
+
+            }
+
+            if (Node.WebSettings.HasTrustedProxies)
+                interfaces.Add(("behind",   $"{String.Join(", ", Node.WebSettings.TrustedProxies!.Select(WebConfiguration.TextOf))}, " +
+                                            $"believed in {WebConfiguration.TextOf(Node.WebSettings.Header ?? ClientAddressHeader.XForwardedFor)}"));
 
             // The command line over SSH, with what PuTTY shows the first time to
             // compare it with - and, while no account has a key, how one gets one.
@@ -168,11 +194,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             Add(TimeServers(Node, NodeUsage.Width - column));
             Add(after);
 
+            lines.AddRange(PlainHTTPBox(Node));
+
             lines.AddRange(FirstStartBox(Node));
 
             lines.Add("");
 
             return lines;
+
+        }
+
+        #endregion
+
+        #region PlainHTTPBox(this Node)
+
+        /// <summary>
+        /// The warning about plain HTTP beyond this machine, in a box below the
+        /// banner where it cannot be read past; nothing where the node speaks
+        /// TLS, stands behind trusted proxies, or listens on the loopback alone.
+        /// </summary>
+        /// <remarks>
+        /// Before the box of a first start, which is the other thing nobody may
+        /// miss: a password shown once, on a node that sends it over the network
+        /// in the clear, is a password to be told about together with that.
+        /// </remarks>
+        /// <param name="Node">The node.</param>
+        public static IEnumerable<String> PlainHTTPBox(this WWCPNode Node)
+        {
+
+            if (Node.PlainHTTPWarning is not String warning)
+                yield break;
+
+            yield return "";
+            yield return "  ┌─ Warning: plain HTTP beyond this machine ─────────────────────────────────";
+
+            foreach (var line in NodeUsage.Wrap(warning, "  │  ", "  │  "))
+                yield return line;
+
+            yield return "  └───────────────────────────────────────────────────────────────────────────";
 
         }
 

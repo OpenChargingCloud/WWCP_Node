@@ -20,6 +20,7 @@
 using System.Net.Sockets;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
 
@@ -274,9 +275,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             // The meter's web interface is --http-port, its Modbus/TLS server
             // --port; the web interface of every other kind is --port.
             var option  = SwitchOf?.Invoke(Problem)
-                              ?? (Problem.Whose == NodePort.WebInterface ? "--port"
-                                : Problem.Whose == NodePort.SSH          ? "--ssh-port"
-                                :                                          null);
+                              ?? (Problem.Whose == NodePort.WebInterface   ? "--port"
+                                : Problem.Whose == NodePort.SSH            ? "--ssh-port"
+                                : Problem.Whose == NodePort.HTTPSRedirect  ? "--redirect-port"
+                                :                                            null);
 
             if (Problem.Because == SocketError.AccessDenied && port < 1024 && !OnWindows)
             {
@@ -298,7 +300,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             }
 
-            if (Problem.Because == SocketError.AddressAlreadyInUse)
+            // The redirect's port is usually 80, and what has it already is
+            // usually a web server rather than another copy of this node.
+            if (Problem.Because == SocketError.AddressAlreadyInUse && Problem.Whose == NodePort.HTTPSRedirect)
+                yield return $"Something else serves port {port} already - a web server, often. Stop it, give the redirect " +
+                             $"another port with {option} <number>, or leave the redirect to whatever is there.";
+
+            else if (Problem.Because == SocketError.AddressAlreadyInUse)
                 yield return (Problem.Whose == NodePort.SSH ? null : AdviceOfTheKind?.Invoke(Problem))
                                  ?? $"Another copy of this {Kind.Name} already running is the usual answer. Stop it, " +
                                     $"or give this one another port{(option is not null ? $" with {option} <number>" : "")}" +
@@ -345,10 +353,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// something could not be - 2, after saying which and why.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Before the start, so that a root imported here is believed by the
         /// first key exchange with a time server, and not only by the one
         /// after it. What went in is handed back, for a kind that names a
         /// certificate somewhere else - the vehicle's session.
+        /// </para>
+        /// <para>
+        /// And before anything goes in, what the switches said of HTTPS and of
+        /// the proxies in front is held against what the node was handed of it:
+        /// the one step every program takes with its node and its command line
+        /// between making the one and starting it. A kind that does not pass
+        /// <see cref="NodeArguments.Web"/> on would start over plain HTTP with
+        /// --https on its command line - which is 2 here, saying where else it
+        /// can be said: the "web" section of the configuration file, which every
+        /// node reads whatever its kind passes on.
+        /// </para>
         /// </remarks>
         /// <param name="Node">The node, made and not yet started.</param>
         /// <param name="Arguments">The command line.</param>
@@ -367,6 +387,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             var imported = new List<CertificateEntry>();
             Imported     = imported;
+
+            if (Arguments.Web is not null && Node.WebSwitches is null)
+            {
+                Say(Error, $"--https, --https-cert, --redirect-port and --trusted-proxy are not passed on to this {Node.Kind.Name} by its program. " +
+                           $"Say them in the \"{WebConfiguration.SectionName}\" section of '{Node.ConfigFile.Path}' instead.");
+                return 2;
+            }
 
             foreach (var (kind, file) in Arguments.CertificateImports)
             {

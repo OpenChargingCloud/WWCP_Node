@@ -582,6 +582,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="TimeProvider">The clock, or null for the system one.</param>
         /// <param name="SSH">What the program says about serving the command line over SSH: nothing by default, and then only the configuration file can switch it on - see <see cref="SSHSettings"/>.</param>
         /// <param name="FrontendSecurityHeaders">The security headers the web interface's pages are served with, or null for Hermod's defaults - which allow nothing from elsewhere: a kind of node whose pages need more, the tiles of a map from a tile server, says so here, and says only that.</param>
+        /// <param name="Web">What the program says of TLS and of the reverse proxies in front - NodeArguments.Web, from --https, --https-cert, --redirect-port and --trusted-proxy - over the "web" section of the configuration file; nothing by default, and then only the file says it. Not for a server that is handed in, or a certificate selector: those bring their own TLS.</param>
         public WWCPNode(NodeKind?                                  Kind               = null,
                         String?                                    Version            = null,
                         IPPort?                                    HTTPPort           = null,
@@ -613,7 +614,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         IEnumerable<(String Needle, String Tag)>?  TraceTags          = null,
                         TimeProvider?                              TimeProvider       = null,
                         SSHSettings?                               SSH                = null,
-                        SecurityHeaderOptions?                     FrontendSecurityHeaders  = null)
+                        SecurityHeaderOptions?                     FrontendSecurityHeaders  = null,
+                        WebConfiguration?                          Web                = null)
 
         {
 
@@ -890,6 +892,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // moved when the working directory changed would be a different
             // store. So the file that names it is what it is measured from, and
             // a caller that means somewhere else says so absolutely.
+            //
+            // What the program said of TLS and of the proxies in front, over
+            // what the file said - see WWCPNode.HTTPS.cs - is settled first:
+            // where the web interface is to show the store's TLS server
+            // identity, the store keeps that kind, whatever kinds this kind of
+            // node keeps otherwise. Asked for in the file, it has to be there to
+            // be put in - on the Certificates page, or with
+            // --import-certificate tlsServerIdentity=<file>.
+            this.WebSwitches  = Web;
+            this.WebSettings  = WebSettingsOf(Web, configuration.Web);
+
+            var storeKinds    = CertificateKinds;
+
+            if (this.WebSettings.TLS?.Certificate?.IsStore != false &&
+                this.WebSettings.TLS is not null                     &&
+                HTTPServer is null && ServerCertificateSelector is null &&
+                CertificateKinds is not null                         &&
+                !CertificateKinds.Contains(CertificateKind.TLSServerIdentity))
+            {
+                storeKinds = [ .. CertificateKinds, CertificateKind.TLSServerIdentity ];
+            }
+
             this.Certificates = new CertificateStore(
                                     Beside(
                                         this.ConfigFile.Path,
@@ -898,7 +922,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                             ?? CertificatesConfiguration.DefaultDirectory
                                     ),
                                     this.Log,
-                                    CertificateKinds,
+                                    storeKinds,
                                     this.Kind.Name,
                                     CertificateUsages,
                                     CertificateListeners
@@ -927,20 +951,97 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 throw new ArgumentException("The certificates sent beside a server's own are sent beside it: there has to be one.",
                                             nameof(ServerCertificateChainSelector));
 
+            var selector         = ServerCertificateSelector;
+            var chainSelector    = ServerCertificateChainSelector;
+
+            // TLS of this node's own making, where the file or a switch asks for
+            // it - and only where nobody else brings TLS: a server handed in is
+            // its owner's, and a kind of node that hands in a certificate of its
+            // own - the meter's, from its own listener rules - meant that one.
+            // Said rather than refused, as the trusted proxies are on accounts
+            // that were handed in: the file is shared by programs that differ.
+            if (this.WebSettings.TLS is not null)
+            {
+
+                if (HTTPServer is not null)
+                    this.Log.Warning($"'{WebConfiguration.SectionName}.{WebTLSConfiguration.Name}' is not used: the HTTP server was handed in, and whether it speaks TLS, and with which certificate, is its owner's to say.",
+                                     "config", "web", "tls");
+
+                else if (ServerCertificateSelector is not null)
+                    this.Log.Warning($"'{WebConfiguration.SectionName}.{WebTLSConfiguration.Name}' is not used: this {this.Kind.Name} shows a certificate of its own on its web interface.",
+                                     "config", "web", "tls");
+
+                else
+                {
+
+                    var webCertificate   = new WebServerCertificate(
+                                               this.WebSettings.TLS.Certificate ?? WebCertificateSource.Store,
+                                               this.Certificates,
+                                               this.Log,
+                                               this.Kind.Name
+                                           );
+
+                    this.WebCertificate  = webCertificate;
+
+                    // Both asked at every handshake, the chain first; with
+                    // nothing to show they throw, which ends the connection -
+                    // Hermod would go on without TLS where it is handed none.
+                    chainSelector        = webCertificate.ChainFor;
+                    selector             = (server, client) => webCertificate.ChainFor(server, client).Certificate;
+
+                }
+
+            }
+
             this.HTTPServer      = HTTPServer   ?? new HTTPServer(
                                                        IPAddress:                  address,
                                                        TCPPort:                    port,
                                                        HTTPServerName:             product,
-                                                       ServerCertificateSelector:  ServerCertificateSelector,
+                                                       ServerCertificateSelector:  selector,
                                                        DNSClient:                  dnsClient
                                                    );
 
             // Hermod asks this one first and falls back to the certificate on
             // its own, so a chain is sent whenever there is one to send.
-            if (HTTPServer is null && ServerCertificateChainSelector is not null)
-                this.HTTPServer.ServerCertificateChainSelector = ServerCertificateChainSelector;
+            if (HTTPServer is null && chainSelector is not null)
+                this.HTTPServer.ServerCertificateChainSelector = chainSelector;
 
             this.HTTPS           = this.HTTPServer.ServerCertificateSelector is not null;
+
+            // Who the client is, and whether its leg was HTTPS, where the file
+            // or the command line names proxies whose word is believed.
+            this.clientBehindProxies      = this.WebSettings.HasTrustedProxies
+                                                ? new ClientBehindProxies(
+                                                      this.WebSettings.TrustedProxies!,
+                                                      this.WebSettings.Header ?? ClientAddressHeader.XForwardedFor
+                                                  )
+                                                : null;
+
+            // HSTS wherever a browser may be reached over HTTPS: sent on the
+            // answers that were, and on no others - see ReachedOverHTTPS().
+            this.StrictTransportSecurity  = this.HTTPS || this.clientBehindProxies is not null
+                                                ? (this.WebSettings.HSTS ?? HSTSConfiguration.Default).HeaderValue
+                                                : null;
+
+            this.ListensBeyondLoopback    = IsBeyondLoopback(this.HTTPServer.IPAddress);
+            this.PlainHTTPWarning         = PlainHTTPWarningFor(this.HTTPServer.IPAddress, this.HTTPServer.TCPPort);
+
+            // The port of plain HTTP that sends browsers to HTTPS, beside the
+            // node's own and on the same address - where the node speaks TLS of
+            // its own; where somebody else brings TLS, the warning above said
+            // that the whole of "tls" is not used.
+            if (this.WebCertificate is not null && this.WebSettings.TLS?.RedirectPort is IPPort redirectPort)
+            {
+
+                if (redirectPort == port)
+                    throw new InvalidOperationException($"The redirect to HTTPS is to be on port {redirectPort}, which HTTPS is served on itself " +
+                                                        $"('{WebConfiguration.SectionName}.{WebTLSConfiguration.Name}.redirectPort' in '{this.ConfigFile.Path}', or --redirect-port). " +
+                                                         "Give the redirect a port of its own, or leave it out.");
+
+                this.RedirectPort    = redirectPort;
+                this.RedirectServer  = NewRedirectServer(address, redirectPort, port, product);
+
+            }
 
             // The root unless somebody is putting several of these programs on
             // one server, where the first path segment is what tells them
@@ -1050,20 +1151,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                  );
 
             //    Who the client of a request is, where the configuration file
-            //    names reverse proxies in front of this node: the one header it
-            //    names, believed from those proxies and nobody else. Asked by
-            //    an API key bound to addresses and by the count of password
-            //    guesses; without it, and on an API that was handed in - whose
-            //    owner says it - the client is the TCP peer.
-            if (configuration.Web?.TrustedProxies is { Count: > 0 } trustedProxies)
+            //    or the command line names reverse proxies in front of this
+            //    node: the one header it names, believed from those proxies and
+            //    nobody else. Asked by an API key bound to addresses and by the
+            //    count of password guesses; without it, and on an API that was
+            //    handed in - whose owner says it - the client is the TCP peer.
+            //
+            //    And whether the session cookie is a secure one, asked per
+            //    request behind them: a browser's leg of HTTPS, as they say it,
+            //    gets one, and a leg of plain HTTP one it keeps - see
+            //    ReachedOverHTTPS().
+            if (this.clientBehindProxies is not null)
             {
                 if (this.OwnsExtAPI)
-                    this.ExtAPI.ClientAddressOf = new ClientBehindProxies(
-                                                      trustedProxies,
-                                                      configuration.Web.Header ?? ClientAddressHeader.XForwardedFor
-                                                  ).AddressOf;
+                {
+                    this.ExtAPI.ClientAddressOf   = this.clientBehindProxies.AddressOf;
+                    this.ExtAPI.SecureCookiesFor  = ReachedOverHTTPS;
+                }
                 else
-                    this.Log.Warning($"'{WebConfiguration.SectionName}.trustedProxies' is not used: the accounts' API was handed in, and who the client is is its owner's to say.", "config", "web");
+                    this.Log.Warning($"'{WebConfiguration.SectionName}.trustedProxies' is not used for the accounts: their API was handed in, and who the client is, and whether its cookie is a secure one, is its owner's to say.", "config", "web");
             }
 
             // 2) The web interface at "/": the files of the bundle, and the
@@ -1084,8 +1190,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     new SinglePageAppOptions {
 
                         // Hermod's strict defaults unless the kind says what
-                        // its pages need on top - a map's tiles, say.
-                        SecurityHeaders = FrontendSecurityHeaders ?? SecurityHeaderOptions.Default,
+                        // its pages need on top - a map's tiles, say. With HSTS
+                        // on every page and file that reached a browser over
+                        // HTTPS, unless the kind says one of its own: the pages
+                        // are what a browser loads first, and what it learns
+                        // there holds for the JSON API and the sign-in as well,
+                        // which are reached from them.
+                        SecurityHeaders = this.StrictTransportSecurity is String hsts &&
+                                          (FrontendSecurityHeaders ?? SecurityHeaderOptions.Default).StrictTransportSecurity is null
+                                              ? (FrontendSecurityHeaders ?? SecurityHeaderOptions.Default) with {
+                                                    StrictTransportSecurity     = hsts,
+                                                    StrictTransportSecurityFor  = ReachedOverHTTPS
+                                                }
+                                              : FrontendSecurityHeaders ?? SecurityHeaderOptions.Default,
 
                         // Three placeholders for where things are, and not
                         // one. The bundle reads
@@ -1153,8 +1270,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // The event stream is one request that stays open for as long
                 // as a browser has the page open; logging it would say nothing
                 // and logging its response would say it at the wrong moment.
+                // Who sent it as the trusted proxies in front say it, and the
+                // proxy beside it - see ClientOf().
                 if (!IsEventStream(request))
-                    this.Log.Debug($"{request.HTTPMethod} {PathForTheLog(request.Path.ToString())} from {request.RemoteSocket}", "http");
+                    this.Log.Debug($"{request.HTTPMethod} {PathForTheLog(request.Path.ToString())} from {ClientOf(request)}", "http");
+
+                SayWhatWasForwardedInVain(request);
 
                 try
                 {
@@ -2492,7 +2613,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("https",          HTTPS),
                        new JProperty("running",        started),
                        new JProperty("frontend",       Frontend.Description),
-                       new JProperty("webInterface",   WebInterface is not null)
+                       new JProperty("webInterface",   WebInterface is not null),
+
+                       // How it is reached: the certificate it shows, HSTS, the
+                       // proxies in front - or the warning about plain HTTP.
+                       WebJSON()
                    )),
 
                    new JProperty("web",        new JObject(
@@ -2599,6 +2724,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+                await StartRedirectServer();
                 await StartSSH();
                 await OnListening();
             }
@@ -2606,6 +2732,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 await StopSSH();
+                await StopRedirectServer();
 
                 // The node's own port is had by now. Nothing is left behind by
                 // a process that is about to end anyway, but a caller that
@@ -2633,6 +2760,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            ? $"The web interface is listening on {WebInterfaceURL}"
                            : $"Listening on {WebInterfaceURL}, with no web interface to serve.",
                        "web", "http");
+
+            // The certificate it shows, the proxies it believes - or, beyond
+            // this machine with neither, the warning about plain HTTP.
+            SayHowItIsReached();
 
             await OnStarted();
 
@@ -2720,9 +2851,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 // The socket is closed only where it is this node's own: a shared
-                // server is stopped by whoever made it.
-                if (OwnsHTTPServer)
-                    await HTTPServer.Stop();
+                // server is stopped by whoever made it. The redirect to HTTPS is
+                // this node's wherever there is one.
+                try
+                {
+                    await StopRedirectServer();
+                }
+                finally
+                {
+                    if (OwnsHTTPServer)
+                        await HTTPServer.Stop();
+                }
 
             }
 

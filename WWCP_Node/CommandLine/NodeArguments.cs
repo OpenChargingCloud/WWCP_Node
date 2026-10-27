@@ -58,9 +58,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #region Data
 
-        private readonly List<(CertificateKind Kind, String File)>  imports  = [];
-        private readonly List<(String Account, String File)>        sshKeys  = [];
-        private readonly List<String>                               rest     = [];
+        private readonly List<(CertificateKind Kind, String File)>  imports         = [];
+        private readonly List<(String Account, String File)>        sshKeys         = [];
+        private readonly List<System.Net.IPNetwork>                 trustedProxies  = [];
+        private readonly List<String>                               rest            = [];
 
         /// <summary>
         /// What --import-certificate named that is no kind of certificate at
@@ -147,6 +148,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             => imports;
 
         /// <summary>
+        /// Whether the web interface is served over TLS with the store's TLS server identity for "web" (--https).
+        /// </summary>
+        public Boolean   HTTPS                { get; private set; }
+
+        /// <summary>
+        /// The PEM file with the web interface's certificate and its intermediates (--https-cert), measured
+        /// from where the node is started - or null.
+        /// </summary>
+        public String?   HTTPSCertificate     { get; private set; }
+
+        /// <summary>
+        /// The PEM file with its private key (--https-key), measured from where the node is started - or null
+        /// where the key is in the certificate's file.
+        /// </summary>
+        public String?   HTTPSKey             { get; private set; }
+
+        /// <summary>
+        /// The port of plain HTTP that sends every browser to HTTPS (--redirect-port), or null.
+        /// </summary>
+        public IPPort?   RedirectPort         { get; private set; }
+
+        /// <summary>
+        /// The reverse proxies in front whose word is believed (--trusted-proxy address or network), in the order given.
+        /// </summary>
+        public IReadOnlyList<System.Net.IPNetwork> TrustedProxies
+            => trustedProxies;
+
+        /// <summary>
         /// The port of the SSH server (--ssh-port), or null for twenty thousand above the web interface's.
         /// </summary>
         public IPPort?   SSHPort              { get; private set; }
@@ -197,6 +226,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                     Port:         SSHPort,
                     OnByDefault:  true,
                     Authorize:    sshKeys);
+
+        /// <summary>
+        /// What the switches say about TLS and the proxies in front, for the node
+        /// to put over the "web" section of its configuration file - see
+        /// <see cref="WebConfiguration.Over"/> - or null where they say nothing.
+        /// </summary>
+        /// <remarks>
+        /// Handed to the node by the kind's program, as <see cref="SSH"/> is: a
+        /// kind of node that does not pass it on is told so before it starts -
+        /// see <see cref="NodeProgram.ImportCertificates"/> - rather than starting
+        /// over plain HTTP with --https on its command line.
+        /// </remarks>
+        public WebConfiguration? Web
+
+            => HTTPS || HTTPSCertificate is not null || trustedProxies.Count > 0
+                   ? new WebConfiguration(
+                         TrustedProxies:  trustedProxies.Count > 0 ? trustedProxies : null,
+                         TLS:             HTTPS || HTTPSCertificate is not null
+                                              ? new WebTLSConfiguration(
+                                                    HTTPSCertificate is not null
+                                                        ? new WebCertificateSource(HTTPSCertificate, HTTPSKey)
+                                                        : WebCertificateSource.Store,
+                                                    RedirectPort
+                                                )
+                                              : null
+                     )
+                   : null;
 
         /// <summary>
         /// How much of the log the console shows.
@@ -254,6 +310,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
                     case "--any":
                         parsed.AnyAddress = true;
+                        break;
+
+                    case "--https":
+                        parsed.HTTPS = true;
+                        break;
+
+                    // Measured from where the node is started, as every other
+                    // path on this command line is - and there already: a typo
+                    // here would be a node that refuses every connection.
+                    case "--https-cert":
+                        if (!TryTakeValue(Arguments, ref i, out var httpsCertificate))
+                            return parsed.Refusing("Missing PEM file after --https-cert!");
+                        parsed.HTTPSCertificate = Path.GetFullPath(httpsCertificate);
+                        if (!File.Exists(parsed.HTTPSCertificate))
+                            return parsed.Refusing($"--https-cert: there is no file '{httpsCertificate}'.");
+                        break;
+
+                    case "--https-key":
+                        if (!TryTakeValue(Arguments, ref i, out var httpsKey))
+                            return parsed.Refusing("Missing PEM file after --https-key!");
+                        parsed.HTTPSKey = Path.GetFullPath(httpsKey);
+                        if (!File.Exists(parsed.HTTPSKey))
+                            return parsed.Refusing($"--https-key: there is no file '{httpsKey}'.");
+                        break;
+
+                    case "--redirect-port":
+                        if (i + 1 < Arguments.Count && UInt16.TryParse(Arguments[i + 1], out var redirectPort) && redirectPort > 0)
+                        {
+                            parsed.RedirectPort = IPPort.Parse(redirectPort);
+                            i++;
+                        }
+                        else
+                            return parsed.Refusing("Missing or invalid port number after --redirect-port!");
+                        break;
+
+                    case "--trusted-proxy":
+
+                        if (!TryTakeValue(Arguments, ref i, out var proxy))
+                            return parsed.Refusing("Missing address or network after --trusted-proxy!");
+
+                        if (!WebConfiguration.TryParseNetwork(proxy, out var network))
+                            return parsed.Refusing($"--trusted-proxy: '{proxy}' is neither an IP address nor a network such as 10.0.0.0/8 with no bits set past its prefix.");
+
+                        if (!parsed.trustedProxies.Contains(network))
+                            parsed.trustedProxies.Add(network);
+
                         break;
 
                     case "--ssh-port":
@@ -392,6 +494,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             if (parsed.NoSSH && parsed.SSHPort is not null)
                 return parsed.Refusing("--no-ssh and --ssh-port ask for opposite things!");
+
+            if (parsed.HTTPS && parsed.HTTPSCertificate is not null)
+                return parsed.Refusing("--https shows the certificate store's identity and --https-cert the one in a file: give one of them.");
+
+            if (parsed.HTTPSKey is not null && parsed.HTTPSCertificate is null)
+                return parsed.Refusing("--https-key is the key of the certificate --https-cert names: give that as well.");
+
+            if (parsed.RedirectPort is not null && !parsed.HTTPS && parsed.HTTPSCertificate is null)
+                return parsed.Refusing("--redirect-port sends browsers to HTTPS: give it with --https or --https-cert.");
+
+            if (parsed.RedirectPort is not null && parsed.RedirectPort == parsed.Port)
+                return parsed.Refusing("--redirect-port and --port name the same port, which cannot be HTTPS and the redirect to it at once.");
 
             return parsed;
 

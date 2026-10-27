@@ -632,12 +632,8 @@ something about its accounts beyond the node's own - a role given another way
 before it was a node - is asked in `OnAccountsReady`, once they are read and
 the groups made, and before the port opens.
 
-Given a certificate - `ServerCertificateSelector`, and the chain beside it -
-a node serves its web interface, its API and its sign-in over TLS, names
-itself by `https` URLs and sets a secure session cookie. Without one it
-speaks plain HTTP and its cookie is not a secure one, because a browser keeps
-no secure cookie over plain HTTP and nobody could stay signed in. A server
-that is handed in brings its own TLS or none, and the node goes by it.
+Whether the sign-in, and everything after it, crosses the network in the
+clear is the subject of "HTTPS, and the proxies in front" below.
 
 A role is a user group under the same name, and membership is what carries
 what it may do: a list of permissions, each an operation on a resource and
@@ -698,15 +694,88 @@ of every one of them. Told apart by the first path segment rather than by
 the port: everything of a node sits below its `BasePath`, which is the root
 for a node on a port of its own.
 
-Behind a reverse proxy every request comes from the proxy, and who the client
-is matters twice: an API key bound to addresses opens the door only from
-them, and password guesses are counted per client. Only the proxy knows, and
-says so in a header - which anybody can write. The `web` section names the
-proxies that are believed, by address or network, and the one header they
-write:
+
+## HTTPS, and the proxies in front
+
+The sign-in's password, the `Authorization` and `API-Key` headers and the
+session cookie - which is good for 30 days - all travel with every request
+to the web interface and its JSON API. Over plain HTTP beyond the machine
+they cross the network in the clear, and whoever reads them can do whatever
+the account may (POI3-ISSUES.md S13 in RoamingHubCLI). Every node offers two
+ways out of that, both optional and both said in the `web` section of the
+configuration file: HTTPS of its own, and reverse proxies in front of it that
+do the HTTPS and are believed when they say so. Either way the node knows
+which of its requests reached a browser over HTTPS, and sets a secure session
+cookie and HSTS on those.
+
+**HTTPS of its own.** With `tls`, the web interface's port speaks HTTPS - one
+port, one protocol - with a certificate from one of two places:
+
+```json
+"web": { "tls": { "certificate": "store" } }
+```
+
+is the certificate store's TLS server identity for the listener `web` - or
+one told no listener, which is for every listener - switched on and valid
+now, and of several the one whose validity began last, so that a certificate
+put in before the old one runs out takes over on the day it becomes valid. It
+is put there like every other, on the Certificates page, with
+`--import-certificate tlsServerIdentity=<file>`, or by copying it in; a kind
+of node whose store keeps no server identities otherwise keeps them where this
+is asked for, and `--import-certificate` takes them where the kind's usage
+lists the kind. And
+
+```json
+"web": { "tls": { "certificate": { "fullchain": "/etc/letsencrypt/live/hub.example.org/fullchain.pem",
+                                   "privateKey": "/etc/letsencrypt/live/hub.example.org/privkey.pem" },
+                  "redirectPort": 80 },
+         "hsts": { "maxAge": 31536000 } }
+```
+
+is a pair of PEM files somebody else keeps up to date - certbot, say; a
+relative path is measured from the configuration file, as the store's own
+directory is, and `privateKey` may be left out where the key is in the first
+file. They are read again when their content changes, looked at no more often
+than every ten seconds (Hermod's `ServerCertificateFile`, by their SHA-256
+and not their time stamps: certbot replaces symbolic links, and a deploy hook
+copies with the original times), so a renewal is shown from the next
+handshake on without a restart. Where the new files do not read - half of a
+renewal, the certificate copied and the key not yet - the certificate before
+is shown still, and the log says why, once per change. Files that are not
+there yet do not stop the start: a node waiting for its first certificate has
+to run for certbot to reach it. Both are asked at every handshake, and with
+nothing to show a connection is refused rather than served without TLS, which
+is what Hermod would do with no certificate; the log says that once, when it
+begins, and again when there is something to show.
+
+`redirectPort` is a second port, of plain HTTP, that answers every request -
+whatever its method and path - with a 308 to the same path and query over
+HTTPS, at the name the browser asked for, and serves nothing else: no page,
+no API, no sign-in. Off unless a port is given. A port in use there is said
+as the node's own is, with `--redirect-port` as the switch to change it.
+
+**Behind proxies.** Behind a reverse proxy every request comes from the proxy,
+and who the client is matters three times: in the log, in the count of
+password guesses of the sign-in's rate limits, and for an API key bound to
+addresses, which opens the door only from them. Only the proxy knows, and
+says so in a header - which anybody can write. `trustedProxies` names the
+proxies that are believed, by address or network, and `clientAddressHeader`
+the one header they write:
 
 ```json
 "web": { "trustedProxies": [ "127.0.0.1", "::1" ], "clientAddressHeader": "X-Forwarded-For" }
+```
+
+for nginx on the same machine, with
+
+```nginx
+location / {
+    proxy_pass          http://127.0.0.1:2593;
+    proxy_set_header    Host               $host;
+    proxy_set_header    X-Forwarded-For    $proxy_add_x_forwarded_for;
+    proxy_set_header    X-Forwarded-Proto  $scheme;
+    proxy_buffering     off;    # the event stream
+}
 ```
 
 `X-Forwarded-For` where the header is not named, as nginx writes it with
@@ -716,9 +785,72 @@ proxy that writes one of them passes the others on as the client wrote them.
 It is read from the right: every proxy appends whom it got the request from,
 so the first address from the right that is no trusted proxy is the client,
 and whatever stands left of it is the client's own word; an entry that is no
-address ends the search. A request from anybody else is its TCP peer's,
-whatever its headers say, and so is every request without the section. Read
-at the start; on an `HTTPExtAPI` that was handed in it is the owner's to say.
+address ends the search. Whether the browser's leg was HTTPS is read from the
+same proxies: from `Forwarded`'s `proto` of the element the client was found
+at, where that is the header, and from the last value of `X-Forwarded-Proto`
+otherwise - what the proxy in front of the node wrote, as nginx writes
+`$scheme`; a chain of proxies passes the outer one's value on. `https` and
+nothing else is HTTPS. The name the browser asked for, where the node says it
+somewhere - the host of a `known_hosts` line on the SSH page - is
+`Forwarded`'s `host` or `X-Forwarded-Host`, where nginx is not told
+`proxy_set_header Host $host` already.
+
+A request from anybody else is its TCP peer's, whatever its headers say, and
+so is every request without the section: its headers are ignored, and said
+at debug level in the log - the first thing to look for where every password
+guess is counted against the proxy. Read at the start; on an `HTTPExtAPI`
+that was handed in, who the client is and whether its cookie is secure is the
+owner's to say, and the log says so.
+
+**The cookie and HSTS.** A node that speaks HTTPS of its own sets a secure
+session cookie, and names itself by `https` URLs; one that does not, and no
+proxy says HTTPS for, sets one that is not, because a browser keeps no secure
+cookie over plain HTTP and nobody could stay signed in. Behind proxies it is
+decided per request - the cookie of a sign-in whose browser came over HTTPS is
+a secure one, and that of one over plain HTTP is not - which is what Hermod's
+`HTTPExtAPI.SecureCookiesFor` asks. HSTS is sent on the pages and the files of
+the web interface that reached a browser over HTTPS, and on no others: a year
+(`max-age=31536000`) unless `hsts` says otherwise - `maxAge` in seconds up to
+two years, `includeSubDomains` - or `"hsts": false`, which leaves it to the
+proxy. Behind nginx sending it does no harm where nginx sends one of its own:
+a browser takes the first. The pages are what a browser loads first, and what
+it learns there holds for the JSON API and the sign-in, which are reached from
+them; a kind of node whose `FrontendSecurityHeaders` say an HSTS of their own
+keeps that one.
+
+**Neither, beyond the machine.** A node that listens beyond the loopback -
+with `--any`, which a roaming hub needs for its OCPI peers, or on one of the
+machine's other addresses - with neither TLS nor a trusted proxy is not
+refused: a node on a bench in a closed network is reached that way. It says
+so as loudly as a node says anything: as a warning in the log at the start,
+in a box below the banner on the console, and above every page of the web
+interface to every administrator - `systemadmin` - as `notices` in what
+`/api/v1/auth/me` answers, which the shared frontend's shell shows. On the
+loopback alone it says nothing: whoever reaches that is on the machine
+already. The Configuration page's HTTP card shows what is in effect - the
+certificate shown and until when, HSTS, the proxies - and the warning.
+
+**The command line.** `--https` takes the store's identity, `--https-cert
+<file>` with `--https-key <file>` the PEM files - measured from where the node
+is started, and refused where they are not there - `--redirect-port <number>`
+the redirect, which wants one of the other two, and `--trusted-proxy
+<address>`, given as often as there are proxies, the proxies. They win over
+the file where both say something: the certificate and the redirect port
+each on its own, so that `--redirect-port 80` keeps the file's certificate,
+and the proxies as a whole, so that the list in effect can be read off one
+place. `NodeArguments.Web` is what they say, and the node is handed it as
+`Web`, beside `SSH`; a program whose kind of node does not pass it on is
+stopped by `ImportCertificates` before it starts, saying where else it can be
+said - rather than starting over plain HTTP with `--https` on its command
+line. The file needs no code of a kind at all: every node reads its `web`
+section.
+
+**What a kind brings of its own.** A kind of node that hands in a certificate
+of its own - `ServerCertificateSelector`, and the chain beside it - keeps
+doing so: the Modbus/TLS meter shows its web interface's identity by rules of
+its own. So does a server that is handed in, which brings its own TLS or none,
+and the node goes by it. For both, a `tls` in the file is not used, and the
+log says so; the proxies, HSTS and the warning hold as for every node.
 
 
 ## The command line over SSH

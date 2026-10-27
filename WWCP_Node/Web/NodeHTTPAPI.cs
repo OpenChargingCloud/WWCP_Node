@@ -267,7 +267,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
                 ExtAPI.Sessions.Remove(securityTokenId);
 
-                Log.Notice($"A session was ended from {Request.RemoteSocket}.", "web", "auth");
+                Log.Notice($"A session was ended from {Node.ClientOf(Request)}.", "web", "auth");
 
             }
 
@@ -275,7 +275,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                        new HTTPResponse.Builder(Request) {
                            HTTPStatusCode  = HTTPStatusCode.NoContent,
                            CacheControl    = "no-store",
-                           SetCookie       = ExpiredSessionCookie()
+                           SetCookie       = ExpiredSessionCookie(Request)
                        }.WithCommonSecurityHeaders().AsImmutable
                    );
 
@@ -459,7 +459,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (Request.Cookies is not null &&
                 Request.Cookies.TryGet(ExtAPI.SessionCookieName, out _))
             {
-                builder.SetCookie = ExpiredSessionCookie();
+                builder.SetCookie = ExpiredSessionCookie(Request);
             }
 
             Unauthorized = builder.WithCommonSecurityHeaders().AsImmutable;
@@ -722,21 +722,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// itself opened a stream the node refused, and then told somebody
         /// that they may no longer read a log they had never been let read.
         ///
+        /// What the web interface says above every page to them comes last, as
+        /// "notices", where there is anything: the warning about plain HTTP
+        /// beyond this machine, to an administrator - see
+        /// <see cref="WWCPNode.NoticesFor"/>.
+        ///
         /// What a kind of node adds comes after them - see
         /// <see cref="ProductMe"/>.
         /// </remarks>
         private JObject MeJSON(IUser User)
         {
 
-            var me = new JObject(
-                         new JProperty("username",       User.Id.ToString()),
-                         new JProperty("roles",          new JArray(Node.RolesOf(User).Select(role => role.Name))),
-                         new JProperty("permissions",    new JArray(Node.PermissionsOf(User).Select(permission => permission.ToString()))),
-                         new JProperty("mayReadTheLog",  MayReadTheLog(User))
-                     );
+            var roles   = Node.RolesOf(User).Select(role => role.Name).ToArray();
+
+            var me      = new JObject(
+                              new JProperty("username",       User.Id.ToString()),
+                              new JProperty("roles",          new JArray(roles)),
+                              new JProperty("permissions",    new JArray(Node.PermissionsOf(User).Select(permission => permission.ToString()))),
+                              new JProperty("mayReadTheLog",  MayReadTheLog(User))
+                          );
 
             foreach (var property in ProductMe(User))
                 me.Add(property);
+
+            // Last, and only where there is something to say: an answer that
+            // has said the same five things for years keeps saying them.
+            var notices = Node.NoticesFor(roles);
+
+            if (notices.Count > 0)
+                me.Add(new JProperty("notices", new JArray(notices)));
 
             return me;
 
@@ -744,11 +758,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
-        #region (private) ExpiredSessionCookie()
+        #region (private) ExpiredSessionCookie(Request)
 
         /// <summary>
         /// The Set-Cookie of a sign-out: the HTTPExt API's session cookie,
-        /// expired in 1970, so that the browser drops it.
+        /// expired in 1970, so that the browser drops it - a secure one where
+        /// the cookie it replaces was, as the HTTPExt API says it for the
+        /// request.
         /// </summary>
         /// <remarks>
         /// Written here rather than asked of the HTTPExt API, which sets its
@@ -757,13 +773,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// the Cookie header of a request, where a semicolon separates cookies,
         /// and would turn "Path=/" and "HttpOnly" into cookies of their own.
         /// </remarks>
-        private HTTPCookies ExpiredSessionCookie()
+        private HTTPCookies ExpiredSessionCookie(HTTPRequest Request)
 
             => new (HTTPCookie.Parse(
                         String.Concat(ExtAPI.SessionCookieName, "=",
                                       "; Expires=", DateTimeOffset.UnixEpoch.ToRFC1123(),
                                       "; Path=/",
                                       "; SameSite=strict",
+                                      ExtAPI.IsSecureCookieFor(Request) ? "; secure" : "",
                                       "; HttpOnly")
                     ));
 

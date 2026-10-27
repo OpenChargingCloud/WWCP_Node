@@ -60,7 +60,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                 return Task.FromResult(refused);
 
             return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Node.SSHConfigurationJSON(Request.Host.Name))
+                       JSONResponse(Request, HTTPStatusCode.OK, Node.SSHConfigurationJSON(Node.HostOf(Request)))
                    );
 
         }
@@ -95,7 +95,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             Log.Notice($"'{user.Id}' changed the SSH server of this {Node.Kind.Name}: {(Node.SSHEnabled ? $"on port {Node.SSHPort}{(Node.SSHPasswords ? ", passwords open it" : ", keys alone")}" : "off")}.",
                        "ssh", "web", "security");
 
-            var answer = Node.SSHConfigurationJSON(Request.Host.Name);
+            var answer = Node.SSHConfigurationJSON(Node.HostOf(Request));
 
             if (change.Notice is String notice)
                 answer.Add("notice", notice);

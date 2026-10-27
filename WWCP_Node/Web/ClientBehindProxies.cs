@@ -30,7 +30,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
     /// <summary>
     /// Who the client of a request is, where trusted reverse proxies stand
-    /// between it and the node: what HTTPExtAPI.ClientAddressOf asks.
+    /// between it and the node: what HTTPExtAPI.ClientAddressOf asks - and
+    /// whether the browser's own leg was HTTPS, which the secure session
+    /// cookie and HSTS ask, and by which name it asked.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -83,8 +85,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         public IPAddress? AddressOf(HTTPRequest Request)
         {
 
-            if (!IPAddress.TryParse(Request.RemoteSocket.IPAddress.ToString(), out var peer) ||
-                !IsTrusted(peer))
+            if (!IsFromATrustedProxy(Request))
                 return null;
 
             var hops = HopsOf(Request);
@@ -92,22 +93,210 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (hops is null || hops.Count == 0)
                 return null;
 
-            for (var i = hops.Count - 1; i >= 0; i--)
+            return hops[ClientAt(hops)];
+
+        }
+
+        #endregion
+
+        #region IsFromATrustedProxy(Request)
+
+        /// <summary>
+        /// Whether the TCP peer of the given request is one of the trusted
+        /// proxies - whose word, and nobody else's, is read.
+        /// </summary>
+        public Boolean IsFromATrustedProxy(HTTPRequest Request)
+
+            => IPAddress.TryParse(Request.RemoteSocket.IPAddress.ToString(), out var peer) &&
+               IsTrusted(peer);
+
+        #endregion
+
+        #region IsHTTPS(Request)
+
+        /// <summary>
+        /// Whether a trusted proxy says that the browser's own leg of the given
+        /// request was HTTPS: false from anybody else, and where it says nothing.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// With "Forwarded" as the header, its "proto" of the hop the client was
+        /// found at: the element the outermost trusted proxy wrote about the
+        /// connection it was given - which is the browser's, or where the chain
+        /// names no client, the nearest that can be vouched for. With any other
+        /// header, X-Forwarded-Proto, and its last value: what the proxy in front
+        /// of the node wrote, as nginx writes $scheme. A chain of proxies passes
+        /// the outer one's value on, or the inner one says "http".
+        /// </para>
+        /// <para>
+        /// HTTPS and nothing else: a browser on a leg of plain HTTP drops a secure
+        /// cookie, and a node that took "proto=whatever" for HTTPS would set one
+        /// nobody can sign in with.
+        /// </para>
+        /// </remarks>
+        public Boolean IsHTTPS(HTTPRequest Request)
+
+            => IsFromATrustedProxy(Request) &&
+               String.Equals(ProtoOf(Request), "https", StringComparison.OrdinalIgnoreCase);
+
+        #endregion
+
+        #region HostOf(Request)
+
+        /// <summary>
+        /// The name the browser reached the proxy by, as a trusted proxy says it
+        /// - "host" of "Forwarded", or X-Forwarded-Host, the last value - or null
+        /// where none says it.
+        /// </summary>
+        /// <remarks>
+        /// For what a page writes for somebody to type somewhere else: the host
+        /// of a known_hosts line, say. nginx passes the browser's own Host on to
+        /// the node where it is told "proxy_set_header Host $host", and then this
+        /// is not needed; where it is not told, the node is asked for by the
+        /// address nginx connected to.
+        /// </remarks>
+        public String? HostOf(HTTPRequest Request)
+        {
+
+            if (!IsFromATrustedProxy(Request))
+                return null;
+
+            if (header == ClientAddressHeader.Forwarded)
+                return ElementOf(Request)?.Host is { Length: > 0 } host
+                           ? host
+                           : null;
+
+            return LastValueOf(Request, "X-Forwarded-Host");
+
+        }
+
+        #endregion
+
+        #region (static) SaysWhoForwarded(Request)
+
+        /// <summary>
+        /// The headers of the given request in which somebody names a client or
+        /// a protocol on the way to the node, whoever sent them - for the log to
+        /// say that they were not believed.
+        /// </summary>
+        public static IReadOnlyList<String> SaysWhoForwarded(HTTPRequest Request)
+
+            => [.. new[] { "Forwarded", "X-Forwarded-For", "X-Real-IP", "X-Forwarded-Proto", "X-Forwarded-Host" }.
+                       Where(name => Request.TryGetHeaderField(name, out _))];
+
+        #endregion
+
+
+        #region (private) ClientAt(Hops)
+
+        /// <summary>
+        /// Where in the chain the search from the right stops: the first entry
+        /// that is no trusted proxy, or no address; the farthest one where all
+        /// of them are trusted.
+        /// </summary>
+        private Int32 ClientAt(IReadOnlyList<IPAddress?> Hops)
+        {
+
+            for (var i = Hops.Count - 1; i >= 0; i--)
             {
 
-                var hop = hops[i];
+                var hop = Hops[i];
 
-                if (hop is null)
-                    return null;
-
-                if (!IsTrusted(hop) || i == 0)
-                    return hop;
+                if (hop is null || !IsTrusted(hop) || i == 0)
+                    return i;
 
             }
 
-            return null;
+            return 0;
 
         }
+
+        #endregion
+
+        #region (private) ProtoOf(Request)
+
+        /// <summary>
+        /// The protocol a trusted proxy says the browser's leg was, or null.
+        /// </summary>
+        private String? ProtoOf(HTTPRequest Request)
+
+            => header == ClientAddressHeader.Forwarded
+                   ? ElementOf(Request)?.Proto
+                   : LastValueOf(Request, "X-Forwarded-Proto");
+
+        #endregion
+
+        #region (private) ElementOf(Request)
+
+        /// <summary>
+        /// The element of "Forwarded" the search from the right stops at - see
+        /// <see cref="ClientAt"/> - or null where the field is absent or does not
+        /// parse.
+        /// </summary>
+        private ForwardedElement? ElementOf(HTTPRequest Request)
+        {
+
+            if (TextOf(Request, "Forwarded") is not String text ||
+                !ForwardedElement.TryParseAll(text, out var elements))
+                return null;
+
+            var all = elements.ToList();
+
+            if (all.Count == 0)
+                return null;
+
+            return all[ClientAt([.. all.Select(AddressOf)])];
+
+        }
+
+        #endregion
+
+        #region (private static) LastValueOf(Request, Name)
+
+        /// <summary>
+        /// The last value of a header that is a list, trimmed, or null where it
+        /// is absent or empty.
+        /// </summary>
+        private static String? LastValueOf(HTTPRequest  Request,
+                                           String       Name)
+
+            => TextOf(Request, Name)?.Split(',').Last().Trim() is { Length: > 0 } last
+                   ? last
+                   : null;
+
+        #endregion
+
+        #region (private static) TextOf(Request, Name)
+
+        /// <summary>
+        /// A header as one piece of text: a field sent on several lines is one
+        /// list (RFC 9110, 5.3), however the lines were kept.
+        /// </summary>
+        private static String? TextOf(HTTPRequest  Request,
+                                      String       Name)
+
+            => Request.TryGetHeaderField(Name, out var value)
+                   ? value switch {
+                         String   one   => one,
+                         String[] many  => String.Join(", ", many),
+                         _              => null
+                     }
+                   : null;
+
+        #endregion
+
+        #region (private static) AddressOf(Element)
+
+        /// <summary>
+        /// The address "for" names in an element of "Forwarded", or null for one
+        /// that names none.
+        /// </summary>
+        private static IPAddress? AddressOf(ForwardedElement Element)
+
+            => Element.For?.IPAddress is { } address &&
+               IPAddress.TryParse(address.ToString(), out var parsed)
+                   ? parsed
+                   : null;
 
         #endregion
 
@@ -140,15 +329,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private List<IPAddress?>? HopsOf(HTTPRequest Request)
         {
 
-            // A field sent on several lines is one list (RFC 9110, 5.3), however
-            // the lines were kept.
-            var text = Request.TryGetHeaderField(WebConfiguration.TextOf(header), out var value)
-                           ? value switch {
-                                 String   one   => one,
-                                 String[] many  => String.Join(", ", many),
-                                 _              => null
-                             }
-                           : null;
+            var text = TextOf(Request, WebConfiguration.TextOf(header));
 
             if (String.IsNullOrWhiteSpace(text))
                 return null;
@@ -168,10 +349,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                     if (!ForwardedElement.TryParseAll(text, out var elements))
                         return null;
 
-                    return elements.Select(element => element.For?.IPAddress is { } address &&
-                                                      IPAddress.TryParse(address.ToString(), out var parsed)
-                                                          ? parsed
-                                                          : null).
+                    return elements.Select(AddressOf).
                                     ToList();
 
                 default:

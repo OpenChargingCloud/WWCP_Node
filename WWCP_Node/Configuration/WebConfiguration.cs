@@ -54,9 +54,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
 
     /// <summary>
-    /// The "web" section of the configuration file: which reverse proxies in
-    /// front of the node are believed when they say who the client is, and in
-    /// which header they say it.
+    /// The "web" section of the configuration file: how the web interface,
+    /// its JSON API and its sign-in are reached safely - over TLS of the
+    /// node's own, with which certificate and with HSTS, or through reverse
+    /// proxies in front of it that do the TLS, which of them are believed when
+    /// they say who the client is and whether it came over HTTPS, and in which
+    /// header they say it.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -66,17 +69,28 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// knows it. But a header is something anybody can write: it is believed
     /// only from a proxy named here, and only the one header named here is
     /// read, because a proxy that writes one of them passes the others on as
-    /// the client wrote them.
+    /// the client wrote them. Whether the browser came over HTTPS is read from
+    /// the same proxies and nobody else - from "Forwarded" where that is the
+    /// header, from X-Forwarded-Proto otherwise - and decides whether the
+    /// session cookie is a secure one and whether HSTS is sent.
     /// </para>
     /// <para>
     /// Read when the node starts. Without trusted proxies nothing is read, and
-    /// the client is the TCP peer, as before.
+    /// the client is the TCP peer, as before; without "tls" the node speaks
+    /// plain HTTP, as before. A switch on the command line wins over what is
+    /// said here: <c>--https</c> and <c>--https-cert</c> over "tls.certificate",
+    /// <c>--redirect-port</c> over "tls.redirectPort", and <c>--trusted-proxy</c>
+    /// over the whole of "trustedProxies".
     /// </para>
     /// </remarks>
     /// <param name="TrustedProxies">The proxies believed, by address or network (CIDR); none where absent.</param>
     /// <param name="Header">The header they name the client in; X-Forwarded-For where absent.</param>
+    /// <param name="TLS">The web interface over TLS of the node's own, and with which certificate; plain HTTP where absent.</param>
+    /// <param name="HSTS">Whether, and for how long, an answer that reached a browser over HTTPS tells it to come back over HTTPS only; for a year where absent.</param>
     public sealed record WebConfiguration(IReadOnlyList<IPNetwork>?  TrustedProxies  = null,
-                                          ClientAddressHeader?       Header          = null)
+                                          ClientAddressHeader?       Header          = null,
+                                          WebTLSConfiguration?       TLS             = null,
+                                          HSTSConfiguration?         HSTS            = null)
     {
 
         #region Data
@@ -90,6 +104,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// How many proxies may be named.
         /// </summary>
         public const Int32   MaxTrustedProxies  = 64;
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Whether reverse proxies are named whose word is believed.
+        /// </summary>
+        public Boolean HasTrustedProxies
+            => TrustedProxies is { Count: > 0 };
 
         #endregion
 
@@ -152,7 +176,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             }
 
-            Configuration = new WebConfiguration(networks, clientAddressHeader);
+            WebTLSConfiguration? tls = null;
+
+            if (JSON[WebTLSConfiguration.Name] is JToken tlsToken && tlsToken.Type != JTokenType.Null)
+            {
+
+                if (tlsToken is not JObject tlsJSON)
+                {
+                    Error = $"'{SectionName}.{WebTLSConfiguration.Name}' must be a JSON object: {{ \"certificate\": \"{WebTLSConfiguration.StoreText}\" }}, say.";
+                    return false;
+                }
+
+                if (!WebTLSConfiguration.TryParse(tlsJSON, $"{SectionName}.{WebTLSConfiguration.Name}", out tls, out Error))
+                    return false;
+
+            }
+
+            HSTSConfiguration? hsts = null;
+
+            if (JSON[HSTSConfiguration.Name] is JToken hstsToken && hstsToken.Type != JTokenType.Null &&
+                !HSTSConfiguration.TryParse(hstsToken, $"{SectionName}.{HSTSConfiguration.Name}", out hsts, out Error))
+                return false;
+
+            Configuration = new WebConfiguration(networks, clientAddressHeader, tls, hsts);
 
             return true;
 
@@ -222,10 +268,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             var json = new JObject();
 
+            if (TLS is not null)
+                json.Add(WebTLSConfiguration.Name,  TLS.ToJSON());
+
+            if (HSTS is not null)
+                json.Add(HSTSConfiguration.Name,    HSTS.ToJSON());
+
             if (TrustedProxies is not null)
-                json.Add("trustedProxies",       new JArray(TrustedProxies.Select(network => network.PrefixLength == (network.BaseAddress.AddressFamily == AddressFamily.InterNetwork ? 32 : 128)
-                                                                                                 ? network.BaseAddress.ToString()
-                                                                                                 : network.ToString())));
+                json.Add("trustedProxies",       new JArray(TrustedProxies.Select(TextOf)));
 
             if (Header is not null)
                 json.Add("clientAddressHeader",  TextOf(Header.Value));
@@ -236,13 +286,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (static) TextOf(Network)
+
+        /// <summary>
+        /// A proxy as the file writes it: an address as an address, a network
+        /// as a network.
+        /// </summary>
+        public static String TextOf(IPNetwork Network)
+
+            => Network.PrefixLength == (Network.BaseAddress.AddressFamily == AddressFamily.InterNetwork ? 32 : 128)
+                   ? Network.BaseAddress.ToString()
+                   : Network.ToString();
+
+        #endregion
+
+        #region Over(Below)
+
+        /// <summary>
+        /// This, where it says something, and what the given one says where it
+        /// does not: what the switches of the command line say, over what the
+        /// configuration file says.
+        /// </summary>
+        /// <remarks>
+        /// "trustedProxies" as a whole: proxies named on the command line are
+        /// the proxies, and not more of them beside the file's - a list that
+        /// grew from two places would be one nobody could read off either.
+        /// The certificate and the redirect port each on its own, so that
+        /// <c>--redirect-port 80</c> keeps the certificate the file names.
+        /// </remarks>
+        /// <param name="Below">What the configuration file says, or null.</param>
+        public WebConfiguration Over(WebConfiguration? Below)
+
+            => new (TrustedProxies  ?? Below?.TrustedProxies,
+                    Header          ?? Below?.Header,
+                    TLS is not null
+                        ? TLS.Over(Below?.TLS)
+                        : Below?.TLS,
+                    HSTS            ?? Below?.HSTS);
+
+        #endregion
+
         #region (override) ToString()
 
         public override String ToString()
 
-            => TrustedProxies is { Count: > 0 }
-                   ? $"the client named in {TextOf(Header ?? ClientAddressHeader.XForwardedFor)} by {String.Join(", ", TrustedProxies)}"
-                   : "the client is the TCP peer";
+            => String.Join(", ",
+                   new[] {
+                       TLS?.ToString(),
+                       TLS is not null || HasTrustedProxies
+                           ? HSTS?.ToString()
+                           : null,
+                       HasTrustedProxies
+                           ? $"the client named in {TextOf(Header ?? ClientAddressHeader.XForwardedFor)} by {String.Join(", ", TrustedProxies!.Select(TextOf))}"
+                           : "the client is the TCP peer"
+                   }.Where(part => part is not null));
 
         #endregion
 

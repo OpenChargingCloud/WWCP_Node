@@ -80,6 +80,13 @@ export interface NodeMe<R extends string = NodeResource> {
      * says rather than working the rule out for themselves.
      */
     mayReadTheLog:  boolean;
+    /**
+     * What the node says above every page to them: the warning that its web
+     * interface is served over plain HTTP beyond its machine, to an
+     * administrator. Nothing where it has nothing to say - and nothing from a
+     * node too old to say anything.
+     */
+    notices?:       string[];
 }
 
 

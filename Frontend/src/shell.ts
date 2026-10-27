@@ -187,6 +187,8 @@ export function shell(root:     HTMLElement,
                     <div class="page-actions">${options.actions ?? nothing}</div>
                 </header>
 
+                ${noticesView(me)}
+
                 <div id="content-body" class="content-body"></div>
 
             </main>
@@ -195,6 +197,23 @@ export function shell(root:     HTMLElement,
     `);
 
     return must<HTMLElement>(root, '#content-body');
+
+}
+
+/**
+ * What the node says above every page to whoever is signed in - the warning
+ * that its web interface is served over plain HTTP beyond its machine, which
+ * it says to an administrator and to nobody else - between the heading and
+ * the page, where a page drawn anew does not draw over it. Nothing where it
+ * says nothing.
+ */
+export function noticesView(Me: NodeMe<string> | null): TemplateResult | typeof nothing {
+
+    const notices = Me?.notices ?? [];
+
+    return notices.length > 0
+        ? html`${notices.map(notice => html`<div class="notice" role="alert"><i class="fa-solid fa-triangle-exclamation"></i> ${notice}</div>`)}`
+        : nothing;
 
 }
 

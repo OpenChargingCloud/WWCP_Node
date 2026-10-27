@@ -53,6 +53,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public static readonly NodePort SSH          = new ("The SSH server");
 
+        /// <summary>
+        /// The port of plain HTTP that sends every browser to HTTPS.
+        /// </summary>
+        public static readonly NodePort HTTPSRedirect  = new ("The redirect to HTTPS");
+
         public override String ToString()
             => Name;
 

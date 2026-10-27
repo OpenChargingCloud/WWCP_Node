@@ -179,6 +179,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             var usage = $"Usage: {Program} ";
 
             foreach (var line in WrapItems([ "[--port <number>]", "[--any]", "[--frontend <dist directory>]",
+                                             "[--https]", "[--https-cert <file>]", "[--https-key <file>]",
+                                             "[--redirect-port <number>]", "[--trusted-proxy <address>]",
                                              "[--ssh-port <number>]", "[--no-ssh]", "[--authorize-ssh-key <account>=<file>]",
                                              "[--accounts <dir>]", "[--config <file>]",
                                              "[--verbose | --quiet]", "[--no-trace]",
@@ -206,6 +208,48 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             foreach (var line in Switch("--frontend <dir>",  "serve the web interface from a directory on disk instead of the bundle " +
                                                             $"embedded in the assembly - use it together with 'npm run watch' in {FrontendSources}"))
+                yield return line;
+
+            yield return "";
+
+            #endregion
+
+            #region HTTPS, and the proxies in front
+
+            yield return "HTTPS:";
+
+            foreach (var line in Switch("--https",            "serve the web interface, its JSON API and the sign-in over TLS on --port, with the " +
+                                                             "certificate store's TLS server identity for \"web\" - or one told no listener - that " +
+                                                             "is switched on and valid, the newest of them, asked at every handshake"))
+                yield return line;
+
+            foreach (var line in Switch("--https-cert <file>", "the same with the certificate and its intermediates in a PEM file instead - certbot's " +
+                                                              "fullchain.pem - read again when it changes, without a restart, and the certificate " +
+                                                              "before kept where the new one does not read"))
+                yield return line;
+
+            foreach (var line in Switch("--https-key <file>",  "the key that goes with it, where that is in a file of its own - certbot's privkey.pem"))
+                yield return line;
+
+            foreach (var line in Switch("--redirect-port <number>",
+                                        "a port of plain HTTP beside it that sends every browser to HTTPS and serves nothing else " +
+                                        "(default: none)"))
+                yield return line;
+
+            foreach (var line in Switch("--trusted-proxy <address>",
+                                        "a reverse proxy in front, by address or network (\"127.0.0.1\", \"10.0.0.0/8\"), whose word " +
+                                        "is believed: who the client is, from the right of X-Forwarded-For, and whether its leg was " +
+                                        "HTTPS, from X-Forwarded-Proto - for the log, the count of password guesses, API keys bound " +
+                                        "to addresses, the secure session cookie and HSTS. From anybody else those headers are " +
+                                        "ignored. May be given several times"))
+                yield return line;
+
+            foreach (var line in Wrap($"What is said here wins over the \"{WebConfiguration.SectionName}\" section of the configuration file, " +
+                                       "which says the same and a little more - which header the proxies write, HSTS - see the README. " +
+                                       "The pages that reached a browser over HTTPS carry HSTS for a year. Served over plain HTTP beyond " +
+                                      $"127.0.0.1 with neither TLS nor a trusted proxy, the {Kind.Name} says so loudly: at the start, " +
+                                       "and above every page of the web interface to its administrators.",
+                                      "", ""))
                 yield return line;
 
             yield return "";
