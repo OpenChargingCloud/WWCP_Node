@@ -109,28 +109,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// A directory that was there before, open to everybody, with a file
-        /// in it that was written then: both are its owner's alone afterwards
-        /// - the file on Windows by what it inherits from the directory.
+        /// in it and a directory with a key below it, written then: all of
+        /// them are their owner's alone afterwards - on Windows by what they
+        /// inherit from the directory, on Unix each by a mode of its own.
         /// </summary>
         [Test]
         public void WhatAnOlderVersionLeftOpenIsTakenBack()
         {
 
-            var path = Path.Combine(directory, "older");
-            var file = Path.Combine(path, "secret.json");
+            var path   = Path.Combine(directory, "older");
+            var file   = Path.Combine(path, "secret.json");
+            var below  = Path.Combine(path, "keys");
+            var key    = Path.Combine(below, "signing-key.pem");
 
             OpenToEverybody(path);
             File.WriteAllText(file, "{}");
+            Directory.CreateDirectory(below);
+            File.WriteAllText(key, "key");
 
-            Assume.That(OthersMayGetIn(path), Is.Not.Empty);
+            // As an umask of 022 leaves them, whatever this machine's is.
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(file,  (UnixFileMode) 0b110_100_100);
+                File.SetUnixFileMode(below, (UnixFileMode) 0b111_101_101);
+                File.SetUnixFileMode(key,   (UnixFileMode) 0b110_100_100);
+            }
+
+            Assume.That(OthersMayGetIn(key), Is.Not.Empty);
 
             OwnerOnly.Directory(path, problem => Assert.Fail(problem));
 
             Assert.Multiple(() => {
-                Assert.That(OthersMayGetIn(path), Is.Empty);
-                if (OperatingSystem.IsWindows())
-                    Assert.That(OthersMayGetIn(file), Is.Empty);
-                Assert.That(File.ReadAllText(file), Is.EqualTo("{}"), "and still readable by its owner");
+                foreach (var entry in new[] { path, file, below, key })
+                    Assert.That(OthersMayGetIn(entry), Is.Empty, entry);
+                Assert.That(File.ReadAllText(file), Is.EqualTo("{}"),  "and still readable by its owner");
+                Assert.That(File.ReadAllText(key),  Is.EqualTo("key"), "and still readable by its owner");
             });
 
         }
@@ -224,6 +237,76 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     Assert.That(OthersMayGetIn(path),    Is.Empty, path);
                 }
                 Assert.That(node.Log.Recent(500).Where(entry => entry.Message.Contains("could not be made readable")), Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region WhatWasOpenedSinceTheLastStartIsTakenBackByTheNext()
+
+        /// <summary>
+        /// A node started and stopped, and everything it keeps opened to
+        /// everybody since - its directories, and the files and directories in
+        /// them, the metrological log's key and the accounts' password hashes
+        /// among them: the next start takes every one of them back, not only
+        /// the directories at the top.
+        /// </summary>
+        [Test]
+        public async Task WhatWasOpenedSinceTheLastStartIsTakenBackByTheNext()
+        {
+
+            File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName),
+                              """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
+
+            var kept = new[] {
+                           Path.Combine(directory, "accounts"),
+                           Path.Combine(directory, "logs"),
+                           Path.Combine(directory, "certificates"),
+                           Path.Combine(directory, "ssh")
+                       };
+
+            WWCPNode ANode()
+            {
+
+                var node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                        AccountsPath:      kept[0],
+                                        ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
+                                        CertificatesPath:  kept[2],
+                                        LogPath:           kept[1],
+                                        LogToConsole:      false,
+                                        BridgeDebugLog:    false,
+                                        SSH:               new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free())));
+
+                nodes.Add(node);
+
+                return node;
+
+            }
+
+            var first = ANode();
+            await first.Start();
+            await first.DisposeAsync();
+
+            // Everything there now, opened to everybody entry by entry, as
+            // somebody with a file manager would.
+            var entries = kept.Where(Directory.Exists).
+                               SelectMany(path => Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories).Prepend(path)).
+                               ToArray();
+
+            foreach (var entry in entries)
+                OpenToEverybody(entry);
+
+            var key = Path.Combine(kept[1], WWCPNode.DefaultMetrologicalLogDirectory, Logging.LogSigner.KeyFileName);
+
+            Assume.That(entries,              Does.Contain(key), "the metrological log has no key where it is looked for");
+            Assume.That(OthersMayGetIn(key),  Is.Not.Empty);
+
+            await ANode().Start();
+
+            Assert.Multiple(() => {
+                foreach (var entry in entries.Where(Path.Exists))
+                    Assert.That(OthersMayGetIn(entry), Is.Empty, entry);
             });
 
         }

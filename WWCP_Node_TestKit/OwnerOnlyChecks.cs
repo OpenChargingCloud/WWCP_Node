@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -44,28 +45,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         {
 
             if (OperatingSystem.IsWindows())
-            {
-
-                using var identity = WindowsIdentity.GetCurrent();
-
-                var allowed  = new HashSet<SecurityIdentifier> {
-                                   identity.User!,
-                                   new (WellKnownSidType.LocalSystemSid,           null),
-                                   new (WellKnownSidType.BuiltinAdministratorsSid, null)
-                               };
-
-                FileSystemSecurity security = Directory.Exists(Path)
-                                                  ? new DirectoryInfo(Path).GetAccessControl()
-                                                  : new FileInfo(Path).GetAccessControl();
-
-                return security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).
-                                OfType<FileSystemAccessRule>().
-                                Where (rule => rule.AccessControlType == AccessControlType.Allow &&
-                                               !allowed.Contains((SecurityIdentifier) rule.IdentityReference)).
-                                Select(rule => rule.IdentityReference.Value).
-                                ToArray();
-
-            }
+                return OthersMayGetInOnWindows(Path);
 
             var others = File.GetUnixFileMode(Path) & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
                                                         UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute);
@@ -76,33 +56,83 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         }
 
+        // Of its own, for the platform analyser: a guard does not reach into the lambdas below.
+        [SupportedOSPlatform("windows")]
+        private static String[] OthersMayGetInOnWindows(String Path)
+        {
+
+            using var identity = WindowsIdentity.GetCurrent();
+
+            var allowed  = new HashSet<SecurityIdentifier> {
+                               identity.User!,
+                               new (WellKnownSidType.LocalSystemSid,           null),
+                               new (WellKnownSidType.BuiltinAdministratorsSid, null)
+                           };
+
+            FileSystemSecurity security = Directory.Exists(Path)
+                                              ? new DirectoryInfo(Path).GetAccessControl()
+                                              : new FileInfo(Path).GetAccessControl();
+
+            return security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).
+                            OfType<FileSystemAccessRule>().
+                            Where (rule => rule.AccessControlType == AccessControlType.Allow &&
+                                           !allowed.Contains((SecurityIdentifier) rule.IdentityReference)).
+                            Select(rule => rule.IdentityReference.Value).
+                            ToArray();
+
+        }
+
         #endregion
 
         #region OpenToEverybody(Path)
 
         /// <summary>
-        /// Make what an older version left: a directory everybody may read,
-        /// and - on Windows, by inheritance - whatever is in it.
+        /// Make what an older version left, or somebody opened since: an
+        /// existing file everybody may read, or else a directory everybody may
+        /// read - made where it is not there - with whatever is in it that
+        /// takes what the directory hands down (on Windows).
         /// </summary>
         public static void OpenToEverybody(String Path)
         {
 
-            Directory.CreateDirectory(Path);
+            var isFile = File.Exists(Path);
+
+            if (!isFile)
+                Directory.CreateDirectory(Path);
 
             if (OperatingSystem.IsWindows())
+                OpenToEverybodyOnWindows(Path, isFile);
+
+            else
+                File.SetUnixFileMode(Path, isFile ? (UnixFileMode) 0b110_100_100 : (UnixFileMode) 0b111_101_101);
+
+        }
+
+        [SupportedOSPlatform("windows")]
+        private static void OpenToEverybodyOnWindows(String Path, Boolean IsFile)
+        {
+
+            var everybody = new SecurityIdentifier(WellKnownSidType.WorldSid, null);
+
+            if (IsFile)
+            {
+                var info     = new FileInfo(Path);
+                var security = info.GetAccessControl();
+                security.AddAccessRule(new FileSystemAccessRule(everybody, FileSystemRights.Read, AccessControlType.Allow));
+                info.SetAccessControl(security);
+            }
+
+            else
             {
                 var info     = new DirectoryInfo(Path);
                 var security = info.GetAccessControl();
-                security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+                security.AddAccessRule(new FileSystemAccessRule(everybody,
                                                                 FileSystemRights.ReadAndExecute,
                                                                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
                                                                 PropagationFlags.None,
                                                                 AccessControlType.Allow));
                 info.SetAccessControl(security);
             }
-
-            else
-                File.SetUnixFileMode(Path, (UnixFileMode) 0b111_101_101);
 
         }
 

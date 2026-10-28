@@ -42,9 +42,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// it is then everybody's.
     /// </para>
     /// <para>
-    /// A directory's list is inherited by what is in it, so what was written
-    /// there before - by an earlier version that did not do this - is taken in
-    /// as soon as the directory is, at the next start.
+    /// What is in the directory is walked as well, at every start, so that a
+    /// key or a password hash is not open to everybody the day somebody opens
+    /// its directory, or the file itself, again. On Windows each entry with a
+    /// list of its own - entries added by hand, or protected - is given the
+    /// one its directory hands down and nothing else; on Unix, where a mode
+    /// is each entry's own, directories become 0700 and files 0600. What is
+    /// written into the directory later gets what Windows hands down, or on
+    /// Unix whatever the umask gives it, below a directory nobody else may
+    /// enter - until the next start takes it in. Symbolic links and other
+    /// reparse points are left alone: what they point to is not the
+    /// directory's.
     /// </para>
     /// <para>
     /// Best effort: a file system with no notion of either (a mounted share,
@@ -103,16 +111,110 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     RestrictOnWindows(Path, IsDirectory);
 
                 else
-                    System.IO.File.SetUnixFileMode(Path,
-                                                   IsDirectory
-                                                       ? UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-                                                       : UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    System.IO.File.SetUnixFileMode(Path, IsDirectory ? DirectoryMode : FileMode);
+
+                if (IsDirectory)
+                    RestrictWhatIsIn(Path, Complain);
 
             }
             catch (Exception problem)
             {
                 Complain?.Invoke($"'{Path}' could not be made readable by its owner alone, and may be readable by other users of this machine: {problem.Message}");
             }
+        }
+
+        private const UnixFileMode DirectoryMode  = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+        private const UnixFileMode FileMode       = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+        #endregion
+
+        #region (private static) RestrictWhatIsIn(Directory, Complain)
+
+        /// <summary>
+        /// Every entry below the given directory: on Windows the access list its
+        /// directory hands down and nothing of its own, on Unix 0700 for a
+        /// directory and 0600 for a file - each on its own, so that one that
+        /// cannot be changed (another account's, say) does not leave the rest
+        /// as they were. Said once, with how many there were.
+        /// </summary>
+        private static void RestrictWhatIsIn(String           Directory,
+                                             Action<String>?  Complain)
+        {
+
+            var       failed  = 0;
+            String?   first   = null;
+
+            foreach (var entry in new DirectoryInfo(Directory).EnumerateFileSystemInfos("*", new EnumerationOptions {
+                                                                                                  RecurseSubdirectories  = true,
+                                                                                                  AttributesToSkip       = FileAttributes.ReparsePoint,
+                                                                                                  IgnoreInaccessible     = true
+                                                                                              }))
+            {
+                try
+                {
+
+                    if (OperatingSystem.IsWindows())
+                        InheritOnWindows(entry);
+
+                    else
+                    {
+
+                        var mode = entry is DirectoryInfo ? DirectoryMode : FileMode;
+
+                        if (entry.UnixFileMode != mode)
+                            entry.UnixFileMode = mode;
+
+                    }
+
+                }
+                catch (Exception problem)
+                {
+                    failed++;
+                    first ??= $"'{entry.FullName}': {problem.Message}";
+                }
+            }
+
+            if (failed > 0)
+                Complain?.Invoke($"{failed} entry(s) below '{Directory}' could not be made readable by their owner alone, and may be readable by other users of this machine - the first {first}");
+
+        }
+
+        #endregion
+
+        #region (private static) InheritOnWindows(Entry)
+
+        /// <summary>
+        /// Give an entry what its directory hands down and nothing of its own -
+        /// where it has anything of its own at all, so that a start does not
+        /// write every file of a log again.
+        /// </summary>
+        [SupportedOSPlatform("windows")]
+        private static void InheritOnWindows(FileSystemInfo Entry)
+        {
+
+            FileSystemSecurity current = Entry is DirectoryInfo directory
+                                             ? directory.GetAccessControl()
+                                             : ((FileInfo) Entry).GetAccessControl();
+
+            if (!current.AreAccessRulesProtected &&
+                current.GetAccessRules(includeExplicit: true, includeInherited: false, typeof(SecurityIdentifier)).Count == 0)
+            {
+                return;
+            }
+
+            // No rule of its own, and open to what comes down from above.
+            FileSystemSecurity inherited = Entry is DirectoryInfo
+                                               ? new DirectorySecurity()
+                                               : new FileSecurity();
+
+            inherited.SetAccessRuleProtection(isProtected: false, preserveInheritance: false);
+
+            if (Entry is DirectoryInfo directoryInfo)
+                directoryInfo.SetAccessControl((DirectorySecurity) inherited);
+
+            else
+                ((FileInfo) Entry).SetAccessControl((FileSecurity) inherited);
+
         }
 
         #endregion
