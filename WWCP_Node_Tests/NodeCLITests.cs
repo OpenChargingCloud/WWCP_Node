@@ -226,6 +226,65 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region TheConsolesHistoryComesBackAtTheNextStart()
+
+        /// <summary>
+        /// What was typed at the console comes back with Up at the next one -
+        /// the next start of the node - from a file of its own beside the
+        /// accounts'; a mistyped line stays in its session.
+        /// </summary>
+        [Test]
+        public async Task TheConsolesHistoryComesBackAtTheNextStart()
+        {
+
+            using (var first = new NodeCLI(node))
+            {
+                await first.Execute("syncNTS nowhere.example");
+                await first.Execute("synkNTS");
+                await first.Execute("help");
+            }
+
+            using var next = new NodeCLI(node);
+
+            Assert.Multiple(() => {
+                Assert.That(next.CommandHistory,       Is.EqualTo(new[] { "syncNTS nowhere.example", "help" }));
+                Assert.That(next.HistoryFile?.Path,    Is.EqualTo(Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory, NodeCLI.ConsoleHistoryFile)));
+            });
+
+        }
+
+        #endregion
+
+        #region AnAccountsHistoryFileIsNamedForItAndNothingElse()
+
+        /// <summary>
+        /// An account's history file is its name where that is lower-case
+        /// letters, digits, '-' and '_', and %XX for every other byte: no name
+        /// climbs out of the directory, names a device on Windows, shares a file
+        /// with one that differs from it in case only, or is the console's.
+        /// </summary>
+        [Test]
+        public void AnAccountsHistoryFileIsNamedForItAndNothingElse()
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(NodeCLI.FileNameOf("root"),         Is.EqualTo("root"));
+                Assert.That(NodeCLI.FileNameOf("op-1_b"),       Is.EqualTo("op-1_b"));
+                Assert.That(NodeCLI.FileNameOf("Root"),         Is.EqualTo("%52oot"));
+                Assert.That(NodeCLI.FileNameOf("../root"),      Is.EqualTo("%2E%2E%2Froot"));
+                Assert.That(NodeCLI.FileNameOf("a\\b"),         Is.EqualTo("a%5Cb"));
+                Assert.That(NodeCLI.FileNameOf("jürgen"),       Is.EqualTo("j%C3%BCrgen"));
+                Assert.That(NodeCLI.FileNameOf("con"),          Is.EqualTo("%63on"));
+                Assert.That(NodeCLI.FileNameOf("lpt9"),         Is.EqualTo("%6Cpt9"));
+                Assert.That(NodeCLI.FileNameOf("con.x"),        Is.EqualTo("con%2Ex"));
+                Assert.That(NodeCLI.FileNameOf("console"),      Is.EqualTo("console"));
+                Assert.That(NodeCLI.FileNameOf("@console"),     Is.Not.EqualTo(NodeCLI.ConsoleHistoryFile));
+            });
+
+        }
+
+        #endregion
+
         #region TheBannerSaysWhichRepositoryIsWhich()
 
         /// <summary>

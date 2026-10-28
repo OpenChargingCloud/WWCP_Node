@@ -19,6 +19,8 @@
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.CLI;
+
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
@@ -275,6 +277,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var again = await cli.Execute($"apiKeys root add key {own}");
 
             Assert.That(again[0], Does.StartWith("No API key was made:").And.Contain("already exists"));
+
+        }
+
+        #endregion
+
+        #region AnAPIKeyIsNeverWrittenIntoTheHistory
+
+        /// <summary>
+        /// A line that names a key - one given to be added, one to be taken
+        /// back - comes back with Up in its session and is never written to the
+        /// history file; the lines around it are, and so is one that has a key
+        /// made, which only the answer shows.
+        /// </summary>
+        [Test]
+        public async Task AnAPIKeyIsNeverWrittenIntoTheHistory()
+        {
+
+            var own     = "my-own.key_for~debugging-1";
+
+            await cli.Execute($"apiKeys root add readWrite key {own} for the dashboard");
+            var made    = await cli.Execute("apiKeys root add for a script");
+            var secret  = made[1];
+            await cli.Execute("apiKeys root");
+            await cli.Execute($"apiKeys root remove {secret}");
+            await cli.Execute($"apiKeys root remove {own}");
+
+            var file    = NodeCLI.HistoryPathOf(node, CLICaller.Console);
+            var kept    = File.ReadAllText(file);
+
+            Assert.Multiple(() => {
+                Assert.That(file,                                           Is.EqualTo(Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory, NodeCLI.ConsoleHistoryFile)));
+                Assert.That(new HistoryFile(file).Read(),                   Is.EqualTo(new[] { "apiKeys root add for a script", "apiKeys root" }));
+                Assert.That(kept,                                           Does.Not.Contain(own).And.Not.Contain(secret));
+                Assert.That(cli.CommandHistory,                             Has.Member($"apiKeys root add readWrite key {own} for the dashboard").
+                                                                            And.Member($"apiKeys root remove {secret}"), "the session's own history");
+            });
 
         }
 

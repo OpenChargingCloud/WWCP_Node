@@ -181,6 +181,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
+        #region MayBeKept(Arguments)
+
+        /// <summary>
+        /// Not where the line names a key - one given to be added, or one to be
+        /// taken back, which may still open the door where taking it back was
+        /// refused: a history file is read by whoever reads the accounts'
+        /// directory, and a key in it would be one more place it is kept in.
+        /// </summary>
+        /// <remarks>
+        /// Told by the words alone, before anything is parsed, and erring on
+        /// the side of the secret: a description that says "key" keeps its
+        /// line out of the file as well.
+        /// </remarks>
+        /// <param name="Arguments">The command line, split into its words.</param>
+        public override Boolean MayBeKept(String[] Arguments)
+
+            => !Arguments.Skip(1).Any(word => word.Equals("key",    StringComparison.OrdinalIgnoreCase) ||
+                                              word.Equals("remove", StringComparison.OrdinalIgnoreCase));
+
+        #endregion
+
 
         #region (private) Listed(Account)
 
