@@ -208,10 +208,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region AnAPIKeyIsShownWholeAndInTheLogByItsBeginning
+        #region AnAPIKeyIsShownOnceAndNamedByItsHintAndHash
 
+        /// <summary>
+        /// The key made is shown once, in the answer: it is kept as its SHA-256
+        /// alone (POI3-ISSUES.md S20), and the list and the log name it by its
+        /// hint and the beginning of the hash.
+        /// </summary>
         [Test]
-        public async Task AnAPIKeyIsShownWholeAndInTheLogByItsBeginning()
+        public async Task AnAPIKeyIsShownOnceAndNamedByItsHintAndHash()
         {
 
             var made    = await cli.Execute("apiKeys root add readWrite for the dashboard");
@@ -223,34 +228,89 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(made[0],  Is.EqualTo("'root' has a new API key, ReadWrite:"));
                 Assert.That(secret,   Has.Length.EqualTo(APIKeysCommand.KeyLength).And.Match("^[A-Za-z0-9]+$"));
-                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(secret), out var apiKey), Is.True, "the key shown is not the key made");
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(secret), out var apiKey), Is.True, "the key shown is not the key made");
                 Assert.That(apiKey!.AccessRights,                Is.EqualTo(APIKeyRights.ReadWrite));
+                Assert.That(apiKey.Hint,                         Is.EqualTo(secret[..APIKey.HintLength]));
                 Assert.That(apiKey.Description.FirstText(),      Is.EqualTo("for the dashboard"));
                 Assert.That(apiKey.UserId,                       Is.EqualTo(Root));
             });
 
+            var name    = NameOf(secret);
             var listed  = await cli.Execute("apiKeys root");
 
             Assert.Multiple(() => {
                 Assert.That(listed,                     Has.Length.EqualTo(1));
-                Assert.That(listed[0],                  Does.StartWith(secret + "  ReadWrite"), "a list does not show the whole key");
+                Assert.That(listed[0],                  Does.StartWith(name + "  ReadWrite"), "a list does not name the key by its hint and hash");
+                Assert.That(listed[0],                  Does.Not.Contain(secret),             "a list shows the key itself");
                 Assert.That(listed[0],                  Does.Contain("for the dashboard"));
             });
 
-            var removed = await cli.Execute($"apiKeys root remove {secret[..APIKeysCommand.ShownInTheLog]}");
+            var removed = await cli.Execute($"apiKeys root remove {secret[..APIKey.HintLength]}");
 
             Assert.Multiple(() => {
-                Assert.That(removed[0],                                                  Is.EqualTo($"The API key {secret} signs 'root' in no more."));
-                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(secret), out _),   Is.False, "still there");
+                Assert.That(removed[0],                                               Is.EqualTo($"The API key {name} signs 'root' in no more."));
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(secret), out _),  Is.False, "still there");
                 lock (said)
                 {
                     Assert.That(said,                   Has.None.Contains(secret), "the whole key is in the log");
-                    Assert.That(said,                   Has.Some.Contains($"gave 'root' the API key {secret[..APIKeysCommand.ShownInTheLog]}..."), "the key given is not in the log");
-                    Assert.That(said,                   Has.Some.Contains($"took the API key {secret[..APIKeysCommand.ShownInTheLog]}... from 'root'"), "the key taken back is not in the log");
+                    Assert.That(said,                   Has.Some.Contains($"gave 'root' the API key {name}"), "the key given is not in the log");
+                    Assert.That(said,                   Has.Some.Contains($"took the API key {name} from 'root'"), "the key taken back is not in the log");
                 }
             });
 
         }
+
+        #endregion
+
+        #region AnAPIKeyIsTakenBackByItselfItsHintOrItsHash
+
+        /// <summary>
+        /// Taken back by the key itself, by the beginning of its hint where that
+        /// names one key alone, or by the beginning of its hash after a "#" -
+        /// never by more of a key than its hint, so that a key mistyped takes
+        /// back no other one.
+        /// </summary>
+        [Test]
+        public async Task AnAPIKeyIsTakenBackByItselfItsHintOrItsHash()
+        {
+
+            var first     = "Twin0keys0the0first0one0abc";
+            var second    = "Twin0keys0the0second0one0abc";
+            var third     = "Other0key0of0the0account0abc";
+
+            await cli.Execute($"apiKeys root add key {first}");
+            await cli.Execute($"apiKeys root add key {second}");
+            await cli.Execute($"apiKeys root add key {third}");
+
+            var twins     = await cli.Execute("apiKeys root remove Twin0");
+            var mistyped  = await cli.Execute("apiKeys root remove Twin0keys0the0first0one0abX");
+            var byHash    = await cli.Execute($"apiKeys root remove #{APIKey_Id.Of(first).ToString()[..10]}");
+            var byItself  = await cli.Execute($"apiKeys root remove {second}");
+            var byHint    = await cli.Execute("apiKeys root remove Other...");
+
+            Assert.Multiple(() => {
+                Assert.That(twins,     Is.EqualTo(new[] { "'Twin0' is the beginning of 2 API keys of 'root': give the beginning of the hash, after a '#'." }));
+                Assert.That(mistyped,  Is.EqualTo(new[] { "'root' has no API key that is or begins with 'Twin0keys0the0first0one0abX'." }));
+                Assert.That(byHash,    Is.EqualTo(new[] { $"The API key {NameOf(first)} signs 'root' in no more." }));
+                Assert.That(byItself,  Is.EqualTo(new[] { $"The API key {NameOf(second)} signs 'root' in no more." }));
+                Assert.That(byHint,    Is.EqualTo(new[] { $"The API key {NameOf(third)} signs 'root' in no more." }));
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(first),  out _),  Is.False);
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(second), out _),  Is.False);
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(third),  out _),  Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region (private static) NameOf(Key)
+
+        /// <summary>
+        /// How the list and the log name the given key: by its hint and the beginning of its hash.
+        /// </summary>
+        private static String NameOf(String Key)
+
+            => WWCPNode.NameOfAnAPIKey(Key[..APIKey.HintLength], APIKey_Id.Of(Key).ToString());
 
         #endregion
 
@@ -266,7 +326,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(made, Is.EqualTo(new[] { "'root' has a new API key, ReadWrite:", own }), String.Join("\n", made));
 
             Assert.Multiple(() => {
-                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(own), out var apiKey), Is.True, "the key given is not the key made");
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(own), out var apiKey), Is.True, "the key given is not the key made");
                 Assert.That(apiKey!.AccessRights,                Is.EqualTo(APIKeyRights.ReadWrite));
                 Assert.That(apiKey.Description.FirstText(),      Is.EqualTo("for the dashboard"));
                 Assert.That(apiKey.UserId,                       Is.EqualTo(Root));
@@ -276,7 +336,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var again = await cli.Execute($"apiKeys root add key {own}");
 
-            Assert.That(again[0], Does.StartWith("No API key was made:").And.Contain("already exists"));
+            Assert.That(again[0], Is.EqualTo("No API key was made: this key exists already."));
 
         }
 
@@ -356,7 +416,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var made = await cli.Execute("apiKeys root add");
 
             Assert.Multiple(() => {
-                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(made[1]), out var apiKey), Is.True);
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(made[1]), out var apiKey), Is.True);
                 Assert.That(apiKey!.AccessRights, Is.EqualTo(APIKeyRights.ReadOnly));
             });
 
@@ -390,16 +450,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(also,  Is.EqualTo(new[] { "'root' has a new API key, ReadWrite, only from ::1:", other }),                  String.Join("\n", also));
                 Assert.That(free[0], Is.EqualTo("'root' has a new API key, ReadOnly:"));
 
-                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Parse(own), out var apiKey), Is.True, "not made");
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(own), out var apiKey), Is.True, "not made");
                 Assert.That(apiKey!.ValidRemoteIPAddresses.Select(address => System.Net.IPAddress.Parse(address.ToString()!.Trim('[', ']')).ToString()), Is.EqualTo(new[] { "192.0.2.7", "2001:db8::7" }));
                 Assert.That(apiKey.Description.FirstText(),  Is.EqualTo("data from the hub"));
 
-                Assert.That(listed, Has.Some.StartsWith(own).And.Some.Contains(", only from 192.0.2.7, 2001:db8::7"));
-                Assert.That(listed, Has.Some.StartsWith(other).And.Some.Contains(", only from ::1"));
-                Assert.That(listed.Single(line => line.StartsWith(free[1])), Does.Not.Contain("only from"));
+                Assert.That(listed.Single(line => line.StartsWith(NameOf(own))),      Does.Contain(", only from 192.0.2.7, 2001:db8::7"));
+                Assert.That(listed.Single(line => line.StartsWith(NameOf(other))),    Does.Contain(", only from ::1"));
+                Assert.That(listed.Single(line => line.StartsWith(NameOf(free[1]))),  Does.Not.Contain("only from"));
 
                 lock (said)
-                    Assert.That(said, Has.Some.Contains($"gave 'root' the API key {own[..APIKeysCommand.ShownInTheLog]}... (ReadOnly, only from 192.0.2.7, 2001:db8::7)."));
+                    Assert.That(said, Has.Some.Contains($"gave 'root' the API key {NameOf(own)} (ReadOnly, only from 192.0.2.7, 2001:db8::7)."));
 
             });
 

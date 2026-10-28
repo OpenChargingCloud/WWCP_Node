@@ -312,7 +312,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var node   = await Started();
             var key    = "Page0made0key0" + Guid.NewGuid().ToString("N");
-            var path   = $"ext/users/root/APIKeys/{key}";
+            var path   = $"ext/users/root/APIKeys/{APIKey_Id.Of(key)}";
 
             using var http    = Client(node);
             using var anybody = new HttpClient { BaseAddress = new Uri(node.WebInterfaceURL.ToString()), Timeout = TimeSpan.FromSeconds(20) };
@@ -343,6 +343,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(listed.JSON?.Select(one => one["description"]?["en"]?.Value<String>()), Does.Contain("monitoring"));
+                Assert.That(added.Text + listed.Text,  Does.Not.Contain(key),                     "the key itself is answered or listed: it is kept as its hash alone");
+                Assert.That(listed.JSON?.Select(one => one["hint"]?.Value<String>()),  Does.Contain(key[..APIKey.HintLength]));
                 Assert.That(opens.Status,      Is.EqualTo(HttpStatusCode.OK),            "the key made opens nothing: " + opens.Text);
                 Assert.That(opens.JSON?["username"]?.Value<String>(), Is.EqualTo("root"));
                 Assert.That(off.Status,        Is.EqualTo(HttpStatusCode.OK),            off.Text);

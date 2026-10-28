@@ -462,7 +462,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(apiKeys,                                      Has.Length.EqualTo(1));
-                Assert.That(screen.Text[mark..],                          Does.Contain(apiKeys[0].Id.ToString()), "the key made is not the key shown");
+                // Shown once, as it is made, and kept as its SHA-256 alone.
+                Assert.That(System.Text.RegularExpressions.Regex.Matches(screen.Text[mark..], $"[A-Za-z0-9]{{{APIKeysCommand.KeyLength}}}").
+                                                                          Select(shown => APIKey_Id.Of(shown.Value)),
+                                                                          Has.Member(apiKeys[0].Id), "the key made is not the key shown");
                 Assert.That(apiKeys[0].Description.FirstText(),           Is.EqualTo("for a script"));
             });
 

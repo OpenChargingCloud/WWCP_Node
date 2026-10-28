@@ -1,4 +1,4 @@
-import { apiKeyProblem, boundAddresses, boundAddressesProblem, newAPIKey, nodeAPI, shownAddress, type Account, type AccountAPIKey, type AccountOrganization, type AccountSSHKey, type I18NText } from '../api/client';
+import { apiKeyName, apiKeyProblem, boundAddresses, boundAddressesProblem, newAPIKey, nodeAPI, shownAddress, type Account, type AccountAPIKey, type AccountOrganization, type AccountSSHKey, type I18NText } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
 import { must } from '../html';
@@ -104,6 +104,7 @@ export const accountPage: Page = {
         let apiKeys:        AccountAPIKey[]       = [];
         let sshKeys:        AccountSSHKey[]       = [];
         /** The key made last, shown until the page is left or reloaded: it is never shown again. */
+        let madeKey:        string | null         = null;
 
 
         function show(tab: string): void {
@@ -209,8 +210,20 @@ export const accountPage: Page = {
                     <p class="hint">
                         What a program sends in its <code>API-Key</code> header to act as you. A key switched off opens
                         nothing until it is switched on again; a key removed is gone. A key bound to addresses opens the
-                        door only from them.
+                        door only from them. A key is shown once, when it is made: only its hash is kept, and the list
+                        names a key by its first characters and the beginning of that hash.
                     </p>
+
+                    ${madeKey !== null
+                          ? html`
+                            <div class="notice" id="api-key-made">
+                                Your new API key, shown this once:
+                                <code class="api-key">${madeKey}</code>
+                                <button type="button" class="btn small" data-copy
+                                        @click=${(event: Event) => void copy(madeKey ?? '', event.currentTarget as HTMLElement)}>Copy</button>
+                            </div>
+                          `
+                          : nothing}
 
                     ${apiKeys.length === 0
                           ? html`<p class="hint" id="no-api-keys">You have no API key.</p>`
@@ -222,9 +235,7 @@ export const accountPage: Page = {
                                       ${repeat(apiKeys, key => key['@id'], key => html`
                                           <tr data-api-key="${key['@id']}">
                                               <td class="api-key-cell">
-                                                  <code class="api-key">${key['@id']}</code>
-                                                  <button type="button" class="btn small" data-copy
-                                                          @click=${(event: Event) => void copy(key['@id'], event.currentTarget as HTMLElement)}>Copy</button>
+                                                  <code class="api-key">${apiKeyName(key)}</code>
                                               </td>
                                               <td>${firstText(key.description)}</td>
                                               <td>${key.accessRights === 'readOnly' ? 'read' : 'read and write'}</td>
@@ -488,6 +499,8 @@ export const accountPage: Page = {
 
                     form.reset();
 
+                    madeKey = key;
+
                     await loadKeys();
 
                 }
@@ -522,7 +535,7 @@ export const accountPage: Page = {
 
         async function removeAPIKey(Key: AccountAPIKey): Promise<void> {
 
-            if (!confirm(`Remove the API key ${Key['@id']}? A program that uses it is turned away from now on, and it cannot be brought back.`))
+            if (!confirm(`Remove the API key ${apiKeyName(Key)}? A program that uses it is turned away from now on, and it cannot be brought back.`))
                 return;
 
             must<HTMLElement>(content, '#api-key-error').textContent = '';

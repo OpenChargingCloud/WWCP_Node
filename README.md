@@ -932,9 +932,14 @@ apiKeys [<account>] [add [readOnly | readWrite] [key <key>] [from <address>[,<ad
 ```
 
 A fingerprint is written as OpenSSH writes it, `SHA256:...`, or by enough of
-its beginning to be only one key's; an API key whole, or by enough of its
-beginning. A list shows each API key whole: it is a secret the account
-shares with its programs, shown to the account or to whoever may act for it.
+its beginning to be only one key's; an API key whole, by the beginning of its
+hint where that is only one key's, or by the beginning of its hash after a
+`#`. An API key is a secret the account shares with its programs, and it is
+shown once, when it is made: the HTTPExt API keeps the SHA-256 of the key
+alone, with its first six characters as its hint, so whoever reads the
+accounts' file can not sign in with what is there (POI3-ISSUES.md S20). A
+list names each key by its hint and the beginning of its hash,
+`alices... #41WyMKor`, and so does the log.
 An API key is read-only unless `readWrite` says otherwise, and is the one
 given after `key` - letters, digits and `. _ ~ -`, at least 20 of them, so
 that it goes into an `API-Key` header and a URL as it is - or else 40
@@ -950,7 +955,7 @@ admin of its admins' organization, `Admins`. A node does not make that
 organization by itself, so until somebody does, another account's keys are
 the console's alone. The console names the account, and may do everything.
 Every key let in or taken out is in the log, tagged `security`, naming who
-did it - an API key by its beginning only, for the log is read by others.
+did it - an API key by its hint and hash, as a list names it.
 A key switched off - on the account's page - is listed as switched off, and
 signs nobody in until it is switched on again.
 
@@ -966,18 +971,19 @@ the form changed; the organizations the account belongs to are shown, not
 changed. **API keys** - typed in, as `apiKeys add ... key` takes one, or
 else made on the page, 40 letters and digits from the browser's random
 source; read-only unless it says otherwise, valid until a day or for good,
-and bound to the addresses typed in or to none, as `from` takes them; the
-list shows each key whole, with a button to copy it, and where it opens the
-door from.
+and bound to the addresses typed in or to none, as `from` takes them. The
+key is shown once, when it is made, with a button to copy it: only its hash
+is kept. The list names each key by its hint and the beginning of its hash,
+and says where it opens the door from.
 **SSH keys** - an `authorized_keys` line added with a label, as `sshKeys`
 takes it. Either kind of key is switched off and on again with
-`SET .../APIKeys/{key}` or `SET .../SSHKeys/{fingerprint}` and
+`SET .../APIKeys/{hash}` or `SET .../SSHKeys/{fingerprint}` and
 `{"isDisabled": true|false}`, and removed after a question. What the page
 changes is in the accounts' database file, with the account that did it, and
 in the log as the command line's changes are - who changed which details of
 which account, or their password (and nothing of it), or gave, switched or
 took which key, tagged `web` (passwords and keys also `security`), an API key
-by its beginning only. The node reads it from what
+by its hint and hash. The node reads it from what
 these routes answered, so a change that was refused is not in it; and the
 line every request writes says an API key in its path by its beginning too.
 

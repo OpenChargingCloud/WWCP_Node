@@ -42,9 +42,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// command line does not go through HTTP.
     /// </summary>
     /// <remarks>
-    /// An API key is the account to whoever has it: neither these lines nor
-    /// the line every request writes say more of one than its beginning, as
-    /// a list shows it.
+    /// An API key is kept as the SHA-256 of the key alone, and these lines
+    /// name it as a list does: by its hint, the first characters of the key,
+    /// and the beginning of the hash. The line every request writes cuts what
+    /// follows "/APIKeys/" in a path to its beginning all the same, should a
+    /// key itself be sent there.
     /// </remarks>
     public partial class WWCPNode
     {
@@ -52,7 +54,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region Data
 
         /// <summary>
-        /// How much of an API key the log says: as much as a list shows.
+        /// How much of the SHA-256 an API key is kept under the log and a list
+        /// show, and of what follows "/APIKeys/" in a path.
         /// </summary>
         public const Int32 APIKeyShownInTheLog = 8;
 
@@ -102,6 +105,33 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public static String PathForTheLog(String Path)
 
             => APIKeyInAPath.Replace(Path, match => match.Groups[1].Value + BeginningOfAnAPIKey(Uri.UnescapeDataString(match.Groups[2].Value)));
+
+        #endregion
+
+        #region (static) NameOfAnAPIKey(Hint, KeptAs)
+
+        /// <summary>
+        /// An API key as a list and the log name it: by its hint, the first
+        /// characters of the key, where it is known, and the beginning of the
+        /// SHA-256 it is kept under - "alices... #41WyMKor". The key itself is
+        /// kept nowhere, and so said nowhere.
+        /// </summary>
+        /// <param name="Hint">The hint of the key, or null.</param>
+        /// <param name="KeptAs">The SHA-256 the key is kept under: its identification.</param>
+        public static String NameOfAnAPIKey(String?  Hint,
+                                            String   KeptAs)
+
+            => (Hint is not null ? Hint + "... " : "") +
+               "#" + (KeptAs.Length > APIKeyShownInTheLog ? KeptAs[..APIKeyShownInTheLog] : KeptAs);
+
+
+        /// <summary>
+        /// An API key as a list and the log name it: "alices... #41WyMKor".
+        /// </summary>
+        /// <param name="Key">An API key.</param>
+        public static String NameOfAnAPIKey(APIKey Key)
+
+            => NameOfAnAPIKey(Key.Hint, Key.Id.ToString());
 
         #endregion
 
@@ -254,7 +284,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 case [ "APIKeys" ] when Request.HTTPMethod == HTTPMethod.ADD:
 
                     Log.Notice(
-                        $"{who} gave '{account.Account}' the API key {BeginningOfAnAPIKey(answer?["@id"]?.Value<String>() ?? "")} " +
+                        $"{who} gave '{account.Account}' the API key {NameOfAnAPIKey(answer?["hint"]?.Value<String>(), answer?["@id"]?.Value<String>() ?? "")} " +
                         $"({answer?["accessRights"]?.Value<String>() ?? "readOnly"}) on the web interface.",
                         "api", "auth", "security", "web"
                     );
@@ -265,8 +295,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     Log.Notice(
                         answer?["isDisabled"]?.Value<Boolean>() == true
-                            ? $"{who} switched off the API key {BeginningOfAnAPIKey(Uri.UnescapeDataString(key))} of '{account.Account}' on the web interface: it opens nothing until it is switched on again."
-                            : $"{who} switched on the API key {BeginningOfAnAPIKey(Uri.UnescapeDataString(key))} of '{account.Account}' on the web interface: it opens the door again.",
+                            ? $"{who} switched off the API key {NameOfAnAPIKey(answer?["hint"]?.Value<String>(), Uri.UnescapeDataString(key))} of '{account.Account}' on the web interface: it opens nothing until it is switched on again."
+                            : $"{who} switched on the API key {NameOfAnAPIKey(answer?["hint"]?.Value<String>(), Uri.UnescapeDataString(key))} of '{account.Account}' on the web interface: it opens the door again.",
                         "api", "auth", "security", "web"
                     );
 
@@ -275,7 +305,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 case [ "APIKeys", var key ] when Request.HTTPMethod == HTTPMethod.DELETE:
 
                     Log.Notice(
-                        $"{who} took the API key {BeginningOfAnAPIKey(Uri.UnescapeDataString(key))} from '{account.Account}' on the web interface: it opens nothing from now on.",
+                        $"{who} took the API key {NameOfAnAPIKey(answer?["hint"]?.Value<String>(), Uri.UnescapeDataString(key))} from '{account.Account}' on the web interface: it opens nothing from now on.",
                         "api", "auth", "security", "web"
                     );
 

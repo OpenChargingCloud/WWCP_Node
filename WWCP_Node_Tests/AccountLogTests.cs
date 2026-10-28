@@ -190,7 +190,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That((await Send(http, "SET", "ext/users/root", account)).Status, Is.EqualTo(HttpStatusCode.OK));
 
             var key         = "Pagemade" + Guid.NewGuid().ToString("N");
-            var keyPath     = $"ext/users/root/APIKeys/{key}";
+            var keyPath     = $"ext/users/root/APIKeys/{APIKey_Id.Of(key)}";
 
             Assert.That((await Send(http, "ADD", "ext/users/root/APIKeys", new JObject(
                                                                             new JProperty("@id",           key),
@@ -218,7 +218,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That((await Send(http, "SET",    sshPath, new JObject(new JProperty("isDisabled", false)))).Status, Is.EqualTo(HttpStatusCode.OK));
             Assert.That((await Send(http, "DELETE", sshPath)).Status, Is.EqualTo(HttpStatusCode.OK));
 
-            var beginning   = key[..WWCPNode.APIKeyShownInTheLog] + "...";
+            // The key is named by its hint and the beginning of the hash it is kept under.
+            var beginning   = WWCPNode.NameOfAnAPIKey(key[..APIKey.HintLength], APIKey_Id.Of(key).ToString());
             var lines       = Lines();
 
             Assert.Multiple(() => {

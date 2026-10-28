@@ -40,7 +40,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
     /// [&lt;description&gt;] makes one - read-only unless it is said otherwise,
     /// the key given or else made here, opening the door from anywhere unless
     /// it is bound to addresses - and apiKeys [&lt;account&gt;] remove &lt;key&gt;
-    /// takes one back: nobody is signed in with it from that moment on.
+    /// takes one back: nobody is signed in with it from that moment on. It is
+    /// named by the key itself, by the beginning of its hint, or by the
+    /// beginning of its hash after a "#", as the list shows it.
     /// </para>
     /// <para>
     /// A key bound to addresses opens the door only from them, as the HTTPExt
@@ -49,10 +51,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
     /// configuration file believes the proxy about.
     /// </para>
     /// <para>
-    /// An API key is a secret the account shares with its programs, and the
-    /// list shows each whole: it is shown to the account itself, or to whoever
-    /// may act for it. The log, which others read, names a key by its
-    /// beginning only.
+    /// An API key is a secret the account shares with its programs, and it is
+    /// shown once, when it is made: it is kept as its SHA-256 alone, with its
+    /// first characters as its hint, so whoever reads the accounts' file can
+    /// not sign in with what is there. The list and the log name a key by its
+    /// hint and the beginning of its hash.
     /// </para>
     /// <para>
     /// Whose keys are whose to manage is decided as for the SSH keys: an
@@ -71,11 +74,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// The name this is typed as.
         /// </summary>
         public const   String  CommandName  = "apiKeys";
-
-        /// <summary>
-        /// How much of a key the log shows.
-        /// </summary>
-        public const   Int32   ShownInTheLog  = 8;
 
         /// <summary>
         /// How long a key made here is: 40 characters of 62, some 238 bits.
@@ -215,19 +213,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             if (keys.Length == 0)
                 return [ $"'{Account.Id}' has no API key." ];
 
-            return [ .. keys.Select(key => $"{key.Id}  {key.AccessRights}" +
+            return [ .. keys.Select(key => $"{WWCPNode.NameOfAnAPIKey(key)}  {key.AccessRights}" +
                                            $"  made {key.Created.ToLocalTime():yyyy-MM-dd HH:mm}" +
                                            (key.NotAfter.HasValue ? $", valid until {key.NotAfter.Value.ToLocalTime():yyyy-MM-dd HH:mm}" : "") +
                                            OnlyFrom(key.ValidRemoteIPAddresses) +
                                            (key.IsDisabled ? ", switched off" : "") +
                                            (key.Description.IsNotNullOrEmpty() ? $"  {key.Description.FirstText()}" : "")) ];
 
-        }
-
-        private static String ForTheLog(APIKey Key)
-        {
-            var text = Key.Id.ToString();
-            return text.Length > ShownInTheLog ? text[..ShownInTheLog] + "..." : text;
         }
 
         /// <summary>
@@ -315,21 +307,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             var description = String.Join(" ", Words).Trim();
             var secret      = given ?? RandomNumberGenerator.GetString(KeyCharacters, KeyLength);
 
-            var added = await cli.Node.ExtAPI.AddAPIKey(
-                                  new APIKey(APIKey_Id.Parse(secret),
-                                             Account.Id,
-                                             Description:   description.Length > 0 ? I18NString.Create(description) : null,
-                                             AccessRights:  rights,
-                                             Created:       Timestamp.Now,
-                                             ValidRemoteIPAddresses:  from),
-                                  CurrentUserId: cli.Caller.Account?.Id
-                              );
+            // Kept as its SHA-256 alone: the answer is the one place the key itself is shown.
+            var kept        = new APIKey(APIKey_Id.Parse(secret),
+                                         Account.Id,
+                                         Description:   description.Length > 0 ? I18NString.Create(description) : null,
+                                         AccessRights:  rights,
+                                         Created:       Timestamp.Now,
+                                         ValidRemoteIPAddresses:  from).AsKept();
+
+            if (cli.Node.ExtAPI.APIKeyExists(kept.Id))
+                return [ $"No API key was made: this key exists already." ];
+
+            var added = await cli.Node.ExtAPI.AddAPIKey(kept, CurrentUserId: cli.Caller.Account?.Id);
 
             if (added.Result != CommandResult.Success)
                 return [ $"No API key was made: {added.Description?.FirstText() ?? added.Result.ToString()}" ];
 
             cli.Node.Log.Notice(
-                $"{cli.Caller.Asker} gave '{Account.Id}' the API key {secret[..ShownInTheLog]}... ({rights}{OnlyFrom(from ?? [])}).",
+                $"{cli.Caller.Asker} gave '{Account.Id}' the API key {WWCPNode.NameOfAnAPIKey(kept)} ({rights}{OnlyFrom(from ?? [])}).",
                 cli.Caller.Tags("api", "auth", "security")
             );
 
@@ -348,27 +343,36 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                             String  Key)
         {
 
-            var matching = cli.Node.ExtAPI.GetAPIKeysForUser(Account).
-                               Where(key => key.Id.ToString().StartsWith(Key.TrimEnd('.'), StringComparison.Ordinal)).
-                               ToArray();
+            var keys      = cli.Node.ExtAPI.GetAPIKeysForUser(Account).ToArray();
+            var beginning = Key.TrimEnd('.');
+
+            // The key itself; else the beginning of its hash after a "#", or of
+            // its hint, as the list shows it: never more of a key than its hint,
+            // so that a key mistyped does not take another one back.
+            APIKey[] matching = [ .. keys.Where(key => key.Id == APIKey_Id.Of(Key)) ];
 
             if (matching.Length == 0)
-                return [ $"'{Account.Id}' has no API key that begins with '{Key}'." ];
+                matching = beginning.StartsWith('#')
+                               ? [ .. keys.Where(key => beginning.Length > 1 && key.Id.ToString().StartsWith(beginning[1..], StringComparison.Ordinal)) ]
+                               : [ .. keys.Where(key => beginning.Length > 0 && key.Hint is String hint && hint.StartsWith(beginning, StringComparison.Ordinal)) ];
+
+            if (matching.Length == 0)
+                return [ $"'{Account.Id}' has no API key that is or begins with '{Key}'." ];
 
             if (matching.Length > 1)
-                return [ $"'{Key}' is the beginning of {matching.Length} API keys of '{Account.Id}': give more of it." ];
+                return [ $"'{Key}' is the beginning of {matching.Length} API keys of '{Account.Id}': give the beginning of the hash, after a '#'." ];
 
             var removed = await cli.Node.ExtAPI.RemoveAPIKey(matching[0], CurrentUserId: cli.Caller.Account?.Id);
 
             if (removed.Result != CommandResult.Success)
-                return [ $"The API key {matching[0].Id} was not taken back: {removed.Description?.FirstText() ?? removed.Result.ToString()}" ];
+                return [ $"The API key {WWCPNode.NameOfAnAPIKey(matching[0])} was not taken back: {removed.Description?.FirstText() ?? removed.Result.ToString()}" ];
 
             cli.Node.Log.Notice(
-                $"{cli.Caller.Asker} took the API key {ForTheLog(matching[0])} from '{Account.Id}': nobody is signed in with it from now on.",
+                $"{cli.Caller.Asker} took the API key {WWCPNode.NameOfAnAPIKey(matching[0])} from '{Account.Id}': nobody is signed in with it from now on.",
                 cli.Caller.Tags("api", "auth", "security")
             );
 
-            return [ $"The API key {matching[0].Id} signs '{Account.Id}' in no more." ];
+            return [ $"The API key {WWCPNode.NameOfAnAPIKey(matching[0])} signs '{Account.Id}' in no more." ];
 
         }
 

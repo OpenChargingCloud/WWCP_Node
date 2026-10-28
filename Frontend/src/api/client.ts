@@ -331,11 +331,15 @@ export interface AccountOrganization {
 }
 
 /**
- * An API key of an account. Its "@id" is the key itself: what a request
- * carries in its API-Key header, and what removing or switching it names.
+ * An API key of an account, as it is kept: its "@id" is the SHA-256 of the
+ * key, what removing or switching it names, and its hint the first characters
+ * of the key. The key itself, what a request carries in its API-Key header, is
+ * kept nowhere: it is shown once, when it is made (apiKeyName).
  */
 export interface AccountAPIKey {
     '@id':          string;
+    /** The first characters of the key, to tell it apart. */
+    hint?:          string;
     userId:         string;
     description?:   I18NText;
     accessRights:   'readOnly' | 'readWrite' | 'readWriteNew';
@@ -345,6 +349,14 @@ export interface AccountAPIKey {
     isDisabled?:    boolean;
     /** The only addresses the key opens the door from; from anywhere where there are none. */
     validRemoteIPAddresses?: string[];
+}
+
+/**
+ * How a list and the log name an API key: by its hint and the beginning of the
+ * hash it is kept under, "alices... #41WyMKor", as the command line does.
+ */
+export function apiKeyName(Key: AccountAPIKey): string {
+    return `${Key.hint !== undefined ? Key.hint + '... ' : ''}#${Key['@id'].slice(0, 8)}`;
 }
 
 /** A new API key: the key itself is the account's own, or made in the browser. */

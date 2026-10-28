@@ -548,18 +548,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         private async Task<(HttpClient HTTP, APIKey Key)> WithAPIKey(DateTimeOffset? NotAfter = null)
         {
 
-            var key   = new APIKey(APIKey_Id.Parse("event-stream-" + Guid.NewGuid().ToString("N")),
-                                   User_Id.Parse(AdminLogin),
-                                   NotAfter: NotAfter);
+            // Kept as its SHA-256; the key itself goes into the header.
+            var secret  = APIKey_Id.Parse("event-stream-" + Guid.NewGuid().ToString("N"));
+            var key     = new APIKey(secret,
+                                     User_Id.Parse(AdminLogin),
+                                     NotAfter: NotAfter).AsKept();
 
             await Node.ExtAPI.AddAPIKey(key);
 
             Assert.That(Node.ExtAPI.TryGetAPIKey(key.Id, out _), Is.True,
                         "The API key was not added, so a test of taking it back would pass for the wrong reason.");
 
-            var http  = Anonymous();
+            var http    = Anonymous();
 
-            http.DefaultRequestHeaders.Add("API-Key", key.Id.ToString());
+            http.DefaultRequestHeaders.Add("API-Key", secret.ToString());
 
             return (http, key);
 

@@ -1,9 +1,10 @@
 /**
  * The account page drawn, in a document of happy-dom, against a stand-in for
  * the HTTPExt API: who the account is, and that a save sends the whole of it
- * back with what was changed; the API keys, shown whole with the addresses
- * they are bound to, a new one made here or typed in, bound to addresses or
- * not, switched off and on, and removed after a question; the SSH
+ * back with what was changed; the API keys, named by their hint and hash with
+ * the addresses they are bound to, a new one made here or typed in and shown
+ * once, bound to addresses or not, switched off and on, and removed after a
+ * question; the SSH
  * keys, added, switched and removed the same way.
  */
 
@@ -15,10 +16,14 @@ import { describe, it }      from 'node:test';
 import type { Account, AccountAPIKey, AccountSSHKey } from '../api/client.ts';
 
 const { accountPage, organizationNames, typeAndComment, withText } = await import('./account.ts');
-const { apiKeyProblem, boundAddresses, boundAddressesProblem, fingerprintInURL, newAPIKey } = await import('../api/client.ts');
+const { apiKeyName, apiKeyProblem, boundAddresses, boundAddressesProblem, fingerprintInURL, newAPIKey } = await import('../api/client.ts');
 
 
-const theKey = 'AbCdEfGh0123456789abcdefghijklmnopqrstuv';
+/** What the stand-in keeps a key as: the HTTPExt API keeps its SHA-256, here a stand-in for that. */
+const keptAs = (Key: string) => `kept0${Key.length}0${[ ...Key ].reverse().join('')}`;
+
+/** A key as the HTTPExt API keeps and lists it: its "@id" is its hash, and its hint its beginning. */
+const theKey = keptAs('AbCdEfGh0123456789abcdefghijklmnopqrstuv');
 
 /** What the stand-in has. */
 let account:  Account;
@@ -57,7 +62,8 @@ function node({ method, path, body }: Asked): unknown {
         return apiKeys;
 
     if (path === '/ext/users/alice/APIKeys' && method === 'ADD') {
-        const added = body as AccountAPIKey;
+        const sent  = body as AccountAPIKey;
+        const added = { ...sent, '@id': keptAs(sent['@id']), hint: sent['@id'].slice(0, 6) };
         apiKeys = [ ...apiKeys, added ];
         return added;
     }
@@ -94,7 +100,7 @@ function node({ method, path, body }: Asked): unknown {
 async function opened(Path = '/account', Keys?: AccountAPIKey[]): Promise<HTMLElement> {
 
     account = anAccount();
-    apiKeys = Keys ?? [ { '@id': theKey, userId: 'alice', description: { en: 'billing export' }, accessRights: 'readOnly', created: '2026-10-02T10:00:00Z' } ];
+    apiKeys = Keys ?? [ { '@id': theKey, hint: 'AbCdEf', userId: 'alice', description: { en: 'billing export' }, accessRights: 'readOnly', created: '2026-10-02T10:00:00Z' } ];
     sshKeys = [ { fingerprint: 'SHA256:abc+def/ghi', line: 'from="192.0.2.0/24" ssh-ed25519 AAAAC3key alice@laptop', label: 'laptop', created: '2026-10-03T10:00:00Z' } ];
 
     return open(accountPage, Path, [], node, root => root.querySelector('#account-form') !== null || root.querySelector('.error-box') !== null);
@@ -245,14 +251,15 @@ describe('the account page', () => {
 
 describe('the API keys of the account', () => {
 
-    it('are shown whole, each with a button to copy it', async () => {
+    it('are named by their hint and the beginning of their hash, the key itself kept nowhere', async () => {
 
         const root = await opened();
         const row  = root.querySelector(`#account-api-keys [data-api-key="${theKey}"]`);
 
         assert.ok(row !== null, 'the key is not listed');
-        assert.equal(row.querySelector('code.api-key')?.textContent, theKey, 'the key is not shown whole');
-        assert.ok(row.querySelector('[data-copy]') !== null, 'no button copies it');
+        assert.equal(row.querySelector('code.api-key')?.textContent, `AbCdEf... #${theKey.slice(0, 8)}`, 'the key is not named by its hint and hash');
+        assert.equal(row.querySelector('[data-copy]'), null, 'a button copies what is not the key');
+        assert.equal(root.querySelector('#api-key-made'), null, 'a key is shown that was not made here');
         assert.match(row.textContent!, /billing export/);
 
     });
@@ -335,7 +342,9 @@ describe('the API keys of the account', () => {
         assert.ok(typeof body['created'] === 'string' && !Number.isNaN(Date.parse(body['created'] as string)), 'no time it was made');
         assert.equal(new Date(body['notAfter'] as string).getFullYear(), 2099);
 
-        assert.equal(root.querySelector(`#account-api-keys [data-api-key="${made}"] code.api-key`)?.textContent, made, 'the new key is not listed whole');
+        assert.equal(root.querySelector(`#account-api-keys [data-api-key="${keptAs(made)}"] code.api-key`)?.textContent, `${made.slice(0, 6)}... #${keptAs(made).slice(0, 8)}`, 'the new key is not listed by its hint and hash');
+        assert.equal(root.querySelector('#api-key-made code.api-key')?.textContent, made, 'the new key is not shown once, whole');
+        assert.ok(root.querySelector('#api-key-made [data-copy]') !== null, 'no button copies it');
 
     });
 
@@ -353,7 +362,7 @@ describe('the API keys of the account', () => {
 
         assert.equal((sent('ADD', '/ext/users/alice/APIKeys')[0]!.body as Record<string, unknown>)['@id'], own);
 
-        await until(() => root.querySelector(`#account-api-keys [data-api-key="${own}"]`) !== null, 'the key typed in is not listed');
+        await until(() => root.querySelector(`#account-api-keys [data-api-key="${keptAs(own)}"]`) !== null, 'the key typed in is not listed');
 
         assert.equal(field(root, '#api-key-form', 'key').value, '', 'the form still has the key');
 
@@ -422,7 +431,7 @@ describe('the API keys of the account', () => {
         await until(() => root.querySelector('#no-api-keys') !== null, 'it is still listed');
 
         assert.equal(sent('DELETE', `/ext/users/alice/APIKeys/${theKey}`).length, 1);
-        assert.ok(said.join('\n').includes(`Remove the API key ${theKey}?`), 'nobody was asked, or not of the whole key');
+        assert.ok(said.join('\n').includes(`Remove the API key ${apiKeyName({ '@id': theKey, hint: 'AbCdEf', userId: 'alice', accessRights: 'readOnly', created: '' })}?`), 'nobody was asked, or not of the key by its name');
 
     });
 

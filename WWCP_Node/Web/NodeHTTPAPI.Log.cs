@@ -477,15 +477,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                          mayRead(user);
 
 
+            // Looked at, not used: watching a stream does not keep its session alive.
             Session? LiveSession(SecurityToken_Id Token)
-            {
 
-                var now = ExtAPI.Sessions.TimeProvider.GetUtcNow();
-
-                return ExtAPI.Sessions.FirstOrDefault(session => session.Token == Token &&
-                                                                 !session.IsExpired(now));
-
-            }
+                => ExtAPI.Sessions.TryPeek(Token, out var session)
+                       ? session
+                       : null;
 
         }
 
