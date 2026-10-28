@@ -913,7 +913,13 @@ password and its API keys. A key is a line as OpenSSH's `authorized_keys`
 has it, and `from="..."` or `expiry-time="..."` in front of it hold. Who
 let it in, and when, is written down with it, as a link of the database's
 hash chain. The keys are asked at every sign-in: a key taken out lets nobody
-in from that moment on. `--authorize-ssh-key <account>=<file>` puts one in -
+in from that moment on. And asked again while a session lasts, before every
+command that needs a role and every five seconds besides
+(`SSHSessionRecheckEvery`): an account switched off, out of every role or
+gone, or the key it came with taken out, switched off or expired, ends its
+sessions - the command running in them and their log with them - with
+"Signed out: ..." on the terminal, exit status 1, and a line in the log, as
+its sessions on the web interface end. `--authorize-ssh-key <account>=<file>` puts one in -
 an OpenSSH `.pub`, or what PuTTYgen saves - once the accounts are read and
 before a port opens, so at a first start too.
 

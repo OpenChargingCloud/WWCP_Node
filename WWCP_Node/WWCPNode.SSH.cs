@@ -85,7 +85,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public static readonly TimeSpan  SSHLoginGraceTime  = TimeSpan.FromSeconds(30);
 
+        /// <summary>
+        /// How often a session over SSH is asked again whether what let it in
+        /// still lets it in - besides before every command that needs a role,
+        /// which is asked at once. What is cut by this is a session typing
+        /// nothing, and the log it is shown.
+        /// </summary>
+        public TimeSpan  SSHSessionRecheckEvery { get; set; } = TimeSpan.FromSeconds(5);
+
         private          SshServer?         sshServer;
+
+        /// <summary>
+        /// Who may sign in, and asked again of every session - see
+        /// <see cref="NodeSSHAuthenticator.WhyNoLongerIn(SshSessionInfo)"/>.
+        /// </summary>
+        private          NodeSSHAuthenticator?  sshAuthenticator;
+
+        /// <summary>
+        /// Each open session's check of whether it may go on, which ends it where
+        /// it may not, by connection.
+        /// </summary>
+        private readonly ConcurrentDictionary<String, Func<String?>>  sshSessionRechecks  = new ();
+
         private readonly IIPAddress         listenAddress;
         private readonly SSHSettings?       sshSettings;
 
@@ -427,9 +448,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             SSHHostKey  = $"{hostKey.AlgorithmNames[0]} {SshFingerprint.Sha256(hostKey.PublicKeyBlob)}";
 
+            sshAuthenticator = new NodeSSHAuthenticator(this, Passwords);
+
             var server  = new SshServer(new SshServerOptions {
                               HostKeys             = [ hostKey ],
-                              Authenticator        = new NodeSSHAuthenticator(this, Passwords),
+                              Authenticator        = sshAuthenticator,
                               ShellHandler         = ServeShellAsync,
                               AuditSink            = new DelegateAuditSink(Audited),
                               ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
@@ -581,6 +604,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region RecheckSSHSession(Session)
+
+        /// <summary>
+        /// Ask the given session again whether what let it in still lets it in,
+        /// and end it where not: why it ends, or null where it goes on.
+        /// </summary>
+        /// <param name="Session">The session, as it signed in.</param>
+        public String? RecheckSSHSession(SshSessionInfo Session)
+
+            => sshSessionRechecks.TryGetValue(Session.ConnectionId, out var recheck)
+                   ? recheck()
+                   : sshAuthenticator?.WhyNoLongerIn(Session);
+
+        #endregion
+
         #region MayReadTheLog(User)
 
         /// <summary>
@@ -617,6 +655,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// A node that stops says so on every session while its channel is still
         /// open, and then ends it.
         /// </para>
+        /// <para>
+        /// What let the account in is asked again while it is in - before every
+        /// command that needs a role, and every few seconds besides: an account
+        /// switched off, out of every role or gone, or the key it came with
+        /// taken out, switched off or expired, ends the session with a sentence
+        /// that says so, the command running in it and its log with it.
+        /// </para>
         /// </remarks>
         /// <param name="Context">The session.</param>
         /// <param name="CancellationToken">Fires when the session is over, or the node is stopping.</param>
@@ -646,6 +691,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var from      = session.Peer?.ToString() ?? "somewhere";
             var caller    = new CLICaller(account, session);
 
+            // Ended where what let it in no longer does - see RecheckSSHSession.
+            using var signedIn  = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+            String?   signedOut = null;
+
+            String? Recheck()
+            {
+
+                if (Volatile.Read(ref signedOut) is String already)
+                    return already;
+
+                if (sshAuthenticator?.WhyNoLongerIn(session) is not String why)
+                    return null;
+
+                if (Interlocked.CompareExchange(ref signedOut, why, null) is null)
+                    signedIn.Cancel();
+
+                return Volatile.Read(ref signedOut);
+
+            }
+
             await using var terminal = new VT100Terminal((bytes, ct) => Context.WriteAsync(bytes, ct),
                                                          Width:         Columns(size),
                                                          TimeProvider:  TimeProvider);
@@ -657,7 +722,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             // The log from where the console shows it, where the account may read it.
             cli.SessionLog = MayReadTheLog(account)
-                                 ? new SessionLog(Log, cli, consoleLog?.MinimumLevel ?? LogLevel.Info, () => MayReadTheLog(account))
+                                 ? new SessionLog(Log, cli, consoleLog?.MinimumLevel ?? LogLevel.Info, () => Volatile.Read(ref signedOut) is null && MayReadTheLog(account))
                                  : null;
 
             commandLineSessions[session.ConnectionId] = new CommandLineSession(session.ConnectionId,
@@ -665,6 +730,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                                from,
                                                                                session.PublicKeyFingerprint,
                                                                                since);
+
+            sshSessionRechecks[session.ConnectionId] = Recheck;
+
+            using var watch = TimeProvider.CreateTimer(_ => Recheck(), null, SSHSessionRecheckEvery, SSHSessionRecheckEvery);
 
             var reading = terminal.ReadFromAsync(Context.Input, CancellationToken);
 
@@ -675,9 +744,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 terminal.WriteLine($"Type 'help' for what can be typed here; 'quit' or Ctrl+D leaves, and the {Kind.Name} keeps running.");
                 terminal.WriteLine();
 
-                await cli.Run(CancellationToken);
+                try
+                {
+                    await cli.Run(signedIn.Token);
+                }
+                catch (OperationCanceledException) when (signedOut is not null && !CancellationToken.IsCancellationRequested)
+                {
+                    // Signed out in the middle of something: said below.
+                }
 
-                if (Context.Stopping.IsCancellationRequested && !Context.Closed.IsCancellationRequested)
+                if (Volatile.Read(ref signedOut) is String why && !Context.Closed.IsCancellationRequested)
+                {
+                    terminal.WriteLine();
+                    terminal.WriteLine($"Signed out: {why}.");
+                }
+
+                else if (Context.Stopping.IsCancellationRequested && !Context.Closed.IsCancellationRequested)
                 {
                     terminal.WriteLine();
                     terminal.WriteLine($"The {Kind.Name} is shutting down.");
@@ -702,6 +784,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             finally
             {
 
+                await watch.DisposeAsync();
+
+                sshSessionRechecks.TryRemove(session.ConnectionId, out _);
+
                 if (cli.SessionLog is SessionLog sessionLog)
                     await sessionLog.DisposeAsync();
 
@@ -709,15 +795,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 var lasted = TimeProvider.GetUtcNow() - since;
 
-                Log.Info($"'{account.Id}' left the command line over SSH after {Lasted(lasted)}" +
-                         (Context.Stopping.IsCancellationRequested ? $", as the {Kind.Name} stopped." : "."),
-                         "ssh", "cli");
+                if (Volatile.Read(ref signedOut) is String why)
+                    Log.Notice($"'{account.Id}' was signed out of the command line over SSH from {from} after {Lasted(lasted)}: {why}.",
+                               "ssh", "cli", "security");
+
+                else
+                    Log.Info($"'{account.Id}' left the command line over SSH after {Lasted(lasted)}" +
+                             (Context.Stopping.IsCancellationRequested ? $", as the {Kind.Name} stopped." : "."),
+                             "ssh", "cli");
 
             }
 
             _ = reading.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
 
-            return 0;
+            return signedOut is null ? 0 : 1;
 
         }
 

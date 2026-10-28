@@ -42,7 +42,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// Every question is asked again at every sign-in - the account, its roles,
     /// its keys, which the HTTPExt API keeps with it - and nothing is
     /// remembered between two of them: a key removed lets nobody in from that
-    /// moment on.
+    /// moment on. And asked again of a session while it lasts, see
+    /// <see cref="WhyNoLongerIn(SshSessionInfo)"/>: an account switched off,
+    /// or a key taken out, ends the sessions it let in, as it ends the
+    /// account's sessions on the web interface.
     /// </para>
     /// <para>
     /// A password opens nothing unless the node says it may, and never an
@@ -188,6 +191,45 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #endregion
 
+
+        #region WhyNoLongerIn(Session)
+
+        /// <summary>
+        /// Why the given session may not go on, or null where it may: what let
+        /// it in, asked again now - the account still there, not switched off
+        /// and holding a role of this node, and the key it signed in with still
+        /// one of the account's, switched on and valid; or, where its password
+        /// let it in, a password still opening the account over SSH.
+        /// </summary>
+        /// <param name="Session">The session, as it signed in.</param>
+        public String? WhyNoLongerIn(SshSessionInfo Session)
+        {
+
+            if (User_Id.TryParse(Session.Username) is not User_Id userId ||
+                !node.ExtAPI.TryGetUser(userId, out var user) ||
+                user is null)
+            {
+                return $"there is no account '{Session.Username}' any more";
+            }
+
+            if (user.IsDisabled)
+                return $"the account '{user.Id}' was switched off";
+
+            if (node.RolesOf(user).Count == 0)
+                return $"the account '{user.Id}' holds no role of this {node.Kind.Name} any more";
+
+            if (Session.PublicKeyBlob is Byte[] key)
+                return node.ExtAPI.FindSSHKey(user.Id, key, node.TimeProvider.GetUtcNow()) is null
+                           ? $"the key {Session.PublicKeyFingerprint} is no longer one '{user.Id}' signs in with - taken out, switched off or expired"
+                           : null;
+
+            return passwords && user.Use2AuthFactor == Use2AuthFactor.None
+                       ? null
+                       : $"a password no longer opens the account '{user.Id}' over SSH";
+
+        }
+
+        #endregion
 
         #region (private) AccountMaySignIn(Username)
 

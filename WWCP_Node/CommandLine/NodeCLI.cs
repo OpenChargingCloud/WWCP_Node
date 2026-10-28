@@ -26,6 +26,7 @@ using org.GraphDefined.Vanaheimr.CLI;
 using cloud.charging.open.protocols.WWCP.Node.Web;
 
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
 #endregion
 
@@ -274,6 +275,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             Refused = null;
 
+            if (SignedOut(out Refused))
+                return false;
+
             if (Caller.Account is not { } account || Node.IsAllowed(account, [ Required ]))
                 return true;
 
@@ -316,6 +320,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             Refused = null;
 
+            if (SignedOut(out Refused))
+                return false;
+
             if (Caller.Account is not { } caller ||
                 caller.Id == Account.Id ||
                 Node.ExtAPI.CanImpersonate(caller, Account))
@@ -330,6 +337,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             Refused = $"'{caller.Id}' may not do that for '{Account.Id}': only the account itself, or an account that may act for it in the accounts, may.";
             return false;
+
+        }
+
+        #endregion
+
+
+        #region (private) SignedOut(out Refused)
+
+        /// <summary>
+        /// Whether the session over SSH whoever is typing here came with was just
+        /// signed out - what let it in asked again, as before every command that
+        /// needs a role. The session says why as it ends; the command only that
+        /// it was not run.
+        /// </summary>
+        /// <param name="Refused">That the command was not run.</param>
+        private Boolean SignedOut([NotNullWhen(true)] out String? Refused)
+        {
+
+            Refused = Caller.Session is SshSessionInfo session &&
+                      Node.RecheckSSHSession(session) is not null
+                          ? "Not run: this session is signed out."
+                          : null;
+
+            return Refused is not null;
 
         }
 

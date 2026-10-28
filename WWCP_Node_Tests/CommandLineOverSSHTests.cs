@@ -601,6 +601,114 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnAccountSwitchedOffIsSignedOutAtItsNextCommand
+
+        /// <summary>
+        /// An account switched off while it is in: its next command that needs a
+        /// role is not run, the session says why and ends with exit status 1,
+        /// and the log says who was signed out - as its sessions on the web
+        /// interface end.
+        /// </summary>
+        [Test]
+        public async Task AnAccountSwitchedOffIsSignedOutAtItsNextCommand()
+        {
+
+            // Only the check before a command, not the one every few seconds.
+            node!.SSHSessionRecheckEvery = TimeSpan.FromHours(1);
+
+            await using var client  = await SignIn("anadmin", WWCPNode.AdminRole);
+            var (shell, screen)     = await Open(client);
+
+            await screen.WaitFor("WWCP node> ");
+
+            node.ExtAPI.TryGetUser(User_Id.Parse("anadmin"), out var account);
+            await node.ExtAPI.UpdateUser(account!, user => user.IsDisabled = true, SkipUserUpdatedNotifications: true);
+
+            node.ExtAPI.TryGetUser(User_Id.Parse("anadmin"), out account);
+            Assert.That(account!.IsDisabled, Is.True);
+
+            var mark = screen.Text.Length;
+            await shell.WriteAsync("syncNTS\r");
+
+            var answer = await screen.WaitFor("Signed out: the account 'anadmin' was switched off.", mark);
+
+            Assert.That(await shell.ExitStatus.WaitAsync(TimeSpan.FromSeconds(10)), Is.EqualTo(1));
+
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < until && !Said().Any(line => line.StartsWith("'anadmin' was signed out of the command line over SSH from 127.0.0.1:")))
+                await Task.Delay(20);
+
+            Assert.Multiple(() => {
+                Assert.That(Said(), Has.Some.StartsWith("'anadmin' was signed out of the command line over SSH from 127.0.0.1:").
+                                         And.Some.EndsWith(": the account 'anadmin' was switched off."));
+                Assert.That(Said(), Has.None.Contains("'anadmin' at the command line over SSH asked"), "The command ran.");
+                Assert.That(node.CommandLineSessions, Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region AKeyTakenOutEndsItsSessionsWithoutACommand
+
+        /// <summary>
+        /// The key a session came with taken out of its account: the session is
+        /// asked again every few seconds, and ends - typing nothing, its log
+        /// with it - with a sentence naming the key.
+        /// </summary>
+        [Test]
+        public async Task AKeyTakenOutEndsItsSessionsWithoutACommand()
+        {
+
+            node!.SSHSessionRecheckEvery = TimeSpan.FromMilliseconds(100);
+
+            await using var client  = await SignIn();
+            var (shell, screen)     = await Open(client);
+
+            await screen.WaitFor("WWCP node> ");
+
+            var root = User_Id.Parse(WWCPNode.DefaultAdminUser);
+            var key  = node.CommandLineSessions.Single().Key;
+
+            Assert.That(await node.ExtAPI.RemoveSSHKey(root, key!), Is.True);
+
+            await screen.WaitFor($"Signed out: the key {key} is no longer one '{WWCPNode.DefaultAdminUser}' signs in with - taken out, switched off or expired.");
+
+            Assert.That(await shell.ExitStatus.WaitAsync(TimeSpan.FromSeconds(10)), Is.EqualTo(1));
+
+        }
+
+        #endregion
+
+        #region AnAccountThatMayStayInStaysIn
+
+        /// <summary>
+        /// Asked again and again, a session whose account and key are as they
+        /// were goes on as it was.
+        /// </summary>
+        [Test]
+        public async Task AnAccountThatMayStayInStaysIn()
+        {
+
+            node!.SSHSessionRecheckEvery = TimeSpan.FromMilliseconds(50);
+
+            await using var client  = await SignIn();
+            var (shell, screen)     = await Open(client);
+
+            await screen.WaitFor("WWCP node> ");
+            await Task.Delay(500);
+
+            var mark = screen.Text.Length;
+            await shell.WriteAsync("syncNTS nowhere.example\r");
+
+            await screen.WaitFor("is none of this WWCP node's time servers", mark);
+
+            Assert.That(screen.Text, Does.Not.Contain("Signed out"));
+
+        }
+
+        #endregion
+
         #region AStoppingNodeSaysSoOnEverySession
 
         /// <summary>
