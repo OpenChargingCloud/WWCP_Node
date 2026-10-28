@@ -36,7 +36,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <remarks>
     /// <para>
     /// The store is what a node has for everything it presents, and what its
-    /// Certificates page manages: the TLS server identity for the listener
+    /// certificate pages manage: the TLS server identity for the listener
     /// "web" - or one told no listener, which is for every listener - valid
     /// now, switched on, and the newest of them, asked at every handshake. A
     /// certificate put in before the old one runs out takes over on the day it

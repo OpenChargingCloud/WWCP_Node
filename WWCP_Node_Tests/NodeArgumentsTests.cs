@@ -533,7 +533,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                             Is.EqualTo(2));
                 Assert.That(Flat(without),
                             Is.EqualTo("'tlsServerIdentity' is not a kind of certificate this test node keeps. Use one of tlsRoot, tlsServer, tlsIdentity. " +
-                                       "With --https, it keeps the web interface's as well; where the configuration file asks for it, put it in on the Certificates page."));
+                                       "With --https, it keeps the web interface's as well; where the configuration file asks for it, put it in on the Server identities page."));
                 Assert.That(TooWide(without), Is.Empty);
 
                 // Past the kind, on to the file.

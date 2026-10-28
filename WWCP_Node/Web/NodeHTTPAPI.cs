@@ -27,6 +27,7 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
 
 #endregion
 
@@ -715,6 +716,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// itself opened a stream the node refused, and then told somebody
         /// that they may no longer read a log they had never been let read.
         ///
+        /// The pages of certificates the store keeps kinds for come next, as
+        /// "certificatePages", so that the menu offers no page that would say
+        /// it looks after nothing - "Server identities", say, on a local
+        /// controller whose web interface is not served from the store. They
+        /// are fixed when the node is made, as the kinds are.
+        ///
         /// What the web interface says above every page to them comes last, as
         /// "notices", where there is anything: the warning about plain HTTP
         /// beyond this machine, to an administrator - see
@@ -732,7 +739,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                               new JProperty("username",       User.Id.ToString()),
                               new JProperty("roles",          new JArray(roles)),
                               new JProperty("permissions",    new JArray(Node.PermissionsOf(User).Select(permission => permission.ToString()))),
-                              new JProperty("mayReadTheLog",  MayReadTheLog(User))
+                              new JProperty("mayReadTheLog",  MayReadTheLog(User)),
+                              new JProperty("certificatePages",
+                                            new JArray(Node.Certificates.Kinds.Select (kind => kind.Page).
+                                                                               Distinct().
+                                                                               Order   ().
+                                                                               Select (CertificateKind.AsText)))
                           );
 
             foreach (var property in ProductMe(User))

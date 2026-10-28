@@ -898,7 +898,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // where the web interface is to show the store's TLS server
             // identity, the store keeps that kind, whatever kinds this kind of
             // node keeps otherwise. Asked for in the file, it has to be there to
-            // be put in - on the Certificates page, or with
+            // be put in - on the Server identities page, or with
             // --import-certificate tlsServerIdentity=<file>.
             this.WebSwitches  = Web;
             this.WebSettings  = WebSettingsOf(Web, configuration.Web);

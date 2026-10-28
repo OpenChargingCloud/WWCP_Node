@@ -1,4 +1,4 @@
-import type { NodeMe } from './api/client';
+import type { CertificatePageName, NodeMe } from './api/client';
 import { auth } from './auth';
 import { fromURL } from './basePath';
 import { must } from './html';
@@ -94,16 +94,17 @@ export const nodeMenu: {
         path:        '/configuration/identities',
         label:       'Identities',
         icon:        'fa-id-card',
-        permission:  [ 'certificates:read' ]
+        permission:  keepsCertificatesFor('identities')
     },
 
     // Who its servers are, with their keys - for a kind of node with
-    // listeners of its own, a meter's Modbus/TLS port and web interface.
+    // listeners of its own, a meter's Modbus/TLS port and web interface, or
+    // whose web interface is served from the store.
     serverIdentities: {
         path:        '/configuration/server-identities',
         label:       'Server identities',
         icon:        'fa-server',
-        permission:  [ 'certificates:read' ]
+        permission:  keepsCertificatesFor('serverIdentities')
     },
 
     // The SSH server the command line is served over: every node has one.
@@ -123,6 +124,19 @@ export const nodeMenu: {
 
 };
 
+
+/**
+ * Whether a page of certificates is in the menu of whoever is signed in: for
+ * whoever may read certificates, where the store keeps a kind for that page,
+ * as the node says it - a local controller keeps no server identity unless
+ * its web interface is served from the store, and its menu offered a page
+ * that said it looked after nothing. From a node too old to say, the
+ * permission alone.
+ */
+export function keepsCertificatesFor(Page: CertificatePageName): () => boolean {
+    return () => auth.can('certificates', 'read') &&
+                 (auth.user?.certificatePages?.includes(Page) ?? true);
+}
 
 /** Whether the log is for whoever is signed in, as the node says it. */
 export function mayReadTheLog(): boolean {

@@ -94,16 +94,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A node that says what a kind of node says: a certificate it uses,
         /// and what its store's answer adds.
         /// </summary>
-        private sealed class TestNode(IPPort          Port,
-                                      String          Here,
-                                      WWCPConfigFile  File)
+        private sealed class TestNode(IPPort                         Port,
+                                      String                         Here,
+                                      WWCPConfigFile                 File,
+                                      IEnumerable<CertificateKind>?  Kinds  = null)
 
             : WWCPNode(HTTPPort:          Port,
                        AccountsPath:      Path.Combine(Here, "accounts"),
                        ConfigFile:        File,
                        CertificatesPath:  Path.Combine(Here, "certificates"),
                        LogToConsole:      false,
-                       BridgeDebugLog:    false)
+                       BridgeDebugLog:    false,
+                       CertificateKinds:  Kinds)
 
         {
 
@@ -219,14 +221,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region (helpers) Started(Clock, Log) / Client(...) / Send(...)
+        #region (helpers) Started(Clock, Log, Kinds) / Client(...) / Send(...)
 
         /// <summary>
         /// A node with the API of a kind of node, started - on a port nobody
         /// else has, made again on a fresh one where another process took it
-        /// first, and without asking a time server.
+        /// first, and without asking a time server - its store keeping the
+        /// given kinds, or every kind.
         /// </summary>
-        private async Task<TestNode> Started(Permission? Clock = null, Permission? Log = null)
+        private async Task<TestNode> Started(Permission?                    Clock  = null,
+                                             Permission?                    Log    = null,
+                                             IEnumerable<CertificateKind>?  Kinds  = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
@@ -235,7 +240,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             return await TestPorts.StartedOnFreshPorts(() => {
 
-                var node = new TestNode(IPPort.Parse(TestPorts.Free()), directory, new WWCPConfigFile(configuration));
+                var node = new TestNode(IPPort.Parse(TestPorts.Free()), directory, new WWCPConfigFile(configuration), Kinds);
 
                 node.API = new TestAPI(node, Clock, Log);
 
@@ -624,8 +629,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(me.Value<String>("username"),  Is.EqualTo("root"));
                 Assert.That(me.Value<String>("roleTitle"), Is.EqualTo("Tester, as 'root'"));
                 Assert.That(me.Properties().Select(property => property.Name),
-                            Is.EqualTo(new[] { "username", "roles", "permissions", "mayReadTheLog", "roleTitle" }),
+                            Is.EqualTo(new[] { "username", "roles", "permissions", "mayReadTheLog", "certificatePages", "roleTitle" }),
                             "what the kind adds comes after what every node says");
+            });
+
+        }
+
+        #endregion
+
+        #region MeSaysThePagesTheStoreKeepsKindsFor()
+
+        /// <summary>
+        /// "me" names the pages of certificates the store keeps kinds for, so
+        /// that the menu offers no page that would say it looks after nothing:
+        /// a local controller over plain HTTP keeps no server identity, and a
+        /// meter is nobody as a client.
+        /// </summary>
+        [TestCase(new[] { "tlsRoot", "tlsServer", "tlsIdentity" },  new[] { "certificates", "identities" })]
+        [TestCase(new[] { "tlsRoot", "tlsServerIdentity" },         new[] { "certificates", "serverIdentities" })]
+        [TestCase(new[] { "tlsServerIdentity", "tlsIdentity" },     new[] { "identities", "serverIdentities" })]
+        [TestCase(null,                                              new[] { "certificates", "identities", "serverIdentities" })]
+        public async Task MeSaysThePagesTheStoreKeepsKindsFor(String[]? Kinds, String[] Pages)
+        {
+
+            await using var node   = await Started(Kinds: Kinds?.Select(kind => CertificateKind.Parse(kind)).ToArray());
+
+            using var root         = Root(node);
+
+            var (status, me)       = await Send(root, HttpMethod.Get, "api/v1/auth/me");
+
+            Assert.Multiple(() => {
+                Assert.That(status,                                                       Is.EqualTo(HttpStatusCode.OK), me.ToString());
+                Assert.That(me["certificatePages"]?.Values<String>(),                     Is.EqualTo(Pages));
             });
 
         }

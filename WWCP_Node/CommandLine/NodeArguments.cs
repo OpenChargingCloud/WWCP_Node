@@ -752,7 +752,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                     ? $"Use one of {String.Join(", ", Usage.CertificateKinds.Select(kind => kind.AsText()))}." +
                       (Kind == CertificateKind.TLSServerIdentity.AsText()
                            ? " With --https, it keeps the web interface's as well; where the configuration file asks for it, " +
-                             "put it in on the Certificates page."
+                             "put it in on the Server identities page."
                            : "")
                     : "It keeps none.");
 

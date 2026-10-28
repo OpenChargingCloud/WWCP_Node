@@ -19,7 +19,7 @@ import type { Page }         from './router.ts';
 document.head.innerHTML = '<meta name="base" content="/EV">';
 
 const { auth }                                                        = await import('./auth.ts');
-const { configureShell }                                              = await import('./shell.ts');
+const { configureShell, visibleMenu }                                 = await import('./shell.ts');
 const { afterASignInChange, firstPageOfTheMenu, followAcrossTheCache, mayReadTheLog, nodeMenu, routesOf } = await import('./start.ts');
 
 
@@ -94,7 +94,8 @@ describe('the routes of a kind of node', () => {
         assert.equal(routeFor('/configuration/identities', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
                      'Identities', 'the title a kind gives its certificates is not the identities\' too');
         assert.deepEqual([ nodeMenu.identities.path, nodeMenu.serverIdentities.path ], [ '/configuration/identities', '/configuration/server-identities' ]);
-        assert.deepEqual([ nodeMenu.identities.permission, nodeMenu.serverIdentities.permission ], [ [ 'certificates:read' ], [ 'certificates:read' ] ]);
+        assert.equal(typeof nodeMenu.identities.permission,        'function', 'the identities are offered whatever the store keeps');
+        assert.equal(typeof nodeMenu.serverIdentities.permission,  'function', 'the server identities are offered whatever the store keeps');
         assert.equal(routeFor('/configuration/ssh', routes)?.page.title, 'SSH server', 'the SSH server has no page');
 
         // The server identities' page was "Server certificates" for a few
@@ -152,6 +153,45 @@ describe('the log', () => {
         auth.set(null);
         assert.equal(mayReadTheLog(), false);
 
+    });
+
+});
+
+
+describe('the pages of certificates in the menu', () => {
+
+    const keeping = (Pages: NodeMe['certificatePages'], ...Permissions: string[]): NodeMe =>
+        ({ ...signedIn(false, ...Permissions), certificatePages: Pages });
+
+    const offered = () => visibleMenu([ nodeMenu.configuration([ nodeMenu.certificates, nodeMenu.identities, nodeMenu.serverIdentities ]) ]).
+                              flatMap(entry => [ entry.path, ...(entry.children ?? []).map(child => child.path) ]);
+
+    it('are offered where the store keeps a kind for them, as the node says it', () => {
+
+        // A local controller over plain HTTP: no server identity - and the
+        // page that would have said so was in the menu all the same.
+        auth.set(keeping([ 'certificates', 'identities' ], 'configuration:read', 'certificates:read'));
+        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/identities' ]);
+
+        // The same with --https: the store keeps who its web interface is.
+        auth.set(keeping([ 'certificates', 'identities', 'serverIdentities' ], 'configuration:read', 'certificates:read'));
+        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/identities', '/configuration/server-identities' ]);
+
+        // A meter: servers, and nobody it is as a client.
+        auth.set(keeping([ 'certificates', 'serverIdentities' ], 'configuration:read', 'certificates:read'));
+        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/server-identities' ]);
+
+    });
+
+    it('are offered to nobody who may not read certificates, whatever the store keeps', () => {
+        auth.set(keeping([ 'certificates', 'identities', 'serverIdentities' ], 'configuration:read'));
+        assert.deepEqual(offered(), [ '/configuration' ]);
+    });
+
+    it('are offered by a node too old to say what its store keeps to whoever may read certificates', () => {
+        auth.set(signedIn(false, 'configuration:read', 'certificates:read'));
+        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/identities', '/configuration/server-identities' ]);
+        auth.set(null);
     });
 
 });

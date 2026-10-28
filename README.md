@@ -731,14 +731,14 @@ is the certificate store's TLS server identity for the listener `web` - or
 one told no listener, which is for every listener - switched on and valid
 now, and of several the one whose validity began last, so that a certificate
 put in before the old one runs out takes over on the day it becomes valid. It
-is put there like every other, on the Certificates page, with
+is put there like every other, on the Server identities page, with
 `--import-certificate tlsServerIdentity=<file>`, or by copying it in. A kind
 of node whose store keeps no server identities otherwise keeps them where this
 is asked for. `--import-certificate` takes them where the kind's usage lists
 the kind, or with `--https` on the same command line; where only the file asks
 for the store, the switch is refused before the node is made, which has not
-read the file yet, and the certificate goes in on the Certificates page or by
-copying it in. And
+read the file yet, and the certificate goes in on the Server identities page
+or by copying it in. And
 
 ```json
 "web": { "tls": { "certificate": { "fullchain": "/etc/letsencrypt/live/hub.example.org/fullchain.pem",
@@ -1307,7 +1307,8 @@ startNode({
             nodeMenu.nts,
             { path: '/configuration/csms', label: 'CSMS connection', icon: 'fa-satellite-dish', permission: [ 'csms:read' ] },
             { ...nodeMenu.certificates, label: 'Certificate store', icon: 'fa-vault' },
-            nodeMenu.identities
+            nodeMenu.identities,
+            nodeMenu.serverIdentities
         ]),
         nodeMenu.logs
     ],
@@ -1342,7 +1343,13 @@ entry, the Logs page and following the log all go by it. Every kind had
 repeated its own node's rule in its pages - signed in, `configuration:read`,
 `log:read` - and a page that asked the wrong one opened a stream the node
 refused, and then told the account it may no longer read a log it had never
-been let read.
+been let read. So, too, with the pages of certificates: "me" carries
+`certificatePages`, the pages the store keeps kinds for, and
+`nodeMenu.identities` and `nodeMenu.serverIdentities` are shown only there,
+to whoever may read certificates. A local controller keeps a server identity
+only where its web interface is served from the store, and its menu offers
+the Server identities page then and only then, rather than a page that says
+it looks after nothing.
 
 Its stylesheet begins with every node's, in its own colour, and adds what
 only its own pages need, with the tokens and the `panel` mixin at hand:

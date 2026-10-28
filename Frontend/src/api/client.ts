@@ -81,6 +81,13 @@ export interface NodeMe<R extends string = NodeResource> {
      */
     mayReadTheLog:  boolean;
     /**
+     * The pages of certificates the store keeps kinds for, so that the menu
+     * offers no page that would say it looks after nothing - "Server
+     * identities" on a node whose web interface is not served from the store,
+     * say. Nothing from a node too old to say it.
+     */
+    certificatePages?:  CertificatePageName[];
+    /**
      * What the node says above every page to them: the warning that its web
      * interface is served over plain HTTP beyond its machine, to an
      * administrator. Nothing where it has nothing to say - and nothing from a
