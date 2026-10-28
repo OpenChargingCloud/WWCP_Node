@@ -501,6 +501,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             if (parsed.HTTPSKey is not null && parsed.HTTPSCertificate is null)
                 return parsed.Refusing("--https-key is the key of the certificate --https-cert names: give that as well.");
 
+            // A certificate without its key, and no file of the key named: the
+            // node started, and refused every connection (found by the gateway).
+            if (parsed.HTTPSCertificate is not null && parsed.HTTPSKey is null && !HoldsPrivateKey(parsed.HTTPSCertificate))
+                return parsed.Refusing($"--https-cert: '{parsed.HTTPSCertificate}' holds no private key. Give the file of its key with --https-key.");
+
             if (parsed.RedirectPort is not null && !parsed.HTTPS && parsed.HTTPSCertificate is null)
                 return parsed.Refusing("--redirect-port sends browsers to HTTPS: give it with --https or --https-cert.");
 
@@ -635,7 +640,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             foreach (var (kind, file) in imports)
             {
 
-                if (!Usage.CertificateKinds.Contains(kind))
+                // With --https, the store keeps TLS server identities, whatever
+                // kinds the node keeps otherwise - see WWCPNode.cs. Where only the
+                // file asks for them, that is not known yet (found by the gateway).
+                if (!Usage.CertificateKinds.Contains(kind) &&
+                    !(kind == CertificateKind.TLSServerIdentity && HTTPS && Usage.CertificateKinds.Count > 0))
                 {
                     NodeProgram.Say(Error, NotKeptBy(Usage, kind.AsText()));
                     return 2;
@@ -732,15 +741,40 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         #region (private static) NotKeptBy(Usage, Kind)
 
         /// <summary>
-        /// A kind of certificate the node does not keep, said with the ones it does.
+        /// A kind of certificate the node does not keep, said with the ones it does;
+        /// for a TLS server identity, when it would keep one.
         /// </summary>
         private static String NotKeptBy(NodeUsage  Usage,
                                         String     Kind)
 
             => $"'{Kind}' is not a kind of certificate this {Usage.Kind.Name} keeps. " +
                (Usage.CertificateKinds.Count > 0
-                    ? $"Use one of {String.Join(", ", Usage.CertificateKinds.Select(kind => kind.AsText()))}."
+                    ? $"Use one of {String.Join(", ", Usage.CertificateKinds.Select(kind => kind.AsText()))}." +
+                      (Kind == CertificateKind.TLSServerIdentity.AsText()
+                           ? " With --https, it keeps the web interface's as well; where the configuration file asks for it, " +
+                             "put it in on the Certificates page."
+                           : "")
                     : "It keeps none.");
+
+        #endregion
+
+        #region (private static) HoldsPrivateKey(File)
+
+        /// <summary>
+        /// Whether the given PEM file holds a private key beside its certificates;
+        /// one that cannot be read is left to the node, which says why.
+        /// </summary>
+        private static Boolean HoldsPrivateKey(String File)
+        {
+            try
+            {
+                return System.IO.File.ReadAllText(File).Contains("PRIVATE KEY-----", StringComparison.Ordinal);
+            }
+            catch
+            {
+                return true;
+            }
+        }
 
         #endregion
 

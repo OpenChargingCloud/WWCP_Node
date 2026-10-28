@@ -510,6 +510,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AServerIdentityIsTakenWithHTTPS()
+
+        /// <summary>
+        /// A TLS server identity, which a node without listeners of its own does
+        /// not keep otherwise, is taken with --https on the same command line: the
+        /// store keeps the web interface's then. Without it, the refusal says so
+        /// (found by the gateway).
+        /// </summary>
+        [Test]
+        public void AServerIdentityIsTakenWithHTTPS()
+        {
+
+            CertificateKind[] tls = [ CertificateKind.TLSRoot, CertificateKind.TLSServer, CertificateKind.TLSIdentity ];
+
+            var without  = new StringWriter();
+            var with     = new StringWriter();
+
+            Assert.Multiple(() => {
+
+                Assert.That(NodeArguments.Parse([ "--import-certificate", "tlsServerIdentity=no-such-web.pem" ]).Refused(Usage(tls), TextWriter.Null, without),
+                            Is.EqualTo(2));
+                Assert.That(Flat(without),
+                            Is.EqualTo("'tlsServerIdentity' is not a kind of certificate this test node keeps. Use one of tlsRoot, tlsServer, tlsIdentity. " +
+                                       "With --https, it keeps the web interface's as well; where the configuration file asks for it, put it in on the Certificates page."));
+                Assert.That(TooWide(without), Is.Empty);
+
+                // Past the kind, on to the file.
+                Assert.That(NodeArguments.Parse([ "--https", "--import-certificate", "tlsServerIdentity=no-such-web.pem" ]).Refused(Usage(tls), TextWriter.Null, with),
+                            Is.EqualTo(2));
+                Assert.That(Flat(with),
+                            Is.EqualTo("--import-certificate: there is no file 'no-such-web.pem'."));
+
+            });
+
+        }
+
+        #endregion
+
         #region AFileThatIsNotThereIsRefusedBeforeTheNodeIsMade()
 
         /// <summary>

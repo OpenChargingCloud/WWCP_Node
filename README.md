@@ -720,10 +720,13 @@ one told no listener, which is for every listener - switched on and valid
 now, and of several the one whose validity began last, so that a certificate
 put in before the old one runs out takes over on the day it becomes valid. It
 is put there like every other, on the Certificates page, with
-`--import-certificate tlsServerIdentity=<file>`, or by copying it in; a kind
+`--import-certificate tlsServerIdentity=<file>`, or by copying it in. A kind
 of node whose store keeps no server identities otherwise keeps them where this
-is asked for, and `--import-certificate` takes them where the kind's usage
-lists the kind. And
+is asked for. `--import-certificate` takes them where the kind's usage lists
+the kind, or with `--https` on the same command line; where only the file asks
+for the store, the switch is refused before the node is made, which has not
+read the file yet, and the certificate goes in on the Certificates page or by
+copying it in. And
 
 ```json
 "web": { "tls": { "certificate": { "fullchain": "/etc/letsencrypt/live/hub.example.org/fullchain.pem",
@@ -832,7 +835,8 @@ certificate shown and until when, HSTS, the proxies - and the warning.
 
 **The command line.** `--https` takes the store's identity, `--https-cert
 <file>` with `--https-key <file>` the PEM files - measured from where the node
-is started, and refused where they are not there - `--redirect-port <number>`
+is started, and refused where they are not there, or where `--https-cert`
+comes alone and its file holds no private key - `--redirect-port <number>`
 the redirect, which wants one of the other two, and `--trusted-proxy
 <address>`, given as often as there are proxies, the proxies. They win over
 the file where both say something: the certificate and the redirect port

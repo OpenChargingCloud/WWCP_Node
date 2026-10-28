@@ -345,6 +345,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         [TestCase(new[] { "--https", "--port", "8443", "--redirect-port", "8443" },  "--redirect-port and --port name the same port")]
         [TestCase(new[] { "--https-cert", "no-such-fullchain.pem" },     "--https-cert: there is no file 'no-such-fullchain.pem'")]
         [TestCase(new[] { "--https-cert" },                              "Missing PEM file after --https-cert")]
+        [TestCase(new[] { "--https-cert", "@fullchain" },                "holds no private key. Give the file of its key with --https-key.")]
         [TestCase(new[] { "--trusted-proxy", "proxy.example.org" },      "--trusted-proxy: 'proxy.example.org' is neither an IP address nor a network")]
         [TestCase(new[] { "--trusted-proxy", "10.0.0.1/8" },             "--trusted-proxy: '10.0.0.1/8' is neither an IP address nor a network")]
         [TestCase(new[] { "--trusted-proxy" },                           "Missing address or network after --trusted-proxy")]
@@ -361,6 +362,32 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                       ToArray();
 
             Assert.That(NodeArguments.Parse(arguments).Problem, Does.Contain(Says));
+
+        }
+
+        #endregion
+
+        #region ACertificateWithItsKeyInOneFileIsTakenAlone()
+
+        /// <summary>
+        /// --https-cert alone, where its file holds the key as well, is taken:
+        /// only a file without a key wants --https-key beside it.
+        /// </summary>
+        [Test]
+        public void ACertificateWithItsKeyInOneFileIsTakenAlone()
+        {
+
+            var combined = Path.Combine(directory, "combined.pem");
+
+            File.WriteAllText(combined, "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n" +
+                                        "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n");
+
+            var arguments = NodeArguments.Parse([ "--https-cert", combined ]);
+
+            Assert.Multiple(() => {
+                Assert.That(arguments.Problem,                    Is.Null);
+                Assert.That(arguments.Web?.TLS?.Certificate,      Is.EqualTo(new WebCertificateSource(Path.GetFullPath(combined))));
+            });
 
         }
 
