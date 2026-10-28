@@ -877,6 +877,19 @@ history, and the log above the line being typed. Nothing else is served -
 no shell of the machine, no `exec`, no SFTP, no tunnels: the session is the
 command line, and the command line is all there is.
 
+The history outlives the session. Each account keeps its own in
+`<accounts>/history/<account>` - its name, with every character but
+lower-case letters, digits, `-` and `_` written `%XX` - shared by every
+session it has open, and
+the console keeps its own beside them in `@console`: Up brings back what
+was typed last time, the newest 1000 lines. A mistyped line comes back with
+Up in its own session, to be put right, and is never written down - nothing
+answered to it, so nothing can say whether it carries a secret - and nor is
+a line whose command says it carries one: `apiKeys` with a `key` given, or
+one to `remove`. A command of a kind's own that takes a secret says so with
+`MayBeKept`. Below the accounts, the files are the node's owner's alone as
+everything there is, and go wherever the accounts go.
+
 It is Hermod's SSH server, on the address the web interface listens on - the
 loopback, or every address with `--any`, which is one decision about who may
 reach the node and not two - and on a port twenty thousand above the web

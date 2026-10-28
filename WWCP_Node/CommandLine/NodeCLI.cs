@@ -67,6 +67,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
     public class NodeCLI : org.GraphDefined.Vanaheimr.CLI.CLI
     {
 
+        #region Data
+
+        /// <summary>
+        /// The directory below the accounts' the histories are kept in, one file
+        /// per account.
+        /// </summary>
+        public const String HistoryDirectory    = "history";
+
+        /// <summary>
+        /// The history of the node's console, beside the accounts'. No account's
+        /// file is ever called this: an at sign in a name is written %40.
+        /// </summary>
+        public const String ConsoleHistoryFile  = "@console";
+
+        /// <summary>
+        /// The names Windows keeps for its devices, as they would be written
+        /// unchanged - upper-case letters are written %XX anyway.
+        /// </summary>
+        private static readonly String[] WindowsDevices = [ "con", "prn", "aux", "nul",
+                                                            .. Enumerable.Range(1, 9).Select(n => $"com{n}"),
+                                                            .. Enumerable.Range(1, 9).Select(n => $"lpt{n}") ];
+
+        #endregion
+
         #region Properties
 
         /// <summary>
@@ -108,6 +132,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             this.Caller  = CLICaller.Console;
 
             RegisterCLIType(typeof(NodeCLI));
+            KeepHistoryIn(new HistoryFile(HistoryPathOf(Node, Caller)));
 
         }
 
@@ -133,6 +158,80 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             this.Caller  = Caller;
 
             RegisterCLIType(typeof(NodeCLI));
+            KeepHistoryIn(new HistoryFile(HistoryPathOf(Node, Caller)));
+
+        }
+
+        #endregion
+
+
+        #region HistoryPathOf(Node, Caller)
+
+        /// <summary>
+        /// Where the history of whoever is typing is kept between sessions: one
+        /// file per account below the accounts' directory, shared by every
+        /// session of that account, and one for the console beside them.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Below the accounts because it is theirs: what an account typed says
+        /// what it did, and goes wherever the accounts go - a backup, a move to
+        /// another machine - and nowhere else. It is the node owner's alone as
+        /// everything below the accounts is: the directory is OwnerOnly's, and
+        /// what is made in it inherits that on Windows, while HistoryFile makes
+        /// its own 0600 and 0700 on Unix.
+        /// </para>
+        /// <para>
+        /// A name is written as it is where it is lower-case letters, digits,
+        /// '-' and '_', and every other character as %XX of its UTF-8 bytes: an
+        /// account's name never climbs out of the directory, never names a
+        /// device on Windows, and two names that differ only in case never
+        /// share a file on a file system that cannot tell them apart.
+        /// </para>
+        /// </remarks>
+        /// <param name="Node">The node.</param>
+        /// <param name="Caller">Who is typing.</param>
+        public static String HistoryPathOf(WWCPNode   Node,
+                                           CLICaller  Caller)
+
+            => Path.Combine(Node.AccountsPath,
+                            HistoryDirectory,
+                            Caller.Account is { } account
+                                ? FileNameOf(account.Id.ToString())
+                                : ConsoleHistoryFile);
+
+        /// <summary>
+        /// The name of the history file of the given account.
+        /// </summary>
+        /// <param name="Account">The account's name.</param>
+        public static String FileNameOf(String Account)
+        {
+
+            var name   = new System.Text.StringBuilder();
+            var bytes  = System.Text.Encoding.UTF8.GetBytes(Account);
+
+            // "con", "nul", "com1" ... are devices on Windows: their first letter
+            // is written as %XX too. With anything after them - "con.x" - the
+            // dot is written %2E, and what is left names no device.
+            var device = WindowsDevices.Contains(Account);
+
+            for (var i = 0; i < bytes.Length; i++)
+            {
+
+                var b = bytes[i];
+
+                if (!(device && i == 0) &&
+                    b is >= (Byte) 'a' and <= (Byte) 'z' or >= (Byte) '0' and <= (Byte) '9' or (Byte) '-' or (Byte) '_')
+                {
+                    name.Append((Char) b);
+                }
+
+                else
+                    name.Append('%').Append(b.ToString("X2"));
+
+            }
+
+            return name.ToString();
 
         }
 

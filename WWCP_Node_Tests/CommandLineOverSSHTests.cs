@@ -354,6 +354,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region EachAccountGetsItsOwnHistoryBack
+
+        /// <summary>
+        /// A session brings back with Up what its account typed in the session
+        /// before - and nothing another account typed: each account's history
+        /// is a file of its own below the accounts.
+        /// </summary>
+        [Test]
+        public async Task EachAccountGetsItsOwnHistoryBack()
+        {
+
+            await using (var client = await SignIn())
+            {
+                var (shell, screen) = await Open(client);
+                await screen.WaitFor("WWCP node> ");
+                await shell.WriteAsync("syncNTS nowhere.example\r");
+                await screen.WaitFor("is none of this WWCP node's time servers");
+            }
+
+            await using (var client = await SignIn("aviewer", Role.Viewer.Name))
+            {
+                var (shell, screen) = await Open(client);
+                await screen.WaitFor("WWCP node> ");
+                var mark = screen.Text.Length;
+                await shell.WriteAsync("help\r");
+                await screen.WaitFor("WWCP node> ", mark);
+            }
+
+            var history = Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory);
+
+            Assert.Multiple(() => {
+                Assert.That(new HistoryFile(Path.Combine(history, WWCPNode.DefaultAdminUser)).Read(),  Is.EqualTo(new[] { "syncNTS nowhere.example" }));
+                Assert.That(new HistoryFile(Path.Combine(history, "aviewer")).Read(),                  Is.EqualTo(new[] { "help" }));
+                Assert.That(OwnerOnlyChecks.OthersMayGetIn(history),                                   Is.Empty, "the directory");
+                Assert.That(OwnerOnlyChecks.OthersMayGetIn(Path.Combine(history, "aviewer")),          Is.Empty, "a file");
+            });
+
+            await using (var client = await SignIn())
+            {
+
+                var (shell, screen) = await Open(client);
+                await screen.WaitFor("WWCP node> ");
+
+                var mark = screen.Text.Length;
+                await shell.WriteAsync("\x1b[A");
+
+                Assert.That(await screen.WaitFor("syncNTS nowhere.example", mark), Does.Not.Contain("help"));
+
+            }
+
+        }
+
+        #endregion
+
         #region AnAccountManagesItsOwnKeys
 
         /// <summary>
