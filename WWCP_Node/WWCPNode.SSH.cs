@@ -108,6 +108,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         private readonly ConcurrentDictionary<String, String>  sshSignInKeys  = new ();
 
+        /// <summary>
+        /// The sign-ins that failed on each connection so far, until the
+        /// connection is let in, given up on, or gone - and said then, in one
+        /// line. One line for every key and password a client tries is a log
+        /// that whoever knocks at the port gets to fill.
+        /// </summary>
+        private readonly ConcurrentDictionary<String, SSHSignInFailures>  sshSignInFailures  = new ();
+
+        /// <summary>
+        /// The sign-ins that failed on one connection: as whom the last one
+        /// was, how many there were, and with which methods.
+        /// </summary>
+        private sealed record SSHSignInFailures(String                 Username,
+                                                Int32                  Attempts,
+                                                IReadOnlyList<String>  Methods)
+        {
+
+            public SSHSignInFailures And(AuthMethodFailedEvent Failed)
+
+                => new (Failed.Username,
+                        Attempts + 1,
+                        Methods.Contains(Failed.Method) ? Methods : [.. Methods, Failed.Method]);
+
+        }
+
         #endregion
 
         #region Properties
@@ -744,18 +769,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 case AuthenticationSucceededEvent signedIn:
                     sshSignInKeys.TryRemove(Event.ConnectionId ?? "", out var key);
+                    sshSignInFailures.TryRemove(Event.ConnectionId ?? "", out var failedBefore);
                     Log.Notice($"'{signedIn.Username}' signed in over SSH{from}" +
-                               (key is not null ? $" with the key {key}." : $" with {String.Join(" and ", signedIn.Methods)}."),
+                               (key is not null ? $" with the key {key}" : $" with {String.Join(" and ", signedIn.Methods)}") +
+                               (failedBefore is not null ? $", after {failedBefore.Attempts} failed attempt(s)." : "."),
                                "ssh", "auth", "security");
                     break;
 
+                // Each one for the debug log, and counted: the connection's
+                // failures are said in one line once it is over - see
+                // sshSignInFailures.
                 case AuthMethodFailedEvent failed:
-                    Log.Info($"Somebody{from} could not sign in over SSH as '{failed.Username}' with {failed.Method}" +
-                             (failed.Identity is not null ? $" ({failed.Identity})." : "."),
-                             "ssh", "auth", "security");
+                    Log.Debug($"Somebody{from} could not sign in over SSH as '{failed.Username}' with {failed.Method}" +
+                              (failed.Identity is not null ? $" ({failed.Identity})." : "."),
+                              "ssh", "auth", "security");
+                    if (Event.ConnectionId is not null)
+                        sshSignInFailures.AddOrUpdate(Event.ConnectionId,
+                                                      _          => new SSHSignInFailures(failed.Username, 1, [ failed.Method ]),
+                                                      (_, sofar) => sofar.And(failed));
+                    else
+                        Log.Info($"Somebody{from} could not sign in over SSH as '{failed.Username}' with {failed.Method}.",
+                                 "ssh", "auth", "security");
                     break;
 
                 case AuthenticationFailedEvent gaveUp:
+                    sshSignInFailures.TryRemove(Event.ConnectionId ?? "", out _);
                     Log.Warning(gaveUp.FailedAttempts > 0
                                     ? $"Somebody{from} failed to sign in over SSH as '{gaveUp.Username}' {gaveUp.FailedAttempts} time(s), and was disconnected."
                                     : $"'{gaveUp.Username}' signed in over SSH{from}, with a credential that may not be used from there, and was disconnected.",
@@ -777,6 +815,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 case ConnectionClosedEvent:
                     sshSignInKeys.TryRemove(Event.ConnectionId ?? "", out _);
+                    if (sshSignInFailures.TryRemove(Event.ConnectionId ?? "", out var failures))
+                        Log.Info($"Somebody{from} could not sign in over SSH as '{failures.Username}' {failures.Attempts} time(s) " +
+                                 $"with {String.Join(" and ", failures.Methods)}, and left.",
+                                 "ssh", "auth", "security");
                     Log.Debug($"An SSH connection{from} ended.", "ssh");
                     break;
 

@@ -17,6 +17,8 @@
 
 #region Usings
 
+using System.Text;
+
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Illias;
@@ -55,6 +57,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         /// browser opening the page sees what led up to now.
         /// </summary>
         public const Int32 DefaultCapacity = 2_000;
+
+        /// <summary>
+        /// How long a message may be, in characters, before the rest of it is
+        /// cut off and only counted - see <see cref="OneLine"/>.
+        /// </summary>
+        /// <remarks>
+        /// A message often carries what somebody else sent: a user name tried
+        /// over SSH, the status message of a peer. And somebody else may send a
+        /// quarter of a megabyte as a user name - two thousand entries of that
+        /// are half a gigabyte of memory, and no line anybody reads.
+        /// </remarks>
+        public const Int32 MaxMessageLength = 4_096;
 
         private readonly Queue<LogEntry>   entries = new();
         private readonly SortedSet<String> tags    = new(StringComparer.Ordinal);
@@ -344,7 +358,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
                             TimeProvider.GetUtcNow(),
                             Level,
                             Normalize(Tags),
-                            Message?.Trim() ?? "",
+                            OneLine(Message?.Trim() ?? ""),
                             Data,
                             Metrological
                         );
@@ -510,12 +524,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         public void Complain(String Complaint)
         {
 
+            // A complaint carries an exception's message, and that may carry
+            // what somebody else sent - see OneLine.
+            var line    = OneLine(Complaint);
             var written = false;
 
             try
             {
                 ComplaintBlock(() => {
-                    Console.Error.WriteLine(Complaint);
+                    Console.Error.WriteLine(line);
                     written = true;
                 });
             }
@@ -526,7 +543,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
                 {
                     try
                     {
-                        Console.Error.WriteLine(Complaint);
+                        Console.Error.WriteLine(line);
                     }
                     catch
                     { }
@@ -578,6 +595,100 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
         #endregion
 
+
+        #region OneLine(Text, MaxLength = MaxMessageLength)
+
+        /// <summary>
+        /// The given text as one line that is safe to put in front of somebody:
+        /// line breaks, tabs and every other control character written out as
+        /// an escape, and whatever goes beyond the given length cut off and
+        /// counted.
+        /// </summary>
+        /// <remarks>
+        /// Every entry goes through here on its way in, so that no sink has to
+        /// remember it: the console and an SSH session would run an escape
+        /// sequence somebody sent as a user name, a file would take a line
+        /// break in it for the start of an entry nobody wrote, and the browser
+        /// would show both. The Unicode line separators and the marks that
+        /// turn the direction of text are written out as well, since they
+        /// break or rearrange a line just as well.
+        ///
+        /// Backslashes stay as they are: a path should read like a path, and a
+        /// "\n" somebody typed is two characters on one line either way.
+        /// </remarks>
+        /// <param name="Text">The text, as somebody may have sent it.</param>
+        /// <param name="MaxLength">At most this many characters are kept.</param>
+        public static String OneLine(String  Text,
+                                     Int32   MaxLength   = MaxMessageLength)
+        {
+
+            // The common case, and the log is written often: nothing to do.
+            if (Text.Length <= MaxLength && !Text.Any(Unsafe))
+                return Text;
+
+            var line  = new StringBuilder(Math.Min(Text.Length, MaxLength) + 32);
+            var taken = 0;
+
+            while (taken < Text.Length && line.Length < MaxLength)
+            {
+
+                var character = Text[taken];
+
+                // A pair of surrogates is one character, and is not cut in half.
+                if (Char.IsHighSurrogate(character) &&
+                    taken + 1 < Text.Length &&
+                    Char.IsLowSurrogate(Text[taken + 1]))
+                {
+                    line.Append(character).Append(Text[taken + 1]);
+                    taken += 2;
+                    continue;
+                }
+
+                switch (character)
+                {
+
+                    case '\r': line.Append("\\r"); break;
+                    case '\n': line.Append("\\n"); break;
+                    case '\t': line.Append("\\t"); break;
+
+                    default:
+                        if (Unsafe(character))
+                            line.Append("\\u").Append(((Int32) character).ToString("X4"));
+                        else
+                            line.Append(character);
+                        break;
+
+                }
+
+                taken++;
+
+            }
+
+            if (taken < Text.Length)
+                line.Append($"... ({Text.Length - taken} more characters)");
+
+            return line.ToString();
+
+        }
+
+        #endregion
+
+        #region (private static) Unsafe(Character)
+
+        /// <summary>
+        /// Whether the given character does something to a line rather than
+        /// stand in it: a control character, a line or paragraph separator, or
+        /// a mark that turns the direction of the text.
+        /// </summary>
+        private static Boolean Unsafe(Char Character)
+
+            => Char.IsControl(Character) ||
+               (Int32) Character is 0x2028 or 0x2029
+                                 or 0x200E or 0x200F
+                                 or >= 0x202A and <= 0x202E
+                                 or >= 0x2066 and <= 0x2069;
+
+        #endregion
 
         #region (private static) Normalize(Tags)
 

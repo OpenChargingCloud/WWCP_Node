@@ -402,6 +402,53 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region FailedSignInsAreSaidOnceAndOnOneLine
+
+        /// <summary>
+        /// Whoever knocks at the port chooses the user name, and as many keys
+        /// as it likes: the failures of one connection are said in one line
+        /// once it is over, and a line break or an escape sequence in the
+        /// name is written out rather than forging a line or reaching the
+        /// terminal of whoever reads the log.
+        /// </summary>
+        [Test]
+        public async Task FailedSignInsAreSaidOnceAndOnOneLine()
+        {
+
+            var log    = new EventLog();
+            var node   = await Started(Log: log);
+            var escape = (Char) 0x1B;
+            var name   = $"root\r\n00:00:00.000 critical forged{escape}[2J";
+
+            Assert.That(async () => await SshClient.ConnectAsync("127.0.0.1",
+                                                                 node.SSHPort!.Value.ToUInt16(),
+                                                                 new SshClientOptions {
+                                                                     Username       = name,
+                                                                     VerifyHostKey  = blob => node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
+                                                                     Credentials    = [ SshHostKey.GenerateEd25519() ]
+                                                                 }),
+                        Throws.InstanceOf<SshAuthenticationException>());
+
+            // Said once the server has seen the connection end, which is after
+            // the client gave up.
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+
+            while (!log.Recent(100).Any(entry => entry.Message.Contains("and left.")) && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
+
+            var said = log.Recent(100).Where(entry => entry.Level >= LogLevel.Info && entry.Message.Contains("could not sign in")).ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(said, Has.Length.EqualTo(1));
+                Assert.That(said.Single().Message, Does.Contain(@"as 'root\r\n00:00:00.000 critical forged" + "\\" + "u001B[2J' 1 time(s) with publickey, and left."));
+                // Ordinal: compared by culture, a control character is ignored and found everywhere.
+                Assert.That(log.Recent(100).Where(entry => entry.Message.IndexOfAny([ '\r', '\n', escape ]) >= 0), Is.Empty);
+            });
+
+        }
+
+        #endregion
+
         #region AnAccountWithoutARoleOrSwitchedOffIsNotLetIn
 
         /// <summary>

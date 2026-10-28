@@ -368,6 +368,151 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+
+        #region WhatSomebodySentStaysOnOneLine()
+
+        /// <summary>
+        /// A message carries what somebody else sent - a user name tried over
+        /// SSH, a peer's status message. A line break in it must not start an
+        /// entry nobody wrote, and an escape sequence must not reach the
+        /// terminal of whoever reads the log; both are written out.
+        /// </summary>
+        [Test]
+        public void WhatSomebodySentStaysOnOneLine()
+        {
+
+            var escape  = (Char) 0x1B;
+            var bell    = (Char) 0x07;
+            var log     = new EventLog();
+
+            var entry   = log.Info($"as 'x\r\n12:00:00.000 critical forged\tline{escape}]0;title{bell}'", "ssh");
+
+            Assert.Multiple(() => {
+                // Ordinal: compared by culture, a control character is ignored and found everywhere.
+                Assert.That(entry.Message.IndexOfAny([ '\r', '\n', '\t', escape, bell ]), Is.EqualTo(-1));
+                Assert.That(entry.Message, Is.EqualTo(@"as 'x\r\n12:00:00.000 critical forged\tline" + "\\" + "u001B]0;title" + "\\" + "u0007'"));
+                Assert.That(entry.ToString().IndexOf('\n'), Is.EqualTo(-1));
+            });
+
+        }
+
+        #endregion
+
+        #region MarksThatTurnALineAreWrittenOut()
+
+        /// <summary>
+        /// The Unicode line separators break a line in some viewers, and the
+        /// marks that turn the direction of text show a line in another order
+        /// than it was written - both are written out, like the control
+        /// characters.
+        /// </summary>
+        [Test]
+        public void MarksThatTurnALineAreWrittenOut()
+
+            => Assert.Multiple(() => {
+                   Assert.That(EventLog.OneLine("a" + (Char) 0x202E + "b"), Is.EqualTo("a" + "\\" + "u202Eb"));
+                   Assert.That(EventLog.OneLine("a" + (Char) 0x2028 + "b"), Is.EqualTo("a" + "\\" + "u2028b"));
+                   Assert.That(EventLog.OneLine("a" + (Char) 0x2066 + "b"), Is.EqualTo("a" + "\\" + "u2066b"));
+                   Assert.That(EventLog.OneLine("a" + (Char) 0x85   + "b"), Is.EqualTo("a" + "\\" + "u0085b"));
+               });
+
+        #endregion
+
+        #region ALineAsItShouldBeIsLeftAsItIs()
+
+        /// <summary>
+        /// The common case costs nothing: a line with nothing to write out is
+        /// the very string that was handed in - backslashes, umlauts and all.
+        /// </summary>
+        [Test]
+        public void ALineAsItShouldBeIsLeftAsItIs()
+        {
+
+            var line = @"C:\nodes\keys and " + Char.ConvertFromUtf32(0x1F50C) + " " + (Char) 0xFC + "ber";
+
+            Assert.That(EventLog.OneLine(line), Is.SameAs(line));
+
+        }
+
+        #endregion
+
+        #region ALongMessageIsCutAndCounted()
+
+        /// <summary>
+        /// Somebody may send a quarter of a megabyte as a user name, and two
+        /// thousand entries of that are half a gigabyte: what goes beyond the
+        /// limit is cut off, and how much that was is said.
+        /// </summary>
+        [Test]
+        public void ALongMessageIsCutAndCounted()
+        {
+
+            var log   = new EventLog();
+            var entry = log.Info(new String('x', 256 * 1024));
+
+            Assert.Multiple(() => {
+                Assert.That(entry.Message, Does.StartWith(new String('x', EventLog.MaxMessageLength) + "..."));
+                Assert.That(entry.Message, Does.EndWith($"({256 * 1024 - EventLog.MaxMessageLength} more characters)"));
+                Assert.That(entry.Message.Length, Is.LessThan(EventLog.MaxMessageLength + 40));
+            });
+
+        }
+
+        #endregion
+
+        #region ACharacterIsNotCutInHalf()
+
+        /// <summary>
+        /// A character outside the Basic Multilingual Plane is two chars in
+        /// .NET; one that straddles the limit is kept whole rather than
+        /// leaving half a surrogate pair at the end of the line.
+        /// </summary>
+        [Test]
+        public void ACharacterIsNotCutInHalf()
+        {
+
+            var plug = Char.ConvertFromUtf32(0x1F50C);
+            var line = EventLog.OneLine(new String('x', 9) + plug + "yz", MaxLength: 10);
+
+            Assert.That(line, Is.EqualTo(new String('x', 9) + plug + "... (2 more characters)"));
+
+        }
+
+        #endregion
+
+        #region AComplaintStaysOnOneLineAsWell()
+
+        /// <summary>
+        /// A complaint of the log about itself goes to stderr without passing
+        /// through the log, and carries an exception's message - which may
+        /// carry what somebody else sent. It is written out as well.
+        /// </summary>
+        [Test]
+        public void AComplaintStaysOnOneLineAsWell()
+        {
+
+            var written = new StringWriter();
+            var before  = Console.Error;
+
+            try
+            {
+
+                Console.SetError(written);
+
+                new EventLog().Complain("it failed:\nforged" + (Char) 0x1B + "[2J");
+
+            }
+            finally
+            {
+                Console.SetError(before);
+            }
+
+            Assert.That(written.ToString().TrimEnd(), Is.EqualTo(@"it failed:\nforged" + "\\" + "u001B[2J"));
+
+        }
+
+        #endregion
+
     }
 
 }
