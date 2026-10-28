@@ -213,7 +213,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
             this.KeepDays    = Math.Max(KeepDays ?? 0, 0);
             this.Tags        = [.. Tags ?? [ "log" ]];
 
-            Directory.CreateDirectory(this.Path);
+            // The signing key lives here as well: see OwnerOnly.
+            OwnerOnly.Directory(this.Path, Complain);
 
             this.Signer      = new LogSigner(this.Path);
 

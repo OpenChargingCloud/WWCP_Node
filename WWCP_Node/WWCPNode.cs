@@ -1084,6 +1084,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
             //    "systemadmin" is an administrator of every one of them.
             this.OwnsExtAPI    = ExtAPI is null;
 
+            // The accounts' file holds their password hashes, sessions and API
+            // keys: made here rather than left to the HTTPExt API, so that it
+            // is its owner's alone before the first line is written into it -
+            // and taken back from everybody else where an older version left
+            // it open. One handed in is its maker's business.
+            if (this.OwnsExtAPI)
+                OwnerOnly.Directory(this.AccountsPath, problem => this.Log.Warning(problem, this.Kind.Tag, "accounts", "security"));
+
             this.ExtAPI        = ExtAPI ?? new HTTPExtAPI(
                                      HTTPServer:             this.HTTPServer,
                                      RootPath:               this.BasePath + ExtAPIPath,

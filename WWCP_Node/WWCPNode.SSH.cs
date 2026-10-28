@@ -504,6 +504,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var path = SSHHostKeyPath;
 
+            // The private host key: whoever can read it can pass for this node.
+            // Its directory is its owner's alone - at every start, so that one
+            // an older version left open is taken back.
+            OwnerOnly.Directory(Path.GetDirectoryName(path)!, problem => Log.Warning(problem, Kind.Tag, "ssh", "security"));
+
             if (File.Exists(path))
             {
                 try
@@ -519,8 +524,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
                           );
                 }
             }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
             var key = SshHostKey.GenerateEd25519();
 

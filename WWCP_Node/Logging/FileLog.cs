@@ -126,7 +126,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
             this.FilePrefix    = FilePrefix;
             this.MinimumLevel  = MinimumLevel;
 
-            System.IO.Directory.CreateDirectory(this.Directory);
+            // The log says who signed in from where, and what went wrong with
+            // whom: for the account the node runs under, and nobody else.
+            OwnerOnly.Directory(this.Directory, problem => log.Warning(problem, "log", "security"));
 
             this.handler       = Write;
 

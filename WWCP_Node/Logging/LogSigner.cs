@@ -231,26 +231,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         /// </summary>
         /// <remarks>
         /// A private key that the whole machine may read is one that the whole
-        /// machine may sign with. Unix only: Windows inherits the directory's
-        /// ACL, and setting one properly is more than this needs.
+        /// machine may sign with. The directory of the log is its owner's alone
+        /// already (see <see cref="SignedLog"/>); this is for the key itself,
+        /// on every platform - see <see cref="OwnerOnly"/>.
         /// </remarks>
         private static void Protect(String Path)
-        {
 
-            if (OperatingSystem.IsWindows())
-                return;
-
-            try
-            {
-                File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            }
-            catch
-            {
-                // A file system with no notion of modes - a mounted share, say.
-                // Worth trying, not worth failing a start over.
-            }
-
-        }
+            => OwnerOnly.File(Path);
 
         #endregion
 

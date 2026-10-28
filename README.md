@@ -635,6 +635,18 @@ the groups made, and before the port opens.
 Whether the sign-in, and everything after it, crosses the network in the
 clear is the subject of "HTTPS, and the proxies in front" below.
 
+What a node keeps on disk about who signs in, and as whom it signs, is for the
+account it runs under alone: the accounts (password hashes, sessions, API
+keys), the log files and the metrological log with its key, the certificate
+store and the SSH host key. Each directory is made, and at every start taken
+back, as its owner's alone - 0700 on Unix, and on Windows a protected access
+list for that account, SYSTEM and the administrators, which what is in it
+inherits. That is what matters on Windows: a node checked out below a folder at
+the root of a drive would otherwise inherit read access for every
+authenticated user of the machine. `OwnerOnly` does it, for a kind of node's
+own directories as well; where a file system cannot say so - a mounted share -
+the log warns and the node starts all the same.
+
 A role is a user group under the same name, and membership is what carries
 what it may do: a list of permissions, each an operation on a resource and
 written `dns:edit`. The operations are three and fixed - `read`, `edit`, and

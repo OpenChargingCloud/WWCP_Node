@@ -2637,8 +2637,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// Make the store and one directory per kind it keeps, readable by
-        /// their owner alone where the platform has anything to say about it -
-        /// and nothing at all for a store that keeps no kind.
+        /// their owner alone - see <see cref="OwnerOnly"/> - and nothing at all
+        /// for a store that keeps no kind.
         /// </summary>
         private void CreateDirectories()
         {
@@ -2646,8 +2646,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (Kinds.Count == 0)
                 return;
 
-            System.IO.Directory.CreateDirectory(Directory);
-            Protect(Directory);
+            OwnerOnly.Directory(Directory, Complain);
 
             foreach (var kind in Kinds)
                 System.IO.Directory.CreateDirectory(
@@ -2658,41 +2657,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
-        #region (private static) Protect(Path)
+        #region (private) Protect(Path) / Complain(Problem)
 
         /// <summary>
-        /// Keep everybody but the owner out, where the platform supports saying
-        /// so in one call.
+        /// Keep everybody but the owner out of a file of the store - which on
+        /// Windows it inherits from the store's directory already, and on Unix
+        /// is given here.
         /// </summary>
-        /// <remarks>
-        /// Unix only, and silent where it is not available. On Windows a new
-        /// directory below the user's profile already inherits an ACL that
-        /// grants the user and the administrators and nobody else, and rewriting
-        /// that ACL here would be a larger promise than this can keep. The
-        /// warning at every start is what covers the difference.
-        /// </remarks>
-        private static void Protect(String Path)
-        {
+        private void Protect(String Path)
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                return;
+            => OwnerOnly.File(Path, Complain);
 
-            try
-            {
+        /// <summary>
+        /// Say what could not be restricted: a store that others may read is
+        /// worth a warning, not worth failing over.
+        /// </summary>
+        private void Complain(String Problem)
 
-                var mode = System.IO.Directory.Exists(Path)
-                               ? UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-                               : UnixFileMode.UserRead | UnixFileMode.UserWrite;
-
-                File.SetUnixFileMode(Path, mode);
-
-            }
-            catch (Exception)
-            {
-                // A store on a file system with no modes is still a store.
-            }
-
-        }
+            => log.Warning($"Certificates: {Problem}", "certificates", "security");
 
         #endregion
 
