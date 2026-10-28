@@ -425,7 +425,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                                  new SshClientOptions {
                                                                      Username       = name,
                                                                      VerifyHostKey  = blob => node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
-                                                                     Credentials    = [ SshHostKey.GenerateEd25519() ]
+                                                                     Credentials    = [ SshHostKey.GenerateEd25519(), SshHostKey.GenerateEd25519() ]
                                                                  }),
                         Throws.InstanceOf<SshAuthenticationException>());
 
@@ -440,7 +440,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(said, Has.Length.EqualTo(1));
-                Assert.That(said.Single().Message, Does.Contain(@"as 'root\r\n00:00:00.000 critical forged" + "\\" + "u001B[2J' 1 time(s) with publickey, and left."));
+                Assert.That(said.Single().Message, Does.Contain(@"as 'root\r\n00:00:00.000 critical forged" + "\\" + "u001B[2J' 2 time(s) with publickey, and left."));
                 // Ordinal: compared by culture, a control character is ignored and found everywhere.
                 Assert.That(log.Recent(100).Where(entry => entry.Message.IndexOfAny([ '\r', '\n', escape ]) >= 0), Is.Empty);
             });
