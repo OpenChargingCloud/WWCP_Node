@@ -14,9 +14,9 @@
     "test": "node --import ./test/resolve.ts --test \"src/**/*.test.ts\" \"test/**/*.test.ts\""
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^21.0.3",
+    "@happy-dom/global-registrator": "^21.0.4",
     "@types/node": "^24.19.2",
-    "happy-dom": "^21.0.3",
+    "happy-dom": "^21.0.4",
     "lit-html": "3.3.3",
     "typescript": "^6.0.3"
   }
