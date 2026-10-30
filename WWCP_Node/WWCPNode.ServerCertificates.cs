@@ -218,6 +218,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="PolicyErrors">What building that chain, and comparing the name, found.</param>
         /// <param name="Evidence">Whether what is news here is written into the metrological log as well, whatever the pins say: for a time server.</param>
         /// <param name="Learn">Writes down a fingerprint the server is held to from now on, answering whether it could; null where nothing may be learned.</param>
+        /// <param name="Remember">False to only ask: for a configuration that is not in effect, whose judgements are nobody's news - nothing is logged, kept as the server's last judgement, or remembered as what it was believed with.</param>
         public ServerJudgement JudgeServer(String                                   Service,
                                            String                                   Server,
                                            ServerPins?                              Pins,
@@ -225,7 +226,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                            X509Chain?                               Chain,
                                            SslPolicyErrors                          PolicyErrors,
                                            Boolean                                  Evidence,
-                                           Func<TrustOnFirstUse, String, Boolean>?  Learn   = null)
+                                           Func<TrustOnFirstUse, String, Boolean>?  Learn      = null,
+                                           Boolean                                  Remember   = true)
         {
 
             var name                    = Server.TrimEnd('.');
@@ -351,7 +353,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           _                                                             => null
                                       };
 
-                        if (outcome == "accepted" && toLearn is not null && Learn is not null)
+                        if (outcome == "accepted" && toLearn is not null && Learn is not null && Remember)
                         {
 
                             var what = pins.TrustOnFirstUse.AsText();
@@ -380,7 +382,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (accepted && certificateFingerprint is not null)
             {
 
-                var before = KnownServers.Observe(Service, name, certificateFingerprint, rootFingerprint, now);
+                var before = Remember
+                                 ? KnownServers.Observe(Service, name, certificateFingerprint, rootFingerprint, now)
+                                 : KnownServers.Get    (Service, name);
 
                 if (before is null)
                 {
@@ -416,9 +420,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                 steps
                             );
 
-            WriteDown(judgement, judgements.GetValueOrDefault(key), pins, Evidence);
+            if (Remember)
+            {
 
-            judgements[key] = judgement;
+                WriteDown(judgement, judgements.GetValueOrDefault(key), pins, Evidence);
+
+                judgements[key] = judgement;
+
+            }
 
             return judgement;
 
