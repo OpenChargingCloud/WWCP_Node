@@ -18,6 +18,7 @@
 #region Usings
 
 using System.Diagnostics.CodeAnalysis;
+using System.Text.RegularExpressions;
 
 using Newtonsoft.Json.Linq;
 
@@ -41,13 +42,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="NTPPort">The time port, when it is not the usual one.</param>
     /// <param name="Enabled">Whether to ask it at all.</param>
     /// <param name="Pins">What it is held to beside what every server is held to - see <see cref="ServerPins"/> - or null for nothing.</param>
+    /// <param name="Id">What names it across every group of the node, whatever its host name becomes - or null where the file gives it none; see <see cref="IdsOf"/>.</param>
     public sealed record NTSServerConfiguration(DomainName   Hostname,
                                                 Byte         Priority   = 0,
                                                 IPPort?      NTSKEPort  = null,
                                                 IPPort?      NTPPort    = null,
                                                 Boolean      Enabled    = true,
-                                                ServerPins?  Pins       = null)
+                                                ServerPins?  Pins       = null,
+                                                String?      Id         = null)
     {
+
+        #region Data
+
+        /// <summary>
+        /// The longest a server's id may be: what OCPP allows for the instance
+        /// of a component, which a server's id is to a CSMS.
+        /// </summary>
+        public const Int32 MaxIdLength = 50;
+
+        private static readonly Regex serverId = new ("^[a-z][a-z0-9-]*$", RegexOptions.CultureInvariant);
+
+        #endregion
 
         #region Properties
 
@@ -110,6 +125,82 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (static) IsServerId(Text)
+
+        /// <summary>
+        /// Whether a text can be the id of a server: lower-case letters, digits
+        /// and hyphens, beginning with a letter - the way a group is named - and
+        /// at most <see cref="MaxIdLength"/> of them.
+        /// </summary>
+        /// <remarks>
+        /// Longer than a group's name may be, so that the id given to a server
+        /// of a group with the longest name, "&lt;group&gt;-&lt;n&gt;", can be
+        /// written into the file as it is.
+        /// </remarks>
+        public static Boolean IsServerId(String? Text)
+
+            => Text is not null &&
+               Text.Length <= MaxIdLength &&
+               serverId.IsMatch(Text);
+
+        #endregion
+
+        #region (static) IdsOf(Group, Given)
+
+        /// <summary>
+        /// The id of every server of a group, by its place in the list: the one
+        /// the file gives it, or else "&lt;group&gt;-&lt;n&gt;" for the n-th
+        /// server - the next number not taken where a server of the group has
+        /// that one already.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// An id the file does not give is as stable as the server's place in
+        /// the list, and no more: take the first server away and the second is
+        /// "&lt;group&gt;-1" from then on. That is why whatever names a server
+        /// to somebody else - a page saving the list, a bridge to OCPP - writes
+        /// the ids it was shown back into the file, where they stay.
+        /// </para>
+        /// <para>
+        /// Not the host name, which names the server to the network and not to
+        /// people: a new host name for the same place would be a new server to
+        /// a CSMS, and one of 253 characters would not fit an OCPP instance.
+        /// </para>
+        /// </remarks>
+        /// <param name="Group">The group's name.</param>
+        /// <param name="Given">The id the file gives each server, by its place in the list, or null where it gives none.</param>
+        public static IReadOnlyList<String> IdsOf(String                 Group,
+                                                  IEnumerable<String?>  Given)
+        {
+
+            var given  = Given.ToArray();
+            var taken  = new HashSet<String>(given.OfType<String>(), StringComparer.Ordinal);
+            var ids    = new String[given.Length];
+
+            for (var index = 0; index < given.Length; index++)
+            {
+
+                if (given[index] is String id)
+                {
+                    ids[index] = id;
+                    continue;
+                }
+
+                var n = index + 1;
+
+                while (!taken.Add($"{Group}-{n}"))
+                    n++;
+
+                ids[index] = $"{Group}-{n}";
+
+            }
+
+            return ids;
+
+        }
+
+        #endregion
+
         #region (static) TryParse(JSON, Index, out Configuration, out Error, Section = "nts")
 
         /// <summary>
@@ -152,12 +243,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
-            if (!ConfigurationReader.TryReadString (json, "hostname",               where, 253, out var hostname,        out Error) ||
+            if (!ConfigurationReader.TryReadString (json, "id",                     $"{Section}.servers[{Index}]", MaxIdLength, out var id, out Error) ||
+                !ConfigurationReader.TryReadString (json, "hostname",               where, 253, out var hostname,        out Error) ||
                 !ConfigurationReader.TryReadByte   (json, "priority",               where,      out var priority,        out Error) ||
                 !ConfigurationReader.TryReadPort   (json, "ntsKEPort",              where,      out var ntsKEPort,       out Error) ||
                 !ConfigurationReader.TryReadPort   (json, "ntpPort",                where,      out var ntpPort,         out Error) ||
                 !ConfigurationReader.TryReadBoolean(json, "enabled",                where,      out var enabled,         out Error))
             {
+                return false;
+            }
+
+            if (id is not null && !IsServerId(id))
+            {
+                Error = $"'{Section}.servers[{Index}].id': '{id}' cannot be the id of a server, which is lower-case letters, digits and hyphens, beginning with a letter, and at most {MaxIdLength} of them.";
                 return false;
             }
 
@@ -184,7 +282,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 ntsKEPort,
                                 ntpPort,
                                 enabled ?? true,
-                                pins
+                                pins,
+                                id
                             );
 
             return true;
@@ -205,12 +304,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && Pins?.SaysAnything != true)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && Pins?.SaysAnything != true)
                 return Hostname.ToString();
 
-            var json = new JObject(
-                           new JProperty("hostname", Hostname.ToString())
-                       );
+            var json = new JObject();
+
+            if (Id is not null)         json.Add("id",        Id);
+
+            json.Add("hostname", Hostname.ToString());
 
             if (Priority != 0)          json.Add("priority",  Priority);
             if (NTSKEPort.HasValue)     json.Add("ntsKEPort", NTSKEPort.Value.ToUInt16());

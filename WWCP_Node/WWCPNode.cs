@@ -1977,11 +1977,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        // because it was switched off would be deleted by the next
                        // save of anything else.
                        new JProperty("timeSources",  new JArray(
-                           Group.Sources.Sources.Select(source => {
+                           Group.Sources.Sources.Select((source, index) => {
 
                                var held = timeEngine.KeyExchanges.TryGetValue(source.Hostname, out var state) ? state : null;
 
                                return new JObject(
+                                          // What names it beside its host name,
+                                          // which the page sends back with it so
+                                          // that it stays the same; see
+                                          // NTSServerConfiguration.IdsOf.
+                                          new JProperty("id",             Group.ServerIds.ElementAtOrDefault(index)),
                                           new JProperty("hostname",       source.Hostname.ToString()),
                                           new JProperty("priority",       source.Priority),
                                           new JProperty("ntsKEPort",      source.NTSKEPort.ToUInt16()),
@@ -2090,61 +2095,166 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="JSON">What the page sent, in the shape of a group of the "nts" section.</param>
         /// <param name="Error">Why nothing was changed.</param>
         /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        /// <param name="Origin">Who or what makes the change - see <see cref="ChangeOrigin"/> - for the log line and <see cref="OnNTSGroupChanged"/>; null where nobody says.</param>
         public Boolean TryUpdateNTSConfiguration(NTSGroup                          Group,
                                                  JObject                           JSON,
                                                  [NotNullWhen(false)] out String?  Error,
-                                                 out Boolean                       NotSaved)
+                                                 out Boolean                       NotSaved,
+                                                 String?                           Origin = null)
+
+            => TryUpdateNTSConfigurations([ (Group, JSON) ], out Error, out _, out NotSaved, Origin);
+
+        #endregion
+
+        #region TryUpdateNTSConfigurations(Changes, out Error, out Refused, out NotSaved, Origin = null)
+
+        /// <summary>
+        /// Change several groups at once, all or none of them: one read of the
+        /// file, one check of the section as the next start will read it, one
+        /// write - and only then put into effect, group by group.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// What a CSMS setting variables of several groups in one request
+        /// needs, where a change of one group that is taken and of another
+        /// that is refused would leave the station in a state nobody asked for.
+        /// Each group's part is what a page sends for that group, and is
+        /// checked as a page's save is; one refused refuses all of them, and
+        /// says which group was the reason.
+        /// </para>
+        /// <para>
+        /// A group named twice is refused rather than merged: which of the two
+        /// would win is not for this node to guess.
+        /// </para>
+        /// <para>
+        /// Each group changed is written down in a log line of its own, and
+        /// told through <see cref="OnNTSGroupChanged"/> - after the
+        /// reconfiguration lock is let go, so that whatever listens may ask
+        /// the node, and change it, in turn.
+        /// </para>
+        /// </remarks>
+        /// <param name="Changes">Every group to change, with what to change in it, in the shape of a group of the "nts" section.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="Refused">The group whose part was the reason, or null where it was the file, or the groups together.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        /// <param name="Origin">Who or what makes the change - see <see cref="ChangeOrigin"/> - for the log lines and <see cref="OnNTSGroupChanged"/>; null where nobody says.</param>
+        public Boolean TryUpdateNTSConfigurations(IEnumerable<(NTSGroup Group, JObject JSON)>  Changes,
+                                                  [NotNullWhen(false)] out String?             Error,
+                                                  out NTSGroup?                                Refused,
+                                                  out Boolean                                  NotSaved,
+                                                  String?                                      Origin = null)
         {
 
+            Error     = null;
+            Refused   = null;
             NotSaved  = false;
 
-            var path  = NTSSection.PathOf(Group.Id);
+            var sent  = new List<(NTSGroup Group, NTSConfiguration Configuration, IReadOnlyDictionary<Int32, ServerPins?> AsShown, String Path)>();
 
-            if (!NTSConfiguration.TryParse(JSON, out var sent, out Error, path))
-                return false;
+            foreach (var (group, json) in Changes)
+            {
 
-            // What the page showed each server held to, where it says - see
-            // ServerPins.TryAfterAPageSaved.
-            if (!ServerPins.TryParseAsShown(JSON, path, out var asShown, out Error))
-                return false;
+                var path = NTSSection.PathOf(group.Id);
+
+                if (sent.Any(other => other.Group == group))
+                {
+                    Error    = $"'{path}' is changed twice at once: say everything about a group in one part.";
+                    Refused  = group;
+                    return false;
+                }
+
+                if (!NTSConfiguration.TryParse(json, out var configuration, out Error, path))
+                {
+                    Refused = group;
+                    return false;
+                }
+
+                // What the page showed each server held to, where it says - see
+                // ServerPins.TryAfterAPageSaved.
+                if (!ServerPins.TryParseAsShown(json, path, out var asShown, out Error))
+                {
+                    Refused = group;
+                    return false;
+                }
+
+                sent.Add((group, configuration, asShown, path));
+
+            }
+
+            // Nothing to change is nothing to write: not even the section a file
+            // without one would be given.
+            if (sent.Count == 0)
+                return true;
+
+            var applied = new List<(NTSGroup Group, IReadOnlyList<String> Changes)>();
 
             reconfigureLock.Wait();
 
             try
             {
 
-                // Inside the lock, where a removal cannot come in between: a group
-                // taken away while this save waited for the lock would otherwise be
-                // written back into the file, switched on at the next start.
-                if (!ntsGroups.Contains(Group))
+                var saved = new List<(NTSGroup Group, NTSConfiguration Configuration)>();
+
+                foreach (var (group, configuration, asShown, path) in sent)
                 {
-                    Error = $"This {Kind.Name} has no NTS group '{Group.Id}'.";
+
+                    Refused = group;
+
+                    // Inside the lock, where a removal cannot come in between: a
+                    // group taken away while this save waited for the lock would
+                    // otherwise be written back into the file, switched on at the
+                    // next start.
+                    if (!ntsGroups.Contains(group))
+                    {
+                        Error = $"This {Kind.Name} has no NTS group '{group.Id}'.";
+                        return false;
+                    }
+
+                    // First, and inside the lock: what a server is held to now is
+                    // what trust on first use writes under it.
+                    if (!TryPinsAfterAPageSaved(configuration, asShown, path, out var pinned, out Error))
+                        return false;
+
+                    // Before the file, so that what is refused is not written
+                    // down either - and inside the lock, because the servers a
+                    // quorum on its own is checked against are the ones in effect.
+                    if (!TryCheckNTSQuorum(group, pinned, out Error))
+                        return false;
+
+                    saved.Add((group, pinned));
+
+                }
+
+                // The file's refusals are about the section as a whole: one
+                // group's only where there is one.
+                Refused = saved.Count == 1 ? saved[0].Group : null;
+
+                if (!TryWriteNTSSection(section => saved.Aggregate(NTSSection.Grouped(section),
+                                                                   (written, part) => NTSSection.WithGroup(written,
+                                                                                                           part.Group.Id,
+                                                                                                           part.Configuration.ToJSON(),
+                                                                                                           part.Configuration.RemovedKeys)),
+                                        out Error,
+                                        out NotSaved))
+                {
                     return false;
                 }
 
-                // First, and inside the lock: what a server is held to now is
-                // what trust on first use writes under it.
-                if (!TryPinsAfterAPageSaved(sent, asShown, path, out var configuration, out Error))
-                    return false;
+                Refused = null;
 
-                // Before the file, so that what is refused is not written down
-                // either - and inside the lock, because the servers a quorum on
-                // its own is checked against are the ones in effect.
-                if (!TryCheckNTSQuorum(Group, configuration, out Error))
-                    return false;
-
-                if (!TryWriteNTSGroup(Group.Id, configuration, out Error, out NotSaved))
-                    return false;
-
-                ApplyNTSConfiguration(Group, configuration);
-
-                return true;
+                foreach (var (group, configuration) in saved)
+                    applied.Add((group, ApplyNTSConfiguration(group, configuration, Origin)));
 
             }
             finally
             {
                 reconfigureLock.Release();
             }
+
+            foreach (var (group, changes) in applied.Where(group => group.Changes.Count > 0))
+                NTSGroupChanged(group, changes, Origin);
+
+            return true;
 
         }
 
@@ -2358,7 +2468,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) ApplyNTSConfiguration(Group, Configuration)
+        #region (private) ApplyNTSConfiguration(Group, Configuration, Origin = null)
 
         /// <summary>
         /// Put an NTS section into effect for a group. What it does not mention
@@ -2366,8 +2476,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         /// <param name="Group">The group the section is about.</param>
         /// <param name="Configuration">The section.</param>
-        private void ApplyNTSConfiguration(NTSGroup          Group,
-                                           NTSConfiguration  Configuration)
+        /// <param name="Origin">Who or what made the change, for the log line; null at the start, and where nobody says.</param>
+        /// <returns>What changed, as the log line says it - nothing where the section only repeated what was in effect.</returns>
+        private IReadOnlyList<String> ApplyNTSConfiguration(NTSGroup          Group,
+                                                            NTSConfiguration  Configuration,
+                                                            String?           Origin = null)
         {
 
             // Kept whole: what this method does with the client is only half of
@@ -2435,6 +2548,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (wasServers != nowServers)
                 changed.Add($"time servers = {nowServers}");
+
+            // Their ids with them, where the section names its servers. Said
+            // where they differ, and only then: an id is what a server is to a
+            // CSMS, and one given anew is a server it loses and one it gains,
+            // whatever the host names say. A page writing down the ids it was
+            // shown changes nothing about them.
+            var wasIds        = Group.ServerIds;
+
+            if (Configuration.ServerIdsIn(Group.Id) is { } ids)
+                Group.ServerIds = ids;
+
+            if (!wasIds.SequenceEqual(Group.ServerIds))
+                changed.Add($"server ids = {String.Join(", ", Group.ServerIds)}");
 
             // What a server is held to is not in its description, which is
             // Norn's and knows no pins - so it is compared here. A server whose
@@ -2548,8 +2674,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 LogTime(Group,
                         LogLevel.Notice,
                         Group.IsLegal
-                            ? $"NTS configuration changed: {String.Join(", ", changed)}."
-                            : $"NTS group '{Group.Id}' changed: {String.Join(", ", changed)}.",
+                            ? $"NTS configuration changed: {String.Join(", ", changed)}{ChangeOrigin.By(Origin)}."
+                            : $"NTS group '{Group.Id}' changed: {String.Join(", ", changed)}{ChangeOrigin.By(Origin)}.",
                         "nts", "config");
 
             // A run of failed checks is about the servers that failed, and
@@ -2575,6 +2701,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 StartCheckingTheClock(Group);
             }
+
+            return changed;
 
         }
 

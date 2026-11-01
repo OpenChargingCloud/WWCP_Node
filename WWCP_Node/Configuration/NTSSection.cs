@@ -259,7 +259,69 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             }
 
+            if (!TryCheckServerIds(groups, out Error))
+                return false;
+
             Section = new NTSSection(groups);
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryCheckServerIds(Groups, out Error)
+
+        /// <summary>
+        /// Whether every server of every group has an id of its own - the one
+        /// the file gives it, or the one it is given; see
+        /// <see cref="NTSServerConfiguration.IdsOf"/>.
+        /// </summary>
+        /// <remarks>
+        /// Across the groups, and not only within one: a server's id is the
+        /// instance a CSMS knows it by, and a CSMS asks for an instance without
+        /// saying which group it means. A legal group naming no server asks the
+        /// PTB's four, "legal-1" to "legal-4".
+        /// </remarks>
+        /// <param name="Groups">Every group, by its name.</param>
+        private static Boolean TryCheckServerIds(IEnumerable<KeyValuePair<String, NTSConfiguration>>  Groups,
+                                                 [NotNullWhen(false)] out String?                     Error)
+        {
+
+            Error = null;
+
+            var owners = new Dictionary<String, String>(StringComparer.Ordinal);
+
+            foreach (var (id, group) in Groups)
+            {
+
+                var path  = PathOf(id);
+                var ids   = group.ServerIdsIn(id)
+                                ?? (id == NTSGroup.LegalId
+                                        ? NTSServerConfiguration.IdsOf(id, new String?[NTSConfiguration.DefaultHostnames.Count])
+                                        : []);
+
+                for (var index = 0; index < ids.Count; index++)
+                {
+
+                    var given = group.Servers?.ElementAtOrDefault(index)?.Id is not null;
+                    var where = group.Servers is not null
+                                    ? $"{path}.servers[{index}]"
+                                    : path;
+
+                    if (owners.TryGetValue(ids[index], out var owner))
+                    {
+                        Error = given
+                                    ? $"'{where}.id': '{ids[index]}' is the id of '{owner}' already: a server's id names it in every group."
+                                    : $"'{where}' has no id, and '{ids[index]}', the one it would be given, is the id of '{owner}' already: give it an id of its own.";
+                        return false;
+                    }
+
+                    owners[ids[index]] = where;
+
+                }
+
+            }
+
             return true;
 
         }

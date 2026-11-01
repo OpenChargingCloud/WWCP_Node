@@ -256,6 +256,33 @@ describe('the NTS page', () => {
 
     });
 
+    it('keeps a server\'s id under a new host name, and every other server\'s with it', async () => {
+
+        const root = await opened({}, configuration => {
+            configuration.timeSources!.forEach((source, index) => source.id = `legal-${index + 1}`);
+        });
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog = document.querySelector('dialog')!;
+
+        assert.match(dialog.querySelector('#server-id')?.textContent ?? '', /legal-1/, 'the dialog does not say the server\'s id');
+
+        dialog.querySelector<HTMLInputElement>('input[name="hostname"]')!.value = 'time.example.org';
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        const servers = told.find(update => update.servers !== undefined)!.servers!;
+
+        assert.equal(servers[0]!.hostname, 'time.example.org');
+        assert.deepEqual(servers.map(server => server.id), servers.map((_, index) => `legal-${index + 1}`),
+                         'an id left out is given anew by the server\'s place, and a CSMS loses the server it knew');
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
     it('says whose time a legal clock carries, as the node names it', async () => {
 
         const root = await opened({ legal: true, authority: 'PTB', why: null, nts: { ...aClock().nts, checkedAt: '2026-10-04T11:59:00Z', offset_ms: 0.4 } });

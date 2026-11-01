@@ -118,7 +118,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!NTSConfiguration.TryReadDisplayName(json, NTSSection.IsGroupId(id) ? NTSSection.PathOf(id) : $"{NTSConfiguration.SectionName}.{NTSSection.GroupsKey}", out var displayName, out var nameError))
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, nameError));
 
-            if (!Node.TryAddNTSGroup(id, displayName, out var group, out var error, out var notSaved))
+            if (!Node.TryAddNTSGroup(id, displayName, out var group, out var error, out var notSaved, ChangeOrigin.Web(user.Id.ToString())))
                 return Task.FromResult(NotChanged(Request,
                                                   Node.NTSGroupOf(id) is not null ? HTTPStatusCode.Conflict : HTTPStatusCode.BadRequest,
                                                   error,
@@ -190,7 +190,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryGetNTSGroup(Request, GroupIdOf(Request), out var group, out var notFound))
                 return notFound;
 
-            var (removed, error, notSaved) = await Node.TryRemoveNTSGroupAsync(group.Id);
+            var (removed, error, notSaved) = await Node.TryRemoveNTSGroupAsync(group.Id, ChangeOrigin.Web(user.Id.ToString()));
 
             if (!removed)
                 return NotChanged(Request,
@@ -262,7 +262,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return errorResponse;
 
-            if (!Node.TryUpdateNTSConfiguration(Group, json, out var error, out var notSaved))
+            if (!Node.TryUpdateNTSConfiguration(Group, json, out var error, out var notSaved, ChangeOrigin.Web(User.Id.ToString())))
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
 
             Log.Notice(Group.IsLegal

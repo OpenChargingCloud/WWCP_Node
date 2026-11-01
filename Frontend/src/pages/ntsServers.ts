@@ -53,11 +53,16 @@ function sameName(one: string, other: string): boolean {
  * of ptbtime2.ptb.de's priority took the root ptbtime1.ptb.de had learned on
  * first use, and the instruction to learn it, out of the file and out of
  * effect, and the log said no more than that it was held to no fingerprint.
+ *
+ * Its id as well, by the same rule: one left out is given anew by the
+ * server's place in the list, and a CSMS that knew the server by the old one
+ * would find another server under it after the next save.
  */
 export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntry {
 
     const entry: NTSServerEntry = { hostname: readable(source.hostname) };
 
+    if (source.id)                         entry.id         = source.id;
     if (source.priority  !== 0)            entry.priority   = source.priority;
     if (source.ntsKEPort !== usual.ntsKE)  entry.ntsKEPort  = source.ntsKEPort;
     if (source.ntpPort   !== usual.ntp)    entry.ntpPort    = source.ntpPort;

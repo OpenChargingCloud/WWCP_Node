@@ -50,6 +50,17 @@ describe('a time server turned back into its entry', () => {
 
     });
 
+    it('keeps the id it was shown with, or the next save gives it another', () => {
+
+        assert.deepEqual(entryOf(shown('ptbtime2.ptb.de.', { id: 'legal-2' }), usual),
+                         { id: 'legal-2', hostname: 'ptbtime2.ptb.de' });
+
+        assert.deepEqual(entryOf(shown('ptbtime2.ptb.de.', { id: null }), usual),
+                         { hostname: 'ptbtime2.ptb.de' },
+                         'a node that names no id is not sent one');
+
+    });
+
 });
 
 
@@ -219,6 +230,16 @@ describe('the list a change sends', () => {
 
         assert.deepEqual(withoutServer(list, 0).map(entry => entry.hostname),
                          [ 'b.example', 'c.example' ]);
+
+    });
+
+    it('keeps the ids of the servers left, which the node would give anew by their places', () => {
+
+        const shownList = [ shown('a.example.', { id: 'legal-1' }), shown('b.example.', { id: 'legal-2' }), shown('c.example.', { id: 'legal-3' }) ];
+
+        assert.deepEqual(withoutServer(shownList.map(source => sentOf(source, usual)), 0).map(entry => entry.id),
+                         [ 'legal-2', 'legal-3' ],
+                         'given anew, b.example would be "legal-1", and to a CSMS the server it knew as "legal-1" would have a new host name');
 
     });
 

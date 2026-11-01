@@ -55,6 +55,39 @@ namespace cloud.charging.open.protocols.WWCP.Node
     public partial class WWCPNode : IAsyncDisposable
     {
 
+        #region Events
+
+        /// <summary>
+        /// A group of time servers was changed, at the start excepted: the
+        /// group, what changed as its log line says it, and who or what changed
+        /// it - see <see cref="ChangeOrigin"/> - or null where nobody said.
+        /// </summary>
+        /// <remarks>
+        /// Told once per group and save, after the change is in effect and the
+        /// reconfiguration lock is let go: a listener may read the group, and
+        /// change it in turn. A save that changes nothing tells nothing. A pin
+        /// learned on trust on first use is a change as well, by "tofu" - told
+        /// from inside the key exchange that learned it, so a listener that
+        /// takes long holds up a time server's answer.
+        /// </remarks>
+        public event Action<NTSGroup, IReadOnlyList<String>, String?>?  OnNTSGroupChanged;
+
+        /// <summary>
+        /// A group of time servers was made, switched off and naming no server:
+        /// the group, and who or what made it, or null where nobody said.
+        /// </summary>
+        public event Action<NTSGroup, String?>?                         OnNTSGroupAdded;
+
+        /// <summary>
+        /// A group of time servers was taken away, and everything that ran for
+        /// it has ended: the group as it was, and who or what took it away, or
+        /// null where nobody said.
+        /// </summary>
+        public event Action<NTSGroup, String?>?                         OnNTSGroupRemoved;
+
+        #endregion
+
+
         #region NTSGroupOf(Id)
 
         /// <summary>
@@ -133,7 +166,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region TryAddNTSGroup(Id, DisplayName, out Group, out Error, out NotSaved)
+        #region TryAddNTSGroup(Id, DisplayName, out Group, out Error, out NotSaved, Origin = null)
 
         /// <summary>
         /// Make a group of time servers, switched off and naming no server, and
@@ -149,11 +182,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Group">The group made.</param>
         /// <param name="Error">Why none was made.</param>
         /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the group was wrong, and nothing was made.</param>
+        /// <param name="Origin">Who or what makes it - see <see cref="ChangeOrigin"/> - for the log line and <see cref="OnNTSGroupAdded"/>; null where nobody says.</param>
         public Boolean TryAddNTSGroup(String                                Id,
                                       IReadOnlyDictionary<String, String>?  DisplayName,
                                       [NotNullWhen(true)]  out NTSGroup?    Group,
                                       [NotNullWhen(false)] out String?      Error,
-                                      out Boolean                           NotSaved)
+                                      out Boolean                           NotSaved,
+                                      String?                               Origin = null)
         {
 
             Group     = null;
@@ -193,10 +228,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 ntsGroups          = [ .. ntsGroups, group ];
 
-                LogTime(group, LogLevel.Notice, $"NTS group '{Id}' added, switched off.", "nts", "config");
+                LogTime(group, LogLevel.Notice, $"NTS group '{Id}' added, switched off{ChangeOrigin.By(Origin)}.", "nts", "config");
 
                 Group = group;
-                return true;
 
             }
             finally
@@ -204,11 +238,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 reconfigureLock.Release();
             }
 
+            var added = Group;
+
+            Tell(OnNTSGroupAdded, listener => listener(added, Origin), $"NTS group '{Id}' was added");
+
+            return true;
+
         }
 
         #endregion
 
-        #region TryRemoveNTSGroupAsync(Id)
+        #region TryRemoveNTSGroupAsync(Id, Origin = null)
 
         /// <summary>
         /// Take a group of time servers away, while it is switched off: end
@@ -237,8 +277,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </para>
         /// </remarks>
         /// <param name="Id">The group's name.</param>
+        /// <param name="Origin">Who or what takes it away - see <see cref="ChangeOrigin"/> - for the log line and <see cref="OnNTSGroupRemoved"/>; null where nobody says.</param>
         /// <returns>Whether it was taken away; why not; and whether that was the file's doing rather than the request's.</returns>
-        public async Task<(Boolean Removed, String? Error, Boolean NotSaved)> TryRemoveNTSGroupAsync(String Id)
+        public async Task<(Boolean Removed, String? Error, Boolean NotSaved)> TryRemoveNTSGroupAsync(String   Id,
+                                                                                                     String?  Origin = null)
         {
 
             NTSGroup? group;
@@ -288,11 +330,65 @@ namespace cloud.charging.open.protocols.WWCP.Node
             LogTime(group,
                     LogLevel.Notice,
                     group.IsLegal
-                        ? $"NTS group '{Id}' removed: this {Kind.Name} has no legal time from now on."
-                        : $"NTS group '{Id}' removed.",
+                        ? $"NTS group '{Id}' removed{ChangeOrigin.By(Origin)}: this {Kind.Name} has no legal time from now on."
+                        : $"NTS group '{Id}' removed{ChangeOrigin.By(Origin)}.",
                     "nts", "config");
 
+            Tell(OnNTSGroupRemoved, listener => listener(group, Origin), $"NTS group '{Id}' was removed");
+
             return (true, null, false);
+
+        }
+
+        #endregion
+
+        #region (private) NTSGroupChanged(Group, Changes, Origin)
+
+        /// <summary>
+        /// Tell whatever listens that a group was changed.
+        /// </summary>
+        /// <param name="Group">The group.</param>
+        /// <param name="Changes">What changed, as the log line says it.</param>
+        /// <param name="Origin">Who or what changed it, or null.</param>
+        private void NTSGroupChanged(NTSGroup               Group,
+                                     IReadOnlyList<String>  Changes,
+                                     String?                Origin)
+
+            => Tell(OnNTSGroupChanged, listener => listener(Group, Changes, Origin), $"NTS group '{Group.Id}' changed");
+
+        #endregion
+
+        #region (private) Tell(Listeners, Call, What)
+
+        /// <summary>
+        /// Tell each listener on its own, so that one throwing neither keeps
+        /// the others from hearing it nor fails what was done.
+        /// </summary>
+        /// <param name="Listeners">The event's listeners, or null for none.</param>
+        /// <param name="Call">How one of them is told.</param>
+        /// <param name="What">What happened, for the log line when a listener fails: "NTS group 'local' changed".</param>
+        private void Tell<TListener>(TListener?         Listeners,
+                                     Action<TListener>  Call,
+                                     String             What)
+
+            where TListener : Delegate
+
+        {
+
+            if (Listeners is null)
+                return;
+
+            foreach (var listener in Listeners.GetInvocationList().Cast<TListener>())
+            {
+                try
+                {
+                    Call(listener);
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"Something told that {What} failed: {e.Message}", "nts", "errors");
+                }
+            }
 
         }
 

@@ -255,6 +255,105 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AServerKeepsTheIdItWasShownWith()
+
+        /// <summary>
+        /// Every server is shown with an id - "&lt;group&gt;-&lt;n&gt;" by its
+        /// place, where the file gives none - and keeps the one sent back with
+        /// it: the first taken away, the second is still "local-2", in effect
+        /// and in the file. To a CSMS it is the server's instance.
+        /// </summary>
+        [Test]
+        public async Task AServerKeepsTheIdItWasShownWith()
+        {
+
+            using var http          = await SignedIn();
+
+            await Send(http, HttpMethod.Post, NTSGroupsPath, JObject.Parse("""{ "id": "local" }"""));
+
+            var (saved, shown)      = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ "lc1.local", "lc2.local" ] }"""));
+            var (kept,  left)       = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ { "id": "local-2", "hostname": "lc2.local" } ] }"""));
+
+            Assert.Multiple(() => {
+
+                Assert.That(saved,                                                                Is.EqualTo(HttpStatusCode.OK),  shown.ToString());
+                Assert.That(shown["timeSources"]?.Select(source => source.Value<String>("id")),   Is.EqualTo(new[] { "local-1", "local-2" }));
+
+                Assert.That(kept,                                                                 Is.EqualTo(HttpStatusCode.OK),  left.ToString());
+                Assert.That(left["timeSources"]?.Select(source => source.Value<String>("id")),    Is.EqualTo(new[] { "local-2" }),  "not local-1, which it would be by its place");
+                Assert.That(OnDisk["nts"]?["groups"]?["local"]?["servers"]?[0]?.Value<String>("id"),  Is.EqualTo("local-2"),  "and written down");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AServerIdTakenIsRefused()
+
+        /// <summary>
+        /// A server's id names it in every group: one the legal group's first
+        /// server has is refused for a server of another group, and nothing is
+        /// written.
+        /// </summary>
+        [Test]
+        public async Task AServerIdTakenIsRefused()
+        {
+
+            using var http          = await SignedIn();
+
+            await Send(http, HttpMethod.Post, NTSGroupsPath, JObject.Parse("""{ "id": "local" }"""));
+
+            var legal               = await GetJSON(http, $"{NTSGroupsPath}/legal");
+            var taken               = legal["timeSources"]?[0]?.Value<String>("id");
+
+            var (status, refusal)   = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", new JObject(
+                                                                                                     new JProperty("servers", new JArray(
+                                                                                                         new JObject(
+                                                                                                             new JProperty("id",        taken),
+                                                                                                             new JProperty("hostname",  "lc1.local")
+                                                                                                         )
+                                                                                                     ))
+                                                                                                 ));
+
+            Assert.Multiple(() => {
+
+                Assert.That(taken,                                                     Is.Not.Null,  "the legal group's first server has an id");
+                Assert.That(status,                                                    Is.EqualTo(HttpStatusCode.BadRequest),  refusal.ToString());
+                Assert.That(refusal.Value<String>("error"),                            Does.Contain($"'{taken}' is the id of 'nts.groups.legal"));
+                Assert.That(OnDisk["nts"]?["groups"]?["local"]?["servers"],            Is.Null,  "nothing was written");
+
+            });
+
+        }
+
+        #endregion
+
+        #region WhoChangedAGroupIsWrittenDown()
+
+        /// <summary>
+        /// The log line of a change names who made it, as the white paper wants
+        /// every change of the time servers: the account, by way of the web.
+        /// </summary>
+        [Test]
+        public async Task WhoChangedAGroupIsWrittenDown()
+        {
+
+            using var http  = await SignedIn();
+
+            await Send(http, HttpMethod.Post, NTSGroupsPath, JObject.Parse("""{ "id": "local" }"""));
+
+            var before      = Node.Log.LastId;
+
+            await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "maxErrors": 20 }"""));
+
+            Assert.That(Node.Log.Recent(100, before, null).Select(entry => entry.Message),
+                        Has.Some.EqualTo($"NTS group 'local' changed: limited after 20 errors in a row (by web:{AdminLogin})."));
+
+        }
+
+        #endregion
+
         #region AGroupIsTakenAwayOnlySwitchedOff()
 
         [Test]

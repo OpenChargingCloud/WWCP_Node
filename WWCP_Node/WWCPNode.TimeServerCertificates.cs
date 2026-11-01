@@ -298,6 +298,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                            String           Fingerprint)
         {
 
+            NTSGroup? learnedIn  = null;
+            String?   learned    = null;
+
             if (!reconfigureLock.Wait(LearningWait))
                 return false;
 
@@ -334,13 +337,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 group.Settings = group.Settings!.OverriddenBy(update);
 
-                return true;
+                learnedIn      = group;
+                learned        = $"{Hostname.Trimmed} held to {servers[index].Pins}";
 
             }
             finally
             {
                 reconfigureLock.Release();
             }
+
+            // A change of the group like any other, by "tofu" - and told, like
+            // any other, once the lock is let go.
+            NTSGroupChanged(learnedIn, [ learned ], ChangeOrigin.TOFU);
+
+            return true;
 
         }
 

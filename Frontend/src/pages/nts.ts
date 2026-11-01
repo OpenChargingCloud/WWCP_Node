@@ -1014,6 +1014,9 @@ export const ntsPage: Page = {
 
                 const entry: NTSServerEntry = { hostname };
 
+                // The server keeps its id under a new host name: it is the
+                // same place in the list, and the same server to a CSMS.
+                if (shown?.id)                                           entry.id         = shown.id;
                 if (priority !== 0)                                      entry.priority   = priority;
                 if (ntsKE.length > 0 && Number(ntsKE) !== usual.ntsKE)  entry.ntsKEPort  = Number(ntsKE);
                 if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
@@ -1044,6 +1047,12 @@ export const ntsPage: Page = {
             render(dialog, html`
 
                 <h2><i class="fa-solid fa-clock"></i> ${shown === null ? 'A new time server' : readable(shown.hostname)}</h2>
+
+                ${shown?.id
+                      ? html`<p class="muted small" id="server-id">
+                                 Its id is <code>${shown.id}</code>, which a CSMS knows it by, whatever its host name becomes.
+                             </p>`
+                      : nothing}
 
                 <form id="server-form" class="form-stack" @submit=${take}>
 

@@ -125,6 +125,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public TimeSourceGroup  Sources             { get; internal set; }
 
         /// <summary>
+        /// The id of every server of this group, in the order of
+        /// <see cref="Sources"/>: the one the file gives it, or the one it is
+        /// given by its place - see <see cref="NTSServerConfiguration.IdsOf"/>.
+        /// </summary>
+        /// <remarks>
+        /// What names a server to whoever is told about it beside its host
+        /// name - to a CSMS, the instance of its NTPClientController - and so
+        /// unique across every group of the node.
+        /// </remarks>
+        public IReadOnlyList<String>  ServerIds     { get; internal set; }
+
+        /// <summary>
         /// The client the detailed test of a server starts from - none for a
         /// group that names no server yet. The legal group always has one.
         /// </summary>
@@ -336,9 +348,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         NTSClient?       Client)
         {
 
-            this.Id       = Id;
-            this.Sources  = Sources;
-            this.Client   = Client;
+            this.Id         = Id;
+            this.Sources    = Sources;
+            this.Client     = Client;
+
+            // Ids by their places, until a section says what they are.
+            this.ServerIds  = NTSServerConfiguration.IdsOf(Id, new String?[Sources.Sources.Count()]);
 
         }
 

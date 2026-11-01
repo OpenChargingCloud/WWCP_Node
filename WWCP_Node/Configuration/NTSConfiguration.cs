@@ -341,6 +341,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     if (!NTSServerConfiguration.TryParse(serverArray[i], i, out var server, out Error, Path))
                         return false;
 
+                    // An id names one server: two of the same would be one
+                    // instance to a CSMS for two servers.
+                    var first = server.Id is null ? -1 : servers.FindIndex(other => other.Id == server.Id);
+
+                    if (first >= 0)
+                    {
+                        Error = $"'{Path}.servers[{i}].id': '{server.Id}' is the id of '{Path}.servers[{first}]' already.";
+                        return false;
+                    }
+
                     servers.Add(server);
 
                 }
@@ -463,6 +473,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                         MaxDeviation);
 
         }
+
+        #endregion
+
+        #region ServerIdsIn(Group)
+
+        /// <summary>
+        /// The id of every server this section makes the group ask, in the
+        /// order of <see cref="ToGroup"/> - or null where it says nothing about
+        /// the servers, and the group keeps those it has.
+        /// </summary>
+        /// <remarks>
+        /// A lone hostname is a group of one, whose server is
+        /// "&lt;group&gt;-1": the hostname form has no place for an id.
+        /// </remarks>
+        /// <param name="Group">The group's name.</param>
+        public IReadOnlyList<String>? ServerIdsIn(String Group)
+
+            => Servers  is not null ? NTSServerConfiguration.IdsOf(Group, Servers.Select(server => server.Id))
+             : Hostname is not null ? NTSServerConfiguration.IdsOf(Group, [ null ])
+             : null;
 
         #endregion
 

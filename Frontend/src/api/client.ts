@@ -680,6 +680,12 @@ export interface NTSUpdate {
  * usual: priority 0, the usual ports, switched on, held to no fingerprint.
  */
 export interface NTSServerEntry extends PinKeys {
+    /**
+     * What names the server across every group of the node, whatever its
+     * host name becomes: the id the node showed it with, sent back so that
+     * it stays. Left out for a new server, which the node gives one.
+     */
+    id?:            string;
     hostname:       string;
     priority?:      number;
     ntsKEPort?:     number;
@@ -729,6 +735,12 @@ export interface NTSServerResult {
 
 /** One server of the node's group, and what its key exchange is doing. */
 export interface NTSTimeSource {
+    /**
+     * What names it across every group of the node - to a CSMS, the instance
+     * of its NTPClientController: the one the file gives it, or
+     * "<group>-<n>" by its place until a save writes that down.
+     */
+    id?:            string | null;
     hostname:       string;
     priority:       number;
     ntsKEPort:      number;
