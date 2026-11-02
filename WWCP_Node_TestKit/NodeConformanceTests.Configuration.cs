@@ -223,6 +223,48 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region WhoChangedTheNameResolutionIsWrittenDownAndTold()
+
+        /// <summary>
+        /// The log line of a change names who made it, as the white paper on
+        /// name resolution wants every change of the name servers - the
+        /// account, by way of the web - and so does what a bridge to OCPP is
+        /// told, which tells a local change apart from a CSMS's own.
+        /// </summary>
+        [Test]
+        public async Task WhoChangedTheNameResolutionIsWrittenDownAndTold()
+        {
+
+            using var http  = await SignedIn();
+
+            var told        = new List<(IReadOnlyList<String> Changes, String? Origin)>();
+
+            Node.OnDNSConfigurationChanged += (changes, origin) => {
+                lock (told)
+                    told.Add((changes, origin));
+            };
+
+            var before      = Node.Log.LastId;
+
+            using var response = await http.PutAsync("api/v1/configuration/dns", JSONBody(new JProperty("maxRetries", 7)));
+
+            Assert.Multiple(() => {
+
+                Assert.That(response.IsSuccessStatusCode,  Is.True);
+
+                Assert.That(Node.Log.Recent(100, before, null).Select(entry => entry.Message),
+                            Has.Some.EqualTo($"DNS configuration changed: max retries = 7 (by web:{AdminLogin})."));
+
+                Assert.That(told.Select   (change => change.Origin),   Is.EqualTo(new[] { $"web:{AdminLogin}" }));
+                Assert.That(told.SelectMany(change => change.Changes),  Is.EqualTo(new[] { "max retries = 7" }));
+                Assert.That(told.Any(change => ChangeOrigin.IsOCPP(change.Origin)),  Is.False,  "a change on the page is no CSMS's");
+
+            });
+
+        }
+
+        #endregion
+
         #region ANameServerInTheFormTheLogUsesIsRefusedAndNothingIsWritten()
 
         /// <summary>

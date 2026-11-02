@@ -1603,6 +1603,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #region DNS
 
+        #region OnDNSConfigurationChanged
+
+        /// <summary>
+        /// The name resolution of this node was changed, at the start excepted:
+        /// what changed as the log line says it, and who or what changed it -
+        /// see <see cref="ChangeOrigin"/> - or null where nobody said.
+        /// </summary>
+        /// <remarks>
+        /// Told once per save, after the change is in effect and the
+        /// reconfiguration lock is let go: a listener may read the
+        /// configuration, and change it in turn. A save that changes nothing
+        /// tells nothing. A pin learned on trust on first use is a change as
+        /// well, by "tofu" - told from inside the handshake that learned it, so
+        /// a listener that takes long holds up a name server's answer.
+        /// </remarks>
+        public event Action<IReadOnlyList<String>, String?>?  OnDNSConfigurationChanged;
+
+        #endregion
+
         #region DNSConfigurationJSON()
 
         /// <summary>
@@ -1679,7 +1698,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region TryUpdateDNSConfiguration(JSON, out Error [, out NotSaved])
+        #region TryUpdateDNSConfiguration(JSON, out Error [, out NotSaved, Origin = null])
 
         /// <summary>
         /// Change how this node resolves names, at once and for everything
@@ -1707,26 +1726,51 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="JSON">What the page sent, in the shape of the "dns" section.</param>
         /// <param name="Error">Why nothing was changed.</param>
         /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        /// <param name="Origin">Who or what makes the change - see <see cref="ChangeOrigin"/> - for the log line and <see cref="OnDNSConfigurationChanged"/>; null where nobody says.</param>
         public Boolean TryUpdateDNSConfiguration(JObject                           JSON,
                                                  [NotNullWhen(false)] out String?  Error,
-                                                 out Boolean                       NotSaved)
+                                                 out Boolean                       NotSaved,
+                                                 String?                           Origin = null)
+
+            => TryUpdateDNSConfiguration(_ => JSON, out Error, out NotSaved, Origin);
+
+        #endregion
+
+        #region TryUpdateDNSConfiguration(Change, out Error, out NotSaved, Origin = null)
+
+        /// <summary>
+        /// Change how this node resolves names, by a change made from the
+        /// configuration as it is when nothing else can change it: reading it,
+        /// changing it and writing it are one step.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// For whoever sends the whole list of name servers back, as a bridge to
+        /// OCPP does: a list read first and written later loses a server added
+        /// on the page in between, and what each server is held to protects the
+        /// pins only. Given the configuration under the reconfiguration lock,
+        /// the change can see whether it is still the one it was made for.
+        /// </para>
+        /// <para>
+        /// The change is asked under that lock, so it must neither take long
+        /// nor change this node itself; a change that would rather not be made
+        /// after all says null, and nothing is changed.
+        /// </para>
+        /// </remarks>
+        /// <param name="Change">The change, in the shape of the "dns" section, from the configuration as <see cref="DNSConfigurationJSON"/> says it; null for none.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        /// <param name="Origin">Who or what makes the change - see <see cref="ChangeOrigin"/> - for the log line and <see cref="OnDNSConfigurationChanged"/>; null where nobody says.</param>
+        public Boolean TryUpdateDNSConfiguration(Func<JObject, JObject?>           Change,
+                                                 [NotNullWhen(false)] out String?  Error,
+                                                 out Boolean                       NotSaved,
+                                                 String?                           Origin = null)
         {
 
-            NotSaved = false;
+            Error     = null;
+            NotSaved  = false;
 
-            if (!DNSConfiguration.TryParse(JSON, out var sent, out Error))
-                return false;
-
-            if (sent.Servers is { Count: 0 })
-            {
-                Error = $"Without a name server this {Kind.Name} cannot reach anything. Switch name resolution off instead of emptying the list.";
-                return false;
-            }
-
-            // What the page showed each server held to, where it says - see
-            // ServerPins.TryAfterAPageSaved.
-            if (!ServerPins.TryParseAsShown(JSON, DNSConfiguration.SectionName, out var asShown, out Error))
-                return false;
+            IReadOnlyList<String> changed;
 
             // Under the same lock as every other change to this node:
             // writing a section is a read, a change and a write of one file,
@@ -1736,6 +1780,25 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+
+                var json = Change(DNSConfigurationJSON());
+
+                if (json is null)
+                    return true;
+
+                if (!DNSConfiguration.TryParse(json, out var sent, out Error))
+                    return false;
+
+                if (sent.Servers is { Count: 0 })
+                {
+                    Error = $"Without a name server this {Kind.Name} cannot reach anything. Switch name resolution off instead of emptying the list.";
+                    return false;
+                }
+
+                // What the page showed each server held to, where it says - see
+                // ServerPins.TryAfterAPageSaved.
+                if (!ServerPins.TryParseAsShown(json, DNSConfiguration.SectionName, out var asShown, out Error))
+                    return false;
 
                 // The one that trust on first use writes under, too: what a
                 // server is held to now cannot change before the file is written.
@@ -1749,9 +1812,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return false;
                 }
 
-                ApplyDNSConfiguration(configuration);
-
-                return true;
+                changed = ApplyDNSConfiguration(configuration, Origin);
 
             }
             finally
@@ -1759,17 +1820,40 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 reconfigureLock.Release();
             }
 
+            if (changed.Count > 0)
+                DNSConfigurationChanged(changed, Origin);
+
+            return true;
+
         }
 
         #endregion
 
-        #region (private) ApplyDNSConfiguration(Configuration)
+        #region (private) DNSConfigurationChanged(Changes, Origin)
+
+        /// <summary>
+        /// Tell whatever listens that the name resolution was changed.
+        /// </summary>
+        /// <param name="Changes">What changed, as the log line says it.</param>
+        /// <param name="Origin">Who or what changed it, or null.</param>
+        private void DNSConfigurationChanged(IReadOnlyList<String>  Changes,
+                                             String?                Origin)
+
+            => Tell(OnDNSConfigurationChanged, listener => listener(Changes, Origin), "the name resolution changed", CertificateUsages.DNS);
+
+        #endregion
+
+        #region (private) ApplyDNSConfiguration(Configuration, Origin = null)
 
         /// <summary>
         /// Put a DNS section into effect. What it does not mention is left as
         /// it is.
         /// </summary>
-        private void ApplyDNSConfiguration(DNSConfiguration Configuration)
+        /// <param name="Configuration">The section.</param>
+        /// <param name="Origin">Who or what made the change, for the log line; null at the start, and where nobody says.</param>
+        /// <returns>What changed, as the log line says it - nothing where the section only repeated what was in effect.</returns>
+        private IReadOnlyList<String> ApplyDNSConfiguration(DNSConfiguration  Configuration,
+                                                            String?           Origin = null)
         {
 
             var changed = new List<String>();
@@ -1882,7 +1966,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             if (changed.Count > 0)
-                Log.Notice($"DNS configuration changed: {String.Join(", ", changed)}.", "dns", "config");
+                Log.Notice($"DNS configuration changed: {String.Join(", ", changed)}{ChangeOrigin.By(Origin)}.", "dns", "config");
+
+            return changed;
 
         }
 

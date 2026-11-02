@@ -127,6 +127,53 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
 
     /// <summary>
+    /// What a judgement of a server's certificate is news of, as the log says
+    /// it - see <see cref="WWCPNode.OnServerNews"/>.
+    /// </summary>
+    public enum ServerNews
+    {
+
+        /// <summary>
+        /// The server was refused: for showing no certificate, one not issued
+        /// for its name, one chaining to no root this node trusts, or one it is
+        /// not held to.
+        /// </summary>
+        Refused,
+
+        /// <summary>
+        /// A fingerprint did not match, and the server is used all the same, as
+        /// its configuration says.
+        /// </summary>
+        Tolerated,
+
+        /// <summary>
+        /// A fingerprint did not match, and the server is used all the same and
+        /// written into the metrological log, as its configuration says.
+        /// </summary>
+        Recorded,
+
+        /// <summary>
+        /// The server's certificate is believed again, after it was refused or
+        /// only used all the same.
+        /// </summary>
+        BelievedAgain,
+
+        /// <summary>
+        /// The server is held to the certificate or root it was first believed
+        /// with, from now on: trusted on first use.
+        /// </summary>
+        Learned,
+
+        /// <summary>
+        /// The server showed another certificate than it was believed with
+        /// before.
+        /// </summary>
+        CertificateChanged
+
+    }
+
+
+    /// <summary>
     /// Which certificates of the servers it connects to a node believes: the
     /// same questions for a time server and a name server, and the same
     /// answers written into the same log.
@@ -173,6 +220,24 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// kept between starts - see <see cref="Certificates.KnownServers"/>.
         /// </summary>
         public KnownServers  KnownServers    { get; }
+
+        #endregion
+
+        #region Events
+
+        /// <summary>
+        /// A judgement of a server's certificate is news: the judgement, and
+        /// which news it is. Told once for each news the log says of it - a
+        /// server that learned a pin from a certificate it had not shown before
+        /// is two - and not again for the same verdict at the next connection.
+        /// </summary>
+        /// <remarks>
+        /// For time servers and name servers alike, by the judgement's service.
+        /// Told from inside the connection that was judged, so a listener that
+        /// takes long holds up a key exchange or a handshake; what only asks -
+        /// a dry run of a configuration - tells nothing.
+        /// </remarks>
+        public event Action<ServerJudgement, ServerNews>?  OnServerNews;
 
         #endregion
 
@@ -585,20 +650,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     Log.Log(Level, Sentence, tags);
             }
 
+            // What is news is told as well as written down, in the order it is
+            // written down - once everything is, so that a listener reading the
+            // log finds it there.
+            var news         = new List<ServerNews>();
+
             #region What it learned, and whether it changed
 
             if (Judgement.Learned != TrustOnFirstUse.None)
+            {
                 Say(LogLevel.Notice,
                     $"{service}: {name} is held to its {Judgement.Learned.AsText()} " +
                     $"{(Judgement.Learned == TrustOnFirstUse.Root ? Judgement.RootFingerprint : Judgement.CertificateFingerprint)} from now on - " +
                      "the first one it was believed with, trusted on first use.",
                     Evidence);
+                news.Add(ServerNews.Learned);
+            }
 
             if (Judgement.Previously is KnownServer before)
+            {
                 Say(LogLevel.Warning,
                     $"{service}: {name} showed another certificate than it was believed with before: {certificate} with root {root}, " +
                     $"where it showed {before.Certificate} with root {before.Root ?? "unknown"} since {before.Since.UtcDateTime:yyyy-MM-dd}.",
                     Evidence);
+                news.Add(ServerNews.CertificateChanged);
+            }
 
             else if (Judgement.FirstSeen)
                 Log.Info($"{service}: {name} is believed with certificate {certificate}, with root {root} - remembered from now on.", tags);
@@ -611,9 +687,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // Believed again after it was not: the end of a gap in what the
                 // service rests on is as much news as its beginning.
                 if (Previous is not null && Previous.Outcome != "accepted")
+                {
                     Say(LogLevel.Notice,
                         $"{service}: the certificate of {name} is believed again: {certificate}, with root {root}.",
                         Evidence);
+                    news.Add(ServerNews.BelievedAgain);
+                }
+
+                TellNews(Judgement, news);
 
                 return;
 
@@ -636,10 +717,38 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Log.Debug(sentence, tags);
 
             else
+            {
+
                 Say(Judgement.Accepted ? LogLevel.Warning : LogLevel.Error,
                     sentence,
                     Evidence || Judgement.Outcome == "recorded");
 
+                news.Add(Judgement.Outcome switch {
+                             "recorded"   => ServerNews.Recorded,
+                             "tolerated"  => ServerNews.Tolerated,
+                             _            => ServerNews.Refused
+                         });
+
+            }
+
+            TellNews(Judgement, news);
+
+        }
+
+        #endregion
+
+        #region (private) TellNews(Judgement, News)
+
+        /// <summary>
+        /// Tell whatever listens what a judgement is news of, one news at a time.
+        /// </summary>
+        /// <param name="Judgement">The judgement.</param>
+        /// <param name="News">What it is news of, in the order the log says it; nothing where it is none.</param>
+        private void TellNews(ServerJudgement             Judgement,
+                              IReadOnlyList<ServerNews>   News)
+        {
+            foreach (var news in News)
+                Tell(OnServerNews, listener => listener(Judgement, news), $"the certificate of {Judgement.Server} was judged ({news})", Judgement.Service);
         }
 
         #endregion

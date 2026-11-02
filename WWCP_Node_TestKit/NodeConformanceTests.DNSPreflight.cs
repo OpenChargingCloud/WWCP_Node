@@ -57,7 +57,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             using var leaf   = ServerCertificate("127.0.0.1", ca);
 
             var learning     = false;
+            var news         = new List<ServerNews>();
             ServerJudgement judgement;
+
+            Node.OnServerNews += (_, said) => news.Add(said);
 
             using (var chain = Trusted(leaf, ca))
                 judgement    = Node.JudgeServer(CertificateUsages.DNS,
@@ -74,6 +77,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(judgement.Accepted,                                                       Is.True,  String.Join(" ", judgement.Steps.Select(step => step.Text)));
                 Assert.That(judgement.Learned,                                                        Is.EqualTo(TrustOnFirstUse.None));
                 Assert.That(learning,                                                                 Is.False, "nothing is learned in a dry run");
+                Assert.That(news,                                                                     Is.Empty, "nor told as news, which learning would be");
                 Assert.That(Node.LastJudgementOf(nameServer!),                                        Is.Null,  "nor kept as the server's last judgement");
                 Assert.That(Node.KnownServers.Get(CertificateUsages.DNS, WWCPNode.NameOf(nameServer!)), Is.Null,  "nor as what it is believed with");
                 Assert.That(Node.PinsOf(nameServer!)?.Roots ?? [],                                    Is.Empty);

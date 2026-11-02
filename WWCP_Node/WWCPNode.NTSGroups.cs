@@ -240,7 +240,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var added = Group;
 
-            Tell(OnNTSGroupAdded, listener => listener(added, Origin), $"NTS group '{Id}' was added");
+            Tell(OnNTSGroupAdded, listener => listener(added, Origin), $"NTS group '{Id}' was added", CertificateUsages.NTS);
 
             return true;
 
@@ -334,7 +334,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         : $"NTS group '{Id}' removed{ChangeOrigin.By(Origin)}.",
                     "nts", "config");
 
-            Tell(OnNTSGroupRemoved, listener => listener(group, Origin), $"NTS group '{Id}' was removed");
+            Tell(OnNTSGroupRemoved, listener => listener(group, Origin), $"NTS group '{Id}' was removed", CertificateUsages.NTS);
 
             return (true, null, false);
 
@@ -354,43 +354,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      IReadOnlyList<String>  Changes,
                                      String?                Origin)
 
-            => Tell(OnNTSGroupChanged, listener => listener(Group, Changes, Origin), $"NTS group '{Group.Id}' changed");
-
-        #endregion
-
-        #region (private) Tell(Listeners, Call, What)
-
-        /// <summary>
-        /// Tell each listener on its own, so that one throwing neither keeps
-        /// the others from hearing it nor fails what was done.
-        /// </summary>
-        /// <param name="Listeners">The event's listeners, or null for none.</param>
-        /// <param name="Call">How one of them is told.</param>
-        /// <param name="What">What happened, for the log line when a listener fails: "NTS group 'local' changed".</param>
-        private void Tell<TListener>(TListener?         Listeners,
-                                     Action<TListener>  Call,
-                                     String             What)
-
-            where TListener : Delegate
-
-        {
-
-            if (Listeners is null)
-                return;
-
-            foreach (var listener in Listeners.GetInvocationList().Cast<TListener>())
-            {
-                try
-                {
-                    Call(listener);
-                }
-                catch (Exception e)
-                {
-                    Log.Warning($"Something told that {What} failed: {e.Message}", "nts", "errors");
-                }
-            }
-
-        }
+            => Tell(OnNTSGroupChanged, listener => listener(Group, Changes, Origin), $"NTS group '{Group.Id}' changed", CertificateUsages.NTS);
 
         #endregion
 

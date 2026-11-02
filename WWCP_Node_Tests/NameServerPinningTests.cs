@@ -317,6 +317,142 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ALearnedPinIsToldAsAChangeByTrustOnFirstUse()
+
+        /// <summary>
+        /// A pin learned on trust on first use is a change of the name
+        /// resolution like one made on a page, by "tofu": a CSMS hears of it as
+        /// it hears of the page's - and news of the server as well.
+        /// </summary>
+        [Test]
+        public async Task ALearnedPinIsToldAsAChangeByTrustOnFirstUse()
+        {
+
+            await using var node = Node(""", "trustOnFirstUse": "certificate" """);
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, null,
+                                                 [ CertificateUsages.DNS ], out _, out var error),  Is.True,  error);
+
+            var told  = new List<(IReadOnlyList<String> Changes, String? Origin)>();
+            var news  = NewsOf(node);
+
+            node.OnDNSConfigurationChanged += (changes, origin) => {
+                lock (told)
+                    told.Add((changes, origin));
+            };
+
+            await Ask(node);
+
+            Assert.Multiple(() => {
+                Assert.That(told.Select(change => change.Origin),   Is.EqualTo(new[] { "tofu" }));
+                Assert.That(told.SelectMany(change => change.Changes),
+                            Is.EqualTo(new[] { $"tls://127.0.0.1:{port} held to certificate {Fingerprint(certificate)}, refused otherwise" }));
+                Assert.That(news,                                   Is.EqualTo(new[] { ("dns", ServerNews.Learned) }));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatIsNewsIsToldOnceAndBelievingAgainToo()
+
+        /// <summary>
+        /// A server refused is news once, and refused again for the same is not:
+        /// the log says it only in passing then. Believed after a root for it
+        /// was imported, it is news again.
+        /// </summary>
+        [Test]
+        public async Task WhatIsNewsIsToldOnceAndBelievingAgainToo()
+        {
+
+            await using var node = Node();
+
+            var news = NewsOf(node);
+
+            await Ask(node);
+            await Ask(node);
+
+            Assert.That(news, Is.EqualTo(new[] { ("dns", ServerNews.Refused) }), "refused for the same twice, news once");
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, null,
+                                                 [ CertificateUsages.DNS ], out _, out var error),  Is.True,  error);
+
+            await Ask(node);
+
+            Assert.That(news, Is.EqualTo(new[] { ("dns", ServerNews.Refused), ("dns", ServerNews.BelievedAgain) }));
+
+        }
+
+        #endregion
+
+        #region AFingerprintThatDoesNotMatchIsNews(OnMismatch, News)
+
+        [TestCase("refuse",  ServerNews.Refused)]
+        [TestCase("accept",  ServerNews.Tolerated)]
+        [TestCase("record",  ServerNews.Recorded)]
+        public async Task AFingerprintThatDoesNotMatchIsNews(String      OnMismatch,
+                                                             ServerNews  News)
+        {
+
+            await using var node = Node($$""", "certificateFingerprint": "{{Fingerprint(another)}}", "onMismatch": "{{OnMismatch}}" """);
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, null,
+                                                 [ CertificateUsages.DNS ], out _, out var error),  Is.True,  error);
+
+            var news = NewsOf(node);
+
+            await Ask(node);
+
+            Assert.That(news, Is.EqualTo(new[] { ("dns", News) }));
+
+        }
+
+        #endregion
+
+        #region AnotherCertificateThanBeforeIsNews()
+
+        [Test]
+        public async Task AnotherCertificateThanBeforeIsNews()
+        {
+
+            await using var node = Node();
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, null,
+                                                 [ CertificateUsages.DNS ], out _, out var error),  Is.True,  error);
+
+            node.KnownServers.Observe(CertificateUsages.DNS, $"tls://127.0.0.1:{port}", Fingerprint(another), null, DateTimeOffset.UtcNow.AddDays(-3));
+
+            var news = NewsOf(node);
+
+            await Ask(node);
+
+            Assert.That(news, Is.EqualTo(new[] { ("dns", ServerNews.CertificateChanged) }));
+
+        }
+
+        #endregion
+
+        #region (helper) NewsOf(Node)
+
+        /// <summary>
+        /// What the node tells is news of its servers from now on, by service.
+        /// </summary>
+        private static List<(String Service, ServerNews News)> NewsOf(WWCPNode Node)
+        {
+
+            var news = new List<(String Service, ServerNews News)>();
+
+            Node.OnServerNews += (judgement, said) => {
+                lock (news)
+                    news.Add((judgement.Service, said));
+            };
+
+            return news;
+
+        }
+
+        #endregion
+
         #region ACertificateLearnedWhileAPageWasOpenIsKeptByItsSave()
 
         /// <summary>

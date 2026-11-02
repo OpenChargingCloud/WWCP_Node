@@ -242,6 +242,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                            String           Fingerprint)
         {
 
+            String learned;
+
             if (!reconfigureLock.Wait(LearningWait))
                 return false;
 
@@ -258,11 +260,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!configuredDNSServers.Contains(Server))
                     return false;
 
-                var learned  = new Dictionary<DNSServerConfig, ServerPins>(dnsPins) {
+                var nowPins  = new Dictionary<DNSServerConfig, ServerPins>(dnsPins) {
                                    [Server] = pins.Learning(What, Fingerprint)
                                };
 
-                var update   = new DNSConfiguration(Servers: configuredDNSServers, Pins: learned);
+                var update   = new DNSConfiguration(Servers: configuredDNSServers, Pins: nowPins);
 
                 if (!ConfigFile.TryMergeSection(DNSConfiguration.SectionName, update.ToJSON(), out var error))
                 {
@@ -271,15 +273,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return false;
                 }
 
-                dnsPins = learned;
-
-                return true;
+                dnsPins  = nowPins;
+                learned  = $"{NameOf(Server)} held to {nowPins[Server]}";
 
             }
             finally
             {
                 reconfigureLock.Release();
             }
+
+            // A change of the name resolution like any other, by "tofu" - and
+            // told, like any other, once the lock is let go.
+            DNSConfigurationChanged([ learned ], ChangeOrigin.TOFU);
+
+            return true;
 
         }
 
