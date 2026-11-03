@@ -71,18 +71,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
-            node = new WWCPNode(
-                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
-                       AccountsPath:      Path.Combine(directory, "accounts"),
-                       ConfigFile:        new WWCPConfigFile(configuration),
-                       CertificatesPath:  Path.Combine(directory, "certificates"),
-                       LogToConsole:      false,
-                       BridgeDebugLog:    false
-                   );
+            // Made again on fresh ports where one was taken before the node
+            // could bind it; what a start given up on said is not this one's.
+            node = await TestPorts.StartedOnFreshPorts(() => {
 
-            node.Log.OnLogged += entry => { lock (said) said.Add(entry.Message); };
+                       lock (said)
+                           said.Clear();
 
-            await node.Start();
+                       var made = new WWCPNode(
+                                      HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                      AccountsPath:      Path.Combine(directory, "accounts"),
+                                      ConfigFile:        new WWCPConfigFile(configuration),
+                                      CertificatesPath:  Path.Combine(directory, "certificates"),
+                                      LogToConsole:      false,
+                                      BridgeDebugLog:    false
+                                  );
+
+                       made.Log.OnLogged += entry => { lock (said) said.Add(entry.Message); };
+
+                       return made;
+
+                   });
 
             cli = new NodeCLI(node);
 

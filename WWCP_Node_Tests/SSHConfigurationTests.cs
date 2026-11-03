@@ -104,38 +104,53 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (helpers) Started(Port, CommandLine) / Client(Node) / Send(...) / Listens(Port) / SignIn(Node, Key)
+        #region (helpers) Started(CommandLine) / Client(Node) / Send(...) / Listens(Port) / SignIn(Node, Key)
 
         private String ConfigFile
             => Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
         /// <summary>
-        /// A node whose SSH server the file puts on the given port - or the
-        /// command line, where it says so - started.
+        /// A node whose SSH server the file puts on a port of its own - or the
+        /// command line, where it says so - started, and that port.
         /// </summary>
-        private async Task<WWCPNode> Started(UInt16 Port, Boolean CommandLine = false)
+        /// <remarks>
+        /// Made again on fresh ports where one was taken before the node could
+        /// bind it, the file written again with the new one.
+        /// </remarks>
+        private async Task<(WWCPNode Node, UInt16 Port)> Started(Boolean CommandLine = false)
         {
 
-            File.WriteAllText(ConfigFile, CommandLine
-                                              ? """{ "nts": { "groups": { "legal": { "enabled": false } } } }"""
-                                              : $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "ssh": { "enabled": true, "port": {{Port}} } }""");
+            UInt16   port  = 0;
+            PageAPI? api   = null;
 
-            var node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
-                                    AccountsPath:      Path.Combine(directory, "accounts"),
-                                    ConfigFile:        new WWCPConfigFile(ConfigFile),
-                                    CertificatesPath:  Path.Combine(directory, "certificates"),
-                                    LogToConsole:      false,
-                                    BridgeDebugLog:    false,
-                                    SSH:               CommandLine
-                                                           ? new SSHSettings(Enabled: true, Port: IPPort.Parse(Port))
-                                                           : new SSHSettings(OnByDefault: false));
+            var node = await TestPorts.StartedOnFreshPorts(() => {
+
+                           port = TestPorts.Free();
+
+                           File.WriteAllText(ConfigFile, CommandLine
+                                                             ? """{ "nts": { "groups": { "legal": { "enabled": false } } } }"""
+                                                             : $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "ssh": { "enabled": true, "port": {{port}} } }""");
+
+                           var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                                   AccountsPath:      Path.Combine(directory, "accounts"),
+                                                   ConfigFile:        new WWCPConfigFile(ConfigFile),
+                                                   CertificatesPath:  Path.Combine(directory, "certificates"),
+                                                   LogToConsole:      false,
+                                                   BridgeDebugLog:    false,
+                                                   SSH:               CommandLine
+                                                                          ? new SSHSettings(Enabled: true, Port: IPPort.Parse(port))
+                                                                          : new SSHSettings(OnByDefault: false));
+
+                           api = new PageAPI(made);
+
+                           return made;
+
+                       });
 
             nodes.Add(node);
-            apis. Add(new PageAPI(node));
+            apis. Add(api!);
 
-            await node.Start();
-
-            return node;
+            return (node, port);
 
         }
 
@@ -218,8 +233,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task TheSSHServerIsShownAsItRuns()
         {
 
-            var port     = TestPorts.Free();
-            var node     = await Started(port);
+            var (node, port) = await Started();
             var key      = SshHostKey.GenerateEd25519();
 
             Assert.That((await node.AuthorizeSSHKey("root", SshPublicKey.FromHostKey(key, "tester").ToAuthorizedKeyLine())).IsAdded, Is.True);
@@ -280,9 +294,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AServerMovedAnswersOnItsNewPortAndOnItsOldNoMore()
         {
 
-            var before  = TestPorts.Free();
+            var (node, before) = await Started();
             var after   = TestPorts.Free();
-            var node    = await Started(before);
             var hostKey = node.SSHHostKey;
 
             using var http      = Client(node);
@@ -319,8 +332,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task APortThatIsTakenLeavesTheServerWhereItWas()
         {
 
-            var before    = TestPorts.Free();
-            var node      = await Started(before);
+            var (node, before) = await Started();
 
             // On the address the node listens on: on Windows, one on 0.0.0.0
             // leaves 127.0.0.1 to be bound all the same.
@@ -354,8 +366,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task SwitchedOffItListensNowhereAndPasswordsAreToldAtOnce()
         {
 
-            var port   = TestPorts.Free();
-            var node   = await Started(port);
+            var (node, port) = await Started();
 
             using var http   = Client(node);
 
@@ -399,9 +410,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task TheCommandLineWinsAndIsSaidSo()
         {
 
-            var port    = TestPorts.Free();
+            var (node, port) = await Started(CommandLine: true);
             var asked   = TestPorts.Free();
-            var node    = await Started(port, CommandLine: true);
 
             using var http      = Client(node);
             var (status, ssh)   = await Send(http, HttpMethod.Put, new JObject(new JProperty("port", asked)));
@@ -430,8 +440,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AViewerSeesItAndChangesNothing()
         {
 
-            var port      = TestPorts.Free();
-            var node      = await Started(port);
+            var (node, port) = await Started();
             var password  = "a viewer's password, 1234";
 
             Assert.That(node.ExtAPI.TryGetOrganization(Organization_Id.Parse(node.Kind.Organization), out var organization) && organization is Organization, Is.True);

@@ -128,22 +128,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName), """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
-            List<String>   said     = this.said    = [];
-            List<LogEntry> entries  = this.entries = [];
+            // Made again on fresh ports where one was taken before the node
+            // could bind it, with a log of its own each time.
+            node = await TestPorts.StartedOnFreshPorts(() => {
 
-            var log = new EventLog();
-            log.OnLogged += entry => { lock (said) { said.Add(entry.Message); entries.Add(entry); } };
+                       List<String>   said     = this.said    = [];
+                       List<LogEntry> entries  = this.entries = [];
 
-            node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
-                                AccountsPath:      Path.Combine(directory, "accounts"),
-                                ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
-                                CertificatesPath:  Path.Combine(directory, "certificates"),
-                                Log:               log,
-                                LogToConsole:      false,
-                                BridgeDebugLog:    false,
-                                SSH:               new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free())));
+                       var log = new EventLog();
+                       log.OnLogged += entry => { lock (said) { said.Add(entry.Message); entries.Add(entry); } };
 
-            await node.Start();
+                       return new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                           AccountsPath:      Path.Combine(directory, "accounts"),
+                                           ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
+                                           CertificatesPath:  Path.Combine(directory, "certificates"),
+                                           Log:               log,
+                                           LogToConsole:      false,
+                                           BridgeDebugLog:    false,
+                                           SSH:               new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free())));
+
+                   });
 
         }
 

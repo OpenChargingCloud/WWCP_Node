@@ -108,33 +108,40 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (helpers) Started(SSHPort) / Client(Node, Login, Password) / Send(...) / SignIn(Node, Key)
+        #region (helpers) Started(WithSSH) / Client(Node, Login, Password) / Send(...) / SignIn(Node, Key)
 
         /// <summary>
         /// A node on this test's directory - the first start, or the next -
-        /// with its JSON API, and its SSH server where a port is given.
+        /// with its JSON API, and its SSH server where asked for.
         /// </summary>
-        private async Task<WWCPNode> Started(UInt16? SSHPort = null)
+        private async Task<WWCPNode> Started(Boolean WithSSH = false)
         {
 
             var configFile = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
             File.WriteAllText(configFile, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
-            var node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
-                                    AccountsPath:      Path.Combine(directory, "accounts"),
-                                    ConfigFile:        new WWCPConfigFile(configFile),
-                                    CertificatesPath:  Path.Combine(directory, "certificates"),
-                                    LogToConsole:      false,
-                                    BridgeDebugLog:    false,
-                                    SSH:               SSHPort.HasValue
-                                                           ? new SSHSettings(Enabled: true, Port: IPPort.Parse(SSHPort.Value))
-                                                           : new SSHSettings(OnByDefault: false));
+            // Made again on fresh ports where one was taken before the node
+            // could bind it.
+            var node = await TestPorts.StartedOnFreshPorts(() => {
+
+                           var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                                   AccountsPath:      Path.Combine(directory, "accounts"),
+                                                   ConfigFile:        new WWCPConfigFile(configFile),
+                                                   CertificatesPath:  Path.Combine(directory, "certificates"),
+                                                   LogToConsole:      false,
+                                                   BridgeDebugLog:    false,
+                                                   SSH:               WithSSH
+                                                                          ? new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free()))
+                                                                          : new SSHSettings(OnByDefault: false));
+
+                           _ = new PageAPI(made);
+
+                           return made;
+
+                       });
 
             nodes.Add(node);
-            _ = new PageAPI(node);
-
-            await node.Start();
 
             if (node.GeneratedPassword is String generated)
                 password = generated;
@@ -424,7 +431,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AnSSHKeySwitchedOffLetsNobodyInUntilSwitchedOn()
         {
 
-            var node   = await Started(TestPorts.Free());
+            var node   = await Started(WithSSH: true);
             var key    = SshHostKey.GenerateEd25519();
             var path   = $"ext/users/root/SSHKeys/{UserSSHKey.FingerprintInURL(SshFingerprint.Sha256(key.PublicKeyBlob))}";
 

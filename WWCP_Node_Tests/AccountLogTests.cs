@@ -75,21 +75,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var configFile = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
             File.WriteAllText(configFile, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
-            // This test's own: a node of the test before may still log while it goes.
-            List<LogEntry> logged = this.logged = [];
+            // Made again on fresh ports where one was taken before the node
+            // could bind it, with a log of its own each time.
+            node = await TestPorts.StartedOnFreshPorts(() => {
 
-            var log = new EventLog();
-            log.OnLogged += entry => { lock (logged) logged.Add(entry); };
+                       // This test's own: a node of the test before may still log while it goes.
+                       List<LogEntry> logged = this.logged = [];
 
-            node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
-                                AccountsPath:      Path.Combine(directory, "accounts"),
-                                ConfigFile:        new WWCPConfigFile(configFile),
-                                CertificatesPath:  Path.Combine(directory, "certificates"),
-                                Log:               log,
-                                LogToConsole:      false,
-                                BridgeDebugLog:    false);
+                       var log = new EventLog();
+                       log.OnLogged += entry => { lock (logged) logged.Add(entry); };
 
-            await node.Start();
+                       return new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                           AccountsPath:      Path.Combine(directory, "accounts"),
+                                           ConfigFile:        new WWCPConfigFile(configFile),
+                                           CertificatesPath:  Path.Combine(directory, "certificates"),
+                                           Log:               log,
+                                           LogToConsole:      false,
+                                           BridgeDebugLog:    false);
+
+                   });
 
             password = node.GeneratedPassword!;
 

@@ -134,11 +134,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private async Task<WWCPNode> Started(EventLog? Log = null, IReadOnlyList<(String, String)>? Authorize = null)
         {
 
-            var node = Node(new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free()), Authorize: Authorize), Log: Log);
-
-            await node.Start();
-
-            return node;
+            // Made again on fresh ports where one was taken before the node
+            // could bind it.
+            return await TestPorts.StartedOnFreshPorts(() => Node(new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free()), Authorize: Authorize), Log: Log));
 
         }
 
@@ -901,9 +899,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             // A first start without SSH.
             Directory.Delete(Path.Combine(directory, "accounts"), true);
 
-            var noSSH = Node(new SSHSettings(Enabled: false));
-
-            await noSSH.Start();
+            var noSSH = await TestPorts.StartedOnFreshPorts(() => Node(new SSHSettings(Enabled: false)));
 
             Assert.Multiple(() => {
                 Assert.That(noSSH.GeneratedPassword,  Is.Not.Null, "not a first start");

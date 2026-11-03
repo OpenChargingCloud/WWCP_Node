@@ -131,18 +131,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configFile, configuration.ToString());
 
-            var node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
-                                    AccountsPath:      Path.Combine(home, "accounts"),
-                                    ConfigFile:        new WWCPConfigFile(configFile),
-                                    CertificatesPath:  Path.Combine(home, "certificates"),
-                                    LogToConsole:      false,
-                                    BridgeDebugLog:    false,
-                                    SSH:               new SSHSettings(OnByDefault: false));
+            // Made again on fresh ports where one was taken before the node
+            // could bind it.
+            var node = await TestPorts.StartedOnFreshPorts(() => {
+
+                           var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                                   AccountsPath:      Path.Combine(home, "accounts"),
+                                                   ConfigFile:        new WWCPConfigFile(configFile),
+                                                   CertificatesPath:  Path.Combine(home, "certificates"),
+                                                   LogToConsole:      false,
+                                                   BridgeDebugLog:    false,
+                                                   SSH:               new SSHSettings(OnByDefault: false));
+
+                           _ = new PageAPI(made);
+
+                           return made;
+
+                       });
 
             nodes.Add(node);
-            _ = new PageAPI(node);
-
-            await node.Start();
 
             if (node.GeneratedPassword is String generated)
                 password = generated;
