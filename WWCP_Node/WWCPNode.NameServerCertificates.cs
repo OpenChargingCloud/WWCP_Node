@@ -163,6 +163,50 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (private) NameServerRootsChanged()
+
+        /// <summary>
+        /// Let go of the connection to every name server that was believed
+        /// through a root of this node's store which no longer vouches for it:
+        /// deleted, switched off, or no longer for "dns" or for the server's
+        /// group of roots.
+        /// </summary>
+        /// <remarks>
+        /// The certificate is only looked at when a connection is made, and a
+        /// connection to a name server is kept for long: a server believed
+        /// through a root that was taken away went on being asked on the
+        /// strength of it until the connection ended by itself. The next query
+        /// makes a new one, judged against the store as it is then. A server
+        /// believed through a root the machine trusts owes nothing to this
+        /// store, and keeps its connection.
+        /// </remarks>
+        private void NameServerRootsChanged()
+        {
+
+            foreach (var server in configuredDNSServers)
+            {
+
+                if (LastJudgementOf(server) is not ServerJudgement { Accepted: true, AnchoredBy: String anchoredBy, RootFingerprint: String root })
+                    continue;
+
+                if (AnchorsFor(CertificateUsages.DNS, PinsOf(server) ?? ServerPins.None).
+                        Any(anchor => String.Equals(anchor.Thumbprint, root, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                dnsClient.CloseConnection(server);
+                judgements.TryRemove((CertificateUsages.DNS, NameOf(server).ToLowerInvariant()), out _);
+
+                Log.Notice($"DNS: the connection to {NameOf(server)} is let go of, because the root '{anchoredBy}' it was believed through no longer vouches for it.",
+                           "dns", "certificates", "security");
+
+            }
+
+        }
+
+        #endregion
+
         #region (private) TryPinsAfterAPageSaved(Update, AsShown, out Saved, out Error)
 
         /// <summary>

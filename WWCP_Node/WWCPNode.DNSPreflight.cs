@@ -67,7 +67,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     public partial class WWCPNode
     {
 
-        #region ResolveWithAsync(Section, Names, Within, CancellationToken = default)
+        #region ResolveWithAsync(Section, Names, Within, CancellationToken = default, WithoutRoots = null)
 
         /// <summary>
         /// Resolve the given names as this node would with the given "dns"
@@ -93,10 +93,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Names">The names to resolve.</param>
         /// <param name="Within">How long all of them may take together.</param>
         /// <param name="CancellationToken">A cancellation token.</param>
-        public async Task<DNSPreflight> ResolveWithAsync(JObject              Section,
-                                                         IEnumerable<String>  Names,
-                                                         TimeSpan             Within,
-                                                         CancellationToken    CancellationToken   = default)
+        /// <param name="WithoutRoots">The fingerprints of roots of this node's store to resolve without, as if they were deleted: whether the names would still resolve after a deletion of them.</param>
+        public async Task<DNSPreflight> ResolveWithAsync(JObject                       Section,
+                                                         IEnumerable<String>           Names,
+                                                         TimeSpan                      Within,
+                                                         CancellationToken             CancellationToken   = default,
+                                                         IReadOnlyCollection<String>?  WithoutRoots        = null)
         {
 
             var names = Names.Select   (name => name.Trim().TrimEnd('.')).
@@ -138,9 +140,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                    certificate,
                                                                    chain,
                                                                    policyErrors,
-                                                                   Evidence:  false,
-                                                                   Learn:     null,
-                                                                   Remember:  false);
+                                                                   Evidence:      false,
+                                                                   Learn:         null,
+                                                                   Remember:      false,
+                                                                   WithoutRoots:  WithoutRoots);
 
                                        judged.Enqueue(judgement);
 

@@ -570,6 +570,119 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ARootThatNoLongerVouchesTakesItsConnectionsAlong(How)
+
+        /// <summary>
+        /// A root of the store a name server was believed through, deleted or
+        /// no longer for "dns": the next query makes a new connection, judged
+        /// against the store as it is now - not the one kept open from before
+        /// (SecureDNS concept B.4 point 8).
+        /// </summary>
+        [TestCase("deleted")]
+        [TestCase("for the time servers alone")]
+        public async Task ARootThatNoLongerVouchesTakesItsConnectionsAlong(String How)
+        {
+
+            await using var node = Node();
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, "our resolver",
+                                                 [ CertificateUsages.DNS ], out var entry, out var error),  Is.True,  error);
+
+            var (before, _)  = await Ask(node);
+            var logged       = node.Log.LastId;
+
+            Assert.That(How == "deleted"
+                            ? node.Certificates.Remove   (entry!.Id,                              out error)
+                            : node.Certificates.SetUsages(entry!.Id, [ CertificateUsages.NTS ], out _, out error),
+                        Is.True, error);
+
+            var (after, judgement) = await Ask(node);
+
+            Assert.Multiple(() => {
+                Assert.That(before,                               Has.Some.Contains("127.0.0.42"));
+                Assert.That(after,                                Is.Empty, "a connection kept open from before was used on the strength of a root that no longer vouches");
+                Assert.That(judgement.Value<String>("outcome"),   Is.EqualTo("untrusted"));
+                Assert.That(node.Log.Recent(100, logged, null).Select(entry => entry.Message),
+                            Has.Some.Contains($"the connection to tls://127.0.0.1:{port} is let go of, because the root 'our resolver'"));
+            });
+
+        }
+
+        #endregion
+
+        #region AnotherRootGoingKeepsTheConnection()
+
+        /// <summary>
+        /// A root of the store that the name server was not believed through
+        /// takes nothing along.
+        /// </summary>
+        [Test]
+        public async Task AnotherRootGoingKeepsTheConnection()
+        {
+
+            await using var node = Node();
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, "our resolver",
+                                                 [ CertificateUsages.DNS ], out _,         out var error),  Is.True,  error);
+
+            Assert.That(node.Certificates.Import(Pem(another),     CertificateKind.TLSRoot, null, "somebody else's",
+                                                 [ CertificateUsages.DNS ], out var other, out error),      Is.True,  error);
+
+            var (before, _)  = await Ask(node);
+            var logged       = node.Log.LastId;
+
+            Assert.That(node.Certificates.Remove(other!.Id, out error), Is.True, error);
+
+            var (after, _)   = await Ask(node);
+
+            Assert.Multiple(() => {
+                Assert.That(before,   Has.Some.Contains("127.0.0.42"));
+                Assert.That(after,    Has.Some.Contains("127.0.0.42"));
+                Assert.That(node.Log.Recent(100, logged, null).Select(entry => entry.Message),
+                            Has.None.Contains("is let go of"));
+            });
+
+        }
+
+        #endregion
+
+        #region APreflightWithoutARootResolvesAsIfItWereDeleted(Group)
+
+        /// <summary>
+        /// The dry run of a deletion: the names resolve with the root, and do
+        /// not without it - whether the server is anchored at it as a root
+        /// for "dns" or as one of its group - while nothing is deleted, and
+        /// the server's connection of the node's own client is not touched.
+        /// </summary>
+        [TestCase(null)]
+        [TestCase("cpo")]
+        public async Task APreflightWithoutARootResolvesAsIfItWereDeleted(String? Group)
+        {
+
+            await using var node = Node(Group is null ? "" : $$""", "rootGroup": "{{Group}}" """);
+
+            String[] usages = Group is null
+                                  ? [ CertificateUsages.DNS ]
+                                  : [ CertificateUsages.DNS, ServerPins.MarkOf(CertificateUsages.DNS, Group) ];
+
+            Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, "our resolver",
+                                                 usages, out var entry, out var error),  Is.True,  error);
+
+            var with      = await node.ResolveWithAsync(new JObject(), [ "api.example.test" ], TimeSpan.FromSeconds(10));
+            var without   = await node.ResolveWithAsync(new JObject(), [ "api.example.test" ], TimeSpan.FromSeconds(10),
+                                                        WithoutRoots: [ Fingerprint(certificate).ToUpperInvariant() ]);
+
+            Assert.Multiple(() => {
+                Assert.That(with.   Resolves("api.example.test"),                      Is.True);
+                Assert.That(without.Resolves("api.example.test"),                      Is.False);
+                Assert.That(without.Judgements.Select(judgement => judgement.Outcome), Has.All.EqualTo("untrusted"));
+                Assert.That(node.Certificates.ByFingerprint(Fingerprint(certificate)), Is.Not.Null, "nothing was deleted");
+            });
+
+        }
+
+        #endregion
+
         #region PinsNeedAServerThatShowsACertificate()
 
         [Test]

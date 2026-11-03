@@ -285,6 +285,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Evidence">Whether what is news here is written into the metrological log as well, whatever the pins say: for a time server.</param>
         /// <param name="Learn">Writes down a fingerprint the server is held to from now on, answering whether it could; null where nothing may be learned.</param>
         /// <param name="Remember">False to only ask: for a configuration that is not in effect, whose judgements are nobody's news - nothing is logged, kept as the server's last judgement, or remembered as what it was believed with.</param>
+        /// <param name="WithoutRoots">The fingerprints of roots of this node's store to judge without, as if they were deleted: for a deletion not yet made, together with Remember = false. The machine's own roots are not left out.</param>
         public ServerJudgement JudgeServer(String                                   Service,
                                            String                                   Server,
                                            ServerPins?                              Pins,
@@ -292,8 +293,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                            X509Chain?                               Chain,
                                            SslPolicyErrors                          PolicyErrors,
                                            Boolean                                  Evidence,
-                                           Func<TrustOnFirstUse, String, Boolean>?  Learn      = null,
-                                           Boolean                                  Remember   = true)
+                                           Func<TrustOnFirstUse, String, Boolean>?  Learn          = null,
+                                           Boolean                                  Remember       = true,
+                                           IReadOnlyCollection<String>?             WithoutRoots   = null)
         {
 
             var name                    = Server.TrimEnd('.');
@@ -349,7 +351,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         rootFingerprint = CertificateEntry.ThumbprintOf(Chain.ChainElements[Chain.ChainElements.Count - 1].Certificate);
                     }
 
-                    else if (TryAnchor(Service, Certificate, Chain, pins, out var anchoredRoot, out var label))
+                    else if (TryAnchor(Service, Certificate, Chain, pins, WithoutRoots, out var anchoredRoot, out var label))
                     {
                         rootFingerprint  = anchoredRoot;
                         anchoredBy       = label;
@@ -510,7 +512,57 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #endregion
 
 
-        #region (private) TryAnchor(Service, Certificate, Chain, Pins, out RootFingerprint, out Label)
+        #region (private) AnchorsFor(Service, Pins, WithoutRoots = null)
+
+        /// <summary>
+        /// The entries of this node's store a server of this service, held to
+        /// these pins, may be anchored at - see <see cref="TryAnchor"/> - less
+        /// the roots left out, as if they were deleted.
+        /// </summary>
+        /// <param name="Service">What the server is to the node: "nts", "dns".</param>
+        /// <param name="Pins">What it is held to.</param>
+        /// <param name="WithoutRoots">The fingerprints of roots to leave out, whichever way they would be anchors; null for none.</param>
+        private IReadOnlyList<CertificateEntry> AnchorsFor(String                        Service,
+                                                           ServerPins                    Pins,
+                                                           IReadOnlyCollection<String>?  WithoutRoots   = null)
+        {
+
+            var anchors = new List<CertificateEntry>();
+
+            if (Pins.RootGroup is String group)
+            {
+
+                var mark = CertificateUsage.Parse(ServerPins.MarkOf(Service, group));
+
+                anchors.AddRange(Certificates.UsableByKind(CertificateKind.TLSRoot).
+                                              Where       (entry => entry.Usages?.Contains(mark) == true));
+
+            }
+
+            else
+            {
+
+                anchors.AddRange(Certificates.UsableFor(CertificateKind.TLSRoot, Service));
+
+                foreach (var pinned in Pins.Roots)
+                    if (!anchors.Any(anchor => String.Equals(anchor.Thumbprint, pinned, StringComparison.OrdinalIgnoreCase)) &&
+                        Certificates.ByFingerprint(pinned) is CertificateEntry held &&
+                        held.IsUsable)
+                    {
+                        anchors.Add(held);
+                    }
+
+            }
+
+            return WithoutRoots is { Count: > 0 }
+                       ? [.. anchors.Where(anchor => !WithoutRoots.Contains(anchor.Thumbprint, StringComparer.OrdinalIgnoreCase))]
+                       : anchors;
+
+        }
+
+        #endregion
+
+        #region (private) TryAnchor(Service, Certificate, Chain, Pins, WithoutRoots, out RootFingerprint, out Label)
 
         /// <summary>
         /// Build the certificate's chain against this node's own roots: every
@@ -540,6 +592,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                   X509Certificate2                            Certificate,
                                   X509Chain?                                  Chain,
                                   ServerPins                                  Pins,
+                                  IReadOnlyCollection<String>?                WithoutRoots,
                                   [NotNullWhen(true)] out String?             RootFingerprint,
                                   [NotNullWhen(true)] out String?             Label)
         {
@@ -552,39 +605,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                if (Pins.RootGroup is String group)
-                {
-
-                    var mark = CertificateUsage.Parse(ServerPins.MarkOf(Service, group));
-
-                    foreach (var entry in Certificates.UsableByKind(CertificateKind.TLSRoot))
-                        if (entry.Usages?.Contains(mark) == true &&
-                            Certificates.TryLoad(entry, out var root, out _))
-                        {
-                            anchors.Add((root, entry.Thumbprint, entry.Label));
-                        }
-
-                }
-
-                else
-                    foreach (var entry in Certificates.UsableFor(CertificateKind.TLSRoot, Service))
-                        if (Certificates.TryLoad(entry, out var root, out _))
-                            anchors.Add((root, entry.Thumbprint, entry.Label));
-
-                foreach (var pinned in Pins.RootGroup is null ? Pins.Roots : [])
-                {
-
-                    if (anchors.Any(anchor => String.Equals(anchor.Fingerprint, pinned, StringComparison.OrdinalIgnoreCase)))
-                        continue;
-
-                    if (Certificates.ByFingerprint(pinned) is CertificateEntry held &&
-                        held.IsUsable                                               &&
-                        Certificates.TryLoad(held, out var heldRoot, out _))
-                    {
-                        anchors.Add((heldRoot, held.Thumbprint, held.Label));
-                    }
-
-                }
+                foreach (var entry in AnchorsFor(Service, Pins, WithoutRoots))
+                    if (Certificates.TryLoad(entry, out var root, out _))
+                        anchors.Add((root, entry.Thumbprint, entry.Label));
 
                 if (anchors.Count == 0)
                     return false;

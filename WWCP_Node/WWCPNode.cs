@@ -931,6 +931,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             this.Certificates.Reload();
             this.Certificates.WarnAboutStoredKeys();
 
+            // A root that goes takes the connections that were believed
+            // through it along - see WWCPNode.NameServerCertificates.cs.
+            this.Certificates.OnChanged += NameServerRootsChanged;
+
             #endregion
 
             #region The HTTP server, the accounts and the web interface
