@@ -612,6 +612,14 @@ export const ntsPage: Page = {
                                value="${settings.legalTimeMaxAgeSeconds}" ?disabled=${off} />
                     </label>
 
+                    <label>Reporting threshold in seconds
+                        <input type="number" name="offsetReportingThresholdSeconds" step="1"
+                               min="${limits.minOffsetReportingThreshold ?? 1}" max="${limits.maxOffsetReportingThreshold ?? 86400}"
+                               value="${typeof settings.offsetReportingThresholdSeconds === 'number' ? settings.offsetReportingThresholdSeconds : ''}"
+                               placeholder="never" ?disabled=${off} />
+                        <span class="hint">A check that finds this ${config.nodeName}'s clock at least this far off is written into the metrological log as security critical - once, until a check finds it closer again. Emptied and saved, no offset is reported.</span>
+                    </label>
+
                     <div class="form-actions">
                         <button type="submit" class="btn primary" ?disabled=${off}>Save</button>
                         <span id="legal-note"  class="form-notice" role="status"></span>
@@ -1239,6 +1247,7 @@ export const ntsPage: Page = {
 
             const form       = event.currentTarget as HTMLFormElement;
             const authority  = String(new FormData(form).get('legalTimeAuthority') ?? '').trim();
+            const threshold  = numberField(form, 'offsetReportingThresholdSeconds');
 
             // Only what this form says, which the node lays over the rest.
             void saveForm(form, '#nts-legal', '#legal-note', '#legal-error', {
@@ -1246,7 +1255,11 @@ export const ntsPage: Page = {
                 // naming one called "".
                 legalTimeAuthority:         authority.length > 0 ? authority : null,
                 legalTimeToleranceSeconds:  numberField(form, 'legalTimeToleranceSeconds'),
-                legalTimeMaxAgeSeconds:     numberField(form, 'legalTimeMaxAgeSeconds')
+                legalTimeMaxAgeSeconds:     numberField(form, 'legalTimeMaxAgeSeconds'),
+                // An emptied field reports no offset - false - rather than
+                // keeping the threshold, as an emptied number does elsewhere:
+                // "never" is what the field says when it is empty.
+                offsetReportingThresholdSeconds:  Number.isNaN(threshold) ? false : threshold
             });
 
         }

@@ -67,13 +67,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public const Int32   MaxIdLength  = 32;
 
         /// <summary>
-        /// What only the legal group may say: who stands behind its time, and
-        /// how close and how recent a check has to be for it to count.
+        /// What only the legal group may say: who stands behind its time, how
+        /// close and how recent a check has to be for it to count, and how far
+        /// off a check may find the clock before that is reported.
         /// </summary>
         public static readonly IReadOnlyList<String> LegalOnlyKeys = [
                                                          "legalTimeAuthority",
                                                          "legalTimeToleranceSeconds",
-                                                         "legalTimeMaxAgeSeconds"
+                                                         "legalTimeMaxAgeSeconds",
+                                                         NTSConfiguration.OffsetReportingThresholdKey
                                                      ];
 
         /// <summary>

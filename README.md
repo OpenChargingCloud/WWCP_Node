@@ -300,6 +300,7 @@ a group, and what it is when absent:
 | `legalTimeAuthority` | - | who the operator says stands behind it |
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
+| `offsetReportingThresholdSeconds` | `5` | how far off a check may find the clock before that is reported; `false` for never |
 
 The section names its groups under `groups`, and the one above is the legal
 one. A node may have more - the white paper's NTP client groups, of which
@@ -317,10 +318,19 @@ one. A node may have more - the white paper's NTP client groups, of which
 A group's name is lower-case letters, digits and hyphens, beginning with a
 letter. `displayName` is what a page calls it - one text for every language,
 or one per language - and without it a page says "local time". Only the legal
-group may say `legalTimeAuthority`, `legalTimeToleranceSeconds` and
-`legalTimeMaxAgeSeconds`, because legal time rests on it and on nothing else;
-its checks go into the metrological log, every other group's into the log
-like anything else. The legal group naming no server is the PTB's four; any
+group may say `legalTimeAuthority`, `legalTimeToleranceSeconds`,
+`legalTimeMaxAgeSeconds` and `offsetReportingThresholdSeconds`, because legal
+time rests on it and on nothing else; its checks go into the metrological log,
+every other group's into the log like anything else.
+
+The node does not set its clock, it measures how far off it is. A check of
+the legal group that finds it at least `offsetReportingThresholdSeconds` off -
+the five seconds of the Secure Time Synchronization white paper, section 2.2,
+in whole seconds from 1 to 86400 - is written into the metrological log as
+security critical and raised as `OnNTSOffsetReached`, which a charging
+station tells its CSMS as the security event `SettingSystemTime`. That is
+said once: again only after a check has found the clock closer, which is
+written down as well. The legal group naming no server is the PTB's four; any
 other group has no default, is switched off while it names nobody, and is
 refused switched on without a server.
 

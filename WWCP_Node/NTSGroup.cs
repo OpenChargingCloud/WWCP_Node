@@ -92,6 +92,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         private          Boolean                  errorsWritten;
         private          Boolean                  limited;
 
+        /// <summary>
+        /// Whether the last check that produced a time found the clock at least
+        /// <see cref="OffsetReportingThreshold"/> off, and so was reported -
+        /// under the gate, for the same reason.
+        /// </summary>
+        private          Boolean                  offsetReported;
+
         #endregion
 
         #region Properties
@@ -193,6 +200,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public TimeSpan         MaxAge
             => Settings?.LegalTimeMaxAge ?? NTSConfiguration.DefaultLegalMaxAge;
+
+        /// <summary>
+        /// How far off a check may find the clock against this group before
+        /// that is reported - null where it is not reported: by every group but
+        /// the legal one, and by the legal one where the file says false.
+        /// </summary>
+        public TimeSpan?        OffsetReportingThreshold
+            => !IsLegal || Settings?.OffsetReportingThreshold == TimeSpan.Zero
+                   ? null
+                   : Settings?.OffsetReportingThreshold ?? NTSConfiguration.DefaultOffsetReportingThreshold;
 
         /// <summary>
         /// How many checks in a row may produce no time before that is written
@@ -407,6 +424,50 @@ namespace cloud.charging.open.protocols.WWCP.Node
             LastCheckServer    = null;
             LastCheckAsked     = null;
             LastCheckAnswered  = null;
+        }
+
+        #endregion
+
+        #region (internal) ReconsiderTheOffset(Offset)
+
+        /// <summary>
+        /// Whether a check that found the clock this far off reaches the
+        /// threshold where the check before it did not - true - or is back
+        /// below it where the check before it reached it - false - or neither.
+        /// </summary>
+        /// <remarks>
+        /// Said when it changes, as the count of failures says its numbers:
+        /// this node does not set its clock, so an offset one check finds the
+        /// next finds as well, until something else sets the clock, and a CSMS
+        /// told of it at every check would be told nothing new. Nor do new
+        /// servers make it new: what is off is this node's clock. A threshold
+        /// taken away forgets that it was reached, so that one set again says
+        /// so at the next check.
+        /// </remarks>
+        /// <param name="Offset">How far off the check found the clock.</param>
+        internal Boolean? ReconsiderTheOffset(TimeSpan? Offset)
+        {
+            lock (gate)
+            {
+
+                if (OffsetReportingThreshold is not { } threshold)
+                {
+                    offsetReported = false;
+                    return null;
+                }
+
+                if (!Offset.HasValue)
+                    return null;
+
+                var reached = Offset.Value.Duration() >= threshold;
+
+                if (reached == offsetReported)
+                    return null;
+
+                offsetReported = reached;
+                return reached;
+
+            }
         }
 
         #endregion

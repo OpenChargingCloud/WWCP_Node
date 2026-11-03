@@ -46,12 +46,12 @@ function aConfiguration(): NTSConfiguration {
         group:        { name: 'ptb', minServers: 2, maxDeviationSeconds: 0.5 },
         settings:     { timeoutSeconds: null, checkEverySeconds: 900, minServers: 2, maxDeviationSeconds: 0.5,
                         legalTimeAuthority: null, legalTimeToleranceSeconds: 1, legalTimeMaxAgeSeconds: 3600,
-                        errorLogging: 5, maxErrors: 10 },
+                        offsetReportingThresholdSeconds: 5, errorLogging: 5, maxErrors: 10 },
         policy:       {},
         lastSync:     null,
         limits:       { maxTimeout: 30, minCheckEvery: 60, maxCheckEvery: 86400, minDeviation: 0.001, maxDeviation: 60,
                         minTolerance: 0.001, maxTolerance: 60, minMaxAge: 60, maxMaxAge: 86400, maxAuthorityLength: 100,
-                        minErrorCount: 1, maxErrorCount: 65535, defaultNTSKEPort: 4460, defaultNTPPort: 123 },
+                        minOffsetReportingThreshold: 1, maxOffsetReportingThreshold: 86400, minErrorCount: 1, maxErrorCount: 65535, defaultNTSKEPort: 4460, defaultNTPPort: 123 },
         file:         'nts.json'
     } as unknown as NTSConfiguration;
 }
@@ -339,6 +339,37 @@ describe('the NTS page', () => {
         assert.equal(told[0]!.checkEverySeconds, 60, 'the stand-in node took sixty, not the thirty typed');
         assert.equal(field(root, 'policy-form', 'checkEverySeconds').value,         '60', 'the field says what was typed, not what the node took');
         assert.equal(field(root, 'policy-form', 'checkEverySeconds').defaultValue,  '60', 'the field still counts as typed into');
+
+    });
+
+    it('saves from what offset a check is reported, and an emptied threshold as never', async () => {
+
+        const root      = await opened();
+        const threshold = () => field(root, 'legal-form', 'offsetReportingThresholdSeconds');
+
+        assert.equal(threshold().value, '5', 'the node\'s five seconds');
+
+        threshold().value = '7';
+
+        submit(root, 'legal-form');
+        await until(() => told.length === 1, 'the threshold was not saved');
+
+        assert.equal(told[0]!.offsetReportingThresholdSeconds, 7);
+        assert.equal(held.settings.offsetReportingThresholdSeconds, 7, 'the group was not told');
+
+        await until(() => root.querySelector('#legal-note')?.textContent === 'Saved, and in effect.', 'the save was not answered');
+
+        threshold().value = '';
+
+        submit(root, 'legal-form');
+        await until(() => told.length === 2, 'the emptied threshold was not saved');
+
+        assert.equal(told[1]!.offsetReportingThresholdSeconds, false, 'an emptied field is never, and not the threshold kept');
+
+        await until(() => root.querySelector('#legal-note')?.textContent === 'Saved, and in effect.', 'the save was not answered');
+
+        assert.equal(threshold().value,        '',       'never is an empty field');
+        assert.equal(threshold().placeholder,  'never');
 
     });
 

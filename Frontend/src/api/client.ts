@@ -676,6 +676,8 @@ export interface NTSUpdate {
     legalTimeAuthority?:         string | null;
     legalTimeToleranceSeconds?:  number;
     legalTimeMaxAgeSeconds?:     number;
+    /** How far off a check of the legal group may find the clock before that is reported; false for never. */
+    offsetReportingThresholdSeconds?:  number | false;
     /** How many checks in a row may produce no time before that is written down. */
     errorLogging?:               number;
     /** How many checks in a row may produce no time before what rests on the group is limited. */
@@ -853,6 +855,8 @@ export interface NTSConfiguration {
         legalTimeAuthority:         string | null;
         legalTimeToleranceSeconds:  number;
         legalTimeMaxAgeSeconds:     number;
+        /** How far off a check may find the clock before that is reported - false where it is not: in every group but the legal one, and where it says never. */
+        offsetReportingThresholdSeconds?:  number | false;
         /** How many checks in a row may produce no time before that is written down, and before what rests on the group is limited. */
         errorLogging?:              number;
         maxErrors?:                 number;
@@ -873,6 +877,8 @@ export interface NTSConfiguration {
         minMaxAge:           number;
         maxMaxAge:           number;
         maxAuthorityLength:  number;
+        minOffsetReportingThreshold?:  number;
+        maxOffsetReportingThreshold?:  number;
         minErrorCount?:      number;
         maxErrorCount?:      number;
         defaultNTSKEPort:    number;

@@ -54,6 +54,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="DisplayName">What the group is called on a page, by language - "*" for every language - or nothing, for "&lt;id&gt; time".</param>
     /// <param name="ErrorLogging">How many checks in a row may produce no time before that is written down, and written down again once one does.</param>
     /// <param name="MaxErrors">How many checks in a row may produce no time before what rests on the group's time is limited, until one does.</param>
+    /// <param name="OffsetReportingThreshold">How far off this node's clock may be found against the legal group before that is reported, or TimeSpan.Zero for never - false in the file.</param>
     public sealed record NTSConfiguration(Boolean?                                 Enabled               = null,
                                           DomainName?                              Hostname              = null,
                                           IPPort?                                  NTSKEPort             = null,
@@ -68,7 +69,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           TimeSpan?                                MaxDeviation          = null,
                                           IReadOnlyDictionary<String, String>?     DisplayName           = null,
                                           UInt16?                                  ErrorLogging          = null,
-                                          UInt16?                                  MaxErrors             = null)
+                                          UInt16?                                  MaxErrors             = null,
+                                          TimeSpan?                                OffsetReportingThreshold = null)
     {
 
         #region Data
@@ -100,6 +102,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// The longest the name of a time authority may be written.
         /// </summary>
         public const           Int32     MaxAuthorityLength       = 80;
+
+        /// <summary>
+        /// How far off this node's clock may be found against the legal group
+        /// before that is reported, when nobody says otherwise: the five
+        /// seconds of the white paper (Secure Time Synchronization, section
+        /// 2.2), which a CSMS knows as ClockCtrlr.TimeAdjustmentReportingThreshold.
+        /// </summary>
+        public static readonly TimeSpan  DefaultOffsetReportingThreshold = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// The threshold of an offset a file may name, in whole seconds, as
+        /// OCPP has it: a second at the least - every check would report
+        /// below it - and a day at the most.
+        /// </summary>
+        public const           UInt32    MinOffsetReportingThresholdSeconds = 1;
+        public const           UInt32    MaxOffsetReportingThresholdSeconds = 86400;
+
+        /// <summary>
+        /// The key of that threshold, in a group and on the page.
+        /// </summary>
+        public const           String    OffsetReportingThresholdKey = "offsetReportingThresholdSeconds";
 
         /// <summary>
         /// The name of this section in the configuration file.
@@ -306,7 +329,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !ConfigurationReader.TryReadSeconds(JSON, "maxDeviationSeconds", Path, MinDeviationSeconds, MaxDeviationSeconds, out var maxDeviation, out Error) ||
                 !ConfigurationReader.TryReadUInt32 (JSON, "errorLogging",        Path, MinErrorCount, MaxErrorCount, out var errorLogging, out Error) ||
                 !ConfigurationReader.TryReadUInt32 (JSON, "maxErrors",           Path, MinErrorCount, MaxErrorCount, out var maxErrors,    out Error) ||
-                !TryReadDisplayName                (JSON,                        Path,                     out var displayName, out Error))
+                !TryReadDisplayName                (JSON,                        Path,                     out var displayName, out Error) ||
+                !TryReadOffsetReportingThreshold   (JSON,                        Path,                     out var threshold,   out Error))
             {
                 return false;
             }
@@ -407,7 +431,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 maxDeviation,
                                 displayName,
                                 (UInt16?) errorLogging,
-                                (UInt16?) maxErrors
+                                (UInt16?) maxErrors,
+                                threshold
                             ) {
                                 RemovesLegalTimeAuthority = removesAuthority,
                                 RemovesDisplayName        = removesName
@@ -530,7 +555,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                         ? null
                         : Update.DisplayName ?? DisplayName,
                     Update.ErrorLogging        ?? ErrorLogging,
-                    Update.MaxErrors           ?? MaxErrors);
+                    Update.MaxErrors           ?? MaxErrors,
+                    Update.OffsetReportingThreshold ?? OffsetReportingThreshold);
 
         #endregion
 
@@ -597,6 +623,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (LegalTimeAuthority is not null) json.Add("legalTimeAuthority",        LegalTimeAuthority);
             if (LegalTimeTolerance.HasValue)  json.Add("legalTimeToleranceSeconds",   LegalTimeTolerance.Value.TotalSeconds);
             if (LegalTimeMaxAge.   HasValue)  json.Add("legalTimeMaxAgeSeconds",      LegalTimeMaxAge.   Value.TotalSeconds);
+
+            if (OffsetReportingThreshold.HasValue)
+                json.Add(OffsetReportingThresholdKey, OffsetReportingThreshold.Value == TimeSpan.Zero
+                                                          ? new JValue(false)
+                                                          : new JValue((Int64) OffsetReportingThreshold.Value.TotalSeconds));
 
             if (DisplayName is not null)      json.Add("displayName",                 DisplayNameJSON(DisplayName));
 
@@ -685,6 +716,54 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             }
 
             DisplayName = texts.Count > 0 ? texts : null;
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) TryReadOffsetReportingThreshold(JSON, Path, out Threshold, out Error)
+
+        /// <summary>
+        /// The optional "offsetReportingThresholdSeconds" of the legal group: a
+        /// whole number of seconds, or false - or nothing between the quotes,
+        /// which is what a page sends for an emptied field - for never.
+        /// </summary>
+        /// <remarks>
+        /// Never is a value of its own and not the key left out, which keeps
+        /// the five seconds every node has without being told: a save that
+        /// takes the key out of the file would not say "never" to the next
+        /// start.
+        /// </remarks>
+        /// <param name="JSON">The group.</param>
+        /// <param name="Path">Where the group is in the file, for the sentence.</param>
+        /// <param name="Threshold">The threshold, TimeSpan.Zero for never, or null where the group says nothing.</param>
+        public static Boolean TryReadOffsetReportingThreshold(JObject                           JSON,
+                                                              String                            Path,
+                                                              out TimeSpan?                     Threshold,
+                                                              [NotNullWhen(false)] out String?  Error)
+        {
+
+            Threshold  = null;
+            Error      = null;
+
+            if (!JSON.TryGetValue(OffsetReportingThresholdKey, out var token) || token.Type == JTokenType.Null)
+                return true;
+
+            if ((token.Type == JTokenType.Boolean && !token.Value<Boolean>()) ||
+                (token.Type == JTokenType.String  && token.Value<String>()?.Trim().Length == 0))
+            {
+                Threshold = TimeSpan.Zero;
+                return true;
+            }
+
+            if (!ConfigurationReader.TryReadUInt32(JSON, OffsetReportingThresholdKey, Path, MinOffsetReportingThresholdSeconds, MaxOffsetReportingThresholdSeconds, out var seconds, out _))
+            {
+                Error = $"'{Path}.{OffsetReportingThresholdKey}' must be a whole number of seconds between {MinOffsetReportingThresholdSeconds} and {MaxOffsetReportingThresholdSeconds}, or false for never.";
+                return false;
+            }
+
+            Threshold = TimeSpan.FromSeconds(seconds!.Value);
             return true;
 
         }

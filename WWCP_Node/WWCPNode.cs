@@ -2034,6 +2034,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("legalTimeAuthority",         Group.Authority),
                            new JProperty("legalTimeToleranceSeconds",  Group.Tolerance.TotalSeconds),
                            new JProperty("legalTimeMaxAgeSeconds",     Group.MaxAge.TotalSeconds),
+                           // How far off a check may find the clock before
+                           // that is reported, or false where it is not.
+                           new JProperty(NTSConfiguration.OffsetReportingThresholdKey,
+                                         Group.OffsetReportingThreshold is { } threshold
+                                             ? new JValue((Int64) threshold.TotalSeconds)
+                                             : new JValue(false)),
                            // How many checks in a row may produce no time
                            // before that is written down, and before what
                            // rests on the group is limited.
@@ -2129,6 +2135,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("minMaxAge",          NTSConfiguration.MinMaxAgeSeconds),
                            new JProperty("maxMaxAge",          NTSConfiguration.MaxMaxAgeSeconds),
                            new JProperty("maxAuthorityLength", NTSConfiguration.MaxAuthorityLength),
+                           new JProperty("minOffsetReportingThreshold", NTSConfiguration.MinOffsetReportingThresholdSeconds),
+                           new JProperty("maxOffsetReportingThreshold", NTSConfiguration.MaxOffsetReportingThresholdSeconds),
                            new JProperty("minErrorCount",      NTSConfiguration.MinErrorCount),
                            new JProperty("maxErrorCount",      NTSConfiguration.MaxErrorCount),
                            new JProperty("defaultNTSKEPort",   NTSClient.DefaultNTSKE_Port.ToUInt16()),
@@ -2615,6 +2623,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
+            var wasThreshold      = Group.OffsetReportingThreshold;
             var wasErrorLogging   = Group.ErrorLogging;
             var wasMaxErrors      = Group.MaxErrors;
 
@@ -2779,6 +2788,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (Group.MaxAge != wasMaxAge)
                 changed.Add($"legal time max age = {Group.MaxAge.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+
+            if (Group.OffsetReportingThreshold != wasThreshold)
+                changed.Add(Group.OffsetReportingThreshold is { } threshold
+                                ? $"offsets reported from {threshold.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)} s"
+                                : "offsets not reported");
 
             if (Group.ErrorLogging != wasErrorLogging)
                 changed.Add($"errors written down after {Group.ErrorLogging} in a row");

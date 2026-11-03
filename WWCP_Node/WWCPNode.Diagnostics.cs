@@ -1177,6 +1177,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // "answered", then "a time again after ...".
                 CountTheSuccess(Group);
 
+                // And then whether what it found is reported.
+                ReportTheOffset(Group, verdict.Offset);
+
                 return Remember(answer);
 
             }
