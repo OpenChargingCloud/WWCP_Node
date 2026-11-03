@@ -453,6 +453,81 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AChangeIsMadeFromTheGroupsAsTheyAreUnderTheLock()
+
+        /// <summary>
+        /// A change made from the groups as they are is asked for its parts
+        /// while nothing else can change them: a save from a page that comes
+        /// in meanwhile waits until the change is in, and is made after it,
+        /// rather than being written away by a list read before it.
+        /// </summary>
+        [Test]
+        public async Task AChangeIsMadeFromTheGroupsAsTheyAreUnderTheLock()
+        {
+
+            var node        = Node();
+            var local       = Added(node, "local");
+            Task<Boolean>?  page = null;
+            var pageWaited  = false;
+
+            Assert.That(node.TryUpdateNTSConfigurations(groups => {
+
+                                                            Assert.That(groups, Does.Contain(local), "asked with the groups as they are");
+
+                                                            // A page saving a server of the same group at this moment.
+                                                            page       = Task.Run(() => node.TryUpdateNTSConfiguration(local, JObject.Parse("""{ "servers": [ { "id": "a", "hostname": "a.example" }, { "id": "b", "hostname": "b.example" } ] }"""), out _, out _));
+                                                            pageWaited = !page.Wait(TimeSpan.FromMilliseconds(300));
+
+                                                            return [ (local, JObject.Parse("""{ "servers": [ { "id": "a", "hostname": "a.example" } ], "maxErrors": 30 }""")) ];
+
+                                                        },
+                                                        out var error,
+                                                        out var refused,
+                                                        out _,
+                                                        ChangeOrigin.OCPP("CSMS1")),
+                        Is.True,
+                        error);
+
+            Assert.That(await page!, Is.True, "the page's save is made after the change");
+
+            Assert.Multiple(() => {
+                Assert.That(pageWaited,        Is.True,  "the page waited for the change");
+                Assert.That(refused,           Is.Null);
+                Assert.That(local.MaxErrors,   Is.EqualTo(30));
+                Assert.That(local.ServerIds,   Is.EqualTo(new[] { "a", "b" }), "the page's server is kept, saved after the change");
+            });
+
+        }
+
+        #endregion
+
+        #region AChangeThatSaysNoneChangesNothingAndTellsNothing()
+
+        /// <summary>
+        /// A change that finds nothing to do says so with null: nothing is
+        /// written, and nothing is told.
+        /// </summary>
+        [Test]
+        public void AChangeThatSaysNoneChangesNothingAndTellsNothing()
+        {
+
+            var node    = Node("{}");
+            var told    = Recorded(node);
+            var before  = File.ReadAllText(ConfigurationPath);
+
+            Assert.That(node.TryUpdateNTSConfigurations(groups => null, out var error, out var refused, out var notSaved), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(refused,                              Is.Null);
+                Assert.That(notSaved,                             Is.False);
+                Assert.That(told,                                 Is.Empty);
+                Assert.That(File.ReadAllText(ConfigurationPath),  Is.EqualTo(before));
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

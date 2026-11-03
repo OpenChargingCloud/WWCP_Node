@@ -2192,7 +2192,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region TryUpdateNTSConfigurations(Changes, out Error, out Refused, out NotSaved, Origin = null)
+        #region TryUpdateNTSConfigurations(Changes | Change, out Error, out Refused, out NotSaved, Origin = null)
 
         /// <summary>
         /// Change several groups at once, all or none of them: one read of the
@@ -2229,48 +2229,37 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                   out NTSGroup?                                Refused,
                                                   out Boolean                                  NotSaved,
                                                   String?                                      Origin = null)
+
+            => TryUpdateNTSConfigurations(_ => Changes, out Error, out Refused, out NotSaved, Origin);
+
+        /// <summary>
+        /// Change several groups at once, all or none of them, by a change made
+        /// from the groups as they are while nothing else can change them.
+        /// </summary>
+        /// <remarks>
+        /// What a change needs that sends a list of servers back whole: made
+        /// from a list read before, it would write away a server a page added
+        /// in between. The change is asked for its parts under the
+        /// reconfiguration lock, where it can read each group - its
+        /// <see cref="NTSConfigurationJSON(NTSGroup)"/>, its server ids - as
+        /// it will be changed, and say no change by returning null. Everything
+        /// else is as above.
+        /// </remarks>
+        /// <param name="Change">The change: from the groups as they are, every group to change with what to change in it, in the shape of a group of the "nts" section; null for none.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="Refused">The group whose part was the reason, or null where it was the file, or the groups together.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        /// <param name="Origin">Who or what makes the change - see <see cref="ChangeOrigin"/> - for the log lines and <see cref="OnNTSGroupChanged"/>; null where nobody says.</param>
+        public Boolean TryUpdateNTSConfigurations(Func<IReadOnlyList<NTSGroup>, IEnumerable<(NTSGroup Group, JObject JSON)>?>  Change,
+                                                  [NotNullWhen(false)] out String?                                             Error,
+                                                  out NTSGroup?                                                                Refused,
+                                                  out Boolean                                                                  NotSaved,
+                                                  String?                                                                      Origin = null)
         {
 
             Error     = null;
             Refused   = null;
             NotSaved  = false;
-
-            var sent  = new List<(NTSGroup Group, NTSConfiguration Configuration, IReadOnlyDictionary<Int32, ServerPins?> AsShown, String Path)>();
-
-            foreach (var (group, json) in Changes)
-            {
-
-                var path = NTSSection.PathOf(group.Id);
-
-                if (sent.Any(other => other.Group == group))
-                {
-                    Error    = $"'{path}' is changed twice at once: say everything about a group in one part.";
-                    Refused  = group;
-                    return false;
-                }
-
-                if (!NTSConfiguration.TryParse(json, out var configuration, out Error, path))
-                {
-                    Refused = group;
-                    return false;
-                }
-
-                // What the page showed each server held to, where it says - see
-                // ServerPins.TryAfterAPageSaved.
-                if (!ServerPins.TryParseAsShown(json, path, out var asShown, out Error))
-                {
-                    Refused = group;
-                    return false;
-                }
-
-                sent.Add((group, configuration, asShown, path));
-
-            }
-
-            // Nothing to change is nothing to write: not even the section a file
-            // without one would be given.
-            if (sent.Count == 0)
-                return true;
 
             var applied = new List<(NTSGroup Group, IReadOnlyList<String> Changes)>();
 
@@ -2278,6 +2267,43 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+
+                var sent  = new List<(NTSGroup Group, NTSConfiguration Configuration, IReadOnlyDictionary<Int32, ServerPins?> AsShown, String Path)>();
+
+                foreach (var (group, json) in Change(ntsGroups) ?? [])
+                {
+
+                    var path = NTSSection.PathOf(group.Id);
+
+                    if (sent.Any(other => other.Group == group))
+                    {
+                        Error    = $"'{path}' is changed twice at once: say everything about a group in one part.";
+                        Refused  = group;
+                        return false;
+                    }
+
+                    if (!NTSConfiguration.TryParse(json, out var configuration, out Error, path))
+                    {
+                        Refused = group;
+                        return false;
+                    }
+
+                    // What the page showed each server held to, where it says - see
+                    // ServerPins.TryAfterAPageSaved.
+                    if (!ServerPins.TryParseAsShown(json, path, out var asShown, out Error))
+                    {
+                        Refused = group;
+                        return false;
+                    }
+
+                    sent.Add((group, configuration, asShown, path));
+
+                }
+
+                // Nothing to change is nothing to write: not even the section a
+                // file without one would be given.
+                if (sent.Count == 0)
+                    return true;
 
                 var saved = new List<(NTSGroup Group, NTSConfiguration Configuration)>();
 
