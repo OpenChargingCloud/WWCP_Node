@@ -59,10 +59,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Roots">The fingerprints of the roots its chain may end at, any of them; none to hold it to no root.</param>
     /// <param name="OnMismatch">What a connection comes to whose certificate is not one of those.</param>
     /// <param name="TrustOnFirstUse">What it is held to from the first time it is believed, where it is held to nothing of that kind yet.</param>
+    /// <param name="RootGroup">The group of roots its chain has to end at, where it is held to one: the TLS roots of the store marked for it - see <see cref="MarkOf"/>.</param>
     public sealed record ServerPins(IReadOnlyList<String>  Certificates,
                                     IReadOnlyList<String>  Roots,
                                     PinMismatch            OnMismatch       = PinMismatch.Refuse,
-                                    TrustOnFirstUse        TrustOnFirstUse  = TrustOnFirstUse.None)
+                                    TrustOnFirstUse        TrustOnFirstUse  = TrustOnFirstUse.None,
+                                    String?                RootGroup        = null)
     {
 
         #region Data
@@ -70,12 +72,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// <summary>
         /// The most fingerprints of one kind one server may be held to.
         /// </summary>
-        public const Int32  MaxPins         = 16;
+        public const Int32  MaxPins             = 16;
 
         /// <summary>
         /// The longest a fingerprint may be written, colons and all.
         /// </summary>
-        public const Int32  MaxPinLength    = 200;
+        public const Int32  MaxPinLength        = 200;
+
+        /// <summary>
+        /// The longest name of a group of roots: what is left of the 32
+        /// characters of a usage once the mark of the longest service this
+        /// node knows - "meterca-" - is before it.
+        /// </summary>
+        public const Int32  MaxRootGroupLength  = 24;
 
         /// <summary>
         /// Held to nothing beyond the usual.
@@ -99,28 +108,71 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             => Certificates.Count > 0 || Roots.Count > 0;
 
         /// <summary>
-        /// Whether this says anything at all: a pin, or something to learn.
+        /// Whether this says anything at all: a pin, a group of roots, or
+        /// something to learn.
         /// </summary>
         public Boolean  SaysAnything
-            => IsPinned || TrustOnFirstUse != TrustOnFirstUse.None;
+            => IsPinned || RootGroup is not null || TrustOnFirstUse != TrustOnFirstUse.None;
 
         /// <summary>
-        /// What the server is held to, as a sentence names it - "certificate A
-        /// or B and root C, refused otherwise" - or null where it is held to
-        /// nothing yet.
+        /// What the server is held to, as a sentence names it - "a root of group
+        /// G and certificate A or B, refused otherwise" - or null where it is
+        /// held to nothing yet.
         /// </summary>
         public String?  Text
-            => IsPinned
+            => IsPinned || RootGroup is not null
                    ? String.Join(" and ", new[] {
+                         RootGroup is not null  ? $"a root of group {RootGroup}"                     : null,
                          Certificates.Count > 0 ? $"certificate {String.Join(" or ", Certificates)}" : null,
                          Roots.       Count > 0 ? $"root {String.Join(" or ", Roots)}"               : null
                      }.Where(pin => pin is not null)) +
-                     OnMismatch switch {
-                         PinMismatch.Record  => ", recorded otherwise",
-                         PinMismatch.Accept  => ", accepted otherwise",
-                         _                   => ", refused otherwise"
-                     }
+                     (IsPinned
+                          ? OnMismatch switch {
+                                PinMismatch.Record  => ", recorded otherwise",
+                                PinMismatch.Accept  => ", accepted otherwise",
+                                _                   => ", refused otherwise"
+                            }
+                          : "")
                    : null;
+
+        #endregion
+
+
+        #region (static) MarkOf(Service, RootGroup) / IsRootGroup(Text)
+
+        /// <summary>
+        /// The usage that marks a TLS root of the store as one of the given
+        /// group of roots for the given service: "ntsca-legal" for the group
+        /// "legal" of the time servers.
+        /// </summary>
+        /// <remarks>
+        /// A usage, because a usage is what the store already keeps per root
+        /// and shows on its page, where a mark can be given and taken away as
+        /// well. Per service, because a group is named per kind of root: the
+        /// group "legal" of the roots for time servers is not one of the roots
+        /// for name servers.
+        /// </remarks>
+        /// <param name="Service">What the servers are to the node: "nts", "dns".</param>
+        /// <param name="RootGroup">The name of the group.</param>
+        public static String MarkOf(String  Service,
+                                    String  RootGroup)
+
+            => $"{Service}ca-{RootGroup.ToLowerInvariant()}";
+
+        /// <summary>
+        /// Whether this can name a group of roots: up to
+        /// <see cref="MaxRootGroupLength"/> letters, digits, '-' and '_' -
+        /// what a usage takes, and what the mark of every service leaves room
+        /// for.
+        /// </summary>
+        public static Boolean IsRootGroup([NotNullWhen(true)] String? Text)
+
+            => Text is not null &&
+               Text.Length is > 0 and <= MaxRootGroupLength &&
+               Text.All(character => character is >= 'a' and <= 'z'
+                                               or >= 'A' and <= 'Z'
+                                               or >= '0' and <= '9'
+                                               or '-' or '_');
 
         #endregion
 
@@ -177,6 +229,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             return OnMismatch      == other.OnMismatch      &&
                    TrustOnFirstUse == other.TrustOnFirstUse &&
+                   String.Equals(RootGroup, other.RootGroup, StringComparison.OrdinalIgnoreCase) &&
                    Certificates.Count == other.Certificates.Count && !Certificates.Except(other.Certificates, StringComparer.OrdinalIgnoreCase).Any() &&
                    Roots.       Count == other.Roots.       Count && !Roots.       Except(other.Roots,        StringComparer.OrdinalIgnoreCase).Any();
 
@@ -234,8 +287,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                              Changed(now.Certificates, shown.Certificates, sent.Certificates),
                              Changed(now.Roots,        shown.Roots,        sent.Roots),
                              sent.OnMismatch      != shown.OnMismatch      ? sent.OnMismatch      : now.OnMismatch,
-                             sent.TrustOnFirstUse != shown.TrustOnFirstUse ? sent.TrustOnFirstUse : now.TrustOnFirstUse
+                             sent.TrustOnFirstUse != shown.TrustOnFirstUse ? sent.TrustOnFirstUse : now.TrustOnFirstUse,
+                             !String.Equals(sent.RootGroup, shown.RootGroup, StringComparison.OrdinalIgnoreCase) ? sent.RootGroup : now.RootGroup
                          );
+
+            // What a mismatch comes to goes where nothing is left to mismatch,
+            // as the file refuses it there - also where a group of roots is.
+            if (!pins.IsPinned && pins.TrustOnFirstUse == TrustOnFirstUse.None)
+                pins = pins with { OnMismatch = PinMismatch.Refuse };
 
             Pins   = null;
             Error  = null;
@@ -292,7 +351,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !ConfigurationReader.TryReadString (JSON, "rootFingerprint",         Path,          MaxPinLength, out var rootPin,          out Error) ||
                 !ConfigurationReader.TryReadStrings(JSON, "rootFingerprints",        Path, MaxPins, MaxPinLength, out var rootPins,         out Error) ||
                 !ConfigurationReader.TryReadString (JSON, "onMismatch",              Path,                    20, out var onMismatchText,   out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "trustOnFirstUse",         Path,                    20, out var learnText,        out Error))
+                !ConfigurationReader.TryReadString (JSON, "trustOnFirstUse",         Path,                    20, out var learnText,        out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "rootGroup",               Path,                    50, out var rootGroupText,    out Error))
             {
                 return false;
             }
@@ -300,6 +360,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!TryFingerprints(certificatePin, certificatePins, $"{Path}.certificateFingerprint", out var certificates, out Error) ||
                 !TryFingerprints(rootPin,        rootPins,        $"{Path}.rootFingerprint",        out var roots,        out Error))
             {
+                return false;
+            }
+
+            // Empty is no group, which is what a page whose field was emptied
+            // sends.
+            var rootGroup = String.IsNullOrWhiteSpace(rootGroupText) ? null : rootGroupText.Trim();
+
+            if (rootGroup is not null && !IsRootGroup(rootGroup))
+            {
+                Error = $"'{Path}.rootGroup' is '{rootGroup}', and has to be up to {MaxRootGroupLength} letters, digits, '-' or '_': the group of the roots marked '<service>ca-<group>' in the certificate store.";
                 return false;
             }
 
@@ -333,10 +403,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             }
 
-            if (certificates.Count == 0 && roots.Count == 0 && learn == TrustOnFirstUse.None)
+            if (certificates.Count == 0 && roots.Count == 0 && learn == TrustOnFirstUse.None && rootGroup is null)
                 return true;
 
-            Pins = new ServerPins(certificates, roots, onMismatch, learn);
+            Pins = new ServerPins(certificates, roots, onMismatch, learn, rootGroup);
             return true;
 
         }
@@ -421,6 +491,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (TrustOnFirstUse != TrustOnFirstUse.None)
                 JSON["trustOnFirstUse"]  = TrustOnFirstUse.AsText();
 
+            if (RootGroup is not null)
+                JSON["rootGroup"]        = RootGroup;
+
         }
 
         #endregion
@@ -439,7 +512,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                    new JProperty("certificates",     new JArray(Certificates)),
                    new JProperty("roots",            new JArray(Roots)),
                    new JProperty("onMismatch",       OnMismatch.AsText()),
-                   new JProperty("trustOnFirstUse",  TrustOnFirstUse.AsText())
+                   new JProperty("trustOnFirstUse",  TrustOnFirstUse.AsText()),
+                   new JProperty("rootGroup",        RootGroup)
                );
 
         #endregion

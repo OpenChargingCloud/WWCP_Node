@@ -21,22 +21,32 @@ export interface PinsDraft {
     roots:            string[];
     onMismatch:       PinMismatch;
     trustOnFirstUse:  TrustOnFirstUse | null;
+    /**
+     * The group of roots its chain has to end at - the TLS roots of the store
+     * marked "ntsca-<group>" or "dnsca-<group>" - or null for none. Optional,
+     * so that a page that never heard of groups still makes a draft.
+     */
+    rootGroup?:       string | null;
 }
 
 
 /** The most fingerprints of one kind one server may be held to: the node's own limit. */
 export const maxPins = 16;
 
+/** The longest name of a group of roots: the node's own limit. */
+export const maxRootGroupLength = 24;
+
 
 /** Every key an entry says what its server is held to with. */
 const pinKeys = [ 'certificateFingerprint', 'certificateFingerprints',
                   'rootFingerprint',        'rootFingerprints',
-                  'onMismatch',             'trustOnFirstUse' ] as const;
+                  'onMismatch',             'trustOnFirstUse',
+                  'rootGroup' ] as const;
 
 
 /** Held to nothing beyond what every server is held to. */
 export function noPins(): PinsDraft {
-    return { certificates: [], roots: [], onMismatch: 'refuse', trustOnFirstUse: null };
+    return { certificates: [], roots: [], onMismatch: 'refuse', trustOnFirstUse: null, rootGroup: null };
 }
 
 
@@ -123,7 +133,8 @@ export function draftOf(heldTo: ServerPins | null | undefined): PinsDraft {
         certificates:     unique(heldTo.certificates ?? [ heldTo.certificate ]),
         roots:            unique(heldTo.roots        ?? [ heldTo.root ]),
         onMismatch:       heldTo.onMismatch      ?? 'refuse',
-        trustOnFirstUse:  heldTo.trustOnFirstUse ?? null
+        trustOnFirstUse:  heldTo.trustOnFirstUse ?? null,
+        rootGroup:        heldTo.rootGroup       ?? null
     };
 
 }
@@ -139,7 +150,8 @@ export function pinsIn(entry: PinKeys): PinsDraft {
         certificates:     unique([ entry.certificateFingerprint, ...(entry.certificateFingerprints ?? []) ]),
         roots:            unique([ entry.rootFingerprint,        ...(entry.rootFingerprints        ?? []) ]),
         onMismatch:       entry.onMismatch      ?? 'refuse',
-        trustOnFirstUse:  entry.trustOnFirstUse ?? null
+        trustOnFirstUse:  entry.trustOnFirstUse ?? null,
+        rootGroup:        entry.rootGroup       ?? null
     };
 
 }
@@ -151,9 +163,9 @@ export function isPinned(draft: PinsDraft): boolean {
 }
 
 
-/** Whether a draft says anything at all: a fingerprint, or one to learn. */
+/** Whether a draft says anything at all: a fingerprint, a group of roots, or one to learn. */
 export function saysAnything(draft: PinsDraft): boolean {
-    return isPinned(draft) || draft.trustOnFirstUse !== null;
+    return isPinned(draft) || (draft.rootGroup ?? null) !== null || draft.trustOnFirstUse !== null;
 }
 
 
@@ -186,6 +198,10 @@ export function keysOf(draft: PinsDraft): PinKeys {
 
     if (draft.trustOnFirstUse !== null)
         keys.trustOnFirstUse = draft.trustOnFirstUse;
+
+    // A group is no pin: what a mismatch comes to is not said for it alone.
+    if (draft.rootGroup)
+        keys.rootGroup = draft.rootGroup;
 
     return keys;
 
@@ -237,10 +253,11 @@ export function withAsShown<T extends { pinsAsShown?: PinKeys }>(entry: T, heldT
  * What a dialog's fields say a server is held to - or the one sentence that
  * says what is wrong with them, naming the line that is.
  *
- * @param fields  the two lists of fingerprints as they were typed, and the
- *                two choices as the dialog's lists hand them over.
+ * @param fields  the two lists of fingerprints as they were typed, the two
+ *                choices as the dialog's lists hand them over, and the group
+ *                of roots as it was typed - absent from a dialog without it.
  */
-export function readPins(fields: { certificates: string; roots: string; onMismatch: string; trustOnFirstUse: string }):
+export function readPins(fields: { certificates: string; roots: string; onMismatch: string; trustOnFirstUse: string; rootGroup?: string }):
     { draft: PinsDraft; error?: undefined } | { draft?: undefined; error: string } {
 
     const certificates  = parseFingerprints(fields.certificates);
@@ -253,6 +270,11 @@ export function readPins(fields: { certificates: string; roots: string; onMismat
     if (certificates.fingerprints.length > maxPins || roots.fingerprints.length > maxPins)
         return { error: `A server is held to at most ${maxPins} certificates and ${maxPins} roots.` };
 
+    const rootGroup        = (fields.rootGroup ?? '').trim();
+
+    if (rootGroup.length > 0 && !new RegExp(`^[A-Za-z0-9_-]{1,${maxRootGroupLength}}$`).test(rootGroup))
+        return { error: `'${rootGroup}' cannot name a group of roots: up to ${maxRootGroupLength} letters, digits, '-' or '_'.` };
+
     const onMismatch       = fields.onMismatch === 'record' || fields.onMismatch === 'accept' ? fields.onMismatch : 'refuse';
     const trustOnFirstUse  = fields.trustOnFirstUse === 'root' || fields.trustOnFirstUse === 'certificate' ? fields.trustOnFirstUse : null;
 
@@ -261,7 +283,8 @@ export function readPins(fields: { certificates: string; roots: string; onMismat
             certificates:  certificates.fingerprints,
             roots:         roots.fingerprints,
             onMismatch,
-            trustOnFirstUse
+            trustOnFirstUse,
+            rootGroup:     rootGroup.length > 0 ? rootGroup : null
         }
     };
 
@@ -327,6 +350,9 @@ export function pinsText(draft:   PinsDraft,
     const named   = (fingerprints: string[]) => fingerprints.map(fingerprint => nameOf(fingerprint) ?? shortFingerprint(fingerprint)).join(' or ');
     const parts:  string[] = [];
 
+    if (draft.rootGroup)
+        parts.push(`a root of group ${draft.rootGroup}`);
+
     if (draft.certificates.length > 0)
         parts.push(`certificate ${named(draft.certificates)}`);
 
@@ -343,6 +369,11 @@ export function pinsText(draft:   PinsDraft,
 
     if (parts.length === 0)
         return null;
+
+    // What a mismatch comes to is said of pins: a chain outside its group is
+    // refused, whatever it says.
+    if (parts.length === 1 && draft.rootGroup)
+        return parts[0];
 
     const otherwise = draft.onMismatch === 'record' ? ', recorded otherwise'
                     : draft.onMismatch === 'accept' ? ', accepted otherwise'

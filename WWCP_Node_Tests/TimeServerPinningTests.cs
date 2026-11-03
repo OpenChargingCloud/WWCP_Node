@@ -1348,6 +1348,285 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+
+        #region AServerHeldToAGroupOfRootsIsAnchoredAtThoseAlone()
+
+        /// <summary>
+        /// A server held to a group of roots is believed through a TLS root of
+        /// the store marked for that group - and refused while the same root is
+        /// a root for the time servers without the mark.
+        /// </summary>
+        [Test]
+        public async Task AServerHeldToAGroupOfRootsIsAnchoredAtThoseAlone()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "rootGroup": "LegalCA" } ]""");
+
+            Assert.That(node.Certificates.Import(Pem(ca), CertificateKind.TLSRoot, null, "our time servers",
+                                                 [ CertificateUsages.NTS ], out var entry, out var error),  Is.True,  error);
+
+            var (chain, errors) = Untrusted(leaf);
+
+            using (chain)
+            {
+
+                var unmarked = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.That(node.Certificates.SetUsages(entry!.Id, [ CertificateUsages.NTS, ServerPins.MarkOf(CertificateUsages.NTS, "LegalCA") ], out _, out error),  Is.True,  error);
+
+                var marked   = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(unmarked.Outcome,           Is.EqualTo("untrusted"),  "a root for the time servers vouched for a server held to a group it is not in");
+                    Assert.That(unmarked.Steps.Select(step => step.Text),  Has.Some.Contains("held to the roots of group LegalCA").And.Contains("'ntsca-legalca'"));
+                    Assert.That(marked.Accepted,            Is.True,  String.Join(" | ", marked.Steps.Select(step => step.Text)));
+                    Assert.That(marked.AnchoredBy,          Is.EqualTo("our time servers"));
+                    Assert.That(marked.HeldTo?.RootGroup,   Is.EqualTo("LegalCA"));
+                    Assert.That(marked.ToJSON()["heldTo"]?.Value<String>("rootGroup"),  Is.EqualTo("LegalCA"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region ARootTheMachineTrustsIsNoneOfTheGroupUnlessMarked()
+
+        /// <summary>
+        /// A chain the machine built without an error does not do for a server
+        /// held to a group: a public CA would vouch for it otherwise, and the
+        /// group would narrow the node's own roots alone. Marked in the store,
+        /// the same root does.
+        /// </summary>
+        [Test]
+        public async Task ARootTheMachineTrustsIsNoneOfTheGroupUnlessMarked()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "rootGroup": "legalCA" } ]""");
+
+            var (chain, errors) = Trusted(leaf, ca);
+
+            using (chain)
+            {
+
+                var machine = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.That(node.Certificates.Import(Pem(ca), CertificateKind.TLSRoot, null, "the legal time's CA",
+                                                     [ ServerPins.MarkOf(CertificateUsages.NTS, "legalCA") ], out _, out var error),  Is.True,  error);
+
+                var marked  = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(machine.Outcome,     Is.EqualTo("untrusted"),  "a root the machine trusts vouched for a server held to a group");
+                    Assert.That(marked.Accepted,     Is.True,  String.Join(" | ", marked.Steps.Select(step => step.Text)));
+                    Assert.That(marked.AnchoredBy,   Is.EqualTo("the legal time's CA"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region ARootNeverToldWhatItIsForIsNoneOfTheGroup()
+
+        /// <summary>
+        /// A root of the store never told what it is for vouches for every time
+        /// server, and for none held to a group: it is not marked for one.
+        /// </summary>
+        [Test]
+        public async Task ARootNeverToldWhatItIsForIsNoneOfTheGroup()
+        {
+
+            await using var node = Node("""[ { "hostname": "time.example.org", "rootGroup": "legalCA" }, "time.example.net" ]""");
+
+            Assert.That(node.Certificates.Import(Pem(ca), CertificateKind.TLSRoot, null, "for everything", out _, out var error),  Is.True,  error);
+
+            var (chain, errors) = Untrusted(leaf);
+
+            using var elsewhere  = Leaf("time.example.net", ca);
+            var (other, errors2) = Untrusted(elsewhere);
+
+            using (chain)
+            using (other)
+            {
+
+                var grouped    = node.JudgeTimeServer(Server, leaf, chain, errors);
+                var ungrouped  = node.JudgeTimeServer(DomainName.Parse("time.example.net"), elsewhere, other, errors2);
+
+                Assert.Multiple(() => {
+                    Assert.That(grouped.Outcome,     Is.EqualTo("untrusted"),  "a root without a usage vouched for a server held to a group");
+                    Assert.That(ungrouped.Accepted,  Is.True,  "the root itself vouches for a server held to no group");
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region ARootTheServerIsHeldToOutsideItsGroupDoesNotGetAroundIt()
+
+        /// <summary>
+        /// The root a server is held to anchors it whatever it is kept as - but
+        /// not around the group it is held to as well: the two narrow each
+        /// other and do not add up. Within the group, the pin still narrows.
+        /// </summary>
+        [Test]
+        public async Task ARootTheServerIsHeldToOutsideItsGroupDoesNotGetAroundIt()
+        {
+
+            await using var node = Node($$"""
+                                          [ { "hostname": "time.example.org", "rootGroup": "legalCA", "rootFingerprint": "{{Fingerprint(ca)}}" } ]
+                                          """);
+
+            Assert.That(node.Certificates.Import(Pem(ca), CertificateKind.TLSRoot, null, "our resolvers",
+                                                 [ CertificateUsages.DNS ], out var entry, out var error),  Is.True,  error);
+
+            var (chain, errors) = Untrusted(leaf);
+
+            using (chain)
+            {
+
+                var outside = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                // Both roots in the group now, and the server still held to the first.
+                var mark    = ServerPins.MarkOf(CertificateUsages.NTS, "legalCA");
+
+                Assert.That(node.Certificates.SetUsages(entry!.Id, [ mark ], out _, out error),  Is.True,  error);
+                Assert.That(node.Certificates.Import(Pem(otherCA), CertificateKind.TLSRoot, null, "another of the group", [ mark ], out _, out error),  Is.True,  error);
+
+                using var byOther      = Leaf(Server.Trimmed, otherCA);
+                var (otherChain, oe)   = Untrusted(byOther);
+
+                using (otherChain)
+                {
+
+                    var pinned   = node.JudgeTimeServer(Server, leaf,    chain,      errors);
+                    var narrowed = node.JudgeTimeServer(Server, byOther, otherChain, oe);
+
+                    Assert.Multiple(() => {
+                        Assert.That(outside.Outcome,   Is.EqualTo("untrusted"),  "a pinned root outside the group got around it");
+                        Assert.That(pinned.Accepted,   Is.True,  String.Join(" | ", pinned.Steps.Select(step => step.Text)));
+                        Assert.That(narrowed.Outcome,  Is.EqualTo("pinMismatch"),  "the pin did not narrow the group");
+                    });
+
+                }
+
+            }
+
+        }
+
+        #endregion
+
+        #region AGroupOfRootsIsReadAndWrittenBack()
+
+        /// <summary>
+        /// A group of roots is read from the entry of a server, written back as
+        /// it was given, and named where the server's pins are named; empty is
+        /// no group, and what cannot be one is refused with why.
+        /// </summary>
+        [Test]
+        public void AGroupOfRootsIsReadAndWrittenBack()
+        {
+
+            Assert.That(NTSServerConfiguration.TryParse(JObject.Parse("""{ "hostname": "time.example.org", "rootGroup": " LegalCA " }"""), 0, out var server, out var error),
+                        Is.True,
+                        error);
+
+            Assert.That(NTSServerConfiguration.TryParse(JObject.Parse("""{ "hostname": "time.example.org", "rootGroup": "" }"""), 1, out var none, out error),
+                        Is.True,
+                        error);
+
+            Assert.Multiple(() => {
+
+                Assert.That(server!.Pins?.RootGroup,  Is.EqualTo("LegalCA"));
+                Assert.That(server.ToJSON().ToString(Newtonsoft.Json.Formatting.None),
+                            Is.EqualTo("""{"hostname":"time.example.org.","rootGroup":"LegalCA"}"""));
+                Assert.That(server.ToString(),        Is.EqualTo("time.example.org. - held to a root of group LegalCA"));
+                Assert.That(none!.Pins,               Is.Null);
+
+                Assert.That(NTSServerConfiguration.TryParse(JObject.Parse("""{ "hostname": "time.example.org", "rootGroup": "legal CA" }"""), 2, out _, out error),  Is.False);
+                Assert.That(error,  Does.StartWith("'nts.servers[2].rootGroup' is 'legal CA', and has to be up to 24 letters, digits, '-' or '_'"));
+
+                Assert.That(NTSServerConfiguration.TryParse(JObject.Parse($$"""{ "hostname": "time.example.org", "rootGroup": "{{new String('g', 25)}}" }"""), 3, out _, out error),  Is.False);
+
+                Assert.That(NTSServerConfiguration.TryParse(JObject.Parse("""{ "hostname": "time.example.org", "rootGroup": "legalCA", "onMismatch": "record" }"""), 4, out _, out error),  Is.False);
+                Assert.That(error,  Does.Contain("is held to none"),  "a group of roots is not a pin a mismatch could be recorded for");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AGroupOfRootsAPageDidNotShowIsKeptByItsSave()
+
+        /// <summary>
+        /// A page that knows nothing of groups of roots saves a server with what
+        /// it showed it held to: the group stays. A page that showed the root
+        /// pin before "record" was set elsewhere takes the pin away, and what a
+        /// mismatch comes to goes with it where no pin is left beside the group
+        /// - the file refuses it there. A page that showed the group and sends
+        /// it emptied takes it away.
+        /// </summary>
+        [Test]
+        public async Task AGroupOfRootsAPageDidNotShowIsKeptByItsSave()
+        {
+
+            await using var node = Node($$"""
+                                          [ { "hostname": "time.example.org", "rootGroup": "legalCA",
+                                              "rootFingerprint": "{{Fingerprint(ca)}}", "onMismatch": "record" } ]
+                                          """);
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse($$"""
+                            { "servers": [ { "hostname": "time.example.org", "priority": 3,
+                                             "rootFingerprint": "{{Fingerprint(ca)}}", "onMismatch": "record",
+                                             "pinsAsShown": { "rootFingerprint": "{{Fingerprint(ca)}}", "onMismatch": "record" } } ] }
+                            """), out var error),
+                        Is.True,
+                        error);
+
+            var kept = ServerEntry(node);
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse($$"""
+                            { "servers": [ { "hostname": "time.example.org", "priority": 3, "rootGroup": "legalCA",
+                                             "pinsAsShown": { "rootFingerprint": "{{Fingerprint(ca)}}", "rootGroup": "legalCA" } } ] }
+                            """), out error),
+                        Is.True,
+                        error);
+
+            var pinTakenAway = ServerEntry(node);
+
+            Assert.That(node.TryUpdateNTSConfiguration(JObject.Parse("""
+                            { "servers": [ { "hostname": "time.example.org", "priority": 3, "rootGroup": "",
+                                             "pinsAsShown": { "rootGroup": "legalCA" } } ] }
+                            """), out error),
+                        Is.True,
+                        error);
+
+            var groupTakenAway = ServerEntry(node);
+
+            Assert.Multiple(() => {
+
+                Assert.That(kept.Value<String>("rootGroup"),        Is.EqualTo("legalCA"),  "a page that did not show the group took it away");
+                Assert.That(kept.Value<Int32>("priority"),          Is.EqualTo(3));
+                Assert.That(kept.Value<String>("rootFingerprint"),  Is.EqualTo(Fingerprint(ca)));
+                Assert.That(kept.Value<String>("onMismatch"),       Is.EqualTo("record"));
+
+                Assert.That(pinTakenAway.Value<String>("rootGroup"),        Is.EqualTo("legalCA"));
+                Assert.That(pinTakenAway.Value<String>("rootFingerprint"),  Is.Null);
+                Assert.That(pinTakenAway.Value<String>("onMismatch"),       Is.Null,  "what a mismatch comes to stayed where no pin is left");
+
+                Assert.That(groupTakenAway.Value<String>("rootGroup"),      Is.Null,  "the group the page emptied");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

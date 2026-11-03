@@ -181,24 +181,57 @@ describe('what a server is held to, read back', () => {
     it('from the node, is what it says, and nothing where it says null', () => {
 
         assert.deepEqual(draftOf(heldTo({ root, roots: [ root, otherRoot ], onMismatch: 'accept', trustOnFirstUse: 'root' })),
-                         { certificates: [], roots: [ root, otherRoot ], onMismatch: 'accept', trustOnFirstUse: 'root' });
+                         { certificates: [], roots: [ root, otherRoot ], onMismatch: 'accept', trustOnFirstUse: 'root', rootGroup: null });
 
         assert.deepEqual(draftOf(null), noPins());
+
+    });
+
+    it('from the node, keeps the group of roots it is held to', () => {
+
+        assert.deepEqual(draftOf(heldTo({ rootGroup: 'legalCA' })),
+                         { ...noPins(), rootGroup: 'legalCA' });
 
     });
 
     it('from an entry, adds up one of a kind and several of a kind, as the file does', () => {
 
         assert.deepEqual(pinsIn({ rootFingerprint: root, rootFingerprints: [ otherRoot, root.toUpperCase() ] }),
-                         { certificates: [], roots: [ root, otherRoot ], onMismatch: 'refuse', trustOnFirstUse: null });
+                         { certificates: [], roots: [ root, otherRoot ], onMismatch: 'refuse', trustOnFirstUse: null, rootGroup: null });
 
     });
 
     it('goes back to the node as it came', () => {
 
-        const entry = { address: '1.1.1.1', rootFingerprint: root, certificateFingerprints: [ certificate, renewal ], trustOnFirstUse: 'root' as const };
+        const entry = { address: '1.1.1.1', rootFingerprint: root, certificateFingerprints: [ certificate, renewal ], trustOnFirstUse: 'root' as const, rootGroup: 'legalCA' };
 
         assert.deepEqual(withPins(entry, pinsIn(entry)), entry);
+
+    });
+
+});
+
+
+describe('a group of roots told to the node', () => {
+
+    it('is said under its own key, without what a mismatch comes to where no pin is beside it', () => {
+
+        assert.deepEqual(keysOf({ ...noPins(), rootGroup: 'legalCA', onMismatch: 'record' }), { rootGroup: 'legalCA' });
+
+        assert.deepEqual(keysOf({ ...noPins(), rootGroup: 'legalCA', roots: [ root ], onMismatch: 'record' }),
+                         { rootFingerprint: root, onMismatch: 'record', rootGroup: 'legalCA' });
+
+    });
+
+    it('is taken away with the old pins, and said again where the draft says it', () => {
+
+        assert.deepEqual(withPins({ hostname: 'time.example.org', rootGroup: 'legalCA' }, noPins()), { hostname: 'time.example.org' });
+
+    });
+
+    it('is part of what the page showed, so that a page knowing it can take it away', () => {
+
+        assert.deepEqual(asShown(heldTo({ rootGroup: 'legalCA' })), { rootGroup: 'legalCA' });
 
     });
 
@@ -230,12 +263,21 @@ describe('what a server is held to, in words', () => {
 
     });
 
+    it('names the group of roots, and what a mismatch comes to only beside a pin', () => {
+
+        assert.equal(pinsText({ ...noPins(), rootGroup: 'legalCA' }), 'a root of group legalCA');
+
+        assert.equal(pinsText({ ...noPins(), rootGroup: 'legalCA', roots: [ root ] }),
+                     `a root of group legalCA and root ${'a'.repeat(16)}…, refused otherwise`);
+
+    });
+
 });
 
 
 describe('what the fields of a dialog say', () => {
 
-    const fields = (more: Partial<{ certificates: string; roots: string; onMismatch: string; trustOnFirstUse: string }>) =>
+    const fields = (more: Partial<{ certificates: string; roots: string; onMismatch: string; trustOnFirstUse: string; rootGroup: string }>) =>
         ({ certificates: '', roots: '', onMismatch: 'refuse', trustOnFirstUse: '', ...more });
 
     /** Lines, as a text area hands them over. */
@@ -244,7 +286,18 @@ describe('what the fields of a dialog say', () => {
     it('is the draft they describe', () => {
 
         assert.deepEqual(readPins(fields({ roots: lines(root, otherRoot), onMismatch: 'record', trustOnFirstUse: 'certificate' })),
-                         { draft: { certificates: [], roots: [ root, otherRoot ], onMismatch: 'record', trustOnFirstUse: 'certificate' } });
+                         { draft: { certificates: [], roots: [ root, otherRoot ], onMismatch: 'record', trustOnFirstUse: 'certificate', rootGroup: null } });
+
+    });
+
+    it('is a group of roots as it was typed, none where it was emptied, and refused where it cannot be one', () => {
+
+        assert.equal(readPins(fields({ rootGroup: ' legalCA ' })).draft?.rootGroup, 'legalCA');
+        assert.equal(readPins(fields({ rootGroup: '' })).draft?.rootGroup,          null);
+        assert.equal(readPins(fields({})).draft?.rootGroup,                          null,  'a dialog without the field');
+
+        assert.match(readPins(fields({ rootGroup: 'legal CA' })).error ?? '',          /^'legal CA' cannot name a group of roots: up to 24 letters/);
+        assert.match(readPins(fields({ rootGroup: 'g'.repeat(25) })).error ?? '',      /cannot name a group of roots/);
 
     });
 

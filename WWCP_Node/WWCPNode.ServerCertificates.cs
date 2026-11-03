@@ -103,12 +103,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    new JProperty("certificate",  CertificateFingerprint),
                    new JProperty("root",         RootFingerprint),
                    new JProperty("anchoredBy",   AnchoredBy),
-                   new JProperty("heldTo",       HeldTo is { IsPinned: true } pins
+                   new JProperty("heldTo",       HeldTo is { } pins && (pins.IsPinned || pins.RootGroup is not null)
                                                      ? new JObject(
                                                            new JProperty("certificate",   pins.Certificates.FirstOrDefault()),
                                                            new JProperty("root",          pins.Roots.       FirstOrDefault()),
                                                            new JProperty("certificates",  new JArray(pins.Certificates)),
-                                                           new JProperty("roots",         new JArray(pins.Roots))
+                                                           new JProperty("roots",         new JArray(pins.Roots)),
+                                                           new JProperty("rootGroup",     pins.RootGroup)
                                                        )
                                                      : null),
                    new JProperty("learned",      Learned.AsText()),
@@ -336,8 +337,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 {
 
                     // The chain as the machine built it, where it could; and
-                    // where it could not, against this node's own roots.
-                    if (!PolicyErrors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors) &&
+                    // where it could not, against this node's own roots. A
+                    // server held to a group of roots is held to those alone:
+                    // a root the machine trusts is none of them unless the
+                    // store marks it so, and is asked there like any other.
+                    if (pins.RootGroup is null &&
+                        !PolicyErrors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors) &&
                         !PolicyErrors.HasFlag(SslPolicyErrors.RemoteCertificateNotAvailable) &&
                         Chain is not null && Chain.ChainElements.Count > 0)
                     {
@@ -348,14 +353,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     {
                         rootFingerprint  = anchoredRoot;
                         anchoredBy       = label;
-                        steps.Add(("notice", $"Validated by this {Kind.Name}'s own root '{label}', which the machine does not know."));
+                        steps.Add(("notice", pins.RootGroup is null
+                                                 ? $"Validated by this {Kind.Name}'s own root '{label}', which the machine does not know."
+                                                 : $"Validated by the root '{label}' of group {pins.RootGroup}, which it is held to."));
                     }
 
                     if (rootFingerprint is null)
                     {
                         outcome   = "untrusted";
                         accepted  = false;
-                        steps.Add(("error", $"Refused: its chain ends at no root this machine or this {Kind.Name} trusts."));
+                        steps.Add(("error", pins.RootGroup is null
+                                                ? $"Refused: its chain ends at no root this machine or this {Kind.Name} trusts."
+                                                : $"Refused: it is held to the roots of group {pins.RootGroup} - those of this {Kind.Name}'s store marked '{ServerPins.MarkOf(Service, pins.RootGroup)}' - and its chain ends at none of them."));
                     }
 
                     else
@@ -478,7 +487,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                 certificateFingerprint,
                                 rootFingerprint,
                                 anchoredBy,
-                                pins.IsPinned ? pins : null,
+                                pins.IsPinned || pins.RootGroup is not null ? pins : null,
                                 learned,
                                 previously,
                                 firstSeen,
@@ -516,6 +525,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// because naming it in the server's configuration says the same thing,
         /// and more narrowly.
         ///
+        /// A server held to a group of roots is anchored at the TLS roots marked
+        /// for that group alone - not at a root never told what it is for, and
+        /// not at a root it is held to outside the group: a group says which
+        /// roots may vouch for the server at all, and a pin narrows that and
+        /// never widens it.
+        ///
         /// Revocation is asked where there is somebody to ask, and what cannot be
         /// asked is not held against the certificate: a root of one's own is
         /// often a CA without a revocation list, and one that is on a list is
@@ -537,11 +552,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                foreach (var entry in Certificates.UsableFor(CertificateKind.TLSRoot, Service))
-                    if (Certificates.TryLoad(entry, out var root, out _))
-                        anchors.Add((root, entry.Thumbprint, entry.Label));
+                if (Pins.RootGroup is String group)
+                {
 
-                foreach (var pinned in Pins.Roots)
+                    var mark = CertificateUsage.Parse(ServerPins.MarkOf(Service, group));
+
+                    foreach (var entry in Certificates.UsableByKind(CertificateKind.TLSRoot))
+                        if (entry.Usages?.Contains(mark) == true &&
+                            Certificates.TryLoad(entry, out var root, out _))
+                        {
+                            anchors.Add((root, entry.Thumbprint, entry.Label));
+                        }
+
+                }
+
+                else
+                    foreach (var entry in Certificates.UsableFor(CertificateKind.TLSRoot, Service))
+                        if (Certificates.TryLoad(entry, out var root, out _))
+                            anchors.Add((root, entry.Thumbprint, entry.Label));
+
+                foreach (var pinned in Pins.RootGroup is null ? Pins.Roots : [])
                 {
 
                     if (anchors.Any(anchor => String.Equals(anchor.Fingerprint, pinned, StringComparison.OrdinalIgnoreCase)))

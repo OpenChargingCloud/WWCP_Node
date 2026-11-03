@@ -162,6 +162,13 @@ describe('a time server sent back', () => {
 
     });
 
+    it('keeps the group of roots it is held to, and says it was shown so - or the next save of any server takes it away', () => {
+
+        assert.deepEqual(sentOf(shown('ptbtime1.ptb.de.', { heldTo: heldTo({ rootGroup: 'legalCA' }) }), usual),
+                         { hostname: 'ptbtime1.ptb.de', rootGroup: 'legalCA', pinsAsShown: { rootGroup: 'legalCA' } });
+
+    });
+
     it('is what the NTS page sends every server of its list as', () => {
 
         const page = readFileSync(new URL('./nts.ts', import.meta.url), 'utf-8');

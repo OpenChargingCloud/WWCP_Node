@@ -155,6 +155,8 @@ export interface ServerPins {
     roots:            string[];
     onMismatch:       PinMismatch;
     trustOnFirstUse:  TrustOnFirstUse | null;
+    /** The group of roots its chain has to end at: the TLS roots of the store marked for it. Absent from a node that knows no groups. */
+    rootGroup?:       string | null;
 }
 
 /**
@@ -169,6 +171,7 @@ export interface PinKeys {
     rootFingerprints?:         string[];
     onMismatch?:               PinMismatch;
     trustOnFirstUse?:          TrustOnFirstUse;
+    rootGroup?:                string;
 }
 
 /** What a server was last believed with - pinned or not, another one is noticed. */
@@ -194,7 +197,7 @@ export interface ServerJudgement {
     root:         string | null;
     /** The node's own root it was validated by, where this machine knows none. */
     anchoredBy:   string | null;
-    heldTo:       Pick<ServerPins, 'certificate' | 'root' | 'certificates' | 'roots'> | null;
+    heldTo:       Pick<ServerPins, 'certificate' | 'root' | 'certificates' | 'roots' | 'rootGroup'> | null;
     /** What it was held to from this connection on, trusted on first use. */
     learned:      TrustOnFirstUse | null;
     /** What it had been believed with before, where this was another certificate. */

@@ -4,7 +4,7 @@ import { config } from '../config';
 import { must } from '../html';
 import { formatValue } from '../ui';
 import { html, nothing, type TemplateResult } from '../view';
-import { offersOf, outcomeText, outcomeTone, pinsText, readPins, shortFingerprint, type PinsDraft, type StoreOffers } from './pins';
+import { maxRootGroupLength, offersOf, outcomeText, outcomeTone, pinsText, readPins, shortFingerprint, type PinsDraft, type StoreOffers } from './pins';
 
 
 const api = nodeAPI();
@@ -224,6 +224,16 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): TemplateRe
                         shown === null ? '' : `Add the root its chain ended at`,
                         offers?.roots ?? [], `... or a TLS root kept for ${context.service.toUpperCase()}`)}
 
+            <label>Group of roots
+                <input name="pinRootGroup" type="text" spellcheck="false" autocomplete="off" maxlength=${maxRootGroupLength}
+                       placeholder="none" .defaultValue=${draft.rootGroup ?? ''}>
+                <span class="hint">
+                    Its chain has to end at a TLS root of the certificate store marked
+                    <code>${context.service}ca-&lt;group&gt;</code> - and at no other, not even one this machine
+                    trusts. A CSMS installing a root with a certificate group marks it so. Empty for none.
+                </span>
+            </label>
+
             <label>When it shows another one
                 <select name="pinMismatch">
                     <option value="refuse" ?selected=${draft.onMismatch === 'refuse'}>refuse it</option>
@@ -330,7 +340,8 @@ export function readPinsFieldset(form: HTMLFormElement): { draft: PinsDraft; err
         certificates:     must<HTMLTextAreaElement>(form, 'textarea[name="pinCertificates"]').value,
         roots:            must<HTMLTextAreaElement>(form, 'textarea[name="pinRoots"]').value,
         onMismatch:       must<HTMLSelectElement>  (form, 'select[name="pinMismatch"]').value,
-        trustOnFirstUse:  must<HTMLSelectElement>  (form, 'select[name="pinLearn"]').value
+        trustOnFirstUse:  must<HTMLSelectElement>  (form, 'select[name="pinLearn"]').value,
+        rootGroup:        form.querySelector<HTMLInputElement>('input[name="pinRootGroup"]')?.value
     });
 
 }
