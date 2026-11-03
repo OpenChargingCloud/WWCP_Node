@@ -385,6 +385,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region WhatIsNewsIsToldOnceTheJudgementIsKept()
+
+        /// <summary>
+        /// A listener told what a judgement is news of reads that judgement as
+        /// the server's last one - a monitor on the verdict sees the verdict it
+        /// is told of, and not the one before.
+        /// </summary>
+        [Test]
+        public async Task WhatIsNewsIsToldOnceTheJudgementIsKept()
+        {
+
+            await using var node = Node();
+
+            var server  = node.DNSClient.DNSServers.Single();
+            var read    = new List<String?>();
+
+            node.OnServerNews += (judgement, news) => {
+                lock (read)
+                    read.Add(node.LastJudgementOf(server)?.Outcome);
+            };
+
+            await Ask(node);
+
+            Assert.That(read, Is.EqualTo(new[] { "untrusted" }));
+
+        }
+
+        #endregion
+
         #region AFingerprintThatDoesNotMatchIsNews(OnMismatch, News)
 
         [TestCase("refuse",  ServerNews.Refused)]

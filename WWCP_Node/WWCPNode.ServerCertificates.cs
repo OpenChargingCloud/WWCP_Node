@@ -499,9 +499,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Remember)
             {
 
-                WriteDown(judgement, judgements.GetValueOrDefault(key), pins, Evidence);
+                // Kept before it is told: a listener asking what the server
+                // came to - a monitor on its verdict - reads this judgement,
+                // not the one before it.
+                var previous    = judgements.GetValueOrDefault(key);
 
                 judgements[key] = judgement;
+
+                WriteDown(judgement, previous, pins, Evidence);
 
             }
 
