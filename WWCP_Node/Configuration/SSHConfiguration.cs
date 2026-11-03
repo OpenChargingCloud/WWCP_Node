@@ -30,8 +30,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
     /// <summary>
     /// The "ssh" section of the configuration file: whether the node's command
-    /// line is served over SSH, on which port, and whether a password opens it
-    /// as well as a key.
+    /// line is served over SSH, on which port, whether a password opens it as
+    /// well as a key - and whether the node's files are served over SFTP.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -49,9 +49,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Enabled">Whether the SSH server runs; the program's default where absent.</param>
     /// <param name="Port">The port it listens on; 20000 above the web interface's where absent.</param>
     /// <param name="Passwords">Whether an account's password opens it as well as its keys; no where absent.</param>
+    /// <param name="Sftp">Whether the node's files are served over SFTP on the SSH server; no where absent.</param>
     public sealed record SSHConfiguration(Boolean?  Enabled    = null,
                                           IPPort?   Port       = null,
-                                          Boolean?  Passwords  = null)
+                                          Boolean?  Passwords  = null,
+                                          Boolean?  Sftp       = null)
     {
 
         #region Data
@@ -78,10 +80,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (!ConfigurationReader.TryReadBoolean(JSON, "enabled",    SectionName, out var enabled,    out Error) ||
                 !ConfigurationReader.TryReadPort   (JSON, "port",       SectionName, out var port,       out Error) ||
-                !ConfigurationReader.TryReadBoolean(JSON, "passwords",  SectionName, out var passwords,  out Error))
+                !ConfigurationReader.TryReadBoolean(JSON, "passwords",  SectionName, out var passwords,  out Error) ||
+                !ConfigurationReader.TryReadBoolean(JSON, "sftp",       SectionName, out var sftp,       out Error))
                 return false;
 
-            Configuration = new SSHConfiguration(enabled, port, passwords);
+            Configuration = new SSHConfiguration(enabled, port, passwords, sftp);
 
             return true;
 
@@ -102,6 +105,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Enabled   is not null)  json.Add("enabled",    Enabled.  Value);
             if (Port      is not null)  json.Add("port",       Port.     Value.ToUInt16());
             if (Passwords is not null)  json.Add("passwords",  Passwords.Value);
+            if (Sftp      is not null)  json.Add("sftp",       Sftp.     Value);
 
             return json;
 
@@ -115,7 +119,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             => Enabled == false
                    ? "no SSH"
-                   : $"SSH{(Port is not null ? $" on port {Port}" : "")}{(Passwords == true ? " with passwords" : "")}";
+                   : $"SSH{(Port is not null ? $" on port {Port}" : "")}{(Passwords == true ? " with passwords" : "")}{(Sftp == true ? " and SFTP" : "")}";
 
         #endregion
 

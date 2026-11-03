@@ -84,7 +84,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// The command line served over SSH, on a port of its own: the file
         /// switches it on, whatever the kind's program would say.
         /// </summary>
-        SSH
+        SSH,
+
+        /// <summary>
+        /// The command line served over SSH as for <see cref="SSH"/>, and the
+        /// node's files over SFTP with it - and the roles of
+        /// <see cref="RolesFromTheFile"/>, for an account that is no
+        /// administrator.
+        /// </summary>
+        SFTP,
+
+        /// <summary>
+        /// As <see cref="SFTP"/>, with the node writing its log files - and so
+        /// its metrological log - into its directory: made by
+        /// <see cref="NodeConformanceTests.NewNodeWritingLogFiles"/>, and a test
+        /// that needs it is inconclusive for a kind that does not say how.
+        /// </summary>
+        SFTPWithLogFiles
 
     }
 
@@ -162,6 +178,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <param name="Configuration">What its configuration file says; the kind may add what it needs to it.</param>
         protected abstract WWCPNode NewNode(String   Directory,
                                             JObject  Configuration);
+
+        /// <summary>
+        /// A node of this kind as <see cref="NewNode"/> makes it, but writing its
+        /// log files into the given directory - and so its metrological log
+        /// below it: for the tests of what SFTP shows of them. Null where the
+        /// kind does not say how, and those tests say so rather than pass.
+        /// </summary>
+        /// <param name="Directory">Where the node keeps what it keeps; it exists.</param>
+        /// <param name="Configuration">What its configuration file says; the kind may add what it needs to it.</param>
+        /// <param name="LogPath">The directory for its log files, within <paramref name="Directory"/>.</param>
+        protected virtual WWCPNode? NewNodeWritingLogFiles(String   Directory,
+                                                           JObject  Configuration,
+                                                           String   LogPath)
+
+            => null;
 
         /// <summary>
         /// The account the first start of a node makes, and signs its password
@@ -266,6 +297,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                                  Configuration  = ConfigurationFor(setup);
 
+                                 if (setup == NodeSetup.SFTPWithLogFiles)
+                                     return NewNodeWritingLogFiles(Directory, (JObject) Configuration.DeepClone(), Path.Combine(Directory, "logs"))
+                                                ?? throw NotWritingLogFiles();
+
                                  return NewNode(Directory, (JObject) Configuration.DeepClone());
 
                              });
@@ -292,6 +327,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             silentNameServer = null;
 
             Remove(Directory);
+
+        }
+
+        #endregion
+
+        #region (private) NotWritingLogFiles()
+
+        /// <summary>
+        /// A test that needs the node's log files, on a kind that does not say
+        /// how one of it writes them: inconclusive, and its directory taken
+        /// away here, as no teardown follows a setup that failed.
+        /// </summary>
+        private InconclusiveException NotWritingLogFiles()
+        {
+
+            Remove(Directory);
+
+            return new InconclusiveException($"This kind's fixture does not say how one of it writes its log files - see {nameof(NewNodeWritingLogFiles)} - so what SFTP shows of them is not asked.");
 
         }
 
@@ -346,6 +399,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                                new JProperty("enabled",  true),
                                                new JProperty("port",     TestPorts.Free())
                                            );
+                    break;
+
+                case NodeSetup.SFTP:
+                case NodeSetup.SFTPWithLogFiles:
+
+                    configuration["ssh"]   = new JObject(
+                                                 new JProperty("enabled",  true),
+                                                 new JProperty("port",     TestPorts.Free()),
+                                                 new JProperty("sftp",     true)
+                                             );
+
+                    configuration["roles"] = RolesTheFileAdds.DeepClone();
                     break;
 
                 case NodeSetup.TimeClientOn:

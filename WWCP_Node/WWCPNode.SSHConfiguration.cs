@@ -58,11 +58,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region SSHConfigurationJSON(Host = null)
 
         /// <summary>
-        /// The SSH server as its page shows it: whether it runs, where, and
-        /// whether passwords open it - and what the file and the command line
-        /// say of that; what it allows; its host key, as a client compares it
-        /// and as a known_hosts file takes it; what it offers to encrypt with;
-        /// who is connected, and with which keys every account may sign in.
+        /// The SSH server as its page shows it: whether it runs, where, whether
+        /// passwords open it and whether it serves SFTP - and what the file and
+        /// the command line say of that; what it allows; its host key, as a
+        /// client compares it and as a known_hosts file takes it; what it offers
+        /// to encrypt with; the areas of SFTP; who is connected, and with which
+        /// keys every account may sign in.
         /// </summary>
         /// <param name="Host">The name the node was reached by, for the known_hosts line; the address it listens on where none is given.</param>
         public JObject SSHConfigurationJSON(String? Host = null)
@@ -76,6 +77,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("enabled",        SSHEnabled),
                        new JProperty("port",           SSHPort?.ToUInt16()),
                        new JProperty("passwords",      SSHPasswords),
+                       new JProperty("sftp",           SFTPEnabled),
                        new JProperty("listenAddress",  listenAddress.ToString()),
                        new JProperty("url",            SSHURL),
                        new JProperty("defaultPort",    SSHSettings.DefaultPortFor(sshWebInterfacePort)?.ToUInt16()),
@@ -115,10 +117,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                            new JProperty("compression",  new JArray("none"))
                                                        )),
 
+                       // What SFTP shows, whether it is on or not, and what each
+                       // area needs: null to read is anybody signed in, null to
+                       // write is nobody.
+                       new JProperty("sftpAreas",      new JArray(
+                                                           SftpAreas.Select(area => new JObject(
+                                                               new JProperty("path",   $"/{area.Path}"),
+                                                               new JProperty("read",   area.Read?. ToString()),
+                                                               new JProperty("write",  area.Write?.ToString())
+                                                           ))
+                                                       )),
+
                        new JProperty("connections",    SSHConnections),
                        new JProperty("sessions",       new JArray(
-                                                           CommandLineSessions.Select(session => new JObject(
+                                                           SSHSessions.Select(session => new JObject(
                                                                new JProperty("id",       session.Id),
+                                                               new JProperty("kind",     session.Kind),
                                                                new JProperty("account",  session.Account),
                                                                new JProperty("from",     session.From),
                                                                new JProperty("key",      session.Key),
@@ -217,9 +231,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region TryUpdateSSHConfiguration(JSON)
 
         /// <summary>
-        /// Change whether the SSH server runs, on which port, and whether
-        /// passwords open it: saved in the "ssh" section of the configuration
-        /// file, and made at once.
+        /// Change whether the SSH server runs, on which port, whether passwords
+        /// open it, and whether it serves SFTP: saved in the "ssh" section of the
+        /// configuration file, and made at once.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -228,6 +242,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// switched off or told otherwise of passwords, the server that ran
         /// says goodbye to its sessions and stops - a session typed at over SSH
         /// ends, which the page says before it is sent.
+        /// </para>
+        /// <para>
+        /// SFTP switched on or off does not start the server anew: the next
+        /// session that asks for it is served or refused, and the sessions of
+        /// SFTP open when it is switched off end.
         /// </para>
         /// <para>
         /// A switch on the command line wins over the file, as it does at a
@@ -249,7 +268,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 var file   = new SSHConfiguration(sent.Enabled   ?? sshFile?.Enabled,
                                                   sent.Port      ?? sshFile?.Port,
-                                                  sent.Passwords ?? sshFile?.Passwords);
+                                                  sent.Passwords ?? sshFile?.Passwords,
+                                                  sent.Sftp      ?? sshFile?.Sftp);
+
+                var sftpWas  = SFTPEnabled;
 
                 var after  = EffectiveSSH(sshSettings, file, sshWebInterfacePort);
 
@@ -290,6 +312,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 sshFile = file;
 
+                // Without the server starting anew: the next session asks.
+                if (!restart && SFTPEnabled != sftpWas)
+                {
+
+                    var ended = SFTPEnabled ? 0 : EndSftpSessions();
+
+                    Log.Notice(SFTPEnabled
+                                   ? $"SFTP is served on the SSH server from now on: {String.Join(", ", SftpAreas.Select(area => $"/{area.Path}"))}."
+                                   : $"SFTP is no longer served on the SSH server{(ended > 0 ? $"; {ended} open session(s) of it end" : "")}.",
+                               "ssh", "sftp");
+
+                }
+
                 if (restart)
                 {
 
@@ -322,8 +357,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     sshServer = started;
 
                     Log.Notice(SSHEnabled
-                                   ? $"The command line is served over SSH on {SSHURL} from now on{(SSHPasswords ? ", and passwords open it as well" : ", with keys alone")}."
-                                   : "The command line is no longer served over SSH.",
+                                   ? $"The command line is served over SSH on {SSHURL} from now on{(SSHPasswords ? ", and passwords open it as well" : ", with keys alone")}" +
+                                     (SFTPEnabled ? ", and SFTP with it." : ".")
+                                   : "The command line is no longer served over SSH, and neither is SFTP.",
                                "ssh");
 
                 }

@@ -154,8 +154,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #region NothingButTheCommandLineIsServedOverSSH
 
         /// <summary>
-        /// No exec, no SFTP, no tunnel: a node serves its command line over SSH
-        /// and nothing of the machine it runs on.
+        /// No exec, no tunnel, and no SFTP unless the file says so: a node serves
+        /// its command line over SSH and nothing of the machine it runs on.
         /// </summary>
         [Test]
         [WithNode(NodeSetup.SSH)]

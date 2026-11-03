@@ -89,6 +89,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
+        #region (internal) ReadingTheLogNeeds
+
+        /// <summary>
+        /// What reading the log needs beyond being signed in, or null for
+        /// nothing more - for the log files over SFTP, which are read with
+        /// what the Logs page is read with.
+        /// </summary>
+        internal Permission? ReadingTheLogNeeds
+            => ToReadTheLog;
+
+        #endregion
+
         #region (internal) MayReadTheLogFor(User)
 
         /// <summary>

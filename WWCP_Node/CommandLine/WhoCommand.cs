@@ -28,8 +28,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 {
 
     /// <summary>
-    /// Who is at this node's command line over SSH now: which account, from
-    /// where, with which key, since when.
+    /// Who is connected to this node over SSH now - at its command line, or
+    /// with SFTP: which account, from where, with which key, since when.
     /// </summary>
     /// <remarks>
     /// What the configuration is read with on the web interface is what this
@@ -69,16 +69,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             if (!cli.MayDo(Permission.Read(NodeResources.Configuration), CommandName, out var refused))
                 return Task.FromResult<String[]>([ refused ]);
 
-            var sessions = cli.Node.CommandLineSessions;
+            var sessions = cli.Node.SSHSessions;
 
             if (sessions.Count == 0)
-                return Task.FromResult<String[]>([ $"Nobody is at the command line of this {cli.Node.Kind.Name} over SSH." ]);
+                return Task.FromResult<String[]>([ $"Nobody is connected to this {cli.Node.Kind.Name} over SSH." ]);
 
             var mine  = cli.Caller.Session?.ConnectionId;
             var width = sessions.Max(session => session.Account.Length);
 
             return Task.FromResult<String[]>([
-                       .. sessions.Select(session => $"{session.Account.PadRight(width)}  from {session.From}, since {session.Since.ToLocalTime():HH:mm}" +
+                       .. sessions.Select(session => $"{session.Account.PadRight(width)}  {(session.Kind == WWCPNode.SSHSession.SFTP ? "with SFTP " : "")}from {session.From}, since {session.Since.ToLocalTime():HH:mm}" +
                                                      (session.Key is not null ? $", key {session.Key}" : "") +
                                                      (session.Id == mine ? "  <- this one" : ""))
                    ]);
@@ -91,7 +91,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} - who is at this command line over SSH now";
+            => $"{CommandName} - who is connected over SSH now: at this command line, or with SFTP";
 
         #endregion
 

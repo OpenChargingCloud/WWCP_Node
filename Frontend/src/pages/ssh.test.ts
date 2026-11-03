@@ -13,7 +13,7 @@ import { describe, it }      from 'node:test';
 
 import type { SSHConfiguration, SSHUpdate } from '../api/client.ts';
 
-const { movesTheServer, sshPage, when } = await import('./ssh.ts');
+const { movesTheServer, sftpSessionsEnding, sshPage, when } = await import('./ssh.ts');
 
 
 /** What the stand-in node has, how it answers a save, and what it was told. */
@@ -25,6 +25,7 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         enabled:        true,
         port:           22347,
         passwords:      false,
+        sftp:           false,
         listenAddress:  '127.0.0.1',
         url:            'ssh://127.0.0.1:22347',
         defaultPort:    22347,
@@ -37,8 +38,9 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
                             file: 'ssh/ssh_host_ed25519_key', knownHosts: '[127.0.0.1]:22347 ssh-ed25519 AAAAC3host' } ],
         algorithms:     { keyExchange: [ 'mlkem768x25519-sha256', 'curve25519-sha256' ], hostKey: [ 'ssh-ed25519' ],
                           cipher: [ 'chacha20-poly1305@openssh.com' ], mac: [ 'hmac-sha2-256-etm@openssh.com' ], compression: [ 'none' ] },
+        sftpAreas:      [ { path: '/logs', read: null, write: null }, { path: '/logs/metrological', read: null, write: null } ],
         connections:    1,
-        sessions:       [ { id: 'c1', account: 'root', from: '192.0.2.7:51234', key: 'SHA256:rootskey', since: '2026-10-09T08:15:00Z' } ],
+        sessions:       [ { id: 'c1', kind: 'cli', account: 'root', from: '192.0.2.7:51234', key: 'SHA256:rootskey', since: '2026-10-09T08:15:00Z' } ],
         accounts:       [ { account: 'root',    keys: [ { fingerprint: 'SHA256:rootskey', algorithm: 'ssh-ed25519', comment: 'root@laptop',
                                                           label: 'made up at the first start', created: '2026-10-01T10:00:00Z', createdBy: 'the first start', isDisabled: false } ] },
                           { account: 'viewer1', keys: [] } ],
@@ -54,7 +56,7 @@ function node({ method, path, body }: Asked): unknown {
         if (answer !== null)
             return answer(update);
         held = { ...held, enabled: update.enabled ?? held.enabled, port: update.port ?? held.port, passwords: update.passwords ?? held.passwords,
-                          configured: { ...held.configured, ...update } };
+                          sftp: update.sftp ?? held.sftp, configured: { ...held.configured, ...update } };
         return held;
     }
 
@@ -94,6 +96,27 @@ describe('whether a change moves the SSH server', () => {
                      'a port the command line keeps is not moved to');
         assert.equal(movesTheServer(aServer({ enabled: false, url: null, port: 22347 }), { enabled: false, passwords: true }), false,
                      'passwords of a server that is off');
+        assert.equal(movesTheServer(now, { enabled: true, passwords: false, sftp: true }),  false, 'SFTP switched on');
+        assert.equal(movesTheServer(aServer({ sftp: true }), { enabled: true, passwords: false, sftp: false }), false, 'SFTP switched off');
+
+    });
+
+});
+
+
+describe('how many sessions of SFTP a change ends', () => {
+
+    it('are those of SFTP where it is switched off, none where it stays on or the server moves, which ends every session', () => {
+
+        const now = aServer({ sftp: true, sessions: [ { id: 'c1',        kind: 'cli',  account: 'root',    from: '192.0.2.7:51234', key: 'SHA256:rootskey', since: '2026-10-09T08:15:00Z' },
+                                                      { id: 'c1/sftp-1', kind: 'sftp', account: 'root',    from: '192.0.2.7:51234', key: 'SHA256:rootskey', since: '2026-10-09T08:16:00Z' },
+                                                      { id: 'c2/sftp-2', kind: 'sftp', account: 'viewer1', from: '192.0.2.9:40000', key: 'SHA256:viewkey', since: '2026-10-09T08:17:00Z' } ] });
+
+        assert.equal(sftpSessionsEnding(now, { enabled: true, passwords: false, sftp: false }),               2, 'switched off');
+        assert.equal(sftpSessionsEnding(now, { enabled: true, passwords: false, sftp: true }),                0, 'left on');
+        assert.equal(sftpSessionsEnding(now, { enabled: true, passwords: false }),                            0, 'not said');
+        assert.equal(sftpSessionsEnding(now, { enabled: true, passwords: false, sftp: false, port: 22400 }),  0, 'the server moves, and that is asked about instead');
+        assert.equal(sftpSessionsEnding(aServer(), { enabled: true, passwords: false, sftp: false }),         0, 'off already');
 
     });
 
@@ -148,8 +171,30 @@ describe('the SSH server page', () => {
         assert.equal(field(root, 'port').value, '22347');
         assert.equal(field(root, 'enabled').checked, true);
         assert.equal(field(root, 'passwords').checked, false);
+        assert.equal(field(root, 'sftp').checked, false);
+        assert.ok(root.querySelector('#sftp-served') === null, 'SFTP is said to be served where it is off');
         assert.ok(root.querySelector('#command-line-wins') === null, 'a switch is said to win where none said anything');
         assert.ok(root.querySelector('#ssh-keys [data-key="SHA256:rootskey"] .chip') === null, 'a key that is on is said to be off');
+
+    });
+
+    it('shows whether SFTP is served, the folders it shows and what each needs, and who is at it', async () => {
+
+        const off  = await opened();
+
+        assert.match(off.querySelector('#ssh-sftp')!.textContent!, /Not served now/);
+
+        const root = await opened({ sftp: true, configured: { enabled: true, port: 22347, sftp: true },
+                                    sftpAreas: [ { path: '/logs',  read: null,             write: null },
+                                                 { path: '/logos', read: 'providers:read', write: 'providers:edit' } ],
+                                    sessions:  [ { id: 'c3/sftp-1', kind: 'sftp', account: 'cpo1', from: '192.0.2.7:51300', key: 'SHA256:cpokey', since: '2026-10-09T08:20:00Z' } ] });
+
+        assert.equal(root.querySelector('#sftp-served')?.textContent, 'and SFTP');
+        assert.equal(field(root, 'sftp').checked, true);
+        assert.match(root.querySelector('#ssh-sftp')!.textContent!, /^\s*Files over SFTP\s*Served/);
+        assert.match(root.querySelector('#ssh-sftp [data-sftp-area="/logs"]')!.textContent!,  /\/logs\s*anybody signed in\s*nobody/);
+        assert.match(root.querySelector('#ssh-sftp [data-sftp-area="/logos"]')!.textContent!, /\/logos\s*whoever may providers:read\s*whoever may providers:edit/);
+        assert.match(root.querySelector('#ssh-sessions [data-session="c3/sftp-1"]')!.textContent!, /cpo1\s*SFTP\s*192\.0\.2\.7:51300/);
 
     });
 
@@ -164,13 +209,13 @@ describe('the SSH server page', () => {
 
     it('says who is at the command line with a password, and that nobody is where nobody is', async () => {
 
-        const withPassword = await opened({ sessions: [ { id: 'c2', account: 'root', from: '192.0.2.8:4000', key: null, since: '2026-10-09T09:00:00Z' } ] });
+        const withPassword = await opened({ sessions: [ { id: 'c2', kind: 'cli', account: 'root', from: '192.0.2.8:4000', key: null, since: '2026-10-09T09:00:00Z' } ] });
 
-        assert.match(withPassword.querySelector('#ssh-sessions [data-session="c2"]')!.textContent!, /a password/);
+        assert.match(withPassword.querySelector('#ssh-sessions [data-session="c2"]')!.textContent!, /the command line.*a password/s);
 
         const nobody = await opened({ sessions: [], connections: 0 });
 
-        assert.match(nobody.querySelector('#ssh-sessions')!.textContent!, /Nobody is at the command line over SSH/);
+        assert.match(nobody.querySelector('#ssh-sessions')!.textContent!, /Nobody is connected over SSH/);
 
     });
 
@@ -188,7 +233,7 @@ describe('the SSH server page', () => {
         submit(root);
         await until(() => /^Saved/.test(root.querySelector('#form-note')?.textContent ?? ''), 'the save did not go through');
 
-        assert.deepEqual(puts().map(one => one.body), [ { enabled: true, passwords: true, port: 22400 } ]);
+        assert.deepEqual(puts().map(one => one.body), [ { enabled: true, passwords: true, sftp: false, port: 22400 } ]);
         assert.equal(root.querySelector('#form-note')!.textContent, 'Saved for the next start without that switch.', 'what the node said is not said');
         assert.equal(root.querySelector('#ssh-url')?.textContent, 'ssh://127.0.0.1:22400', 'the page shows what it sent, not what the node took');
         assert.equal(said.length, 0, 'nobody connected, and it asked all the same');
@@ -231,8 +276,48 @@ describe('the SSH server page', () => {
         submit(root);
         await until(() => puts().length === 1, 'the save did not go to the node');
 
-        assert.deepEqual(puts()[0]!.body, { enabled: true, passwords: false }, 'an emptied port was sent as something');
+        assert.deepEqual(puts()[0]!.body, { enabled: true, passwords: false, sftp: false }, 'an emptied port was sent as something');
         assert.equal(said.length, 0, 'it asked although nothing moves');
+
+    });
+
+    it('asks before switching SFTP off ends its sessions, sends nothing when told no, and does not ask where none is open', async () => {
+
+        const root     = await opened({ sftp: true, configured: { enabled: true, port: 22347, sftp: true },
+                                        sessions: [ { id: 'c1/sftp-1', kind: 'sftp', account: 'root', from: '192.0.2.7:51234', key: 'SHA256:rootskey', since: '2026-10-09T08:16:00Z' } ] });
+        const yes      = window.confirm;
+
+        field(root, 'sftp').checked = false;
+
+        window.confirm = (text?: string) => { said.push(String(text)); return false; };
+
+        try
+        {
+            submit(root);
+            await wait(10);
+        }
+        finally
+        {
+            window.confirm = yes;
+        }
+
+        assert.match(said.at(-1) ?? '', /SFTP is switched off for this, and 1 session\(s\) of it end/);
+        assert.equal(puts().length, 0, 'told no, it went to the node all the same');
+
+        submit(root);
+        await until(() => puts().length === 1, 'told yes, it did not go to the node');
+
+        assert.deepEqual(puts()[0]!.body, { enabled: true, passwords: false, sftp: false, port: 22347 });
+
+        // Opened anew, with what was said and asked so far forgotten.
+        const nobody   = await opened({ sftp: true, configured: { enabled: true, port: 22347, sftp: true }, sessions: [] });
+
+        field(nobody, 'sftp').checked = false;
+
+        submit(nobody);
+        await until(() => puts().length === 1, 'switched off with nobody at it, it did not go to the node');
+
+        assert.equal(said.length, 0, 'it asked although no session of SFTP was open');
 
     });
 

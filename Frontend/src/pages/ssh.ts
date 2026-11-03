@@ -18,10 +18,16 @@ import { html, nothing, render, repeat, type TemplateResult } from '../view';
  * about before it sends. A switch on the command line - --no-ssh, --ssh-port -
  * wins over the file, as it does at a start, and the page says so.
  *
+ * Whether the node's files are served over SFTP as well is saved the same way,
+ * and does not move the server: the next session that asks is served or
+ * refused, and the sessions of SFTP open end when it is switched off - which
+ * the page asks about first.
+ *
  * Beside that, what a person looking after the node wants to compare or copy:
  * the host key, as a client shows it the first time and as a known_hosts file
- * takes it; who is connected now; the keys every account may sign in with;
- * what the server allows; and what it offers to encrypt with.
+ * takes it; the folders SFTP shows and what each needs; who is connected now;
+ * the keys every account may sign in with; what the server allows; and what it
+ * offers to encrypt with.
  */
 
 const api = nodeAPI();
@@ -54,6 +60,18 @@ export function movesTheServer(Now: SSHConfiguration, Update: SSHUpdate): boolea
     const passwords = Update.passwords ?? Now.passwords;
 
     return enabled !== Now.enabled || (enabled && (port !== Now.port || passwords !== Now.passwords));
+
+}
+
+/**
+ * How many sessions of SFTP a change ends by switching SFTP off - without
+ * moving the server, which would end every session anyway.
+ */
+export function sftpSessionsEnding(Now: SSHConfiguration, Update: SSHUpdate): number {
+
+    return Now.sftp && Update.sftp === false && !movesTheServer(Now, Update)
+               ? Now.sessions.filter(session => session.kind === 'sftp').length
+               : 0;
 
 }
 
@@ -97,6 +115,7 @@ export const sshPage: Page = {
                 <div class="cards stacked">
                     ${settingsCard(ssh)}
                     ${hostKeysCard(ssh)}
+                    ${sftpCard(ssh)}
                     ${sessionsCard(ssh)}
                     ${accountsCard(ssh)}
                     ${limitsCard(ssh)}
@@ -108,7 +127,7 @@ export const sshPage: Page = {
         }
 
 
-        /** Whether it runs, where, and whether passwords open it - and the form that changes them. */
+        /** Whether it runs, where, whether passwords open it and whether it serves SFTP - and the form that changes them. */
         function settingsCard(ssh: SSHConfiguration): TemplateResult {
 
             const switches = [
@@ -123,7 +142,8 @@ export const sshPage: Page = {
 
                     <p class="ssh-state">
                         ${ssh.enabled && ssh.url !== null
-                              ? html`<span class="chip ok">serving</span> <code id="ssh-url">${ssh.url}</code>`
+                              ? html`<span class="chip ok">serving</span> <code id="ssh-url">${ssh.url}</code>
+                                     ${ssh.sftp ? html`<span class="chip ok" id="sftp-served">and SFTP</span>` : nothing}`
                               : html`<span class="chip">off</span> The command line is not served over SSH.`}
                         <span class="muted" id="ssh-connections">${ssh.connections} connection(s) open</span>
                     </p>
@@ -156,6 +176,15 @@ export const sshPage: Page = {
                             <input type="checkbox" name="passwords" ?checked=${ssh.configured.passwords ?? ssh.passwords} ?disabled=${!mayChange} />
                             Let an account's password open it as well as its keys
                             <span class="hint">Off, only a key an account was given signs in - which a password typed somewhere else cannot give away.</span>
+                        </label>
+
+                        <label class="checkbox">
+                            <input type="checkbox" name="sftp" ?checked=${ssh.configured.sftp ?? ssh.sftp} ?disabled=${!mayChange} />
+                            Serve this ${config.nodeName}'s files over SFTP as well
+                            <span class="hint">
+                                The folders below, each as an account's roles let it read or write - and nothing else of the machine.
+                                Off, a client asking for SFTP - sftp, scp, WinSCP - is refused.
+                            </span>
                         </label>
 
                         <div class="form-actions">
@@ -215,7 +244,47 @@ export const sshPage: Page = {
         }
 
 
-        /** Who is connected to the command line now. */
+        /** The folders SFTP shows, and what reading and writing each needs. */
+        function sftpCard(ssh: SSHConfiguration): TemplateResult {
+
+            return html`
+                <section class="card" id="ssh-sftp">
+
+                    <h2><i class="fa-solid fa-folder-tree"></i> Files over SFTP</h2>
+
+                    <p class="hint">
+                        ${ssh.sftp && ssh.enabled
+                              ? 'Served: an account sees the folders its roles let it read or write, and nothing else.'
+                              : 'Not served now. Switched on, an account sees the folders its roles let it read or write, and nothing else.'}
+                        An upload is checked before it takes the place of anything.
+                    </p>
+
+                    ${ssh.sftpAreas.length === 0
+                          ? html`<p class="hint">There is nothing to show: this ${config.nodeName} writes no log files, and has no folders of its own.</p>`
+                          : html`
+                            <div class="table-scroll">
+                              <table class="records">
+                                  <thead><tr><th>Folder</th><th>Read by</th><th>Written by</th></tr></thead>
+                                  <tbody>
+                                      ${repeat(ssh.sftpAreas, area => area.path, area => html`
+                                          <tr data-sftp-area="${area.path}">
+                                              <td><code>${area.path}</code></td>
+                                              <td>${area.read  !== null ? html`whoever may <code>${area.read}</code>`  : 'anybody signed in'}</td>
+                                              <td>${area.write !== null ? html`whoever may <code>${area.write}</code>` : 'nobody'}</td>
+                                          </tr>
+                                      `)}
+                                  </tbody>
+                              </table>
+                            </div>
+                          `}
+
+                </section>
+            `;
+
+        }
+
+
+        /** Who is connected now: at the command line, or with SFTP. */
         function sessionsCard(ssh: SSHConfiguration): TemplateResult {
 
             return html`
@@ -224,15 +293,16 @@ export const sshPage: Page = {
                     <h2><i class="fa-solid fa-users"></i> Sessions</h2>
 
                     ${ssh.sessions.length === 0
-                          ? html`<p class="hint">Nobody is at the command line over SSH.</p>`
+                          ? html`<p class="hint">Nobody is connected over SSH.</p>`
                           : html`
                             <div class="table-scroll">
                               <table class="records">
-                                  <thead><tr><th>Account</th><th>From</th><th>Since</th><th>Key</th></tr></thead>
+                                  <thead><tr><th>Account</th><th>At</th><th>From</th><th>Since</th><th>Key</th></tr></thead>
                                   <tbody>
                                       ${repeat(ssh.sessions, session => session.id, session => html`
                                           <tr data-session="${session.id}">
                                               <td>${session.account}</td>
+                                              <td>${session.kind === 'sftp' ? 'SFTP' : 'the command line'}</td>
                                               <td>${session.from}</td>
                                               <td>${when(session.since)}</td>
                                               <td>${session.key !== null ? html`<code>${session.key}</code>` : html`<span class="muted">a password</span>`}</td>
@@ -377,6 +447,7 @@ export const sshPage: Page = {
             const update: SSHUpdate = {
                 enabled:    data.get('enabled')   !== null,
                 passwords:  data.get('passwords') !== null,
+                sftp:       data.get('sftp')      !== null,
                 // An emptied field is the port the file has, not none.
                 ...(typed.length > 0 ? { port: Number(typed) } : {})
             };
@@ -390,6 +461,12 @@ export const sshPage: Page = {
 
             if (sessions > 0 && movesTheServer(current!, update) &&
                 !confirm(`The SSH server starts anew for this, and ${sessions} session(s) over SSH end - yours too, if you are at the command line.\n\nGo on?`))
+                return;
+
+            const sftpSessions = sftpSessionsEnding(current!, update);
+
+            if (sftpSessions > 0 &&
+                !confirm(`SFTP is switched off for this, and ${sftpSessions} session(s) of it end.\n\nGo on?`))
                 return;
 
             void save(update, form);

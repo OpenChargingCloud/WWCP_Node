@@ -39,8 +39,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
     /// <summary>
     /// The node's command line over SSH: what somebody signed in with PuTTY or
-    /// ssh gets, and nothing else - no shell of the machine, no files, no
-    /// tunnels.
+    /// ssh gets - and, where the configuration file says so, the node's own
+    /// files over SFTP (see WWCPNode.Sftp.cs). Nothing else: no shell of the
+    /// machine, none of its files, no tunnels.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -426,7 +427,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        (accounts.Count == 0
                             ? $"no account has a key yet, so nobody can sign in."
                             : $"{accounts.Count} account(s) can sign in with a key: {String.Join(", ", accounts)}.") +
-                       (SSHPasswords ? " Passwords open it as well." : ""),
+                       (SSHPasswords ? " Passwords open it as well." : "") +
+                       (SFTPEnabled
+                            ? $" SFTP is served as well: {String.Join(", ", sftpAreasInEffect.Select(area => $"/{area.Path}"))}."
+                            : " SFTP is not (ssh.sftp)."),
                        "ssh");
 
         }
@@ -454,6 +458,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               HostKeys             = [ hostKey ],
                               Authenticator        = sshAuthenticator,
                               ShellHandler         = ServeShellAsync,
+                              SftpSessions         = SftpSessionFor,
                               AuditSink            = new DelegateAuditSink(Audited),
                               ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
                               Limits               = SSHServerLimits()
@@ -578,29 +583,52 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region CommandLineSessions
+        #region SSHSessions / CommandLineSessions
 
         /// <summary>
-        /// One session over SSH: who, from where, with which key, since when.
+        /// One session over SSH: who, from where, with which key, since when -
+        /// and at what: the command line, or SFTP.
         /// </summary>
-        /// <param name="Id">The session's id - its connection's.</param>
+        /// <param name="Id">The session's id: its connection's at the command line, and a number after it for SFTP.</param>
         /// <param name="Account">The account.</param>
         /// <param name="From">Where from.</param>
         /// <param name="Key">The fingerprint of the key it signed in with, if one.</param>
         /// <param name="Since">When the session began.</param>
-        public sealed record CommandLineSession(String          Id,
-                                                String          Account,
-                                                String          From,
-                                                String?         Key,
-                                                DateTimeOffset  Since);
+        /// <param name="Kind">At what: <see cref="CommandLine"/> or <see cref="SFTP"/>.</param>
+        public sealed record SSHSession(String          Id,
+                                        String          Account,
+                                        String          From,
+                                        String?         Key,
+                                        DateTimeOffset  Since,
+                                        String          Kind = SSHSession.CommandLine)
+        {
 
-        private readonly ConcurrentDictionary<String, CommandLineSession>  commandLineSessions = new ();
+            /// <summary>
+            /// A session at the command line.
+            /// </summary>
+            public const String CommandLine  = "cli";
+
+            /// <summary>
+            /// A session of SFTP.
+            /// </summary>
+            public const String SFTP         = "sftp";
+
+        }
+
+        private readonly ConcurrentDictionary<String, SSHSession>  sshSessions = new ();
+
+        /// <summary>
+        /// The sessions over SSH, open now - at the command line and of SFTP -
+        /// the oldest first.
+        /// </summary>
+        public IReadOnlyList<SSHSession>  SSHSessions
+            => [.. sshSessions.Values.OrderBy(session => session.Since)];
 
         /// <summary>
         /// The command line's sessions over SSH, open now, the oldest first.
         /// </summary>
-        public IReadOnlyList<CommandLineSession>  CommandLineSessions
-            => [.. commandLineSessions.Values.OrderBy(session => session.Since)];
+        public IReadOnlyList<SSHSession>  CommandLineSessions
+            => [.. SSHSessions.Where(session => session.Kind == SSHSession.CommandLine)];
 
         #endregion
 
@@ -725,11 +753,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                  ? new SessionLog(Log, cli, consoleLog?.MinimumLevel ?? LogLevel.Info, () => Volatile.Read(ref signedOut) is null && MayReadTheLog(account))
                                  : null;
 
-            commandLineSessions[session.ConnectionId] = new CommandLineSession(session.ConnectionId,
-                                                                               account.Id.ToString(),
-                                                                               from,
-                                                                               session.PublicKeyFingerprint,
-                                                                               since);
+            sshSessions[session.ConnectionId] = new SSHSession(session.ConnectionId,
+                                                               account.Id.ToString(),
+                                                               from,
+                                                               session.PublicKeyFingerprint,
+                                                               since);
 
             sshSessionRechecks[session.ConnectionId] = Recheck;
 
@@ -791,7 +819,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (cli.SessionLog is SessionLog sessionLog)
                     await sessionLog.DisposeAsync();
 
-                commandLineSessions.TryRemove(session.ConnectionId, out _);
+                sshSessions.TryRemove(session.ConnectionId, out _);
 
                 var lasted = TimeProvider.GetUtcNow() - since;
 
@@ -898,8 +926,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     Log.Warning($"The SSH server refused{from}: {limit.Limit} - {limit.Detail}.", "ssh", "security");
                     break;
 
+                // Refused because it is switched off, or because the account may
+                // not go on: SftpSessionFor's refusal says why after "not served: ".
+                case PolicyDeniedEvent { PolicyType: "subsystem", Target: "sftp" } sftp:
+                    Log.Info($"Refused SFTP over SSH{from}: " +
+                             (!SFTPEnabled
+                                  ? $"SFTP is switched off on this {Kind.Name} (ssh.sftp)."
+                                  : $"{(sftp.Reason.StartsWith("not served: ", StringComparison.Ordinal) ? sftp.Reason["not served: ".Length..] : sftp.Reason)}."),
+                             "ssh", "sftp", "security");
+                    break;
+
                 case PolicyDeniedEvent denied:
-                    Log.Info($"Refused over SSH{from}: {denied.PolicyType}{(denied.Target.Length > 0 ? $" '{denied.Target}'" : "")} - only the command line is served.",
+                    Log.Info($"Refused over SSH{from}: {denied.PolicyType}{(denied.Target.Length > 0 ? $" '{denied.Target}'" : "")} - " +
+                             (SFTPEnabled ? "only the command line and SFTP are served." : "only the command line is served."),
                              "ssh", "security");
                     break;
 

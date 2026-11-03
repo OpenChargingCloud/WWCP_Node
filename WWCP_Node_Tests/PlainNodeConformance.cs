@@ -44,6 +44,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         protected override WWCPNode NewNode(String   Directory,
                                             JObject  Configuration)
+
+            => Made(Directory, Configuration, null);
+
+        #endregion
+
+        #region (protected override) NewNodeWritingLogFiles(Directory, Configuration, LogPath)
+
+        protected override WWCPNode NewNodeWritingLogFiles(String   Directory,
+                                                           JObject  Configuration,
+                                                           String   LogPath)
+
+            => Made(Directory, Configuration, LogPath);
+
+        #endregion
+
+        #region (private static) Made(Directory, Configuration, LogPath)
+
+        /// <summary>
+        /// A node of no particular kind, writing log files where it is given a
+        /// directory for them.
+        /// </summary>
+        private static WWCPNode Made(String   Directory,
+                                     JObject  Configuration,
+                                     String?  LogPath)
         {
 
             var configuration = Path.Combine(Directory, WWCPConfigFile.DefaultFileName);
@@ -56,6 +80,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                            ConfigFile:        new WWCPConfigFile(configuration),
                            Frontend:          new FileSystemContentSource(AFrontendIn(Directory)),
                            CertificatesPath:  Path.Combine(Directory, "certificates"),
+                           LogPath:           LogPath,
                            LogToConsole:      false,
                            BridgeDebugLog:    false
                        );

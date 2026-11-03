@@ -257,10 +257,11 @@ export interface DNSSettings {
 /** How the node resolves names. */
 /** The SSH server the command line is served over, as its page shows it. */
 export interface SSHConfiguration {
-    /** Whether it runs, on which port, and whether passwords open it - as it is now. */
+    /** Whether it runs, on which port, whether passwords open it, and whether it serves SFTP - as it is now. */
     enabled:        boolean;
     port:           number | null;
     passwords:      boolean;
+    sftp:           boolean;
     listenAddress:  string;
     url:            string | null;
     /** The port it takes where nobody says: 20000 above the web interface's. */
@@ -268,7 +269,7 @@ export interface SSHConfiguration {
     /** The configuration file it is saved to. */
     file:           string;
     /** What the file's "ssh" section says. */
-    configured:     { enabled?: boolean; port?: number; passwords?: boolean };
+    configured:     { enabled?: boolean; port?: number; passwords?: boolean; sftp?: boolean };
     /** What a switch on the command line said, which wins over the file: --no-ssh, --ssh-port. */
     commandLine:    { enabled?: boolean; port?: number };
     limits:         { loginGraceTime: number; maxAuthTries: number; maxSessions: number; maxConnections: number;
@@ -277,10 +278,12 @@ export interface SSHConfiguration {
     hostKeys:       { algorithm: string; fingerprint: string; publicKey: string; file: string; knownHosts: string }[];
     /** What it offers, in the order it prefers them. */
     algorithms:     { keyExchange: string[]; hostKey: string[]; cipher: string[]; mac: string[]; compression: string[] };
+    /** The folders SFTP shows, served or not, and what reading and writing each needs: null to read is anybody signed in, null to write is nobody. */
+    sftpAreas:      { path: string; read: string | null; write: string | null }[];
     /** Connections open now, signed in or not. */
     connections:    number;
-    /** The command line's sessions over SSH, the oldest first. */
-    sessions:       { id: string; account: string; from: string; key: string | null; since: string }[];
+    /** The sessions over SSH - at the command line, or of SFTP - the oldest first. */
+    sessions:       { id: string; kind: 'cli' | 'sftp'; account: string; from: string; key: string | null; since: string }[];
     /** Every account, with the keys it may sign in with. */
     accounts:       { account: string; keys: { fingerprint: string; algorithm: string; comment: string; label: string | null;
                                                created: string; createdBy: string | null; isDisabled: boolean }[] }[];
@@ -293,6 +296,7 @@ export interface SSHUpdate {
     enabled?:    boolean;
     port?:       number;
     passwords?:  boolean;
+    sftp?:       boolean;
 }
 
 

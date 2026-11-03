@@ -35,6 +35,7 @@ a port of their own to connect to.
 | `BuiltFrom.cs` | what the node was built from: every assembly of ours it runs, and the commit each was built from - for the banner, the Configuration page and a bug report |
 | `CommandLine/` | `NodeCLI`, the command line every kind of node has: its commands, `syncNTS` among them, and the console from the first prompt until 'quit', Ctrl+C, SIGTERM or the end of a task it is given, after which the log has the screen to itself again. And what a kind's program does before it: the switches every node has, the certificate store's among them, with the rest left for the kind (`NodeArguments`), what -h says of them (`NodeUsage`), why a node could not be set up or could not start and what the command line puts into the store (`NodeProgram`), and the banner, the kind's lines in their places (`NodeBanner`) |
 | `WWCPNode.SSH.cs`, `WWCPNode.SSHConfiguration.cs`, `SecureShell/` | the command line over SSH: the server, its host key, who may sign in with which key (`NodeSSHAuthenticator`, asking the keys kept with the account; `AuthorizedKeysStore`, reading what is handed over), what the program says about it (`SSHSettings`), and the server as its page shows and changes it - see "The command line over SSH" below |
+| `WWCPNode.Sftp.cs`, `SecureShell/SftpArea.cs`, `SecureShell/NodeSftpFileSystem.cs` | the node's files over SFTP: its areas, the log files for every node and what a kind adds (`SftpArea`), and what one account sees of them in one session (`NodeSftpFileSystem`) - see "Files over SFTP" below |
 | `PortUnavailableException.cs` | a port the node has to have, and cannot get - which one, and what it was for, said in a sentence rather than in a stack trace |
 | `Certificates/` | the store: what a certificate is for, what may go in, and what survives a restart |
 | `Configuration/` | the file, and one record per section of it that every node has: `dns`, `nts`, `certificates`, `roles`, `ssh` |
@@ -874,8 +875,10 @@ log says so; the proxies, HSTS and the warning hold as for every node.
 What somebody at the console types at, somebody signed in with PuTTY or
 `ssh` can type at too: the same prompt, the same commands, Tab and the
 history, and the log above the line being typed. Nothing else is served -
-no shell of the machine, no `exec`, no SFTP, no tunnels: the session is the
-command line, and the command line is all there is.
+no shell of the machine, no `exec`, no tunnels: the session is the command
+line, and the command line is all there is. The node's own files are served
+over SFTP beside it where the file switches that on - see "Files over SFTP"
+below.
 
 The history outlives the session. Each account keeps its own in
 `<accounts>/history/<account>` - its name, with every character but
@@ -902,7 +905,7 @@ port of the dynamic range is no port, and a test has no business opening a
 second one. Between the two sits the file:
 
 ```json
-"ssh": { "enabled": true, "port": 22347, "passwords": false }
+"ssh": { "enabled": true, "port": 22347, "passwords": false, "sftp": false }
 ```
 
 A switch wins over the file, the file over the program's default.
@@ -1044,21 +1047,76 @@ could not, and what was refused are in the log, tagged `ssh`.
 
 **Configuration > SSH server** (`/configuration/ssh`, `nodeMenu.ssh`) shows
 the server - whether it runs, on which address and port, whether passwords
-open it - and what the file and the command line say of that; its host key,
-as a client shows it the first time and as a `known_hosts` line, each with a
-Copy button; who is at the command line now, from where, since when and with
-which key; the keys every account may sign in with; what the server allows;
-and the algorithms it offers, in the order it prefers them. `GET
-/api/v1/configuration/ssh` at `ssh:read` says all of it; `PUT` at `ssh:edit`
-takes `enabled`, `port` and `passwords`, saves them in the `ssh` section and
-makes them at once (`TryUpdateSSHConfiguration`): a new port is bound before
-the old one is let go, and a port that is taken is a 409 that leaves the
-server where it was and the file as it was. Moved, switched off or told
-otherwise of passwords, the server that ran ends its sessions, which the page
-asks about first. A switch on the command line - `--no-ssh`, `--ssh-port` -
-wins over the file, as at a start: what was sent is saved for the next start
-without it, and the answer's `notice` says so. Who changed it is in the log,
-tagged `ssh`, `web` and `security`.
+open it and whether it serves SFTP - and what the file and the command line
+say of that; its host key, as a client shows it the first time and as a
+`known_hosts` line, each with a Copy button; the folders SFTP shows and what
+reading and writing each needs; who is connected now - at the command line
+or with SFTP - from where, since when and with which key; the keys every
+account may sign in with; what the server allows; and the algorithms it
+offers, in the order it prefers them. `GET /api/v1/configuration/ssh` at
+`ssh:read` says all of it; `PUT` at `ssh:edit` takes `enabled`, `port`,
+`passwords` and `sftp`, saves them in the `ssh` section and makes them at
+once (`TryUpdateSSHConfiguration`): a new port is bound before the old one is
+let go, and a port that is taken is a 409 that leaves the server where it was
+and the file as it was. Moved, switched off or told otherwise of passwords,
+the server that ran ends its sessions, which the page asks about first;
+SFTP switched off ends the sessions of SFTP alone, which the page asks about
+too. A switch on the command line - `--no-ssh`, `--ssh-port` - wins over the
+file, as at a start: what was sent is saved for the next start without it,
+and the answer's `notice` says so. Who changed it is in the log, tagged
+`ssh`, `web` and `security`.
+
+
+## Files over SFTP
+
+Files are moved over SFTP, on the SSH server, where the file says so:
+
+```json
+"ssh": { "enabled": true, "sftp": true }
+```
+
+Off unless it says `true`, and only where the SSH server runs: after an
+update a node does nothing it did not do before. Switched on or off on the
+SSH server page, it takes effect for the next session without the server
+starting anew; switched off, the sessions of SFTP open end. `sftp`, `scp`
+(OpenSSH's speaks SFTP since 9.0), WinSCP and FileZilla come in as the
+command line's sessions do - an account of the node, with one of its keys -
+and see a tree of *areas*, and nothing else of the machine: not the
+configuration file, the accounts, the host key or the certificates.
+
+An area (`SftpArea`) is one directory on the disk, shown as a folder: of it
+only the names it admits - an allowlist, never "the whole directory" - with
+what reading it needs beyond being signed in and what writing it needs, or
+nobody. The root lists the areas an account may read or write, and only
+those. What reading and writing need is asked of the role model at every
+operation, as the web interface asks it at every request; and what let the
+session in is asked again as the command line's is, before every operation
+and every `SSHSessionRecheckEvery`: an account switched off, out of every
+role or gone, or its key taken out, ends the session, and a download in it.
+The sessions are among the SSH sessions, which `who` and the page show.
+
+Every node has two areas:
+
+| Folder | Shows | Read by | Written by |
+|---|---|---|---|
+| `/logs` | the day's files, `<prefix>-yyyy-MM-dd.log` | who may read the Logs page (`ToReadTheLog`) | nobody |
+| `/logs/metrological` | the day's files of the metrological log and `signing-key.pub.pem` - never `signing-key.pem`, its private key, which lies beside them | as `/logs` | nobody |
+
+The logs are evidence, administrators' included: nobody writes, renames or
+removes there. A kind adds areas of its own before the start
+(`AddSftpArea`), with a check of a name at `OPEN` and of the content at
+`CLOSE`, a largest file and a most files. An upload is written under a
+hidden name beside where it goes, checked when it is closed, and put in place
+with one rename - only then is it there, and the area's `Changed` is raised.
+One refused, too large or left unfinished leaves nothing behind. Folders are
+neither made nor removed, links neither made nor followed, and of a file's
+attributes only its times are set.
+
+The log says who opened SFTP from where, every file put up (with its size
+and SHA-256), removed or renamed, every download once its handle is closed,
+and in one line what the session came to: "'cpo1' left SFTP after 3 min: 2
+file(s) up (310 KiB), nothing down." Tagged `ssh` and `sftp`, and the area's
+own tags.
 
 
 ## The log

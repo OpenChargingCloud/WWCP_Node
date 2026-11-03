@@ -66,7 +66,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         }
 
         /// <summary>
-        /// PUT /api/v1/configuration/ssh with {"enabled", "port", "passwords"}:
+        /// PUT /api/v1/configuration/ssh with {"enabled", "port", "passwords", "sftp"}:
         /// save them and make them at once. Answers with the SSH server as it
         /// now stands, and a "notice" where a switch on the command line wins
         /// over what was saved.
@@ -92,7 +92,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                                   change.Error ?? "The SSH server was not changed.",
                                   change.NotSaved);
 
-            Log.Notice($"'{user.Id}' changed the SSH server of this {Node.Kind.Name}: {(Node.SSHEnabled ? $"on port {Node.SSHPort}{(Node.SSHPasswords ? ", passwords open it" : ", keys alone")}" : "off")}.",
+            Log.Notice($"'{user.Id}' changed the SSH server of this {Node.Kind.Name}: {(Node.SSHEnabled ? $"on port {Node.SSHPort}{(Node.SSHPasswords ? ", passwords open it" : ", keys alone")}{(Node.SFTPEnabled ? ", with SFTP" : ", without SFTP")}" : "off")}.",
                        "ssh", "web", "security");
 
             var answer = Node.SSHConfigurationJSON(Node.HostOf(Request));

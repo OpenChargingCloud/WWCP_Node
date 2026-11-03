@@ -2988,6 +2988,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
             }
 
+            // The SFTP tree as it is from now on: the node's areas and the kind's.
+            PrepareSftpAreas();
+
             try
             {
                 await StartRedirectServer();
