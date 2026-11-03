@@ -19,6 +19,7 @@
 
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Diagnostics.CodeAnalysis;
 
 using Microsoft.Win32.SafeHandles;
 
@@ -83,7 +84,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             public String?          Failed      { get; set; }
             public DateTimeOffset?  ModifyTime  { get; set; }
             public DateTimeOffset?  AccessTime  { get; set; }
+
+            /// <summary>
+            /// Whether it is an upload under a temporary name, held when it is
+            /// closed rather than put in place - see <see cref="SftpArea.TemporarySuffix"/>.
+            /// </summary>
+            public Boolean          IsHeld      { get; init; }
         }
+
+        /// <summary>
+        /// An upload under a temporary name, closed and checked, waiting for
+        /// its rename into place.
+        /// </summary>
+        private sealed record HeldUpload(String           Staged,
+                                         Int64            Size,
+                                         DateTimeOffset?  ModifyTime,
+                                         DateTimeOffset?  AccessTime);
 
         private sealed class OpenedListing(List<SftpDirectoryEntry> Entries) : Opened
         {
@@ -118,6 +134,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         private readonly Lock                          gate     = new ();
         private readonly Dictionary<String, Opened>    opened   = [];
+
+        /// <summary>
+        /// The uploads under a temporary name this session closed and has not
+        /// renamed into place yet, by area and name.
+        /// </summary>
+        private readonly Dictionary<(SftpArea Area, String Name), HeldUpload>  held  = [];
         private          Int64                         lastHandle;
         private          Boolean                       disposed;
 
@@ -230,6 +252,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             }
 
             MayWrite(area);
+
+            if (IsTemporary(name, out var finalName))
+                return ValueTask.FromResult(OpenTemporary(place, finalName, Flags));
 
             var target   = AcceptedName(place);
             var exists   = File.Exists(target);
@@ -384,14 +409,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             }
 
+            var kept = false;
+
             try
             {
-                PutInPlace(file);
+                if (file.IsHeld)
+                    kept = Hold(file);
+                else
+                    PutInPlace(file);
             }
             finally
             {
                 file.Handle.Dispose();
-                Forget(file.Upload);
+                if (!kept)
+                    Forget(file.Upload);
             }
 
             return ValueTask.CompletedTask;
@@ -490,10 +521,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                 MayRead(of);
 
             // A file being uploaded in this session is what it is so far: a
-            // client may look at the handle it writes through.
+            // client may look at the handle it writes through - and at an
+            // upload under a temporary name it closed, before it renames it.
             lock (gate)
+            {
+
                 if (opened.Values.OfType<OpenedFile>().FirstOrDefault(file => file.Upload is not null && file.Area == of && file.Name == place.Name) is OpenedFile upload)
                     return ValueTask.FromResult(FileAttributes(of, upload.Upload!));
+
+                if (held.TryGetValue((of, place.Name!), out var waiting))
+                    return ValueTask.FromResult(FileAttributes(of, waiting.Staged));
+
+            }
 
             return ValueTask.FromResult(FileAttributes(of, ExistingFile(place)));
 
@@ -545,6 +584,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             MayWrite(place.Area!);
 
+            // An upload under a temporary name, given up: it was never in place.
+            lock (gate)
+            {
+                if (held.Remove((place.Area!, place.Name!), out var givenUp))
+                {
+                    Forget(givenUp.Staged);
+                    return ValueTask.CompletedTask;
+                }
+            }
+
             var file  = ExistingFile(place);
 
             Guard(() => { File.Delete(file); return true; });
@@ -577,6 +626,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                 throw Refused(SftpStatusCode.PermissionDenied, $"A file stays in its area over SFTP: '{before.Shown}' cannot become '{after.Shown}'.");
 
             MayWrite(area);
+
+            // An upload under a temporary name, renamed into place - over the
+            // file of that name, as an upload under that name would have been.
+            HeldUpload? waiting;
+
+            lock (gate)
+                held.Remove((area, before.Name!), out waiting);
+
+            if (waiting is not null)
+            {
+                try
+                {
+
+                    var into = AcceptedName(after);
+
+                    if (!File.Exists(into) && area.MaxFiles is Int32 most && FilesIn(area).Count() >= most)
+                        throw Refused(SftpStatusCode.Failure, $"/{area.Path} holds {most} file(s) at most: remove one first, or replace one of the same name.");
+
+                    PutInPlace(area, after.Name!, waiting.Staged, waiting.Size, waiting.ModifyTime, waiting.AccessTime);
+
+                }
+                finally
+                {
+                    Forget(waiting.Staged);
+                }
+
+                return ValueTask.CompletedTask;
+
+            }
 
             var file    = ExistingFile(before);
             var target  = AcceptedName(after);
@@ -629,12 +707,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             // upload is not there before, and a rename keeps them.
             lock (gate)
             {
+
                 foreach (var upload in opened.Values.OfType<OpenedFile>().Where(file => file.Upload is not null && file.Area == place.Area && file.Name == place.Name))
                 {
                     upload.ModifyTime = Attributes.ModifyTime ?? upload.ModifyTime;
                     upload.AccessTime = Attributes.AccessTime ?? upload.AccessTime;
                     return ValueTask.CompletedTask;
                 }
+
+                if (held.TryGetValue((place.Area!, place.Name!), out var waiting))
+                {
+                    held[(place.Area!, place.Name!)] = waiting with {
+                                                           ModifyTime = Attributes.ModifyTime ?? waiting.ModifyTime,
+                                                           AccessTime = Attributes.AccessTime ?? waiting.AccessTime
+                                                       };
+                    return ValueTask.CompletedTask;
+                }
+
             }
 
             var file = ExistingFile(place);
@@ -669,6 +758,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         {
 
             List<Opened> left;
+            List<KeyValuePair<(SftpArea Area, String Name), HeldUpload>> neverRenamed;
 
             lock (gate)
             {
@@ -676,10 +766,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                 if (disposed)
                     return ValueTask.CompletedTask;
 
-                disposed = true;
-                left     = [.. opened.Values];
+                disposed      = true;
+                left          = [.. opened.Values];
+                neverRenamed  = [.. held];
 
                 opened.Clear();
+                held.  Clear();
+
+            }
+
+            foreach (var ((area, name), upload) in neverRenamed)
+            {
+
+                Forget(upload.Staged);
+
+                log.Info($"'{account.Id}' left SFTP without renaming /{area.Path}/{name} into place, and it was thrown away.",
+                         [ "ssh", "sftp", .. area.Tags ]);
 
             }
 
@@ -709,7 +811,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         #endregion
 
 
-        #region (private) PutInPlace(Upload)
+        #region (private) PutInPlace(Upload) / Hold(Upload)
 
         /// <summary>
         /// An upload closed: checked again for who may write, checked by the
@@ -723,63 +825,215 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         private void PutInPlace(OpenedFile Upload)
         {
 
-            var area     = Upload.Area;
-            var shown    = $"/{area.Path}/{Upload.Name}";
-            var staged   = Upload.Upload!;
+            var size = Closed(Upload);
+
+            PutInPlace(Upload.Area, Upload.Name, Upload.Upload!, size, Upload.ModifyTime, Upload.AccessTime);
+
+        }
+
+        /// <summary>
+        /// An upload under a temporary name closed: checked as the file it is
+        /// to become, and held for its rename into place. Whether it is held.
+        /// </summary>
+        /// <remarks>
+        /// Checked now rather than at the rename, because a client replacing a
+        /// file removes the one there before it renames: told then, it would
+        /// have taken away a good file for one that is refused.
+        /// </remarks>
+        private Boolean Hold(OpenedFile Upload)
+        {
+
+            var size      = Closed(Upload);
+            var finalName = Upload.Name[..^SftpArea.TemporarySuffix.Length];
+
+            Accepted(Upload.Area, finalName, Upload.Upload!);
+
+            lock (gate)
+            {
+
+                if (held.Remove((Upload.Area, Upload.Name), out var before))
+                    Forget(before.Staged);
+
+                held[(Upload.Area, Upload.Name)] = new HeldUpload(Upload.Upload!, size, Upload.ModifyTime, Upload.AccessTime);
+
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private) Closed(Upload)
+
+        /// <summary>
+        /// An upload's handle closed, once it is checked again that the upload
+        /// went well and the account may still write: how large it is.
+        /// </summary>
+        private Int64 Closed(OpenedFile Upload)
+        {
 
             if (Upload.Failed is String failed)
-                throw Refused(SftpStatusCode.Failure, $"'{shown}' was not put up: {failed}");
+                throw Refused(SftpStatusCode.Failure, $"'/{Upload.Area.Path}/{Upload.Name}' was not put up: {failed}");
 
             StillIn();
-            MayWrite(area);
+            MayWrite(Upload.Area);
 
             RandomAccess.FlushToDisk(Upload.Handle);
 
-            var size     = RandomAccess.GetLength(Upload.Handle);
+            var size = RandomAccess.GetLength(Upload.Handle);
 
             Upload.Handle.Dispose();
 
-            if (area.AcceptContent?.Invoke(Upload.Name, staged) is String refused)
+            return size;
+
+        }
+
+        #endregion
+
+        #region (private) Accepted(Area, Name, Staged)
+
+        /// <summary>
+        /// Refuse what the area's owner refuses of an upload, under the name it
+        /// is to have.
+        /// </summary>
+        private void Accepted(SftpArea  Area,
+                              String    Name,
+                              String    Staged)
+        {
+
+            if (Area.AcceptContent?.Invoke(Name, Staged) is String refused)
             {
 
-                log.Info($"'{account.Id}' could not put up {shown} over SFTP from {from}: {refused}",
-                         [ "ssh", "sftp", .. area.Tags ]);
+                log.Info($"'{account.Id}' could not put up /{Area.Path}/{Name} over SFTP from {from}: {refused}",
+                         [ "ssh", "sftp", .. Area.Tags ]);
 
                 throw Refused(SftpStatusCode.Failure, refused);
 
             }
 
-            var sha256   = Guard(() => {
+        }
 
-                               using var content = File.OpenRead(staged);
+        #endregion
 
-                               return Convert.ToHexStringLower(SHA256.HashData(content));
+        #region (private) PutInPlace(Area, Name, Staged, Size, ModifyTime, AccessTime)
 
-                           });
+        /// <summary>
+        /// An upload checked by the area's owner and put in place under the
+        /// given name with one rename, taking the place of what it replaces -
+        /// and said.
+        /// </summary>
+        private void PutInPlace(SftpArea         Area,
+                                String           Name,
+                                String           Staged,
+                                Int64            Size,
+                                DateTimeOffset?  ModifyTime,
+                                DateTimeOffset?  AccessTime)
+        {
+
+            Accepted(Area, Name, Staged);
+
+            var sha256 = Guard(() => {
+
+                             using var content = File.OpenRead(Staged);
+
+                             return Convert.ToHexStringLower(SHA256.HashData(content));
+
+                         });
 
             Guard(() => {
 
-                if (Upload.ModifyTime is DateTimeOffset modified)
-                    File.SetLastWriteTimeUtc (staged, modified.UtcDateTime);
+                if (ModifyTime is DateTimeOffset modified)
+                    File.SetLastWriteTimeUtc (Staged, modified.UtcDateTime);
 
-                if (Upload.AccessTime is DateTimeOffset accessed)
-                    File.SetLastAccessTimeUtc(staged, accessed.UtcDateTime);
+                if (AccessTime is DateTimeOffset accessed)
+                    File.SetLastAccessTimeUtc(Staged, accessed.UtcDateTime);
 
-                File.Move(staged, area.FileOf(Upload.Name), overwrite: true);
+                File.Move(Staged, Area.FileOf(Name), overwrite: true);
 
                 return true;
 
             });
 
             Interlocked.Increment(ref filesUp);
-            Interlocked.Add      (ref bytesUp, size);
+            Interlocked.Add      (ref bytesUp, Size);
 
-            log.Notice($"'{account.Id}' put up {shown} over SFTP from {from}: {SizeOf(size)}, SHA-256 {sha256}.",
-                       [ "ssh", "sftp", .. area.Tags ]);
+            log.Notice($"'{account.Id}' put up /{Area.Path}/{Name} over SFTP from {from}: {SizeOf(Size)}, SHA-256 {sha256}.",
+                       [ "ssh", "sftp", .. Area.Tags ]);
 
-            Replaced(area, Upload.Name);
+            Replaced(Area, Name);
 
-            area.RaiseChanged(new SftpAreaChanged(area, Upload.Name, SftpAreaChange.PutInPlace, account, from), Problem);
+            Area.RaiseChanged(new SftpAreaChanged(Area, Name, SftpAreaChange.PutInPlace, account, from), Problem);
+
+        }
+
+        #endregion
+
+        #region (private) IsTemporary(Name, out FinalName) / OpenTemporary(Place, FinalName, Flags)
+
+        /// <summary>
+        /// Whether the given name is a temporary name of an upload - see
+        /// <see cref="SftpArea.TemporarySuffix"/> - and of what.
+        /// </summary>
+        private static Boolean IsTemporary(String                                     Name,
+                                           [NotNullWhen(true)] out String?            FinalName)
+        {
+
+            FinalName = Name.Length > SftpArea.TemporarySuffix.Length &&
+                        Name.EndsWith(SftpArea.TemporarySuffix, StringComparison.Ordinal)
+                            ? Name[..^SftpArea.TemporarySuffix.Length]
+                            : null;
+
+            return FinalName is not null;
+
+        }
+
+        /// <summary>
+        /// An upload under a temporary name opened: where the file it is to
+        /// become may be written, written as every upload is - into a copy of
+        /// what this session holds under that name already, where it is not to
+        /// be cut off.
+        /// </summary>
+        private String OpenTemporary(Place          Place,
+                                     String         FinalName,
+                                     SftpOpenFlags  Flags)
+        {
+
+            var area     = Place.Area!;
+            var target   = AcceptedName(Place with { Name = FinalName });
+
+            HeldUpload? before;
+
+            lock (gate)
+                held.TryGetValue((area, Place.Name!), out before);
+
+            if (before is not null && Flags.HasFlag(SftpOpenFlags.Create) && Flags.HasFlag(SftpOpenFlags.Exclusive))
+                throw Refused(SftpStatusCode.Failure, $"'{Place.Shown}' is there already.");
+
+            if (before is null && !Flags.HasFlag(SftpOpenFlags.Create))
+                throw NotThere(Place);
+
+            if (!File.Exists(target) && area.MaxFiles is Int32 most && FilesIn(area).Count() >= most)
+                throw Refused(SftpStatusCode.Failure, $"/{area.Path} holds {most} file(s) at most: remove one first, or replace one of the same name.");
+
+            var upload   = System.IO.Path.Combine(area.Directory, $"{SftpArea.UploadPrefix}{Guid.NewGuid():N}");
+
+            return Register(Guard(() => {
+
+                System.IO.Directory.CreateDirectory(area.Directory);
+
+                if (before is not null && !Flags.HasFlag(SftpOpenFlags.Truncate))
+                    File.Copy(before.Staged, upload);
+
+                return new OpenedFile(area,
+                                      Place.Name!,
+                                      File.OpenHandle(upload, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, FileOptions.Asynchronous),
+                                      upload,
+                                      Flags.HasFlag(SftpOpenFlags.Append)) {
+                           IsHeld = true
+                       };
+
+            }));
 
         }
 

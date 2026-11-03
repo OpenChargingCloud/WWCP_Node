@@ -101,6 +101,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         public const String  UploadPrefix     = ".sftp-upload-";
 
         /// <summary>
+        /// What a client that uploads under a temporary name and renames it
+        /// after puts behind the name - WinSCP does, for files above 100 KB by
+        /// default. An upload to "&lt;name&gt;.filepart", where "&lt;name&gt;" may be
+        /// written, is checked when it is closed as "&lt;name&gt;" would be, and
+        /// held for the session - seen by its STAT, by nobody's listing - until
+        /// it is renamed into place; one never renamed is thrown away with the
+        /// session.
+        /// </summary>
+        public const String  TemporarySuffix  = ".filepart";
+
+        /// <summary>
         /// How long a name of a file may be.
         /// </summary>
         public const Int32   MaxNameLength    = 255;
@@ -258,13 +269,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #endregion
 
-        #region (internal) ShowsName(Name)
+        #region ShowsName(Name)
 
         /// <summary>
         /// Whether the given name is a file of this area: a name a file can
         /// have, and one the area shows.
         /// </summary>
-        internal Boolean ShowsName(String Name)
+        public Boolean ShowsName(String Name)
         {
 
             if (!IsFileName(Name))
@@ -283,14 +294,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #endregion
 
-        #region (internal) FileOf(Name)
+        #region FileOf(Name)
 
         /// <summary>
         /// Where the file of the given name lies on the disk - a name
         /// <see cref="ShowsName(String)"/> admitted, so that it lies in the
-        /// area's directory and nowhere else.
+        /// area's directory and nowhere else - for its owner, which serves or
+        /// reads what is in the area.
         /// </summary>
-        internal String FileOf(String Name)
+        /// <exception cref="InvalidOperationException">Where the name would lie outside the area's directory.</exception>
+        public String FileOf(String Name)
         {
 
             var file = System.IO.Path.GetFullPath(System.IO.Path.Combine(Directory, Name));
