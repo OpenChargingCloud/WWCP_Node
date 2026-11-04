@@ -78,6 +78,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("port",           SSHPort?.ToUInt16()),
                        new JProperty("passwords",      SSHPasswords),
                        new JProperty("sftp",           SFTPEnabled),
+                       new JProperty("sftpByDefault",  sshSettings?.SftpByDefault == true),
                        new JProperty("listenAddress",  listenAddress.ToString()),
                        new JProperty("url",            SSHURL),
                        new JProperty("defaultPort",    SSHSettings.DefaultPortFor(sshWebInterfacePort)?.ToUInt16()),

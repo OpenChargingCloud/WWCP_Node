@@ -26,6 +26,7 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         port:           22347,
         passwords:      false,
         sftp:           false,
+        sftpByDefault:  false,
         listenAddress:  '127.0.0.1',
         url:            'ssh://127.0.0.1:22347',
         defaultPort:    22347,
@@ -195,6 +196,19 @@ describe('the SSH server page', () => {
         assert.match(root.querySelector('#ssh-sftp [data-sftp-area="/logs"]')!.textContent!,  /\/logs\s*anybody signed in\s*nobody/);
         assert.match(root.querySelector('#ssh-sftp [data-sftp-area="/logos"]')!.textContent!, /\/logos\s*whoever may providers:read\s*whoever may providers:edit/);
         assert.match(root.querySelector('#ssh-sessions [data-session="c3/sftp-1"]')!.textContent!, /cpo1\s*SFTP\s*192\.0\.2\.7:51300/);
+
+    });
+
+    it('ticks SFTP where the file says nothing and the kind serves it by default - with the server off too, so that switching it on keeps it', async () => {
+
+        const off = await opened({ enabled: false, url: null, sftp: false, sftpByDefault: true, configured: {} });
+
+        assert.equal(field(off, 'sftp').checked, true, 'the default is not shown');
+        assert.ok(off.querySelector('#sftp-served') === null, 'SFTP is said to be served while the server is off');
+
+        const said = await opened({ sftp: false, sftpByDefault: true, configured: { enabled: true, port: 22347, sftp: false } });
+
+        assert.equal(field(said, 'sftp').checked, false, 'what the file says does not win over the default');
 
     });
 

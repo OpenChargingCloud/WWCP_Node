@@ -1086,7 +1086,9 @@ Files are moved over SFTP, on the SSH server, where the file says so:
 ```
 
 Off unless it says `true`, and only where the SSH server runs: after an
-update a node does nothing it did not do before. Switched on or off on the
+update a node does nothing it did not do before - unless its program serves
+SFTP by default (`SSHSettings.SftpByDefault`, as the energy meter does), and
+then `"sftp": false` switches it off. Switched on or off on the
 SSH server page, it takes effect for the next session without the server
 starting anew; switched off, the sessions of SFTP open end. `sftp`, `scp`
 (OpenSSH's speaks SFTP since 9.0), WinSCP and FileZilla come in as the

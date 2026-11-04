@@ -104,20 +104,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (helpers) Started(CommandLine) / Client(Node) / Send(...) / Listens(Port) / SignIn(Node, Key)
+        #region (helpers) Started(CommandLine, SftpByDefault) / Client(Node) / Send(...) / Listens(Port) / SignIn(Node, Key)
 
         private String ConfigFile
             => Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
         /// <summary>
         /// A node whose SSH server the file puts on a port of its own - or the
-        /// command line, where it says so - started, and that port.
+        /// command line, where it says so - started, and that port; serving
+        /// SFTP where the file does not say, where its program says so.
         /// </summary>
         /// <remarks>
         /// Made again on fresh ports where one was taken before the node could
         /// bind it, the file written again with the new one.
         /// </remarks>
-        private async Task<(WWCPNode Node, UInt16 Port)> Started(Boolean CommandLine = false)
+        private async Task<(WWCPNode Node, UInt16 Port)> Started(Boolean CommandLine    = false,
+                                                                 Boolean SftpByDefault  = false)
         {
 
             UInt16   port  = 0;
@@ -138,8 +140,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                    LogToConsole:      false,
                                                    BridgeDebugLog:    false,
                                                    SSH:               CommandLine
-                                                                          ? new SSHSettings(Enabled: true, Port: IPPort.Parse(port))
-                                                                          : new SSHSettings(OnByDefault: false));
+                                                                          ? new SSHSettings(Enabled: true, Port: IPPort.Parse(port), SftpByDefault: SftpByDefault)
+                                                                          : new SSHSettings(OnByDefault: false, SftpByDefault: SftpByDefault));
 
                            api = new PageAPI(made);
 
@@ -257,6 +259,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(ssh.Value<String>("url"),                              Is.EqualTo(node.SSHURL));
                 Assert.That(ssh["configured"]!.Value<UInt16>("port"),              Is.EqualTo(port), "what the file says");
                 Assert.That(ssh["commandLine"]!.Children().Any(),                  Is.False, "a switch said something");
+                Assert.That(ssh.Value<Boolean>("sftp"),                            Is.False, "SFTP served where neither the file nor the program says so");
+                Assert.That(ssh.Value<Boolean>("sftpByDefault"),                   Is.False);
 
                 Assert.That($"{hostKey.Value<String>("algorithm")} {hostKey.Value<String>("fingerprint")}",
                                                                                    Is.EqualTo(node.SSHHostKey), "the host key a client is shown");
@@ -279,6 +283,54 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                                                    Is.EqualTo("tester"));
 
             });
+
+        }
+
+        #endregion
+
+        #region SftpByTheProgramsDefaultIsServedUntilTheFileSaysOtherwise()
+
+        /// <summary>
+        /// A program that serves SFTP by default serves it where the file says
+        /// nothing, and the page shows it so, without writing it into the file;
+        /// the file's "sftp": false, saved from the page, wins over it.
+        /// </summary>
+        [Test]
+        public async Task SftpByTheProgramsDefaultIsServedUntilTheFileSaysOtherwise()
+        {
+
+            var (node, _)    = await Started(SftpByDefault: true);
+            var key          = SshHostKey.GenerateEd25519();
+
+            Assert.That((await node.AuthorizeSSHKey("root", SshPublicKey.FromHostKey(key).ToAuthorizedKeyLine())).IsAdded, Is.True);
+
+            using var http   = Client(node);
+            var (_, shown)   = await Send(http, HttpMethod.Get);
+
+            Assert.Multiple(() => {
+                Assert.That(node.SFTPEnabled,                            Is.True,  "not served by the program's default");
+                Assert.That(shown.Value<Boolean>("sftp"),                Is.True);
+                Assert.That(shown.Value<Boolean>("sftpByDefault"),       Is.True);
+                Assert.That(shown["configured"]!["sftp"],                Is.Null,  "the file was said to say so");
+                Assert.That(Section(ConfigFile)["sftp"],                 Is.Null,  "the default was written into the file");
+            });
+
+            await using (var client = await SignIn(node, key))
+            await using (var sftp   = await client.OpenSftpClientAsync())
+                Assert.That(await sftp.ListDirectoryAsync("/"), Is.Not.Null);
+
+            var (status, off) = await Send(http, HttpMethod.Put, new JObject(new JProperty("sftp", false)));
+
+            Assert.Multiple(() => {
+                Assert.That(status,                                      Is.EqualTo(HttpStatusCode.OK), off.ToString());
+                Assert.That(node.SFTPEnabled,                            Is.False, "the default won over the file");
+                Assert.That(off.Value<Boolean>("sftp"),                  Is.False);
+                Assert.That(off.Value<Boolean>("sftpByDefault"),         Is.True);
+                Assert.That(Section(ConfigFile).Value<Boolean?>("sftp"), Is.False, "not saved in the file");
+            });
+
+            await using (var client = await SignIn(node, key))
+                Assert.That(async () => await client.OpenSftpClientAsync(), Throws.InstanceOf<SshWireException>(), "served although the file says no");
 
         }
 

@@ -93,10 +93,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Whether the node's files are served over SFTP: where its SSH server
-        /// runs and the configuration file says "sftp": true.
+        /// runs and the configuration file says "sftp": true - or says nothing,
+        /// and the program serves them by default (SSHSettings.SftpByDefault).
         /// </summary>
         public Boolean                  SFTPEnabled
-            => SSHEnabled && sshFile?.Sftp == true;
+            => SSHEnabled && (sshFile?.Sftp ?? sshSettings?.SftpByDefault == true);
 
         /// <summary>
         /// The areas of the SFTP tree: the node's - its log files, and its

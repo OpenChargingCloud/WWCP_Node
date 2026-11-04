@@ -262,6 +262,8 @@ export interface SSHConfiguration {
     port:           number | null;
     passwords:      boolean;
     sftp:           boolean;
+    /** Whether this kind serves SFTP where the file does not say: off, except where the program says so. */
+    sftpByDefault:  boolean;
     listenAddress:  string;
     url:            string | null;
     /** The port it takes where nobody says: 20000 above the web interface's. */

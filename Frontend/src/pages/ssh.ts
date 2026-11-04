@@ -179,7 +179,7 @@ export const sshPage: Page = {
                         </label>
 
                         <label class="checkbox">
-                            <input type="checkbox" name="sftp" ?checked=${ssh.configured.sftp ?? ssh.sftp} ?disabled=${!mayChange} />
+                            <input type="checkbox" name="sftp" ?checked=${ssh.configured.sftp ?? ssh.sftpByDefault} ?disabled=${!mayChange} />
                             Serve this ${config.nodeName}'s files over SFTP as well
                             <span class="hint">
                                 The folders below, each as an account's roles let it read or write - and nothing else of the machine.

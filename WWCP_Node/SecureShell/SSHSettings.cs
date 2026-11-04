@@ -41,15 +41,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <para>
     /// Which wins: a switch, then the file, then the program's default.
     /// </para>
+    /// <para>
+    /// SFTP is off unless the file says "sftp": true - after an update a node
+    /// does nothing it did not do before. A program whose files over SFTP are
+    /// what it is there for may say otherwise with
+    /// <see cref="SftpByDefault"/>; the file's "sftp": false still wins.
+    /// </para>
     /// </remarks>
     /// <param name="Enabled">What a switch said: false for --no-ssh, true where a port was given; null where no switch said anything.</param>
     /// <param name="Port">The port a switch gave (--ssh-port), or null.</param>
     /// <param name="OnByDefault">Whether the SSH server runs where neither a switch nor the file says.</param>
     /// <param name="Authorize">Accounts to let in with the public keys in the given files (--authorize-ssh-key), once the accounts are read and before a port opens.</param>
-    public sealed record SSHSettings(Boolean?                                          Enabled      = null,
-                                     IPPort?                                           Port         = null,
-                                     Boolean                                           OnByDefault  = false,
-                                     IReadOnlyList<(String Account, String File)>?     Authorize    = null)
+    /// <param name="SftpByDefault">Whether the node's files are served over SFTP, where its SSH server runs, when the file does not say.</param>
+    public sealed record SSHSettings(Boolean?                                          Enabled        = null,
+                                     IPPort?                                           Port           = null,
+                                     Boolean                                           OnByDefault    = false,
+                                     IReadOnlyList<(String Account, String File)>?     Authorize      = null,
+                                     Boolean                                           SftpByDefault  = false)
     {
 
         #region Data
