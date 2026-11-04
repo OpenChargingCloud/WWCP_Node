@@ -314,6 +314,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ATransportIsTakenByItsNameAlone(Transport)
+
+        /// <summary>
+        /// A transport is one of the names the node knows, in any case - not a
+        /// number: "3" was HTTP, and "99" a transport there is none of, asked
+        /// over UDP on port 53 and named "99://" in the log.
+        /// </summary>
+        [TestCase("3")]
+        [TestCase("99")]
+        [TestCase("-1")]
+        [TestCase("TLS, UDP")]
+        public void ATransportIsTakenByItsNameAlone(String Transport)
+        {
+
+            var entry   = new JObject(
+                              new JProperty("address",    "192.0.2.53"),
+                              new JProperty("transport",  Transport)
+                          );
+
+            var parsed  = DNSConfiguration.TryParseServer(entry, out var server, out var error);
+            var named   = DNSConfiguration.TryParseServer(new JObject(new JProperty("address", "192.0.2.53"), new JProperty("transport", "tls")), out var tls, out _);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(parsed,          Is.False);
+                Assert.That(server,          Is.Null);
+                Assert.That(error,           Does.Contain($"'{Transport}' is not a DNS transport"));
+                Assert.That(named,           Is.True,  "a name in another case");
+                Assert.That(tls?.Transport,  Is.EqualTo(DNSTransport.TLS));
+            });
+
+        }
+
+        #endregion
+
         #region ANameWithAnAddressInItIsAName()
 
         /// <summary>

@@ -250,7 +250,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!String.IsNullOrEmpty(transportText))
             {
 
-                if (!Enum.TryParse(transportText, ignoreCase: true, out transport))
+                // By its name and nothing else: Enum.TryParse takes numbers as
+                // well, "3" for HTTP and "99" for a transport there is none of,
+                // which was asked over UDP on port 53 and logged as "99://".
+                if (!Enum.GetNames<DNSTransport>().Any(name => String.Equals(name, transportText, StringComparison.OrdinalIgnoreCase)) ||
+                    !Enum.TryParse(transportText, ignoreCase: true, out transport))
                 {
                     Error = $"'{transportText}' is not a DNS transport. Known transports: {String.Join(", ", Enum.GetNames<DNSTransport>())}.";
                     return false;

@@ -116,10 +116,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// The server is the place of one of the configured name servers in
         /// the list, counted from 0, and asks that one and nothing else, and
         /// without the cache. Left out, the question is put the way this node
-        /// resolves anything: to the servers in turn, until one answers. A place
-        /// with no server at it is said in the answer; one that is not a place
-        /// at all is refused here, rather than read as "all of them" - or, as
-        /// the copies that took it as it came did, thrown out of as a 500.
+        /// resolves anything: to all of the servers at once, and the first
+        /// usable answer is the one that counts. A place with no server at it
+        /// is said in the answer; one that is not a place at all is refused
+        /// here, rather than read as "all of them" - or, as the copies that
+        /// took it as it came did, thrown out of as a 500.
         /// </remarks>
         private async Task<HTTPResponse> PostDNSQuery(HTTPRequest Request)
         {
