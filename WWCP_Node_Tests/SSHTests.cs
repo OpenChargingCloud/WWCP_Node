@@ -347,7 +347,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var log    = new EventLog();
             var said   = new List<String>();
 
-            log.OnLogged += entry => said.Add(entry.Message);
+            // Locked: the node logs from its connections' threads, and goes on
+            // while the test reads.
+            log.OnLogged += entry => { lock (said) said.Add(entry.Message); };
 
             var node   = await Started(log);
             var key    = SshHostKey.GenerateEd25519();
@@ -364,12 +366,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var fingerprint = SshFingerprint.Sha256(key.PublicKeyBlob);
 
-            Assert.Multiple(() => {
-                Assert.That(added.SSHKey!.Fingerprint,  Is.EqualTo(fingerprint));
-                Assert.That(said,
-                            Has.Some.Matches<String>(message => message is not null && message.StartsWith($"'{WWCPNode.DefaultAdminUser}' signed in over SSH from 127.0.0.1:") &&
-                                                                                       message.EndsWith($"with the key {fingerprint}.")));
-            });
+            lock (said)
+                Assert.Multiple(() => {
+                    Assert.That(added.SSHKey!.Fingerprint,  Is.EqualTo(fingerprint));
+                    Assert.That(said,
+                                Has.Some.Matches<String>(message => message is not null && message.StartsWith($"'{WWCPNode.DefaultAdminUser}' signed in over SSH from 127.0.0.1:") &&
+                                                                                           message.EndsWith($"with the key {fingerprint}.")));
+                });
 
         }
 
@@ -784,7 +787,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var log   = new EventLog();
             var said  = new List<String>();
 
-            log.OnLogged += entry => said.Add(entry.Message);
+            // Locked: the node logs from its own threads, and goes on while the
+            // test reads.
+            log.OnLogged += entry => { lock (said) said.Add(entry.Message); };
 
             var node  = await Started(log);
             var made  = node.GeneratedSSHKey;
@@ -803,18 +808,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var written = String.Join("\n", Directory.GetFiles(directory, "*", SearchOption.AllDirectories).
                                                       Select(path => File.ReadAllText(path)));
 
-            Assert.Multiple(() => {
-                Assert.That(made.Account,      Is.EqualTo(WWCPNode.DefaultAdminUser));
-                Assert.That(made.Fingerprint,  Is.EqualTo(SshFingerprint.Sha256(key.PublicKeyBlob)));
-                Assert.That(made.PrivateKey,   Does.StartWith("-----BEGIN OPENSSH PRIVATE KEY-----"));
-                Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser)).Count,                              Is.EqualTo(1));
-                Assert.That(node.ExtAPI.FindSSHKey(User_Id.Parse(WWCPNode.DefaultAdminUser), key.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Not.Null, "the key made up is not let in");
-                Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser))[0].CreatedBy,                       Is.EqualTo("the first start"));
-                Assert.That(said,     Has.Some.Contains(made.Fingerprint), "the log does not name the key made up");
-                Assert.That(secret,   Is.Not.Empty);
-                Assert.That(secret,   Has.None.Matches<String>(line => line is not null && said.Any(message => message.Contains(line))), "the private key is in the log");
-                Assert.That(secret,   Has.None.Matches<String>(line => line is not null && written.Contains(line)),                       "the private key was written to disk");
-            });
+            lock (said)
+                Assert.Multiple(() => {
+                    Assert.That(made.Account,      Is.EqualTo(WWCPNode.DefaultAdminUser));
+                    Assert.That(made.Fingerprint,  Is.EqualTo(SshFingerprint.Sha256(key.PublicKeyBlob)));
+                    Assert.That(made.PrivateKey,   Does.StartWith("-----BEGIN OPENSSH PRIVATE KEY-----"));
+                    Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser)).Count,                              Is.EqualTo(1));
+                    Assert.That(node.ExtAPI.FindSSHKey(User_Id.Parse(WWCPNode.DefaultAdminUser), key.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Not.Null, "the key made up is not let in");
+                    Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser))[0].CreatedBy,                       Is.EqualTo("the first start"));
+                    Assert.That(said,     Has.Some.Contains(made.Fingerprint), "the log does not name the key made up");
+                    Assert.That(secret,   Is.Not.Empty);
+                    Assert.That(secret,   Has.None.Matches<String>(line => line is not null && said.Any(message => message.Contains(line))), "the private key is in the log");
+                    Assert.That(secret,   Has.None.Matches<String>(line => line is not null && written.Contains(line)),                       "the private key was written to disk");
+                });
 
             await using (await SignIn(node, WWCPNode.DefaultAdminUser, key)) { }
 
