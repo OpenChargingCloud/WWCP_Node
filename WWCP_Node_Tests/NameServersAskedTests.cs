@@ -59,9 +59,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// </summary>
         /// <remarks>
         /// Under the second after which Hermod's UDP client sends a question
-        /// again within one try (DNSUDPClient.DefaultRetransmissionInterval):
-        /// each try is one question, so the questions a name server counts are
-        /// the tries. Given ten seconds, each try was four.
+        /// again within one try (DNSUDPClient.DefaultRetransmissionInterval),
+        /// so that a try is mostly one question. Not always: with the machine
+        /// loaded, the try's end came late and its question went out again -
+        /// see <see cref="QuestionsAsked"/>, which counts the tries.
         /// </remarks>
         private static readonly TimeSpan OwnTimeout = TimeSpan.FromMilliseconds(400);
 
@@ -195,18 +196,28 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// What a silent name server was asked, by record type and how often:
-        /// "A: 1, AAAA: 1".
+        /// "A: 1, AAAA: 1" - in tries, each counted once by its transaction ID.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Every question is sent before the node gives up waiting for its
         /// answer. They are read until none has come for a quarter of a
         /// second, which only makes sure that one still on its way through the
         /// loopback interface is counted as well.
+        /// </para>
+        /// <para>
+        /// A try sends its question again, with the same ID, when it has had
+        /// no answer for a second; a try of its own draws an ID of its own.
+        /// Counted by the datagram, a nightly on a loaded Windows machine found
+        /// "A: 3, AAAA: 4" where the node had made two tries of each: their
+        /// 0.4 seconds ended late, and the question had gone out again. Two
+        /// tries draw the same ID once in 65,536 times.
+        /// </para>
         /// </remarks>
         private static async Task<String> QuestionsAsked(UdpClient NameServer)
         {
 
-            var asked = new SortedDictionary<DNSResourceRecordTypes, Int32>();
+            var asked = new SortedDictionary<DNSResourceRecordTypes, HashSet<UInt16>>();
 
             while (true)
             {
@@ -224,9 +235,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     break;
                 }
 
-                // Twelve bytes of header, then the name asked for, label by
-                // label up to the empty one, then its type (RFC 1035, sections
-                // 4.1.1 and 4.1.2).
+                // The ID in the first two bytes; twelve bytes of header, then
+                // the name asked for, label by label up to the empty one, then
+                // its type (RFC 1035, sections 4.1.1 and 4.1.2).
+                var id = (UInt16) ((question[0] << 8) | question[1]);
                 var at = 12;
 
                 while (question[at] != 0)
@@ -234,11 +246,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 var type = (DNSResourceRecordTypes) ((question[at + 1] << 8) | question[at + 2]);
 
-                asked[type] = asked.GetValueOrDefault(type) + 1;
+                if (!asked.TryGetValue(type, out var tries))
+                    asked[type] = tries = [];
+
+                tries.Add(id);
 
             }
 
-            return String.Join(", ", asked.Select(count => $"{count.Key}: {count.Value}"));
+            return String.Join(", ", asked.Select(count => $"{count.Key}: {count.Value.Count}"));
 
         }
 
