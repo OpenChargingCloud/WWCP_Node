@@ -540,6 +540,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         private           IReadOnlyList<DNSServerConfig>  configuredDNSServers;
 
+        /// <summary>
+        /// The name servers the DNS client held when this node was made - the
+        /// operating system's, for a client that looked for them - which a save
+        /// of "servers": null gives back.
+        /// </summary>
+        private readonly  IReadOnlyList<DNSServerConfig>  startDNSServers;
+
+        /// <summary>
+        /// Whether the servers asked are the file's, rather than the ones this
+        /// node was started with.
+        /// </summary>
+        private           Boolean                         dnsServersFromTheFile;
+
 
         #endregion
 
@@ -776,6 +789,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             this.dnsClient             = DNSClient ?? new DNSClient();
             this.configuredDNSServers  = [.. dnsClient.DNSServers];
+            this.startDNSServers       = configuredDNSServers;
 
             // Every name server reached over TLS or HTTPS asks this node about
             // its certificate at its handshakes - see
@@ -1666,6 +1680,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        })
                    )),
 
+                   // Where they are from: the file, or whoever made this node -
+                   // the operating system, for a client that looked for them -
+                   // which a save of "servers": null goes back to.
+                   new JProperty("serversFrom",       dnsServersFromTheFile ? "file" : "start"),
+
                    new JProperty("settings",          new JObject(
                        new JProperty("queryTimeoutSeconds",  dnsClient.QueryTimeout.TotalSeconds),
                        new JProperty("recursionDesired",     dnsClient.RecursionDesired),
@@ -1862,18 +1881,32 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var changed = new List<String>();
 
+            // "servers": null gives the servers back to whoever made this node,
+            // held to nothing, as they were: a section without a list has no
+            // pins.
+            var servers = Configuration.RemovesServers ? startDNSServers : Configuration.Servers;
+
             // Compared with their timeouts. Two configurations of one server are
             // the same server without them, so that it is one key of a set
             // whatever it is waited for - and a timeout changed on a page was
             // written into the file and kept out of effect until the next start,
             // the page showing the old one in the answer to its own save.
-            if (Configuration.Servers is not null &&
-                !configuredDNSServers.Select(server => (server, server.QueryTimeout)).
-                                      SequenceEqual(Configuration.Servers.Select(server => (server, server.QueryTimeout))))
+            // And the same servers from another place are a change as well:
+            // the file's taken away, or the ones it was started with written
+            // into the file.
+            if (servers is not null &&
+               (!configuredDNSServers.Select(server => (server, server.QueryTimeout)).
+                                      SequenceEqual(servers.Select(server => (server, server.QueryTimeout))) ||
+                Configuration.RemovesServers == dnsServersFromTheFile))
             {
-                configuredDNSServers = Configuration.Servers;
-                changed.Add($"servers = {String.Join(", ", configuredDNSServers)}");
+                configuredDNSServers = servers;
+                changed.Add(Configuration.RemovesServers
+                                ? $"servers = {String.Join(", ", configuredDNSServers)}, the ones it was started with"
+                                : $"servers = {String.Join(", ", configuredDNSServers)}");
             }
+
+            if (servers is not null)
+                dnsServersFromTheFile = !Configuration.RemovesServers;
 
             if (Configuration.Enabled.HasValue && DNSEnabled != Configuration.Enabled.Value)
             {
@@ -1892,7 +1925,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // certificate is only looked at when one is made, and a server held
             // to a fingerprint from now on must not go on being asked over a
             // connection nobody held it to anything in.
-            if (Configuration.Servers is not null)
+            if (servers is not null)
             {
 
                 var wasPins  = dnsPins;

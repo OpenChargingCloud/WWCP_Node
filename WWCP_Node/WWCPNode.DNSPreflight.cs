@@ -110,10 +110,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return new DNSPreflight(new Dictionary<String, Boolean>(), [], error);
 
             var enabled  = candidate.Enabled ?? DNSEnabled;
-            var servers  = candidate.Servers ?? configuredDNSServers;
-            var pins     = candidate.Servers is not null
-                               ? candidate.Pins ?? new Dictionary<DNSServerConfig, ServerPins>()
-                               : dnsPins;
+            var servers  = candidate.RemovesServers
+                               ? startDNSServers
+                               : candidate.Servers ?? configuredDNSServers;
+            var pins     = candidate.RemovesServers
+                               ? new Dictionary<DNSServerConfig, ServerPins>()
+                               : candidate.Servers is not null
+                                     ? candidate.Pins ?? new Dictionary<DNSServerConfig, ServerPins>()
+                                     : dnsPins;
 
             if (!enabled || servers.Count == 0)
                 return new DNSPreflight(names.ToDictionary(name => name, _ => false, StringComparer.OrdinalIgnoreCase), []);

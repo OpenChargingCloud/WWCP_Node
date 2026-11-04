@@ -39,9 +39,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// was given at construction, and a node given nothing keeps the system
     /// default. That is what makes a half-written file a legitimate thing to
     /// have - somebody who only cares about the name servers should not have to
-    /// write down the retry count to say so. The one null that says something
-    /// is "recursionDesired": null, "leave it to the server" - see
-    /// <see cref="RemovesRecursionDesired"/>.
+    /// write down the retry count to say so. The two nulls that say something
+    /// are "recursionDesired": null, "leave it to the server" - see
+    /// <see cref="RemovesRecursionDesired"/> - and "servers": null, "the ones
+    /// the node was started with" - see <see cref="RemovesServers"/>.
     /// </remarks>
     /// <param name="Enabled">Whether this node resolves names at all.</param>
     /// <param name="Servers">The name servers to ask; an empty list is not the same as none given.</param>
@@ -103,6 +104,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public Boolean  RemovesRecursionDesired  { get; init; }
 
         /// <summary>
+        /// Whether this section gives the name servers back to whoever made the
+        /// node - the operating system's, for a node given a client that looked
+        /// for them - rather than not mentioning them.
+        /// </summary>
+        /// <remarks>
+        /// Said with "servers": null, and kept apart from an empty list, which
+        /// is refused: a node without a name server reaches nothing by name.
+        /// What the servers were held to goes with them, as the servers it was
+        /// started with are held to nothing.
+        /// </remarks>
+        public Boolean  RemovesServers           { get; init; }
+
+        /// <summary>
         /// The keys a save of this section takes out of the file rather than
         /// leaving them as they are.
         /// </summary>
@@ -110,8 +124,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         {
             get
             {
+
                 if (RemovesRecursionDesired)
                     yield return "recursionDesired";
+
+                if (RemovesServers)
+                    yield return "servers";
+
             }
         }
 
@@ -202,7 +221,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 // See RemovesRecursionDesired.
                                 RemovesRecursionDesired = recursionDesired is null &&
                                                           JSON.TryGetValue("recursionDesired", out var recursionToken) &&
-                                                          recursionToken.Type == JTokenType.Null
+                                                          recursionToken.Type == JTokenType.Null,
+                                // Named, and null: the servers it was started
+                                // with. See RemovesServers.
+                                RemovesServers          = servers is null &&
+                                                          JSON.TryGetValue("servers", out var serversNull) &&
+                                                          serversNull.Type == JTokenType.Null
                             };
 
             return true;

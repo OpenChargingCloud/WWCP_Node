@@ -19,6 +19,9 @@
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
+
 using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
@@ -221,6 +224,149 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(told.Select(change => change.Origin),  Is.EqualTo(new String?[] { null }));
                 Assert.That(Said(node, before),                    Has.Some.EqualTo("DNS configuration changed: use cache = False."));
             });
+
+        }
+
+        #endregion
+
+        #region ServersSavedAsNullAreTheOnesTheNodeWasStartedWith()
+
+        /// <summary>
+        /// A node made with a name server over TLS of its client's own, whose
+        /// file holds that one to a root and names another: a save of
+        /// "servers": null takes the file's list away and asks the client's own
+        /// again, held to nothing - in effect, in the file, at the next start and
+        /// in what is told, once. A save of it again changes nothing.
+        /// </summary>
+        [Test]
+        public void ServersSavedAsNullAreTheOnesTheNodeWasStartedWith()
+        {
+
+            File.WriteAllText(ConfigurationPath,
+                              """
+                              {
+                                "nts": { "groups": { "legal": { "enabled": false } } },
+                                "dns": { "servers": [ { "address": "198.51.100.1", "transport": "TLS",
+                                                        "rootFingerprint": "9d2e4f6a8b0c1d3e5f7a9b1c3d5e7f9a0b2c4d6e8f0a1b3c5d7e9f1a2b4c6d8e" },
+                                                      "192.0.2.53" ],
+                                         "maxRetries": 0 }
+                              }
+                              """);
+
+            WWCPNode Made()
+
+                => new (
+                       DNSClient:         new DNSClient(ManualDNSServers: [ new DNSServerConfig(IPv4Address.Parse("198.51.100.1"), Transport: DNSTransport.TLS) ]),
+                       AccountsPath:      Path.Combine(directory, "accounts"),
+                       ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                       CertificatesPath:  Path.Combine(directory, "certificates"),
+                       LogToConsole:      false,
+                       BridgeDebugLog:    false
+                   );
+
+            var node    = Made();
+            var told    = Recorded(node);
+            var before  = node.DNSConfigurationJSON();
+
+            Assert.That(node.TryUpdateDNSConfiguration(JObject.Parse("""{ "servers": null }"""), out var error, out _, ChangeOrigin.Web("root")),  Is.True, error);
+
+            var after   = node.DNSConfigurationJSON();
+
+            Assert.That(node.TryUpdateDNSConfiguration(JObject.Parse("""{ "servers": null }"""), out error, out _, ChangeOrigin.Web("root")),      Is.True, error);
+
+            var started = Made().DNSConfigurationJSON();
+
+            Assert.Multiple(() => {
+
+                Assert.That(before.Value<String>("serversFrom"),                  Is.EqualTo("file"));
+                Assert.That(Addresses(before),                                    Is.EqualTo(new[] { "198.51.100.1", "192.0.2.53" }));
+                Assert.That(before["servers"]?[0]?["rootFingerprint"],            Is.Not.Null);
+
+                Assert.That(after.Value<String>("serversFrom"),                   Is.EqualTo("start"));
+                Assert.That(Addresses(after),                                     Is.EqualTo(new[] { "198.51.100.1" }));
+                Assert.That(after["servers"]?[0]?["rootFingerprint"],             Is.Null, "held to nothing");
+
+                Assert.That(OnDisk["dns"]?["servers"],                            Is.Null, "taken out of the file");
+                Assert.That(OnDisk["dns"]?.Value<Int32>("maxRetries"),            Is.EqualTo(0), "and nothing else");
+
+                Assert.That(started.Value<String>("serversFrom"),                 Is.EqualTo("start"));
+                Assert.That(Addresses(started),                                   Is.EqualTo(new[] { "198.51.100.1" }));
+
+                Assert.That(told.Select(change => change.Origin),                 Is.EqualTo(new[] { "web:root" }), "once, and not for the save that changed nothing");
+                Assert.That(told.SelectMany(change => change.Changes),            Has.Some.EqualTo("servers = tls://198.51.100.1:853, the ones it was started with").
+                                                                                  And.Some.EqualTo("tls://198.51.100.1:853 held to no fingerprint"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ADryRunOfServersGivenBackAsksTheOnesTheNodeWasStartedWith()
+
+        /// <summary>
+        /// A dry run of "servers": null asks the servers the node was started
+        /// with, not the file's: a name only they know resolves with it, and not
+        /// with the node as it is - which keeps the file's servers.
+        /// </summary>
+        [Test]
+        public async Task ADryRunOfServersGivenBackAsksTheOnesTheNodeWasStartedWith()
+        {
+
+            var started = new DNSServer(
+                              new AuthoritativeDNSRequestHandler(
+                                  new InMemoryDNSZone().
+                                      Add(new A(
+                                              DomainName. Parse("csms.example.test."),
+                                              DNSQueryClasses.IN,
+                                              TimeSpan.   FromMinutes(5),
+                                              IPv4Address.Parse("127.0.0.42")
+                                          ))
+                              ),
+                              new DNSServerOptions {
+                                  EnableUDPUnicast    = false,
+                                  EnableUDPMulticast  = false,
+                                  EnableTCPUnicast    = true,
+                                  TCPUnicastSocket    = new IPSocket(IPv4Address.Localhost, IPPort.Parse(0))
+                              }
+                          );
+
+            await started.Start();
+
+            try
+            {
+
+                File.WriteAllText(ConfigurationPath,
+                                  """
+                                  {
+                                    "nts": { "groups": { "legal": { "enabled": false } } },
+                                    "dns": { "servers": [ { "address": "192.0.2.1", "queryTimeoutSeconds": 1 } ], "maxRetries": 0 }
+                                  }
+                                  """);
+
+                var node    = new WWCPNode(
+                                  DNSClient:         new DNSClient(ManualDNSServers: [ new DNSServerConfig(IPv4Address.Localhost, started.ActiveTCPUnicastSocket!.Value.Port, DNSTransport.TCP) ]),
+                                  AccountsPath:      Path.Combine(directory, "accounts"),
+                                  ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                                  CertificatesPath:  Path.Combine(directory, "certificates"),
+                                  LogToConsole:      false,
+                                  BridgeDebugLog:    false
+                              );
+
+                var now     = await node.ResolveWithAsync(new JObject(),                             [ "csms.example.test" ], TimeSpan.FromSeconds(5));
+                var back    = await node.ResolveWithAsync(JObject.Parse("""{ "servers": null }"""),  [ "csms.example.test" ], TimeSpan.FromSeconds(5));
+
+                Assert.Multiple(() => {
+                    Assert.That(now. Resolves("csms.example.test"),                   Is.False, "the file's server answers nobody");
+                    Assert.That(back.Resolves("csms.example.test"),                   Is.True,  "the one it was started with knows the name");
+                    Assert.That(Addresses(node.DNSConfigurationJSON()),               Is.EqualTo(new[] { "192.0.2.1" }), "a dry run");
+                });
+
+            }
+            finally
+            {
+                await started.Stop();
+            }
 
         }
 
