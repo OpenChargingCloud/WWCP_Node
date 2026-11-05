@@ -275,6 +275,20 @@ a CSMS sending the list back writes those ids into the file, where they stay
 whatever is added or taken away around them. A change of the ids is part of
 the change line: `server ids = dns-1, dns-2`.
 
+All servers are asked at once, and the first answer wins: beside servers
+reached over TLS or HTTPS, one asked in clear text - over UDP, TCP or plain
+HTTP - is where whoever is on the path answers first, and the log warns of
+such a list. `"encryptedOnly": true` asks the encrypted servers alone. Those
+in clear text the node has already stay in the file and are not asked, so
+switching it off asks them again; while it is on, a server in clear text the
+node does not have yet - a new one, or one whose address, port or transport
+changed - is refused, with its entry named, and so are a list with no
+encrypted server and a save of `"servers": null` where the servers the node
+was started with are in clear text, as the operating system's are. The
+change line says what is no longer asked: `encrypted only = True, not asking
+udp://192.168.1.1:53`. The pre-flight of a change (`ResolveWithAsync`) asks
+as the change would, and refuses what it would refuse.
+
 A name server reached over TLS or HTTPS shows a certificate, and is judged by
 it at every handshake the way a time server is at its key exchange - see
 below: issued for the address it is dialled at, chaining to a root this

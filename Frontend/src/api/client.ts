@@ -258,6 +258,11 @@ export interface DNSSettings {
     followCNAMEs:         boolean;
     maxCNAMEFollows:      number;
     maxRetries:           number;
+    /**
+     * Whether only the servers reached over TLS or HTTPS are asked: those in
+     * clear text stay in the list and are not asked, and none can be added.
+     */
+    encryptedOnly:        boolean;
 }
 
 /** How the node resolves names. */
@@ -422,6 +427,7 @@ export interface DNSUpdate {
     followCNAMEs?:         boolean;
     maxCNAMEFollows?:      number;
     maxRetries?:           number;
+    encryptedOnly?:        boolean;
 }
 
 /** One resource record a test query brought back. */

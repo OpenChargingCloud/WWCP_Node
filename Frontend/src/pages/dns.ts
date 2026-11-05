@@ -137,6 +137,15 @@ export const dnsPage: Page = {
                         <form id="dns-form" class="form-stack" @submit=${onSave}>
 
                             <label class="checkbox">
+                                <input type="checkbox" name="encryptedOnly" ?checked=${configuration.settings.encryptedOnly} ?disabled=${!mayChange} />
+                                Only encrypted name servers
+                                <span class="hint">
+                                    Ask only the servers reached over TLS or HTTPS. Those in clear text stay in the list
+                                    and are not asked, and none can be added.
+                                </span>
+                            </label>
+
+                            <label class="checkbox">
                                 <input type="checkbox" name="useCache" ?checked=${configuration.settings.useCache} ?disabled=${!mayChange} />
                                 Use the cache
                                 <span class="hint">Answer from what was already asked, for as long as its time to live says.</span>
@@ -237,9 +246,26 @@ export const dnsPage: Page = {
         /** The name servers, one row each - and under a row over TLS or HTTPS, its certificate. */
         function serversView(configuration: DNSConfiguration): TemplateResult {
 
+            // All of them are asked at once, and the first answer wins: beside
+            // one reached over TLS, one asked in clear text is where whoever is
+            // on the path answers first (Secure DNS paper, section 2.4).
+            const listed       = servers.filter(server => server.address.trim().length > 0);
+            const inClearText  = listed.filter(server => !isEncrypted(server.transport));
+            const mixed        = !configuration.settings.encryptedOnly && inClearText.length > 0 && inClearText.length < listed.length;
+
             return html`
 
                 <h2><i class="fa-solid fa-server"></i> Name servers</h2>
+
+                ${mixed
+                      ? html`<div class="notice" id="mixed-transports">
+                                 ${inClearText.map(server => server.address).join(', ')}
+                                 ${inClearText.length === 1 ? 'is' : 'are'} asked in clear text beside servers reached
+                                 over TLS or HTTPS. All of them are asked at once, so whoever answers first on the
+                                 path answers for all of them: tick <em>Only encrypted name servers</em> below, or
+                                 reach every server encrypted.
+                             </div>`
+                      : nothing}
 
                 <div class="server-list" id="servers">
                     ${servers.length === 0
@@ -302,6 +328,14 @@ export const dnsPage: Page = {
                                 ?disabled=${!mayChange}
                                 @click=${() => removeServer(server)}>Remove</button>
                     </div>
+
+                    ${!encrypted && configuration.settings.encryptedOnly
+                          ? html`<div class="server-certificate small">
+                                     <span class="chip warn" data-not-asked="${index}">
+                                         not asked: only name servers reached over TLS or HTTPS are
+                                     </span>
+                                 </div>`
+                          : nothing}
 
                     ${encrypted
                           ? certificateView(server)
@@ -472,6 +506,7 @@ export const dnsPage: Page = {
                 // to, and with nothing else of what the node
                 // only said about it.
                 servers:              servers.filter(server => server.address.trim().length > 0).map(sentOf),
+                encryptedOnly:        data.get('encryptedOnly') !== null,
                 useCache:             data.get('useCache')     !== null,
                 dnssecOK:             data.get('dnssecOK')     !== null,
                 followCNAMEs:         data.get('followCNAMEs') !== null,

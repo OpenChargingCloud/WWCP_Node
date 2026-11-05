@@ -106,13 +106,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               Distinct (StringComparer.OrdinalIgnoreCase).
                               ToArray  ();
 
-            if (!DNSConfiguration.TryParse(Section, out var candidate, out var error))
+            // What a save would refuse is said as a save would say it.
+            if (!DNSConfiguration.TryParse(Section, out var candidate, out var error) ||
+                !TryKeepEncryptedOnly(candidate, out error))
+            {
                 return new DNSPreflight(new Dictionary<String, Boolean>(), [], error);
+            }
 
             var enabled  = candidate.Enabled ?? DNSEnabled;
             var servers  = candidate.RemovesServers
                                ? startDNSServers
                                : candidate.Servers ?? configuredDNSServers;
+
+            // Those in clear text are not asked where only encrypted ones are.
+            if (candidate.EncryptedOnly ?? DNSEncryptedOnly)
+                servers  = [.. servers.Where(server => DNSConfiguration.IsEncrypted(server.Transport))];
             var pins     = candidate.RemovesServers
                                ? new Dictionary<DNSServerConfig, ServerPins>()
                                : candidate.Servers is not null

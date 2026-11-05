@@ -191,7 +191,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             Log.Info(
                 only is null
-                    ? $"DNS test: asking {configuredDNSServers.Count} server(s) for {asked} of '{serviceName}' ..."
+                    ? $"DNS test: asking {AskedDNSServers.Count} server(s) for {asked} of '{serviceName}' ..."
                     : $"DNS test: asking {only} alone for {asked} of '{serviceName}' ...",
                 "dns", "test"
             );

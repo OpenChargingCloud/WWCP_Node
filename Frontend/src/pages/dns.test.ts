@@ -25,7 +25,7 @@ function aConfiguration(): DNSConfiguration {
         enabled:   true,
         servers:   [ { address: '192.0.2.53', port: 53, transport: 'UDP', queryTimeoutSeconds: null } ],
         settings:  { useCache: true, dnssecOK: false, followCNAMEs: true, recursionDesired: null,
-                     queryTimeoutSeconds: 2, maxCNAMEFollows: 8, maxRetries: 2 },
+                     queryTimeoutSeconds: 2, maxCNAMEFollows: 8, maxRetries: 2, encryptedOnly: false },
         fixed:     { cacheSize: 1000 },
         limits:    { maxServers: 4, maxQueryTimeout: 30, transports: [ 'UDP', 'TCP', 'TLS', 'HTTPS' ], recordTypes: [ 'A', 'AAAA' ] },
         file:      'dns.json'
@@ -56,11 +56,17 @@ function node({ method, path, body }: Asked): unknown {
 
 const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** The DNS page, drawn and loaded, for somebody who may change and test it. */
-async function opened(): Promise<HTMLElement> {
+/**
+ * The DNS page, drawn and loaded, for somebody who may change and test it.
+ *
+ * @param given  what to change about the configuration the node has first.
+ */
+async function opened(given?: (configuration: DNSConfiguration) => void): Promise<HTMLElement> {
 
     held        = aConfiguration();
     told.length = 0;
+
+    given?.(held);
 
     return open(dnsPage, '/configuration/dns', [ 'dns:edit', 'dns:run' ], node, root => root.querySelector('#dns-form') !== null);
 
@@ -183,6 +189,43 @@ describe('the DNS page', () => {
 
     });
 
+
+    it('sends with the settings whether only encrypted name servers are asked', async () => {
+
+        const root = await opened();
+
+        field(root, 'encryptedOnly').checked = true;
+
+        root.querySelector<HTMLFormElement>('#dns-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+        await until(() => root.querySelector('#form-note')?.textContent === 'Saved, and in effect.', 'the settings were not saved');
+
+        assert.equal(told.length,                         1);
+        assert.equal(told[0]!.encryptedOnly,              true,  'the switch was not sent');
+        assert.equal(field(root, 'encryptedOnly').checked, true, 'the switch does not show what the node took');
+
+    });
+
+    it('warns of a server in clear text beside encrypted ones, and says it is not asked where only encrypted ones are', async () => {
+
+        const servers = (configuration: DNSConfiguration) => {
+            configuration.servers = [ { address: '192.0.2.53', port: 53,  transport: 'UDP', queryTimeoutSeconds: null },
+                                      { address: '192.0.2.54', port: 853, transport: 'TLS', queryTimeoutSeconds: null } ] as DNSConfiguration['servers'];
+        };
+
+        const mixed = await opened(servers);
+
+        assert.match(mixed.querySelector('#mixed-transports')?.textContent ?? '', /192\.0\.2\.53\s+is asked in clear text/,
+                     'a server in clear text beside an encrypted one was not warned about');
+        assert.equal(mixed.querySelector('[data-not-asked]'), null, 'a server is said not to be asked, which is');
+
+        const encryptedOnly = await opened(configuration => { servers(configuration); configuration.settings.encryptedOnly = true; });
+
+        assert.equal(encryptedOnly.querySelector('#mixed-transports'), null, 'warned about a server that is not asked');
+        assert.ok   (encryptedOnly.querySelector('[data-not-asked="0"]') !== null, 'the server in clear text is not said to be not asked');
+        assert.equal(encryptedOnly.querySelector('[data-not-asked="1"]'), null, 'the encrypted server is said not to be asked');
+
+    });
 
     it('reloads what the node has with the Reload beside its heading, once it has asked about what is typed', async () => {
 

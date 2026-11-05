@@ -55,6 +55,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="MaxRetries">How often a server that did not answer, or answered SERVFAIL, is asked again.</param>
     /// <param name="Pins">What each of the servers reached over TLS or HTTPS is held to, beside what every one is held to - see <see cref="ServerPins"/>; only where the list of servers says so.</param>
     /// <param name="ServerIds">The id the file gives each of the servers, by its place in the list, or null where it gives none - see <see cref="Ids"/>.</param>
+    /// <param name="EncryptedOnly">Whether only the servers reached over TLS or HTTPS are asked - see <see cref="InClearText"/>.</param>
     public sealed record DNSConfiguration(Boolean?                        Enabled               = null,
                                           IReadOnlyList<DNSServerConfig>? Servers               = null,
                                           TimeSpan?                       QueryTimeout          = null,
@@ -65,7 +66,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           Byte?                           MaxCNAMEFollows       = null,
                                           Byte?                           MaxRetries            = null,
                                           IReadOnlyDictionary<DNSServerConfig, ServerPins>?  Pins  = null,
-                                          IReadOnlyList<String?>?         ServerIds             = null)
+                                          IReadOnlyList<String?>?         ServerIds             = null,
+                                          Boolean?                        EncryptedOnly         = null)
     {
 
         #region Data
@@ -223,6 +225,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !ConfigurationReader.TryReadBoolean(JSON, "useCache",             "dns", out var useCache,         out Error) ||
                 !ConfigurationReader.TryReadBoolean(JSON, "dnssecOK",             "dns", out var dnssecOK,         out Error) ||
                 !ConfigurationReader.TryReadBoolean(JSON, "followCNAMEs",         "dns", out var followCNAMEs,     out Error) ||
+                !ConfigurationReader.TryReadBoolean(JSON, "encryptedOnly",        "dns", out var encryptedOnly,    out Error) ||
                 !ConfigurationReader.TryReadByte   (JSON, "maxCNAMEFollows",      "dns", out var maxCNAMEFollows,  out Error) ||
                 !ConfigurationReader.TryReadByte   (JSON, "maxRetries",           "dns", out var maxRetries,       out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "queryTimeoutSeconds",  "dns", 0.1, MaxQueryTimeoutSeconds, out var queryTimeout, out Error))
@@ -241,7 +244,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 maxCNAMEFollows,
                                 maxRetries,
                                 pins,
-                                ids
+                                ids,
+                                encryptedOnly
                             ) {
                                 // Named, and null: "leave it to the server".
                                 // See RemovesRecursionDesired.
@@ -492,6 +496,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (static) InClearText(Servers)
+
+        /// <summary>
+        /// The servers of the given ones that are asked in clear text - over
+        /// UDP, TCP or plain HTTP - and that a node asking only encrypted
+        /// servers does not ask.
+        /// </summary>
+        /// <remarks>
+        /// All servers are asked at once and the first answer wins, so name
+        /// resolution is only as safe as the least safe server asked: beside
+        /// one reached over TLS, one asked over UDP is where somebody on the
+        /// path answers first (Secure DNS paper, section 2.4).
+        /// </remarks>
+        public static IReadOnlyList<DNSServerConfig> InClearText(IEnumerable<DNSServerConfig> Servers)
+
+            => [.. Servers.Where(server => !IsEncrypted(server.Transport))];
+
+        #endregion
+
         #region (static) ServerJSON(Server)
 
         /// <summary>
@@ -557,6 +580,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (FollowCNAMEs.       HasValue)  json.Add("followCNAMEs",         FollowCNAMEs.       Value);
             if (MaxCNAMEFollows.    HasValue)  json.Add("maxCNAMEFollows",      MaxCNAMEFollows.    Value);
             if (MaxRetries.         HasValue)  json.Add("maxRetries",           MaxRetries.         Value);
+            if (EncryptedOnly.      HasValue)  json.Add("encryptedOnly",        EncryptedOnly.      Value);
 
             return json;
 

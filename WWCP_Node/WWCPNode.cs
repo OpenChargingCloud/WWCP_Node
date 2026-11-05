@@ -510,6 +510,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Boolean                DNSEnabled                   { get; private set; } = true;
 
         /// <summary>
+        /// Whether this node asks only the name servers reached over TLS or
+        /// HTTPS, and none in clear text - see DNSConfiguration.InClearText.
+        /// </summary>
+        public Boolean                DNSEncryptedOnly             { get; private set; }
+
+        /// <summary>
         /// The id of every name server this node would ask, by its place in the
         /// list: what a CSMS knows it by - see DNSConfiguration.Ids.
         /// </summary>
@@ -1707,7 +1713,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("dnssecOK",             dnsClient.DnssecOK),
                        new JProperty("followCNAMEs",         dnsClient.FollowCNAMEs),
                        new JProperty("maxCNAMEFollows",      dnsClient.MaxCNAMEFollows),
-                       new JProperty("maxRetries",           dnsClient.MaxRetries)
+                       new JProperty("maxRetries",           dnsClient.MaxRetries),
+                       new JProperty("encryptedOnly",        DNSEncryptedOnly)
                    )),
 
                    // What was decided when the client was made and is not on
@@ -1833,6 +1840,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return false;
                 }
 
+                if (!TryKeepEncryptedOnly(sent, out Error))
+                    return false;
+
                 // What the page showed each server held to, where it says - see
                 // ServerPins.TryAfterAPageSaved.
                 if (!ServerPins.TryParseAsShown(json, DNSConfiguration.SectionName, out var asShown, out Error))
@@ -1860,6 +1870,112 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (changed.Count > 0)
                 DNSConfigurationChanged(changed, Origin);
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private) AskedDNSServers, WarnAboutClearText()
+
+        /// <summary>
+        /// The name servers the DNS client is given while name resolution is
+        /// switched on: the configured ones, without those in clear text where
+        /// only encrypted ones are asked.
+        /// </summary>
+        private IReadOnlyList<DNSServerConfig> AskedDNSServers
+
+            => DNSEncryptedOnly
+                   ? [.. configuredDNSServers.Where(server => DNSConfiguration.IsEncrypted(server.Transport))]
+                   : configuredDNSServers;
+
+        /// <summary>
+        /// Warn where name servers in clear text are asked beside encrypted
+        /// ones - all at once, so that whoever answers first on the path
+        /// answers for all of them (Secure DNS paper, section 2.4) - and where
+        /// only encrypted ones are asked and none is.
+        /// </summary>
+        private void WarnAboutClearText()
+        {
+
+            var inClearText = DNSConfiguration.InClearText(configuredDNSServers);
+
+            if (DNSEncryptedOnly)
+            {
+                if (DNSEnabled && inClearText.Count > 0 && inClearText.Count == configuredDNSServers.Count)
+                    Log.Warning($"DNS: only name servers reached over TLS or HTTPS are asked, and none of the {inClearText.Count} configured is, so this {Kind.Name} resolves no name.",
+                                "dns", "config", "security");
+            }
+
+            else if (inClearText.Count > 0 && inClearText.Count < configuredDNSServers.Count)
+                Log.Warning($"DNS: {String.Join(", ", inClearText)} {(inClearText.Count == 1 ? "is" : "are")} asked in clear text beside name servers reached over TLS or HTTPS, all at once, " +
+                            "so whoever answers first on the path answers for all of them. 'encryptedOnly' asks the encrypted ones alone.",
+                            "dns", "config", "security");
+
+        }
+
+        #endregion
+
+        #region (private) TryKeepEncryptedOnly(Section, out Error)
+
+        /// <summary>
+        /// Whether a change of the "dns" section keeps to asking only encrypted
+        /// name servers, where that is what this node does after it: no server
+        /// in clear text comes that this node does not have already, and one
+        /// server at least is asked.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A server in clear text this node has already stays where it is, and
+        /// is not asked: switching to encrypted servers alone is not refused
+        /// for the servers it leaves behind. Its address, port or transport
+        /// changed, it is a server this node does not have, as one removed and
+        /// added again is. What it is waited for is not part of it.
+        /// </para>
+        /// <para>
+        /// None asked is refused as an empty list is: the servers it was
+        /// started with - the operating system's, asked over UDP - included.
+        /// </para>
+        /// </remarks>
+        /// <param name="Section">The change.</param>
+        /// <param name="Error">Why it cannot be made.</param>
+        private Boolean TryKeepEncryptedOnly(DNSConfiguration                  Section,
+                                             [NotNullWhen(false)] out String?  Error)
+        {
+
+            Error = null;
+
+            if (!(Section.EncryptedOnly ?? DNSEncryptedOnly))
+                return true;
+
+            var servers = Section.RemovesServers
+                              ? startDNSServers
+                              : Section.Servers ?? configuredDNSServers;
+
+            var come    = servers.Select((server, index) => (server, index)).
+                                  Where (server => !DNSConfiguration.IsEncrypted(server.server.Transport) &&
+                                                   !configuredDNSServers.Contains(server.server)).
+                                  ToArray();
+
+            if (come.Length > 0)
+            {
+
+                var (server, index) = come[0];
+
+                Error = Section.RemovesServers
+                            ? $"'dns.servers': the name servers this {Kind.Name} was started with are asked in clear text ({String.Join(", ", come.Select(clear => clear.server))}), and only encrypted ones are asked: switch 'dns.encryptedOnly' off in the same change."
+                            : $"'dns.servers[{index}]' would be asked over {server.Transport}, in clear text, and only name servers reached over TLS or HTTPS are asked: give it one of those, or switch 'dns.encryptedOnly' off in the same change.";
+
+                return false;
+
+            }
+
+            if (servers.Count > 0 && DNSConfiguration.InClearText(servers).Count == servers.Count)
+            {
+                Error = $"'dns.encryptedOnly': only name servers reached over TLS or HTTPS would be asked, and none of these is, so this {Kind.Name} could not resolve anything: give it one in the same change.";
+                return false;
+            }
 
             return true;
 
@@ -1899,8 +2015,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // "servers": null gives the servers back to whoever made this node,
             // held to nothing, as they were: a section without a list has no
             // pins.
-            var servers = Configuration.RemovesServers ? startDNSServers : Configuration.Servers;
-            var wasIds  = DNSServerIds;
+            var servers         = Configuration.RemovesServers ? startDNSServers : Configuration.Servers;
+            var wasIds          = DNSServerIds;
+            var serversChanged  = false;
 
             // Compared with their timeouts. Two configurations of one server are
             // the same server without them, so that it is one key of a set
@@ -1916,6 +2033,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Configuration.RemovesServers == dnsServersFromTheFile))
             {
                 configuredDNSServers = servers;
+                serversChanged       = true;
                 changed.Add(Configuration.RemovesServers
                                 ? $"servers = {String.Join(", ", configuredDNSServers)}, the ones it was started with"
                                 : $"servers = {String.Join(", ", configuredDNSServers)}");
@@ -1946,11 +2064,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 changed.Add(DNSEnabled ? "switched on" : "switched off");
             }
 
-            // Always, not only when one of the two above changed: the client
+            // Before the client is given its servers: asking only encrypted
+            // ones leaves those in clear text in the file, where switching it
+            // off finds them again, and out of the client.
+            var encryptedOnlyChanged = Configuration.EncryptedOnly.HasValue && DNSEncryptedOnly != Configuration.EncryptedOnly.Value;
+
+            if (encryptedOnlyChanged)
+            {
+
+                DNSEncryptedOnly = Configuration.EncryptedOnly!.Value;
+
+                var notAsked = DNSConfiguration.InClearText(configuredDNSServers);
+
+                changed.Add(DNSEncryptedOnly && notAsked.Count > 0
+                                ? $"encrypted only = True, not asking {String.Join(", ", notAsked)}"
+                                : $"encrypted only = {DNSEncryptedOnly}");
+
+            }
+
+            // Always, not only when one of the three above changed: the client
             // must end up holding exactly the servers this node means it to
             // hold, and working that out from which halves changed is how the
             // two drift apart.
-            dnsClient.SetDNSServers(DNSEnabled ? configuredDNSServers : []);
+            dnsClient.SetDNSServers(DNSEnabled ? AskedDNSServers : []);
 
             // What each server is held to comes with the list, and only with it.
             // A server whose pins changed lets go of its connection: the
@@ -2036,6 +2172,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (changed.Count > 0)
                 Log.Notice($"DNS configuration changed: {String.Join(", ", changed)}{ChangeOrigin.By(Origin)}.", "dns", "config");
+
+            // Said where what is asked changed, at the start as well: a file
+            // can say what a change is refused for.
+            if (serversChanged || encryptedOnlyChanged)
+                WarnAboutClearText();
 
             return changed;
 
