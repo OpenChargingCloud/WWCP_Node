@@ -404,6 +404,12 @@ export interface AccountSSHKey {
 export interface DNSConfiguration {
     enabled:    boolean;
     servers:    DNSServer[];
+    /**
+     * Where the servers are from: the file, or whoever made the node - the
+     * operating system, for a client that looked for them - which a save of
+     * "servers": null goes back to.
+     */
+    serversFrom:  'file' | 'start';
     settings:   DNSSettings;
     /** What was decided when the client was made, and is not on offer. */
     fixed:      Record<string, unknown>;
@@ -419,7 +425,8 @@ export interface DNSConfiguration {
 /** What a PUT to the DNS configuration may carry; everything is optional. */
 export interface DNSUpdate {
     enabled?:              boolean;
-    servers?:              DNSServerEntry[];
+    /** null: out of the file, and back to the servers the node was started with. */
+    servers?:              DNSServerEntry[] | null;
     queryTimeoutSeconds?:  number;
     recursionDesired?:     boolean | null;
     useCache?:             boolean;

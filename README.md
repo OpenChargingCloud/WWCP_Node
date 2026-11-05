@@ -260,7 +260,8 @@ with. Without `servers` the node asks the servers its DNS client was made
 with - the operating system's, for a client that looked for them - and a
 save of `"servers": null` takes the file's list away and goes back to those,
 held to nothing; `serversFrom` in `GET /api/v1/configuration/dns` says
-`file` or `start`. An empty list is refused. Switching name resolution off
+`file` or `start`, and the DNS page has a button for going back. An empty
+list is refused. Switching name resolution off
 is done by taking the client's servers away, which is what being switched off
 actually means for everything holding that client - and the list waits beside
 it for being switched back on.

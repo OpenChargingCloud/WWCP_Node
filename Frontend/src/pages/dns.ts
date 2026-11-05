@@ -27,6 +27,11 @@ import { certificateVerdictView, heldToView, judgementView, pinsFieldset, readPi
  * what the node made of it and what it is held to; a dialog changes the
  * latter in the list on screen, which is saved with everything else.
  *
+ * The servers are the file's once a list was saved, and otherwise the ones
+ * the node was started with - the operating system's, where it looked for
+ * them. A button under the list goes back to those, and takes the list out of
+ * the file.
+ *
  * Drawn by view.ts: a draw changes only what differs, so what is typed into
  * the settings stays while the list of servers is edited above them, and the
  * other way round.
@@ -282,6 +287,30 @@ export const dnsPage: Page = {
                     <span class="hint">At most ${configuration.limits.maxServers}. They are asked in parallel; the first usable answer wins.</span>
                 </div>
 
+                <div class="form-actions">
+                    ${configuration.serversFrom === 'file'
+                          ? html`<button type="button" id="back-to-start" class="btn" ?disabled=${!mayChange} @click=${backToStart}>
+                                     Back to the servers it was started with
+                                 </button>`
+                          : nothing}
+                    <span id="servers-note"  class="form-notice" role="status"></span>
+                    <span id="servers-error" class="form-error"  role="alert"></span>
+                </div>
+
+                ${configuration.serversFrom === 'file'
+                      ? html`<p class="hint" id="servers-from">
+                                 Saved in <span class="path">${configuration.file}</span>. Going back takes them out of it,
+                                 and asks the ones this ${config.nodeName} was started with again - the operating
+                                 system's, where it looked for them - held to no certificate.
+                             </p>`
+                      : configuration.serversFrom === 'start'
+                            ? html`<p class="hint" id="servers-from">
+                                       These are the ones this ${config.nodeName} was started with - the operating
+                                       system's, where it looked for them. Saved, they are written into
+                                       <span class="path">${configuration.file}</span>.
+                                   </p>`
+                            : nothing}
+
             `;
 
         }
@@ -364,6 +393,24 @@ export const dnsPage: Page = {
                 servers.splice(index, 1);
                 draw();
             }
+        }
+
+        /**
+         * Take the list out of the file, and go back to the servers this node
+         * was started with - after asking, because what goes with the list is
+         * what each server was held to, and whatever was typed into it and not
+         * saved. What is typed into the settings stays where it is, as it does
+         * when name resolution is switched.
+         */
+        function backToStart(): void {
+
+            if (!confirm(`Go back to the name servers this ${config.nodeName} was started with?\n\n` +
+                         `The list is taken out of ${current?.file ?? 'the file'}, with what each server in it is held to, ` +
+                         `and the ones it was started with are asked again, held to no certificate.`))
+                return;
+
+            void save({ servers: null }, undefined, 'servers');
+
         }
 
         /** Drawn again, because whether a row has a certificate to show depends on it. */
@@ -529,14 +576,16 @@ export const dnsPage: Page = {
          *              the node now has them. The switch above them saves only
          *              itself, and leaves what is typed into the settings - and
          *              the list of servers as it is being edited - where it is.
+         * @param at    where to say how it went: under the settings, or under
+         *              the name servers, for what was pressed there.
          */
-        async function save(update: DNSUpdate, form?: HTMLFormElement): Promise<void> {
+        async function save(update: DNSUpdate, form?: HTMLFormElement, at: 'form' | 'servers' = 'form'): Promise<void> {
 
-            const note = must<HTMLElement>(content, '#form-note');
+            const note = must<HTMLElement>(content, `#${at}-note`);
 
-            note.textContent = '';
-
-            must<HTMLElement>(content, '#form-error').textContent = '';
+            // What a save before said is over, wherever it was said.
+            for (const said of [ '#form-note', '#form-error', '#servers-note', '#servers-error' ])
+                must<HTMLElement>(content, said).textContent = '';
 
             try
             {
@@ -545,7 +594,10 @@ export const dnsPage: Page = {
                 // form sent.
                 current = await whileSaving(content, note, () => api.dns.save(update));
 
-                if (form !== undefined)
+                // The list as the node now has it, where the list was saved:
+                // with the settings, or given back to the servers the node
+                // was started with.
+                if (form !== undefined || update.servers === null)
                     servers = current.servers.map(server => ({ ...server }));
 
                 draw();
@@ -554,11 +606,11 @@ export const dnsPage: Page = {
                 // so it goes back to what it says now - the node's answer.
                 form?.reset();
 
-                must<HTMLElement>(content, '#form-note').textContent = 'Saved, and in effect.';
+                must<HTMLElement>(content, `#${at}-note`).textContent = 'Saved, and in effect.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                must<HTMLElement>(content, `#${at}-error`).textContent = errorMessage(problem);
 
                 // A switch the node did not take shows what the node has.
                 draw();

@@ -30,6 +30,7 @@ const configuration = (servers: DNSServer[], queryTimeoutSeconds = 10, maxRetrie
     ({
         enabled:   true,
         servers,
+        serversFrom:  'file',
         settings:  { queryTimeoutSeconds, recursionDesired: null, useCache: true, dnssecOK: false,
                      followCNAMEs: true, maxCNAMEFollows: 8, maxRetries, encryptedOnly: false },
         fixed:     {},

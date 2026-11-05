@@ -5,7 +5,7 @@
  * the node took.
  */
 
-import { open, said, until, type Asked } from '../../test/node.ts';
+import { open, refused, said, until, type Asked } from '../../test/node.ts';
 import { chromeTakesTheFocus }           from '../../test/dom.ts';
 
 import { strict as assert }  from 'node:assert';
@@ -20,10 +20,18 @@ const { dnsPage } = await import('./dns.ts');
 let held: DNSConfiguration;
 const told: DNSUpdate[] = [];
 
+/** Why the stand-in node would not go back to the servers it was started with, where it would not. */
+let refusing: string | null = null;
+
+/** The servers the stand-in node was started with. */
+const startedWith = (): DNSConfiguration['servers'] =>
+    [ { address: '10.0.0.53', port: 53, transport: 'UDP', queryTimeoutSeconds: null } ] as DNSConfiguration['servers'];
+
 function aConfiguration(): DNSConfiguration {
     return {
         enabled:   true,
         servers:   [ { address: '192.0.2.53', port: 53, transport: 'UDP', queryTimeoutSeconds: null } ],
+        serversFrom:  'file',
         settings:  { useCache: true, dnssecOK: false, followCNAMEs: true, recursionDesired: null,
                      queryTimeoutSeconds: 2, maxCNAMEFollows: 8, maxRetries: 2, encryptedOnly: false },
         fixed:     { cacheSize: 1000 },
@@ -38,11 +46,14 @@ function node({ method, path, body }: Asked): unknown {
     if (path === '/configuration/dns' && method === 'PUT') {
         const update = body as DNSUpdate;
         told.push(update);
+        if (update.servers === null && refusing !== null)
+            return refused(400, refusing);
         // A node takes what it takes: no more than five retries.
         if (update.maxRetries !== undefined)
             update.maxRetries = Math.min(update.maxRetries, 5);
         held = { ...held, ...(update.enabled !== undefined ? { enabled: update.enabled } : {}),
-                          ...(update.servers !== undefined ? { servers: update.servers as DNSConfiguration['servers'] } : {}),
+                          ...(update.servers === null      ? { servers: startedWith(), serversFrom: 'start' as const } :
+                              update.servers !== undefined ? { servers: update.servers as DNSConfiguration['servers'], serversFrom: 'file' as const } : {}),
                           settings: { ...held.settings,
                                       ...Object.fromEntries(Object.entries(update).filter(([ key ]) => key in held.settings)) } };
     }
@@ -65,6 +76,7 @@ async function opened(given?: (configuration: DNSConfiguration) => void): Promis
 
     held        = aConfiguration();
     told.length = 0;
+    refusing    = null;
 
     given?.(held);
 
@@ -224,6 +236,91 @@ describe('the DNS page', () => {
         assert.equal(encryptedOnly.querySelector('#mixed-transports'), null, 'warned about a server that is not asked');
         assert.ok   (encryptedOnly.querySelector('[data-not-asked="0"]') !== null, 'the server in clear text is not said to be not asked');
         assert.equal(encryptedOnly.querySelector('[data-not-asked="1"]'), null, 'the encrypted server is said not to be asked');
+
+    });
+
+    it('goes back to the servers the node was started with, after asking, and keeps what is typed into the settings', async () => {
+
+        const root = await opened();
+
+        const retries = field(root, 'maxRetries');
+        retries.value = '7';
+        retries.dispatchEvent(new Event('input', { bubbles: true }));
+
+        address(root).value = '198.51.100.1';
+        address(root).dispatchEvent(new Event('input', { bubbles: true }));
+
+        root.querySelector<HTMLButtonElement>('#back-to-start')!.click();
+
+        await until(() => root.querySelector('#servers-note')?.textContent === 'Saved, and in effect.', 'going back was not saved, or not said under the servers');
+
+        assert.equal(said.length, 1, 'the list went without a question');
+        assert.match(said[0]!, /held to no certificate/, 'the question does not say what goes with the list');
+        assert.deepEqual(told, [ { servers: null } ], 'not only the way back was sent');
+
+        const rows = root.querySelectorAll<HTMLInputElement>('[data-field="address"]');
+        assert.equal(rows.length,     1);
+        assert.equal(rows[0]!.value,  '10.0.0.53', 'the list does not show the servers the node was started with');
+
+        // ok() and not equal(): a message of equal() would print the button,
+        // and with it all of happy-dom's window.
+        assert.ok(root.querySelector('#back-to-start') === null, 'there is a way back to where the servers are');
+        assert.match(root.querySelector('#servers-from')?.textContent ?? '', /These are the ones .* was started with/,
+                     'it is not said where the servers are from');
+        assert.equal(field(root, 'maxRetries').value, '7', 'what was typed into the settings is gone');
+        assert.equal(root.querySelector('#form-note')?.textContent, '', 'said under the settings, which were not saved');
+
+    });
+
+    it('sends nothing, and keeps the list, where going back is not wanted', async () => {
+
+        const root = await opened();
+
+        address(root).value = '198.51.100.1';
+        address(root).dispatchEvent(new Event('input', { bubbles: true }));
+
+        const yes = window.confirm;
+        window.confirm = (text?: string) => { said.push(String(text)); return false; };
+
+        try
+        {
+            root.querySelector<HTMLButtonElement>('#back-to-start')!.click();
+            await wait(20);
+        }
+        finally
+        {
+            window.confirm = yes;
+        }
+
+        assert.equal(said.length, 1, 'nothing was asked');
+        assert.deepEqual(told, [], 'went back all the same');
+        assert.equal(address(root).value, '198.51.100.1', 'what was typed into the list is gone');
+
+    });
+
+    it('says the servers are the ones the node was started with, with no way back to where they are', async () => {
+
+        const root = await opened(configuration => { configuration.serversFrom = 'start'; });
+
+        assert.ok(root.querySelector('#back-to-start') === null, 'there is a way back to where the servers are');
+        assert.match(root.querySelector('#servers-from')?.textContent ?? '', /These are the ones .* was started with/,
+                     'it is not said where the servers are from');
+
+    });
+
+    it('says under the servers why the node would not go back, and keeps the list', async () => {
+
+        const root = await opened();
+
+        refusing = "'dns.servers': the name servers this node was started with are asked in clear text";
+
+        root.querySelector<HTMLButtonElement>('#back-to-start')!.click();
+
+        await until(() => /in clear text/.test(root.querySelector('#servers-error')?.textContent ?? ''), 'the refusal was not said under the servers');
+
+        assert.equal(root.querySelector('#form-error')?.textContent, '', 'the refusal was said under the settings');
+        assert.equal(address(root).value, '192.0.2.53', 'the list is not the one the node still has');
+        assert.ok(root.querySelector('#back-to-start') !== null, 'the way back went, which was not taken');
 
     });
 
