@@ -61,8 +61,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// <remarks>
         /// Nothing more by default: a page that cannot hear the event stream
         /// cannot show anything happening. A kind of node whose accounts include
-        /// people the log is not for - the drivers of an e-mobility provider -
-        /// asks for a permission they do not have.
+        /// people the log is not for - the drivers of an e-mobility provider,
+        /// the viewer of a hub - asks for a permission they do not have, e.g.
+        /// Permission.Read(NodeResources.Log).
         /// </remarks>
         protected virtual Permission? ToReadTheLog
             => null;

@@ -311,6 +311,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
                     var day = DateOnly.FromDateTime(Entry.Timestamp.UtcDateTime);
 
+                    // A day before the one of the file written last - the clock
+                    // stepped back across midnight, or a restart came with a
+                    // clock behind - is written on into that file: the files are
+                    // read in the order of their names, and the chain has to go
+                    // on in them where it went (POI3-ISSUES.md S29).
+                    if ((file is not null ? fileDay : LatestDayWritten()) is DateOnly latest && day < latest)
+                        day = latest;
+
                     if (file is null || day != fileDay)
                     {
 
@@ -723,7 +731,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
         #endregion
 
-        #region (private) IsDayFile(Name, out Day) / FileNameOf(Day)
+        #region (private) IsDayFile(Name, out Day) / FileNameOf(Day) / LatestDayWritten()
 
         /// <summary>
         /// Whether a file name, without its extension, is this log's for a day,
@@ -749,6 +757,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         private String FileNameOf(DateOnly Day)
 
             => $"{FilePrefix}-{Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}.jsonl";
+
+        /// <summary>
+        /// The day of the last file of this log, or null where there is none.
+        /// </summary>
+        private DateOnly? LatestDayWritten()
+
+            => Files().LastOrDefault() is String last &&
+               IsDayFile(System.IO.Path.GetFileNameWithoutExtension(last), out var day)
+                   ? day
+                   : null;
 
         #endregion
 

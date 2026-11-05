@@ -290,6 +290,47 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AClockSteppingBackAcrossMidnight_StaysInTheLaterFile()
+
+        /// <summary>
+        /// A clock that steps back across midnight, also over a restart, does
+        /// not take the log back into the file of the day before: the files are
+        /// read in the order of their names, and the chain checks out in them
+        /// (POI3-ISSUES.md S29).
+        /// </summary>
+        [Test]
+        public void AClockSteppingBackAcrossMidnight_StaysInTheLaterFile()
+        {
+
+            var midnight = DateTimeOffset.Parse("2026-11-02T00:00:00Z");
+
+            using (var log = new SignedLog(directory, Prefix))
+            {
+                log.Append(new LogEntry(1, midnight.AddSeconds(-2), LogLevel.Info, ["node"], "entry 1, before midnight"));
+                log.Append(new LogEntry(2, midnight.AddSeconds( 1), LogLevel.Info, ["node"], "entry 2, after midnight"));
+                log.Append(new LogEntry(3, midnight.AddSeconds(-1), LogLevel.Info, ["node"], "entry 3, the clock stepped back"));
+                log.Append(new LogEntry(4, midnight.AddSeconds( 2), LogLevel.Info, ["node"], "entry 4"));
+            }
+
+            using var again    = new SignedLog(directory, Prefix);
+
+            again.Load(100);
+            again.Append(new LogEntry(5, midnight.AddMilliseconds(-500), LogLevel.Info, ["node"], "entry 5, after a restart, the clock behind"));
+
+            var verified = again.Verify();
+
+            Assert.Multiple(() => {
+                Assert.That(verified.IsIntact,  Is.True, verified.FirstProblem);
+                Assert.That(verified.Entries,   Is.EqualTo(5));
+                Assert.That(Directory.GetFiles(directory, Prefix + "-*.jsonl").Select(Path.GetFileName).Order(),
+                            Is.EqualTo(new[] { $"{Prefix}-2026-11-01.jsonl", $"{Prefix}-2026-11-02.jsonl" }));
+                Assert.That(File.ReadAllLines(Path.Combine(directory, $"{Prefix}-2026-11-01.jsonl")),  Has.Length.EqualTo(1));
+            });
+
+        }
+
+        #endregion
+
         #region TheChainCarriesOnWithoutBeingReadBack()
 
         /// <summary>

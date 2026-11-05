@@ -81,9 +81,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         public const String  SSH            = "ssh";
 
         /// <summary>
+        /// The log and its event stream: reading them, on the Logs page, at
+        /// the command line and as files over SFTP.
+        /// </summary>
+        /// <remarks>
+        /// Asked for only where a kind of node says so - see
+        /// NodeHTTPAPI.ToReadTheLog: a node whose accounts include people the
+        /// log is not for, as a hub's viewer, who is not to read what goes
+        /// between the peers (POI3-ISSUES.md S29).
+        /// </remarks>
+        public const String  Log            = "log";
+
+        /// <summary>
         /// All of them.
         /// </summary>
-        public static readonly IReadOnlyList<String>  All = [ Configuration, DNS, NTS, Certificates, SSH ];
+        public static readonly IReadOnlyList<String>  All = [ Configuration, DNS, NTS, Certificates, SSH, Log ];
 
     }
 
