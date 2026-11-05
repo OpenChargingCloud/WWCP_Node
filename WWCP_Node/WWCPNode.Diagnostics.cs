@@ -827,9 +827,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // would bind correctly, but this comparison is one refactoring away
             // from being made against IDomainName, where == is reference
             // equality and silently answers "different" for the same name.
+            //
+            // And offering what the server is to be offered, as every round
+            // does: a client offering something else would test a key exchange
+            // the group never makes.
+            var offer  = AEADOffer(host);
+
             var asking = host.Equals(configured.Hostname) &&
                          ntsKEPort == configured.NTSKE_Port   &&
-                         ntpPort   == configured.NTP_Port
+                         ntpPort   == configured.NTP_Port     &&
+                         Offers(configured, offer)
                              ? configured
                              : new NTSClient(
                                    host,
@@ -838,6 +845,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                    RemoteCertificateValidator:  TimeServerValidator(host),
                                    Timeout:                     configured.Timeout,
                                    DNSClient:                   dnsClient,
+                                   OfferedAEADAlgorithms:       offer,
                                    TimeProvider:                TimeProvider
                                );
 

@@ -390,6 +390,19 @@ An entry of `servers` is a host name, or an object saying more than the name:
 { "hostname": "time.local", "priority": 0, "ntsKEPort": 4460, "enabled": true }
 ```
 
+`"aead": "AES-SIV-CMAC-256"` - or `"AES-128-GCM-SIV"` - has the server's key
+exchange offer that one AEAD algorithm alone. Without it, the key exchange
+offers both, AES-128-GCM-SIV first, and the server chooses. Those two are what
+the time library offers: it can perform AES-256-GCM-SIV as well, but has never
+run it against another implementation's server, so it can't be named. Like
+what a server is held to, it goes by the server's name across every group.
+The first entry that names an algorithm decides, so a group listing the same
+server without one doesn't undo it. A server whose algorithm changes lets go
+of its key exchange, and the next round makes a new one. Each server in the
+answer says what its own entry names as `aead` (null where the server
+chooses), and what its last key exchange agreed on as `aeadAlgorithm`. The
+algorithms an entry may name are `limits.aeadAlgorithms`.
+
 A server may be held to more than every server is held to - certificates
 it may show, roots its chain may end at, each by its SHA-256 fingerprint,
 written the way a certificate authority, a browser or openssl writes one:

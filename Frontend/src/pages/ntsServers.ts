@@ -57,6 +57,9 @@ function sameName(one: string, other: string): boolean {
  * Its id as well, by the same rule: one left out is given anew by the
  * server's place in the list, and a CSMS that knew the server by the old one
  * would find another server under it after the next save.
+ *
+ * And the AEAD algorithm its entry offers, where it names one: left out, the
+ * next save of any server would make it offer every one again.
  */
 export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntry {
 
@@ -67,6 +70,7 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
     if (source.ntsKEPort !== usual.ntsKE)  entry.ntsKEPort  = source.ntsKEPort;
     if (source.ntpPort   !== usual.ntp)    entry.ntpPort    = source.ntpPort;
     if (!source.enabled)                   entry.enabled    = false;
+    if (source.aead)                       entry.aead       = source.aead;
 
     return withPins(entry, draftOf(source.heldTo));
 

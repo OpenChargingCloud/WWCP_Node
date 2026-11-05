@@ -2294,6 +2294,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           new JProperty("ntsKEPort",      source.NTSKEPort.ToUInt16()),
                                           new JProperty("ntpPort",        source.NTPPort.  ToUInt16()),
                                           new JProperty("enabled",        source.Enabled),
+                                          // The one AEAD algorithm its own entry
+                                          // offers, or null where the server
+                                          // chooses - what the page sends back;
+                                          // what was agreed on is aeadAlgorithm.
+                                          new JProperty("aead",           Group.Settings?.Servers?.ElementAtOrDefault(index)?.AEAD is { } aead
+                                                                              ? NTSServerConfiguration.AEADNameOf(aead)
+                                                                              : null),
                                           new JProperty("cookies",        held?.RemainingCookies),
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
                                           new JProperty("aeadAlgorithm",  held?.NTSKEResponse?.AEADAlgorithm.ToString()),
@@ -2346,7 +2353,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("minErrorCount",      NTSConfiguration.MinErrorCount),
                            new JProperty("maxErrorCount",      NTSConfiguration.MaxErrorCount),
                            new JProperty("defaultNTSKEPort",   NTSClient.DefaultNTSKE_Port.ToUInt16()),
-                           new JProperty("defaultNTPPort",     NTSClient.DefaultNTP_Port.  ToUInt16())
+                           new JProperty("defaultNTPPort",     NTSClient.DefaultNTP_Port.  ToUInt16()),
+                           // What a server may be held to offer, and what it
+                           // is offered where its entry names none, in order.
+                           new JProperty("aeadAlgorithms",     new JArray(NTSServerConfiguration.AEADAlgorithmsOffered.Select(NTSServerConfiguration.AEADNameOf)))
                        )),
 
                        new JProperty("file",         ConfigFile.Path)
@@ -2826,6 +2836,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasCheckingEvery  = Group.CheckEvery;
             var wasEnabled        = Group.Enabled;
             var wasPins           = Pins();
+            var wasAEADs          = AEADs();
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
@@ -2919,6 +2930,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
+            // What a server's key exchange offers is not in its description
+            // either, and by the same rule: by its name across every group, and
+            // a server whose offer changed lets go of its key exchange - see
+            // WWCPNode.TimeServerAEAD.cs.
+            changed.AddRange(AEADChanges(wasAEADs));
+
             if (wasQuorum != Group.Sources.MinServers)
                 changed.Add($"quorum = {Group.Sources.MinServers}");
 
@@ -2950,6 +2967,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                    RemoteCertificateValidator:  TimeServerValidator(hostname),
                                    Timeout:                     Configuration.Timeout ?? Group.Client?.Timeout ?? DefaultNTSTimeout,
                                    DNSClient:                   dnsClient,
+                                   OfferedAEADAlgorithms:       AEADOffer(hostname),
                                    TimeProvider:                TimeProvider
                                );
 
@@ -2971,6 +2989,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Group.Client.Timeout = Configuration.Timeout.Value;
                 changed.Add($"timeout = {Configuration.Timeout.Value}");
             }
+
+            // What each server's key exchange offers, on the servers of every
+            // group and on their clients: this group's entries may have changed
+            // what a server of another one is offered.
+            OfferAEAD();
 
             if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)
             {

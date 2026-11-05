@@ -715,6 +715,12 @@ export interface NTSServerEntry extends PinKeys {
     ntpPort?:       number;
     enabled?:       boolean;
     /**
+     * The one AEAD algorithm the server's key exchange offers, by its name:
+     * "AES-SIV-CMAC-256". Left out, it is offered every one the node offers
+     * (limits.aeadAlgorithms), and the server chooses.
+     */
+    aead?:          string;
+    /**
      * What the page showed the server held to, in the keys above: the node
      * changes only what was changed on the page, and keeps what the server
      * learned while the page was open. Only on a server the page loaded.
@@ -769,8 +775,15 @@ export interface NTSTimeSource {
     ntsKEPort:      number;
     ntpPort:        number;
     enabled:        boolean;
+    /**
+     * The one AEAD algorithm its own entry offers, or null where the server
+     * chooses: what the page sends back with it. Not what another group's
+     * entry for the same host makes it offer.
+     */
+    aead?:          string | null;
     cookies?:       number | null;
     lastExchange?:  string | null;
+    /** The AEAD algorithm the last key exchange agreed on. */
     aeadAlgorithm?: string | null;
 
     /**
@@ -897,6 +910,8 @@ export interface NTSConfiguration {
         maxErrorCount?:      number;
         defaultNTSKEPort:    number;
         defaultNTPPort:      number;
+        /** What a server's entry may name as its AEAD algorithm, and what it is offered where it names none, in order. */
+        aeadAlgorithms?:     string[];
     };
     file:         string;
     /** Only on the answer to a synchronisation, which carries both. */

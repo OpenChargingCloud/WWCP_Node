@@ -61,6 +61,28 @@ describe('a time server turned back into its entry', () => {
 
     });
 
+    it('keeps the AEAD algorithm its entry offers, or the next save offers every one again', () => {
+
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { aead: 'AES-SIV-CMAC-256', aeadAlgorithm: 'AES_SIV_CMAC_256' }), usual),
+                         { hostname: 'ptbtime1.ptb.de', aead: 'AES-SIV-CMAC-256' });
+
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { aead: null, aeadAlgorithm: 'AES_128_GCM_SIV' }), usual),
+                         { hostname: 'ptbtime1.ptb.de' },
+                         'what the last key exchange agreed on is not what the entry offers');
+
+    });
+
+    it('keeps another server\'s AEAD algorithm when one is saved', () => {
+
+        const list = [ entryOf(shown('ptbtime1.ptb.de.', { aead: 'AES-SIV-CMAC-256' }), usual),
+                       entryOf(shown('ptbtime2.ptb.de.'), usual) ];
+
+        assert.deepEqual(withServer(list, 1, { hostname: 'ptbtime2.ptb.de', priority: 1 }),
+                         [ { hostname: 'ptbtime1.ptb.de', aead: 'AES-SIV-CMAC-256' },
+                           { hostname: 'ptbtime2.ptb.de', priority: 1 } ]);
+
+    });
+
 });
 
 

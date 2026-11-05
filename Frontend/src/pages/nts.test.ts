@@ -256,6 +256,60 @@ describe('the NTS page', () => {
 
     });
 
+    it('offers a server one AEAD algorithm or every one, and keeps every other server\'s', async () => {
+
+        const root = await opened({}, configuration => {
+            configuration.timeSources![1]!.aead   = 'AES-SIV-CMAC-256';
+            configuration.limits.aeadAlgorithms   = [ 'AES-128-GCM-SIV', 'AES-SIV-CMAC-256' ];
+        });
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog  = document.querySelector('dialog')!;
+        const aead    = dialog.querySelector<HTMLSelectElement>('select[name="aead"]')!;
+
+        assert.deepEqual([ ...aead.options ].map(option => option.value), [ '', 'AES-128-GCM-SIV', 'AES-SIV-CMAC-256' ]);
+        assert.equal(aead.value, '', 'a server whose entry names none is not shown offered one');
+        assert.match(root.textContent!.replace(/\s+/g, ' '), /offered AES-SIV-CMAC-256 alone/, 'the list does not say what the other server is offered');
+
+        aead.value = 'AES-128-GCM-SIV';
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        const servers = told.find(update => update.servers !== undefined)!.servers!;
+
+        assert.equal(servers[0]!.aead, 'AES-128-GCM-SIV');
+        assert.equal(servers[1]!.aead, 'AES-SIV-CMAC-256', 'the other server\'s was not sent back, and the save would take it away');
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
+    it('shows the AEAD algorithm a server\'s entry offers, and offers every one again where that is chosen', async () => {
+
+        const root = await opened({}, configuration => {
+            configuration.timeSources![0]!.aead = 'AES-SIV-CMAC-256';
+        });
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog  = document.querySelector('dialog')!;
+        const aead    = dialog.querySelector<HTMLSelectElement>('select[name="aead"]')!;
+
+        assert.equal(aead.value, 'AES-SIV-CMAC-256');
+
+        aead.value = '';
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        assert.equal('aead' in told.find(update => update.servers !== undefined)!.servers![0]!, false, 'every one is offered where the entry names none');
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
     it('keeps a server\'s id under a new host name, and every other server\'s with it', async () => {
 
         const root = await opened({}, configuration => {

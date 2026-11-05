@@ -817,7 +817,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 
@@ -944,6 +944,10 @@ export const ntsPage: Page = {
             const shown          = index === null ? null : configuration.timeSources?.[index] ?? null;
             const usual          = usualPorts();
 
+            // What an entry may name, and what a server is offered where its
+            // entry names none: the node's own list, in its order.
+            const aeads          = configuration.limits.aeadAlgorithms ?? [ 'AES-128-GCM-SIV', 'AES-SIV-CMAC-256' ];
+
             if (index !== null && shown === null)
                 return;
 
@@ -998,6 +1002,7 @@ export const ntsPage: Page = {
                 const ntsKE     = String(data.get('ntsKEPort') ?? '').trim();
                 const ntp       = String(data.get('ntpPort')   ?? '').trim();
                 const priority  = Number(data.get('priority')  ?? 0);
+                const aead      = String(data.get('aead')      ?? '');
 
                 if (hostname.length === 0) {
                     error().textContent = 'A host name is needed.';
@@ -1029,6 +1034,7 @@ export const ntsPage: Page = {
                 if (ntsKE.length > 0 && Number(ntsKE) !== usual.ntsKE)  entry.ntsKEPort  = Number(ntsKE);
                 if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
                 if (data.get('enabled') === null)                        entry.enabled    = false;
+                if (aead.length > 0)                                     entry.aead       = aead;
 
                 // And what the dialog showed it held to, so that the
                 // node changes only what was changed here - see asShown.
@@ -1090,6 +1096,18 @@ export const ntsPage: Page = {
                         <span class="hint">Left empty, the usual ones: ${usual.ntsKE} and ${usual.ntp}.</span>
                     </label>
 
+                    <label>AEAD algorithm
+                        <select name="aead">
+                            <option value="" ?selected=${!shown?.aead}>Every one, the server choosing: ${aeads.join(', ')}</option>
+                            ${aeads.map(name => html`<option value="${name}" ?selected=${shown?.aead === name}>${name} alone</option>`)}
+                        </select>
+                        <span class="hint">
+                            What the key exchange offers to protect the time requests with${shown?.aeadAlgorithm
+                                ? `; its last key exchange agreed on ${shown.aeadAlgorithm.replaceAll('_', '-')}`
+                                : ''}.
+                        </span>
+                    </label>
+
                     <label class="checkbox">
                         <input type="checkbox" name="enabled" ?checked=${shown === null || shown.enabled} />
                         Ask this server
@@ -1122,6 +1140,10 @@ export const ntsPage: Page = {
                 </form>
 
             `);
+
+            // Chosen once the options are there: a selected option drawn by a
+            // loop is not what every DOM takes as the select's value.
+            must<HTMLSelectElement>(dialog, 'select[name="aead"]').value = shown?.aead ?? '';
 
 
             dialog.addEventListener('close',  dismiss);

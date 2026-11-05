@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Norn.NTS;
 using org.GraphDefined.Vanaheimr.Norn.Monitoring;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
@@ -43,13 +44,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Enabled">Whether to ask it at all.</param>
     /// <param name="Pins">What it is held to beside what every server is held to - see <see cref="ServerPins"/> - or null for nothing.</param>
     /// <param name="Id">What names it across every group of the node, whatever its host name becomes - or null where the file gives it none; see <see cref="IdsOf"/>.</param>
-    public sealed record NTSServerConfiguration(DomainName   Hostname,
-                                                Byte         Priority   = 0,
-                                                IPPort?      NTSKEPort  = null,
-                                                IPPort?      NTPPort    = null,
-                                                Boolean      Enabled    = true,
-                                                ServerPins?  Pins       = null,
-                                                String?      Id         = null)
+    /// <param name="AEAD">The one AEAD algorithm its key exchange offers, or null for every one in <see cref="AEADAlgorithmsOffered"/>, the server choosing.</param>
+    public sealed record NTSServerConfiguration(DomainName       Hostname,
+                                                Byte             Priority   = 0,
+                                                IPPort?          NTSKEPort  = null,
+                                                IPPort?          NTPPort    = null,
+                                                Boolean          Enabled    = true,
+                                                ServerPins?      Pins       = null,
+                                                String?          Id         = null,
+                                                AEADAlgorithms?  AEAD       = null)
     {
 
         #region Data
@@ -115,13 +118,71 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// <summary>
         /// This entry as the time library wants it.
         /// </summary>
+        /// <remarks>
+        /// With the one AEAD algorithm this entry offers, where it names one.
+        /// The node offers what a server is held to by name across all its
+        /// groups, and puts that on every endpoint after this - see
+        /// WWCPNode.TimeServerAEAD.cs.
+        /// </remarks>
         public NTSServerEndpoint ToEndpoint()
 
             => new (Hostname,
                     NTSKEPort,
                     NTPPort,
                     Enabled,
-                    Priority);
+                    Priority,
+                    OfferedAEADAlgorithms: AEAD is { } aead ? [ aead ] : null);
+
+        #endregion
+
+        #region (static) AEADAlgorithmsOffered / AEADNameOf(Algorithm) / TryParseAEAD(Text, out Algorithm)
+
+        /// <summary>
+        /// The AEAD algorithms a time server's key exchange is offered where
+        /// its entry names none, in the order the server is asked to choose
+        /// from - and the ones an entry may name.
+        /// </summary>
+        /// <remarks>
+        /// The time library's: what it can perform and has seen work with
+        /// another implementation. An algorithm it can perform but never ran
+        /// against anybody else's server is not offered, so it cannot be named
+        /// either.
+        /// </remarks>
+        public static IReadOnlyList<AEADAlgorithms> AEADAlgorithmsOffered
+            => NTSAEAD.Supported;
+
+        /// <summary>
+        /// An AEAD algorithm as the file, the page and OCPP name it:
+        /// "AES-SIV-CMAC-256", "AES-128-GCM-SIV".
+        /// </summary>
+        public static String AEADNameOf(AEADAlgorithms Algorithm)
+
+            => Algorithm.AsText().Replace('_', '-');
+
+        /// <summary>
+        /// The AEAD algorithm of that name, where it is one an entry may name.
+        /// </summary>
+        /// <remarks>
+        /// Whatever its case, as the names are written in capitals and read by
+        /// people.
+        /// </remarks>
+        public static Boolean TryParseAEAD(String              Text,
+                                           out AEADAlgorithms  Algorithm)
+        {
+
+            foreach (var offered in AEADAlgorithmsOffered)
+            {
+                if (String.Equals(AEADNameOf(offered), Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    Algorithm = offered;
+                    return true;
+                }
+            }
+
+            Algorithm = default;
+            return false;
+
+        }
 
         #endregion
 
@@ -259,6 +320,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
+            // The one AEAD algorithm to offer, where the entry names one; left
+            // out, the server chooses from all of them.
+            if (!ConfigurationReader.TryReadString(json, "aead", $"{Section}.servers[{Index}]", 32, out var aeadName, out Error))
+                return false;
+
+            AEADAlgorithms? aead = null;
+
+            if (aeadName is not null)
+            {
+
+                if (!TryParseAEAD(aeadName, out var named))
+                {
+                    Error = $"'{Section}.servers[{Index}].aead': '{aeadName}' is not an AEAD algorithm this node offers, which are " +
+                            $"{String.Join(" and ", AEADAlgorithmsOffered.Select(AEADNameOf))}.";
+                    return false;
+                }
+
+                aead = named;
+
+            }
+
             // What it is held to, beside the usual - the same for a time server
             // as for a name server.
             if (!ServerPins.TryParse(json, $"{Section}.servers[{Index}]", out var pins, out Error))
@@ -283,7 +365,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 ntpPort,
                                 enabled ?? true,
                                 pins,
-                                id
+                                id,
+                                aead
                             );
 
             return true;
@@ -304,7 +387,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && Pins?.SaysAnything != true)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && Pins?.SaysAnything != true)
                 return Hostname.ToString();
 
             var json = new JObject();
@@ -317,6 +400,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (NTSKEPort.HasValue)     json.Add("ntsKEPort", NTSKEPort.Value.ToUInt16());
             if (NTPPort.  HasValue)     json.Add("ntpPort",   NTPPort.  Value.ToUInt16());
             if (!Enabled)               json.Add("enabled",   false);
+            if (AEAD.HasValue)          json.Add("aead",      AEADNameOf(AEAD.Value));
 
             Pins?.WriteInto(json);
 
@@ -331,7 +415,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         public override String ToString()
 
-            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
+            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
 
         #endregion
 

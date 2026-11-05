@@ -329,6 +329,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AServerIsOfferedTheAEADAlgorithmItsEntryNames()
+
+        /// <summary>
+        /// A server's entry may name the one AEAD algorithm its key exchange
+        /// offers: shown with the server as it was sent, written down, and
+        /// left out where the server chooses. What this node does not offer is
+        /// refused, and nothing is written.
+        /// </summary>
+        [Test]
+        public async Task AServerIsOfferedTheAEADAlgorithmItsEntryNames()
+        {
+
+            using var http          = await SignedIn();
+
+            await Send(http, HttpMethod.Post, NTSGroupsPath, JObject.Parse("""{ "id": "local" }"""));
+
+            var (saved,  shown)     = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ { "hostname": "lc1.local", "aead": "AES-SIV-CMAC-256" }, "lc2.local" ] }"""));
+            var (status, refusal)   = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ { "hostname": "lc1.local", "aead": "AES-256-GCM-SIV" } ] }"""));
+
+            Assert.Multiple(() => {
+
+                Assert.That(saved,                                                                 Is.EqualTo(HttpStatusCode.OK),  shown.ToString());
+                Assert.That(shown["timeSources"]?.Select(source => source.Value<String>("aead")),  Is.EqualTo(new[] { "AES-SIV-CMAC-256", null }));
+                Assert.That(shown["limits"]?["aeadAlgorithms"]?.Values<String>(),                  Is.EqualTo(new[] { "AES-128-GCM-SIV", "AES-SIV-CMAC-256" }));
+
+                Assert.That(status,                                                                Is.EqualTo(HttpStatusCode.BadRequest),  refusal.ToString());
+                Assert.That(refusal.Value<String>("error"),                                        Does.Contain("'AES-256-GCM-SIV' is not an AEAD algorithm this"));
+                Assert.That(OnDisk["nts"]?["groups"]?["local"]?["servers"]?[0]?.Value<String>("aead"),
+                            Is.EqualTo("AES-SIV-CMAC-256"),
+                            "what was written before the refusal stays");
+
+            });
+
+        }
+
+        #endregion
+
         #region WhoChangedAGroupIsWrittenDown()
 
         /// <summary>
