@@ -510,6 +510,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Boolean                DNSEnabled                   { get; private set; } = true;
 
         /// <summary>
+        /// The id of every name server this node would ask, by its place in the
+        /// list: what a CSMS knows it by - see DNSConfiguration.Ids.
+        /// </summary>
+        public IReadOnlyList<String>  DNSServerIds
+            => DNSConfiguration.IdsOf(configuredDNSServers.Select((_, index) => dnsServerIdsGiven.ElementAtOrDefault(index)));
+
+        /// <summary>
         /// Whether this node asks the servers of the legal group at all.
         /// </summary>
         public Boolean                NTSEnabled                   => LegalTime.Enabled;
@@ -552,6 +559,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// node was started with.
         /// </summary>
         private           Boolean                         dnsServersFromTheFile;
+
+        /// <summary>
+        /// The id the file gives each of the configured name servers, by its
+        /// place in the list, or null where it gives none - see
+        /// DNSConfiguration.Ids. The servers this node was started with have
+        /// none.
+        /// </summary>
+        private           IReadOnlyList<String?>          dnsServerIdsGiven = [];
 
 
         #endregion
@@ -1654,16 +1669,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    // The servers this node would ask, which is not the same
                    // as the ones the client holds: switched off, it holds none.
                    //
-                   // Each with what it is held to in the keys the file writes
-                   // it under, so that a page sending the list back sends the
-                   // pins back with it - and, for reading, the same again as the
-                   // NTS answer has it, what the node made of its certificate
-                   // last, and what it was last believed with.
+                   // Each with its id and what it is held to in the keys the
+                   // file writes them under, so that a page sending the list
+                   // back sends both back with it - and, for reading, the same
+                   // again as the NTS answer has it, what the node made of its
+                   // certificate last, and what it was last believed with.
                    new JProperty("servers",           new JArray(
-                       configuredDNSServers.Select(server => {
+                       configuredDNSServers.Select((server, index) => {
 
                            var pins  = PinsOf(server);
-                           var json  = DNSConfiguration.ServerJSON(server, pins);
+                           var json  = DNSConfiguration.ServerJSON(server, pins, DNSServerIds.ElementAtOrDefault(index));
 
                            json.Add("heldTo",     pins is { SaysAnything: true } ? pins.ToJSON() : null);
                            json.Add("judgement",  LastJudgementOf(server)?.ToJSON());
@@ -1885,6 +1900,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // held to nothing, as they were: a section without a list has no
             // pins.
             var servers = Configuration.RemovesServers ? startDNSServers : Configuration.Servers;
+            var wasIds  = DNSServerIds;
 
             // Compared with their timeouts. Two configurations of one server are
             // the same server without them, so that it is one key of a set
@@ -1906,7 +1922,23 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             if (servers is not null)
+            {
+
                 dnsServersFromTheFile = !Configuration.RemovesServers;
+
+                // Their ids with them. Said where they differ, and only then,
+                // as for a time server: an id is what a server is to a CSMS,
+                // and one given anew is a server it loses and one it gains,
+                // whatever the addresses say. A page writing down the ids it
+                // was shown changes nothing about them.
+                dnsServerIdsGiven  = Configuration.RemovesServers
+                                         ? []
+                                         : [.. servers.Select((_, index) => Configuration.ServerIds?.ElementAtOrDefault(index))];
+
+                if (!wasIds.SequenceEqual(DNSServerIds))
+                    changed.Add($"server ids = {String.Join(", ", DNSServerIds)}");
+
+            }
 
             if (Configuration.Enabled.HasValue && DNSEnabled != Configuration.Enabled.Value)
             {

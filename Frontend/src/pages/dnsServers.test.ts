@@ -114,6 +114,23 @@ describe('a name server told to the node', () => {
 
     });
 
+    it('goes back with its id, so that it stays the server a CSMS knows, and without one where it was added on the page', () => {
+
+        // Without it, the node names a server by its place: take the first
+        // of two away, and the second is dns-1 from then on, the server a
+        // CSMS knew as dns-1 with another address.
+        assert.deepEqual(entryOf({ ...server(), id: 'dns-2' }),
+                         { id: 'dns-2', address: '192.0.2.1', port: 53, transport: 'UDP', queryTimeoutSeconds: null });
+
+        assert.deepEqual(sentOf({ ...overTLS(), id: 'office' }),
+                         { id: 'office', address: '1.1.1.1', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
+                           rootFingerprint: root, trustOnFirstUse: 'root',
+                           pinsAsShown: { rootFingerprint: root, trustOnFirstUse: 'root' } });
+
+        assert.equal('id' in entryOf(server()), false, 'a server added on the page has no id to send');
+
+    });
+
     it('is asked over TLS or HTTPS in all its forms, and over nothing else, for a certificate', () => {
 
         assert.deepEqual([ 'TLS', 'HTTPS', 'HTTPS_Binary', 'HTTPS_JSON', 'HTTPS_GET' ].map(isEncrypted), [ true, true, true, true, true ]);

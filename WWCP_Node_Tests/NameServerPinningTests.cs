@@ -296,7 +296,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task ANameServerLearnsItsCertificateOnFirstUse()
         {
 
-            await using var node = Node(""", "trustOnFirstUse": "certificate" """);
+            await using var node = Node(""", "trustOnFirstUse": "certificate", "id": "ours" """);
 
             Assert.That(node.Certificates.Import(Pem(certificate), CertificateKind.TLSRoot, null, null,
                                                  [ CertificateUsages.DNS ], out _, out var error),  Is.True,  error);
@@ -309,6 +309,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(answers,                                        Has.Some.Contains("127.0.0.42"));
                 Assert.That(judgement.Value<String>("learned"),             Is.EqualTo("certificate"));
                 Assert.That(entry.Value<String>("certificateFingerprint"),  Is.EqualTo(Fingerprint(certificate)), "written down as a pin somebody typed would be");
+                Assert.That(entry.Value<String>("id"),                      Is.EqualTo("ours"), "with the id the file gave it, which a CSMS knows it by");
                 Assert.That(node.PinsOf(new DNSServerConfig(IPv4Address.Localhost, port, DNSTransport.TLS))?.Certificates,
                             Is.EqualTo(new[] { Fingerprint(certificate) }));
             });

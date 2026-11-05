@@ -216,6 +216,12 @@ export interface ServerJudgement {
  * what it is held to where it is asked over TLS or HTTPS.
  */
 export interface DNSServerEntry extends PinKeys {
+    /**
+     * What a CSMS knows the server by, whatever its address becomes: the node
+     * names every server it has with one, and keeps the ones sent back. None
+     * for a server added on the page, which the node gives the next free one.
+     */
+    id?:                  string;
     /** An IP address or a host name. */
     address:              string;
     port:                 number;

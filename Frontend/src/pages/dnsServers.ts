@@ -32,6 +32,10 @@ export function isEncrypted(transport: string): boolean {
  * says about it - what was made of its certificate, what it was last believed
  * with.
  *
+ * Its id where it has one, which the node then writes into the file: a server
+ * without one is named by its place, and would be another server to a CSMS
+ * once one before it is taken away.
+ *
  * What it is held to only where it is asked over TLS or HTTPS. The node
  * refuses a pin on a server that shows no certificate, rightly: somebody would
  * believe it held to something it is never compared with. So a server switched
@@ -43,6 +47,7 @@ export function isEncrypted(transport: string): boolean {
 export function entryOf(server: DNSServerEntry): DNSServerEntry {
 
     const entry: DNSServerEntry = {
+        ...(server.id !== undefined ? { id: server.id } : {}),
         address:              server.address,
         port:                 server.port,
         transport:            server.transport,

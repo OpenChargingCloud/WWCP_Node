@@ -273,6 +273,7 @@ export const dnsPage: Page = {
                     <div class="server-row" data-index="${index}">
                         <input type="text" data-field="address" data-index="${index}"
                                value="${server.address}" placeholder="address or host name"
+                               title="${server.id !== undefined ? `Its id is ${server.id}, which a CSMS knows it by, whatever its address becomes.` : 'A new name server'}"
                                ?disabled=${!mayChange}
                                @input=${(event: Event) => { server.address = (event.target as HTMLInputElement).value; }} />
                         <input type="number" data-field="port" data-index="${index}"

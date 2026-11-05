@@ -349,6 +349,84 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region EveryServerHasTheIdTheFileGivesItOrOneByItsPlace()
+
+        /// <summary>
+        /// A server's id is the one its entry gives, and "dns-&lt;n&gt;" for its
+        /// place n where it gives none - or the next number not taken by an id
+        /// the file gives. Written back, an entry keeps its id, first, and an
+        /// entry without one stays without one.
+        /// </summary>
+        [Test]
+        public void EveryServerHasTheIdTheFileGivesItOrOneByItsPlace()
+        {
+
+            var parsed  = DNSConfiguration.TryParse(JObject.Parse("""
+                                                                  { "servers": [ { "id": "office", "address": "192.0.2.1" },
+                                                                                 "192.0.2.2",
+                                                                                 { "id": "dns-2", "address": "192.0.2.3" } ] }
+                                                                  """),
+                                                    out var configuration,
+                                                    out var error);
+
+            var written = configuration?.ToJSON()["servers"] as JArray;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(parsed,                                         Is.True, error);
+                Assert.That(configuration?.ServerIds,                       Is.EqualTo(new[] { "office", null, "dns-2" }));
+                Assert.That(configuration?.Ids,                             Is.EqualTo(new[] { "office", "dns-3", "dns-2" }));
+                Assert.That((written?[0] as JObject)?.Properties().First().Name,  Is.EqualTo("id"));
+                Assert.That(written?.Select(server => server.Value<String>("id")),  Is.EqualTo(new[] { "office", null, "dns-2" }));
+                Assert.That(new DNSConfiguration(UseCache: true).Ids,      Is.Null, "a section without servers names none");
+            });
+
+        }
+
+        #endregion
+
+        #region AnIdThatCannotBeOneIsRefusedWithASentence(Servers, Said)
+
+        /// <summary>
+        /// An id is written as a time server's is, and no two name servers have
+        /// the same one: a CSMS would change either of them, never knowing which.
+        /// </summary>
+        [TestCase("""[ { "id": "Office", "address": "192.0.2.1" } ]""",                                           "'dns.servers[0].id': 'Office' cannot be the id of a name server")]
+        [TestCase("""[ { "id": "1", "address": "192.0.2.1" } ]""",                                                "'dns.servers[0].id': '1' cannot be the id of a name server")]
+        [TestCase("""[ { "id": "a b", "address": "192.0.2.1" } ]""",                                              "'dns.servers[0].id': 'a b' cannot be the id of a name server")]
+        [TestCase("""[ { "id": 7, "address": "192.0.2.1" } ]""",                                                  "'dns.servers[0].id' must be a string")]
+        [TestCase("""[ "192.0.2.1", { "id": "x", "address": "192.0.2.2" }, { "id": "x", "address": "192.0.2.3" } ]""", "'dns.servers[2].id': 'x' is the id of 'dns.servers[1]' already")]
+        public void AnIdThatCannotBeOneIsRefusedWithASentence(String  Servers,
+                                                             String  Said)
+        {
+
+            var parsed = DNSConfiguration.TryParse(JObject.Parse($$"""{ "servers": {{Servers}} }"""), out var configuration, out var error);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(parsed,         Is.False);
+                Assert.That(configuration,  Is.Null);
+                Assert.That(error,          Does.StartWith(Said));
+            });
+
+        }
+
+        [Test]
+        public void AnIdLongerThanAnInstanceIsRefused()
+        {
+
+            var parsed = DNSConfiguration.TryParse(JObject.Parse($$"""{ "servers": [ { "id": "{{new String('a', 51)}}", "address": "192.0.2.1" } ] }"""), out _, out var error);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(parsed,  Is.False);
+                Assert.That(error,   Is.EqualTo("'dns.servers[0].id' may be at most 50 characters long."));
+            });
+
+        }
+
+        #endregion
+
         #region ANameWithAnAddressInItIsAName()
 
         /// <summary>

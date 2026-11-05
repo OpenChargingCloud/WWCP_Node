@@ -265,6 +265,16 @@ is done by taking the client's servers away, which is what being switched off
 actually means for everything holding that client - and the list waits beside
 it for being switched back on.
 
+An entry may give its server an `"id"`, which is what a CSMS knows it by: the
+instance of its `DNSServerController` (Secure DNS). It is written as a time
+server's id is - lower-case letters, digits and hyphens, beginning with a
+letter, at most 50 of them - and no two servers have the same one. A server
+without one is `dns-<n>` for its place n, or the next number not taken, so
+`GET /api/v1/configuration/dns` names every server with an id, and a page or
+a CSMS sending the list back writes those ids into the file, where they stay
+whatever is added or taken away around them. A change of the ids is part of
+the change line: `server ids = dns-1, dns-2`.
+
 A name server reached over TLS or HTTPS shows a certificate, and is judged by
 it at every handshake the way a time server is at its key exchange - see
 below: issued for the address it is dialled at, chaining to a root this

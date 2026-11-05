@@ -308,7 +308,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                    [Server] = pins.Learning(What, Fingerprint)
                                };
 
-                var update   = new DNSConfiguration(Servers: configuredDNSServers, Pins: nowPins);
+                var update   = new DNSConfiguration(Servers: configuredDNSServers, Pins: nowPins, ServerIds: dnsServerIdsGiven);
 
                 if (!ConfigFile.TryMergeSection(DNSConfiguration.SectionName, update.ToJSON(), out var error))
                 {

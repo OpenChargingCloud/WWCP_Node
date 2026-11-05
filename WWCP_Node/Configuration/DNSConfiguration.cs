@@ -54,6 +54,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="MaxCNAMEFollows">How far.</param>
     /// <param name="MaxRetries">How often a server that did not answer, or answered SERVFAIL, is asked again.</param>
     /// <param name="Pins">What each of the servers reached over TLS or HTTPS is held to, beside what every one is held to - see <see cref="ServerPins"/>; only where the list of servers says so.</param>
+    /// <param name="ServerIds">The id the file gives each of the servers, by its place in the list, or null where it gives none - see <see cref="Ids"/>.</param>
     public sealed record DNSConfiguration(Boolean?                        Enabled               = null,
                                           IReadOnlyList<DNSServerConfig>? Servers               = null,
                                           TimeSpan?                       QueryTimeout          = null,
@@ -63,7 +64,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           Boolean?                        FollowCNAMEs          = null,
                                           Byte?                           MaxCNAMEFollows       = null,
                                           Byte?                           MaxRetries            = null,
-                                          IReadOnlyDictionary<DNSServerConfig, ServerPins>?  Pins  = null)
+                                          IReadOnlyDictionary<DNSServerConfig, ServerPins>?  Pins  = null,
+                                          IReadOnlyList<String?>?         ServerIds             = null)
     {
 
         #region Data
@@ -134,6 +136,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             }
         }
 
+        /// <summary>
+        /// The id of every server, by its place in the list - the one the file
+        /// gives it, or else "dns-&lt;n&gt;" - or null where the section names
+        /// no servers.
+        /// </summary>
+        /// <remarks>
+        /// What a CSMS knows a name server by: the instance of its
+        /// DNSServerController. An id the file does not give is as stable as
+        /// the server's place in the list, as for a time server - see
+        /// <see cref="NTSServerConfiguration.IdsOf"/> - so whatever shows the
+        /// ids to somebody writes them back with the list.
+        /// </remarks>
+        public IReadOnlyList<String>? Ids
+            => Servers is not null
+                   ? IdsOf(Servers.Select((_, index) => ServerIds?.ElementAtOrDefault(index)))
+                   : null;
+
         #endregion
 
 
@@ -154,6 +173,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             IReadOnlyList<DNSServerConfig>?                    servers  = null;
             Dictionary<DNSServerConfig, ServerPins>?          pins     = null;
+            List<String?>?                                     ids      = null;
 
             if (JSON["servers"] is JToken serversToken && serversToken.Type != JTokenType.Null)
             {
@@ -173,14 +193,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 var parsed = new List<DNSServerConfig>();
 
                 pins       = [];
+                ids        = [];
 
                 for (var index = 0; index < serverArray.Count; index++)
                 {
 
-                    if (!TryParseServer(serverArray[index], index, out var server, out var held, out Error))
+                    if (!TryParseServer(serverArray[index], index, out var server, out var held, out Error) ||
+                        !TryReadId     (serverArray[index], index, ids, out var id, out Error))
+                    {
                         return false;
+                    }
 
                     parsed.Add(server);
+                    ids.   Add(id);
 
                     if (held is not null)
                         pins[server] = held;
@@ -215,7 +240,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 followCNAMEs,
                                 maxCNAMEFollows,
                                 maxRetries,
-                                pins
+                                pins,
+                                ids
                             ) {
                                 // Named, and null: "leave it to the server".
                                 // See RemovesRecursionDesired.
@@ -373,6 +399,84 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
+        #region (private static) TryReadId(JSON, Index, Before, out Id, out Error)
+
+        /// <summary>
+        /// The id the file gives a name server, or null where it gives none: a
+        /// server written as its address alone has none.
+        /// </summary>
+        /// <param name="JSON">The entry of the server.</param>
+        /// <param name="Index">Its place in the list, to say which one is wrong.</param>
+        /// <param name="Before">The ids of the servers before it, none of which it may have.</param>
+        private static Boolean TryReadId(JToken                            JSON,
+                                         Int32                             Index,
+                                         List<String?>                     Before,
+                                         out String?                       Id,
+                                         [NotNullWhen(false)] out String?  Error)
+        {
+
+            Id     = null;
+            Error  = null;
+
+            if (JSON is not JObject json)
+                return true;
+
+            if (!ConfigurationReader.TryReadString(json, "id", $"dns.servers[{Index}]", NTSServerConfiguration.MaxIdLength, out Id, out Error))
+                return false;
+
+            if (Id is null)
+                return true;
+
+            if (!IsServerId(Id))
+            {
+                Error = $"'dns.servers[{Index}].id': '{Id}' cannot be the id of a name server, which is lower-case letters, digits and hyphens, beginning with a letter, and at most {NTSServerConfiguration.MaxIdLength} of them.";
+                return false;
+            }
+
+            // Two servers of one id would be one instance to a CSMS, which
+            // would change either of them, never knowing which.
+            var other = Before.IndexOf(Id);
+
+            if (other >= 0)
+            {
+                Error = $"'dns.servers[{Index}].id': '{Id}' is the id of 'dns.servers[{other}]' already.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) IsServerId(Text)
+
+        /// <summary>
+        /// Whether a text can be the id of a name server: as for a time server,
+        /// lower-case letters, digits and hyphens, beginning with a letter, and
+        /// at most <see cref="NTSServerConfiguration.MaxIdLength"/> of them - the
+        /// length of an OCPP instance.
+        /// </summary>
+        public static Boolean IsServerId(String? Text)
+
+            => NTSServerConfiguration.IsServerId(Text);
+
+        #endregion
+
+        #region (static) IdsOf(Given)
+
+        /// <summary>
+        /// The id of every name server, by its place in the list: the one the
+        /// file gives it, or else "dns-&lt;n&gt;" for the n-th server - the next
+        /// number not taken where another server has that one already.
+        /// </summary>
+        /// <param name="Given">The id the file gives each server, by its place in the list, or null where it gives none.</param>
+        public static IReadOnlyList<String> IdsOf(IEnumerable<String?> Given)
+
+            => NTSServerConfiguration.IdsOf(SectionName, Given);
+
+        #endregion
+
         #region (static) IsEncrypted(Transport)
 
         /// <summary>
@@ -412,13 +516,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// <summary>
         /// One name server as the file keeps it, with what it is held to - in
         /// the keys the file writes it under, so that a page sending the entry
-        /// back sends the pins back with it.
+        /// back sends the pins back with it - and its id, where it has one.
         /// </summary>
         public static JObject ServerJSON(DNSServerConfig  Server,
-                                         ServerPins?      Pins)
+                                         ServerPins?      Pins,
+                                         String?          Id   = null)
         {
 
             var json = ServerJSON(Server);
+
+            if (Id is not null)
+                json.AddFirst(new JProperty("id", Id));
 
             Pins?.WriteInto(json);
 
@@ -441,7 +549,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             var json = new JObject();
 
             if (Enabled.            HasValue)  json.Add("enabled",              Enabled.            Value);
-            if (Servers is not null)           json.Add("servers",              new JArray(Servers.Select(server => ServerJSON(server, Pins?.GetValueOrDefault(server)))));
+            if (Servers is not null)           json.Add("servers",              new JArray(Servers.Select((server, index) => ServerJSON(server, Pins?.GetValueOrDefault(server), ServerIds?.ElementAtOrDefault(index)))));
             if (QueryTimeout.       HasValue)  json.Add("queryTimeoutSeconds",  QueryTimeout.       Value.TotalSeconds);
             if (RecursionDesired.   HasValue)  json.Add("recursionDesired",     RecursionDesired.   Value);
             if (UseCache.           HasValue)  json.Add("useCache",             UseCache.           Value);

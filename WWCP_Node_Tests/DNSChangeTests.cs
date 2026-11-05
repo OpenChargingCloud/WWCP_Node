@@ -246,7 +246,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                               """
                               {
                                 "nts": { "groups": { "legal": { "enabled": false } } },
-                                "dns": { "servers": [ { "address": "198.51.100.1", "transport": "TLS",
+                                "dns": { "servers": [ { "id": "ours", "address": "198.51.100.1", "transport": "TLS",
                                                         "rootFingerprint": "9d2e4f6a8b0c1d3e5f7a9b1c3d5e7f9a0b2c4d6e8f0a1b3c5d7e9f1a2b4c6d8e" },
                                                       "192.0.2.53" ],
                                          "maxRetries": 0 }
@@ -285,6 +285,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(after.Value<String>("serversFrom"),                   Is.EqualTo("start"));
                 Assert.That(Addresses(after),                                     Is.EqualTo(new[] { "198.51.100.1" }));
                 Assert.That(after["servers"]?[0]?["rootFingerprint"],             Is.Null, "held to nothing");
+                Assert.That(after["servers"]?[0]?.Value<String>("id"),            Is.EqualTo("dns-1"), "named by its place, as the file's ids went with the file's servers");
 
                 Assert.That(OnDisk["dns"]?["servers"],                            Is.Null, "taken out of the file");
                 Assert.That(OnDisk["dns"]?.Value<Int32>("maxRetries"),            Is.EqualTo(0), "and nothing else");
@@ -294,8 +295,184 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(told.Select(change => change.Origin),                 Is.EqualTo(new[] { "web:root" }), "once, and not for the save that changed nothing");
                 Assert.That(told.SelectMany(change => change.Changes),            Has.Some.EqualTo("servers = tls://198.51.100.1:853, the ones it was started with").
+                                                                                  And.Some.EqualTo("server ids = dns-1").
                                                                                   And.Some.EqualTo("tls://198.51.100.1:853 held to no fingerprint"));
 
+            });
+
+        }
+
+        #endregion
+
+        #region (helper) NodeWithServers(Servers)
+
+        /// <summary>
+        /// A node with the given name servers, nobody answering on any of them,
+        /// and no time server to ask.
+        /// </summary>
+        private WWCPNode NodeWithServers(String Servers)
+        {
+
+            File.WriteAllText(ConfigurationPath,
+                              $$"""
+                              {
+                                "nts": { "groups": { "legal": { "enabled": false } } },
+                                "dns": { "servers": {{Servers}}, "maxRetries": 0 }
+                              }
+                              """);
+
+            return new WWCPNode(
+                       AccountsPath:      Path.Combine(directory, "accounts"),
+                       ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                       CertificatesPath:  Path.Combine(directory, "certificates"),
+                       LogToConsole:      false,
+                       BridgeDebugLog:    false
+                   );
+
+        }
+
+        /// <summary>
+        /// The ids of the servers as a section says them.
+        /// </summary>
+        private static String?[] IdsIn(JToken? Section)
+
+            => [.. (Section?["servers"] as JArray ?? []).Select(server => server.Value<String>("id"))];
+
+        #endregion
+
+        #region EveryServerIsShownWithItsId()
+
+        /// <summary>
+        /// The node shows every name server with an id: the one the file gives
+        /// it, or one by its place.
+        /// </summary>
+        [Test]
+        public async Task EveryServerIsShownWithItsId()
+        {
+
+            await using var node = NodeWithServers("""[ { "id": "office", "address": "192.0.2.1" }, "192.0.2.2" ]""");
+
+            Assert.Multiple(() => {
+                Assert.That(IdsIn(node.DNSConfigurationJSON()),  Is.EqualTo(new[] { "office", "dns-2" }));
+                Assert.That(node.DNSServerIds,                   Is.EqualTo(new[] { "office", "dns-2" }));
+            });
+
+        }
+
+        #endregion
+
+        #region IdsSentBackStayWhenAServerBeforeThemIsTakenAway()
+
+        /// <summary>
+        /// The servers a page or a CSMS sends back with the ids it was shown keep
+        /// them when the server before them is taken away - in effect, in the
+        /// file and at the next start - and the new ids are told with the new
+        /// servers. Sent back without them, the servers would be named by their
+        /// new places, the second being "dns-1" to a CSMS that knew "dns-1" as
+        /// another one.
+        /// </summary>
+        [Test]
+        public async Task IdsSentBackStayWhenAServerBeforeThemIsTakenAway()
+        {
+
+            await using var node = NodeWithServers("""[ "192.0.2.1", "192.0.2.2", "192.0.2.3" ]""");
+
+            var told  = Recorded(node);
+            var shown = node.DNSConfigurationJSON();
+            var sent  = new JObject(
+                            new JProperty("servers", new JArray(
+                                (shown["servers"] as JArray ?? []).Skip(1).Select(server => new JObject(
+                                    new JProperty("id",       server["id"]),
+                                    new JProperty("address",  server["address"])
+                                ))
+                            ))
+                        );
+
+            Assert.That(node.TryUpdateDNSConfiguration(sent, out var error, out _, ChangeOrigin.Web("root")),  Is.True, error);
+
+            await using var started = new WWCPNode(
+                                          AccountsPath:      Path.Combine(directory, "accounts"),
+                                          ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                                          CertificatesPath:  Path.Combine(directory, "certificates"),
+                                          LogToConsole:      false,
+                                          BridgeDebugLog:    false
+                                      );
+
+            Assert.Multiple(() => {
+
+                Assert.That(IdsIn(shown),                                 Is.EqualTo(new[] { "dns-1", "dns-2", "dns-3" }));
+
+                Assert.That(node.DNSServerIds,                            Is.EqualTo(new[] { "dns-2", "dns-3" }));
+                Assert.That(IdsIn(node.DNSConfigurationJSON()),           Is.EqualTo(new[] { "dns-2", "dns-3" }));
+                Assert.That(IdsIn(OnDisk["dns"]),                         Is.EqualTo(new[] { "dns-2", "dns-3" }), "written into the file");
+                Assert.That(started.DNSServerIds,                         Is.EqualTo(new[] { "dns-2", "dns-3" }), "and read at the next start");
+
+                Assert.That(told,                                         Has.Count.EqualTo(1));
+                Assert.That(told.SelectMany(change => change.Changes),    Has.Some.StartsWith("servers = ").
+                                                                          And.Some.EqualTo("server ids = dns-2, dns-3"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AServerAddedIsToldWithItsNewId()
+
+        /// <summary>
+        /// A server added without an id takes the next free one, and the ids are
+        /// part of the change that is told: to a CSMS, the server is new.
+        /// </summary>
+        [Test]
+        public async Task AServerAddedIsToldWithItsNewId()
+        {
+
+            await using var node = NodeWithServers("""[ { "id": "dns-2", "address": "192.0.2.1" } ]""");
+
+            var told = Recorded(node);
+
+            Assert.That(node.TryUpdateDNSConfiguration(JObject.Parse("""{ "servers": [ { "id": "dns-2", "address": "192.0.2.1" }, "192.0.2.2" ] }"""),
+                                                       out var error, out _, ChangeOrigin.Web("root")),
+                        Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(node.DNSServerIds,                            Is.EqualTo(new[] { "dns-2", "dns-3" }));
+                Assert.That(told.SelectMany(change => change.Changes),    Has.Some.EqualTo("server ids = dns-2, dns-3"));
+            });
+
+        }
+
+        #endregion
+
+        #region IdsWrittenDownAsShownChangeNothing()
+
+        /// <summary>
+        /// A page sending the list back with the ids it was shown writes them
+        /// into the file, where they stay, and changes nothing: they were the
+        /// servers' ids before.
+        /// </summary>
+        [Test]
+        public async Task IdsWrittenDownAsShownChangeNothing()
+        {
+
+            await using var node = NodeWithServers("""[ "192.0.2.1", "192.0.2.2" ]""");
+
+            var told  = Recorded(node);
+            var sent  = new JObject(
+                            new JProperty("servers", new JArray(
+                                (node.DNSConfigurationJSON()["servers"] as JArray ?? []).Select(server => new JObject(
+                                    new JProperty("id",       server["id"]),
+                                    new JProperty("address",  server["address"])
+                                ))
+                            ))
+                        );
+
+            Assert.That(node.TryUpdateDNSConfiguration(sent, out var error, out _, ChangeOrigin.Web("root")),  Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(told,                   Is.Empty, "nothing changed");
+                Assert.That(node.DNSServerIds,      Is.EqualTo(new[] { "dns-1", "dns-2" }));
+                Assert.That(IdsIn(OnDisk["dns"]),   Is.EqualTo(new[] { "dns-1", "dns-2" }));
             });
 
         }
