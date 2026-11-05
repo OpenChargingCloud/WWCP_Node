@@ -1225,13 +1225,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
             //    another site's page would reach them - see CrossSitePipeline.
             //    The same rule as the JSON API's; on an API that was handed in,
             //    its owner's to set.
+            //    Nor may a read-only API key change anything there: the HTTPExt
+            //    API lets it in as its account, whatever its rights - see
+            //    ReadOnlyAPIKeyPipeline. The JSON API's rule as well.
             if (this.OwnsExtAPI)
+            {
+
                 this.HTTPServer.AddPipeline(
                     new CrossSitePipeline(
                         this.ExtAPI.RootPath,
                         ProxyHostOf
                     )
                 );
+
+                this.HTTPServer.AddPipeline(
+                    new ReadOnlyAPIKeyPipeline(
+                        this.ExtAPI.RootPath,
+                        this.ExtAPI,
+                        request => this.Log.Warning(
+                                       $"{request.HTTPMethod} {request.Path} was refused: the API key used is read-only.",
+                                       "web", "auth"
+                                   )
+                    )
+                );
+
+            }
 
             // 2) The web interface at "/": the files of the bundle, and the
             //    single-page-application stub for every other page URL, so

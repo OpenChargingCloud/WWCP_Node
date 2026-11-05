@@ -70,7 +70,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         {
 
             if (CrossSite.IsARead(Request) ||
-                !IsBelowRootPath(Request.Path) ||
+                !IsBelow(RootPath, Request.Path) ||
                 !CrossSite.IsCrossSite(Request, HostAskedFor?.Invoke(Request)))
             {
                 return Task.FromResult<(HTTPRequest, HTTPResponse?)>((Request, null));
@@ -91,9 +91,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
-        #region (private) IsBelowRootPath(Path)
+        #region (internal static) IsBelow(RootPath, Path)
 
-        private Boolean IsBelowRootPath(HTTPPath Path)
+        /// <summary>
+        /// Whether the given path is the given root path or below it.
+        /// </summary>
+        internal static Boolean IsBelow(HTTPPath  RootPath,
+                                        HTTPPath  Path)
         {
 
             var root = RootPath.ToString().TrimEnd('/');

@@ -535,7 +535,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             // on top of the groups. So a key handed to a monitoring job can not change anything, even when it is the
             // key of an administrator (the only account any interface gives a role to).
             if (Required.Any(permission => permission.Operation != Operation.Read) &&
-                AuthenticatedByReadOnlyAPIKey(Request))
+                ReadOnlyAPIKeyPipeline.BringsAReadOnlyAPIKey(ExtAPI, Request))
             {
 
                 Log.Warning(
@@ -543,7 +543,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                     "web", "auth"
                 );
 
-                Refused  = ErrorJSON(Request, HTTPStatusCode.Forbidden, "The API key used is read-only and may only read.");
+                Refused  = ErrorJSON(Request, HTTPStatusCode.Forbidden, ReadOnlyAPIKeyPipeline.Refusal);
                 User     = null;
                 return false;
 
@@ -560,22 +560,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             return true;
 
         }
-
-        #endregion
-
-        #region (private) AuthenticatedByReadOnlyAPIKey(Request)
-
-        /// <summary>
-        /// Whether the request was let in by an API key that is marked read-only. The cookie and HTTP Basic auth of the
-        /// web interface carry no such key, so they are unaffected; a programmatic caller sending a read-only API key is
-        /// held to reading, even when it also sends other credentials (then the strictest wins).
-        /// </summary>
-        private Boolean AuthenticatedByReadOnlyAPIKey(HTTPRequest Request)
-
-            => Request.API_Key is not null &&
-               ExtAPI.TryGetValidAPIKey(Request.API_Key, out var apiKey) &&
-               apiKey is not null &&
-               apiKey.AccessRights == APIKeyRights.ReadOnly;
 
         #endregion
 
