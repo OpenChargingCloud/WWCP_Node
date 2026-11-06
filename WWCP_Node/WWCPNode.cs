@@ -474,6 +474,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public DNSClient              DNSClient                    => dnsClient;
 
         /// <summary>
+        /// Whether the DNS client is one this node made itself, or one it was
+        /// handed.
+        /// </summary>
+        /// <remarks>
+        /// One it made is let go of with the node: its cache tidies itself up
+        /// on a timer, which ticks until the client is let go of, and a node
+        /// let go of used to leave it ticking. One handed in is let go of by
+        /// whoever made it, who may still be using it.
+        /// </remarks>
+        public Boolean                OwnsDNSClient                { get; }
+
+        /// <summary>
         /// The groups of time servers this node checks its clock against: the
         /// ones its configuration names, in its order - or the legal one alone,
         /// where it names none.
@@ -599,7 +611,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Resources">The resources this kind of node adds to the node's own, by the names its roles write them under.</param>
         /// <param name="RoleDefinitions">The roles of this kind of node, each with what it may do. <see cref="AdminRole"/> and the viewer are the node's, and a kind that brings a viewer of its own replaces the node's.</param>
         /// <param name="ConfigFile">Where the configuration lives between starts.</param>
-        /// <param name="DNSClient">How to resolve names, or null to make a client.</param>
+        /// <param name="DNSClient">How to resolve names, or null to make a client, which the node then lets go of with itself.</param>
         /// <param name="NTSClient">Where to read the time, or null to make a client.</param>
         /// <param name="Frontend">Where the web interface comes from, or null for a node that has none.</param>
         /// <param name="CertificatesPath">The directory the certificate store lives in between starts; what the file says, or "certificates" beside it, by default.</param>
@@ -808,6 +820,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             #region The clients everything below shares
 
+            this.OwnsDNSClient         = DNSClient is null;
             this.dnsClient             = DNSClient ?? new DNSClient();
             this.configuredDNSServers  = [.. dnsClient.DNSServers];
             this.startDNSServers       = configuredDNSServers;
@@ -3453,8 +3466,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region DisposeAsync()
 
         /// <summary>
-        /// Stop listening and let go of the HTTP servers that are this node's
-        /// own, the console, the log file and the debug bridge.
+        /// Stop listening and let go of the HTTP servers and the DNS client that
+        /// are this node's own, the console, the log file and the debug bridge.
         /// </summary>
         /// <remarks>
         /// A node of a particular kind that has something of its own to let go
@@ -3486,6 +3499,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     // waiting for to learn a server's pin.
                     foreach (var group in ntsGroups.Append(LegalTime).Distinct())
                         await group.DisposeAsync();
+
+                    // After the servers and the groups, which resolve names
+                    // with it - and only where this node made it.
+                    if (OwnsDNSClient)
+                        await dnsClient.DisposeAsync();
 
                     traceBridge?.   Dispose();
                     consoleLog?.    Dispose();

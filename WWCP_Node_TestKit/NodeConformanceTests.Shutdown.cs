@@ -23,6 +23,7 @@ using System.Reflection;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 
@@ -422,6 +423,32 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region LettingGoOfItLetsGoOfTheDNSClientItMade()
+
+        /// <summary>
+        /// A node let go of lets go of the DNS client it made itself: the timer
+        /// its cache tidies itself up on ticks no more.
+        /// </summary>
+        /// <remarks>
+        /// A node let go of used to leave it ticking, one timer for every node
+        /// a test run made.
+        /// </remarks>
+        [Test]
+        public async Task LettingGoOfItLetsGoOfTheDNSClientItMade()
+        {
+
+            NothingLeftRunning();
+
+            Assume.That(Node.OwnsDNSClient, Is.True, "This kind of node is handed its DNS client, which whoever made it lets go of.");
+
+            await Node.DisposeAsync();
+
+            Assert.That(TidiesUpStill(Node.DNSClient), Is.False, "The node was let go of, and the timer of its DNS client's cache still ticks.");
+
+        }
+
+        #endregion
+
         #region (static) TicksStill(Server)
 
         /// <summary>
@@ -440,6 +467,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var timer = typeof(ATCPServer).GetField("maintenanceTimer", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(Server) as Timer;
 
             Assert.That(timer, Is.Not.Null, "A TCP server of Hermod has no timer 'maintenanceTimer' any more: this test has to learn where it is now.");
+
+            return timer!.Change(Timeout.Infinite, Timeout.Infinite);
+
+        }
+
+        #endregion
+
+        #region (static) TidiesUpStill(Client)
+
+        /// <summary>
+        /// Whether the timer a DNS client's cache tidies itself up on still
+        /// ticks: it does until the client is let go of.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the timer itself, as <see cref="TicksStill(ATCPServer)"/>
+        /// asks a server's, and with the same consequence: one still ticking is
+        /// stopped by being asked.
+        /// </remarks>
+        /// <param name="Client">The DNS client.</param>
+        public static Boolean TidiesUpStill(DNSClient Client)
+        {
+
+            var timer = typeof(DNSCache).GetField("cleanUpTimer", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(Client.DNSCache) as Timer;
+
+            Assert.That(timer, Is.Not.Null, "The DNS cache of Hermod has no timer 'cleanUpTimer' any more: this test has to learn where it is now.");
 
             return timer!.Change(Timeout.Infinite, Timeout.Infinite);
 

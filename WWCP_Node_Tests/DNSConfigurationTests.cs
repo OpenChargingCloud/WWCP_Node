@@ -21,9 +21,11 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -540,6 +542,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                             "and in the log");
 
             });
+
+        }
+
+        #endregion
+
+        #region ADNSClientThatIsHandedInIsLetGoOfByWhoeverMadeIt()
+
+        /// <summary>
+        /// A node let go of leaves a DNS client it was handed alone: whoever
+        /// made it lets go of it, and may still be using it.
+        /// </summary>
+        /// <remarks>
+        /// One the node made itself it lets go of - asked of every kind of node
+        /// by NodeConformanceTests.LettingGoOfItLetsGoOfTheDNSClientItMade.
+        /// </remarks>
+        [Test]
+        public async Task ADNSClientThatIsHandedInIsLetGoOfByWhoeverMadeIt()
+        {
+
+            File.WriteAllText(ConfigurationPath, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
+
+            // A documentation address (RFC 5737): nothing here asks it anything.
+            var handed = new DNSClient([ new DNSServerConfig(IPv4Address.Parse("192.0.2.53"), IPPort.DNS) ]);
+
+            try
+            {
+
+                await using (var node = new WWCPNode(
+                                            AccountsPath:      Path.Combine(directory, "accounts"),
+                                            ConfigFile:        new WWCPConfigFile(ConfigurationPath),
+                                            CertificatesPath:  Path.Combine(directory, "certificates"),
+                                            DNSClient:         handed,
+                                            LogToConsole:      false
+                                        ))
+                    Assert.That(node.OwnsDNSClient, Is.False);
+
+                Assert.That(NodeConformanceTests.TidiesUpStill(handed), Is.True, "A node let go of a DNS client it was handed.");
+
+            }
+            finally
+            {
+                await handed.DisposeAsync();
+            }
 
         }
 
