@@ -18,8 +18,11 @@
 #region Usings
 
 using System.Diagnostics;
+using System.Reflection;
 
 using NUnit.Framework;
+
+using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 
@@ -385,6 +388,60 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 await Node.Stop();
                 await Node.DisposeAsync();
             });
+
+        }
+
+        #endregion
+
+        #region LettingGoOfItLetsGoOfItsHTTPServer()
+
+        /// <summary>
+        /// A node let go of lets go of the HTTP server it made, and does not only
+        /// stop it: its maintenance timer, which ticks until the server is let go
+        /// of, ticks no more.
+        /// </summary>
+        /// <remarks>
+        /// Stopping closes the port and no more, and a node let go of used to
+        /// stop its server only. A test run makes a node for nearly every test,
+        /// and by its end hundreds of servers were still ticking, each with its
+        /// Warden.
+        /// </remarks>
+        [Test]
+        public async Task LettingGoOfItLetsGoOfItsHTTPServer()
+        {
+
+            NothingLeftRunning();
+
+            Assume.That(Node.OwnsHTTPServer, Is.True, "This kind of node is lent its HTTP server, which whoever made it lets go of.");
+
+            await Node.DisposeAsync();
+
+            Assert.That(TicksStill(Node.HTTPServer), Is.False, "The node was let go of, and its HTTP server's maintenance timer still ticks.");
+
+        }
+
+        #endregion
+
+        #region (static) TicksStill(Server)
+
+        /// <summary>
+        /// Whether the maintenance timer of a TCP server still ticks: it does
+        /// until the server is let go of, and stopping it is not enough.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the timer itself, which a server does not show: a timer let
+        /// go of answers a change with false. One still ticking is stopped by
+        /// being asked, so a server asked about is one that is let go of next.
+        /// </remarks>
+        /// <param name="Server">The server.</param>
+        public static Boolean TicksStill(ATCPServer Server)
+        {
+
+            var timer = typeof(ATCPServer).GetField("maintenanceTimer", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(Server) as Timer;
+
+            Assert.That(timer, Is.Not.Null, "A TCP server of Hermod has no timer 'maintenanceTimer' any more: this test has to learn where it is now.");
+
+            return timer!.Change(Timeout.Infinite, Timeout.Infinite);
 
         }
 

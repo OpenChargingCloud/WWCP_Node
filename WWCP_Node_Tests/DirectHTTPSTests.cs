@@ -496,6 +496,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ANodeLetGoOfLetsGoOfItsRedirectAsWell()
+
+        /// <summary>
+        /// The port of plain HTTP that redirects is the node's own wherever there
+        /// is one, and a node let go of lets go of it as well as of its own
+        /// server: neither's maintenance timer ticks any more.
+        /// </summary>
+        [Test]
+        public async Task ANodeLetGoOfLetsGoOfItsRedirectAsWell()
+        {
+
+            using var certificate = SelfSigned("node web interface let go of");
+
+            var node = await Started(redirect => $$"""{ "tls": { "certificate": "store", "redirectPort": {{redirect}} } }""",
+                                     made => made.Certificates.Import(certificate.Export(X509ContentType.Pkcs12), CertificateKind.TLSServerIdentity, null, "web", out _, out _));
+
+            Assert.That(node.RedirectServer, Is.Not.Null, "the node has no redirect to let go of");
+
+            await node.DisposeAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(NodeConformanceTests.TicksStill(node.RedirectServer!),  Is.False, "The node was let go of, and its redirect's maintenance timer still ticks.");
+                Assert.That(NodeConformanceTests.TicksStill(node.HTTPServer),       Is.False, "The node was let go of, and its HTTP server's maintenance timer still ticks.");
+            });
+
+        }
+
+        #endregion
+
         #region APlainNodeSendsNoHSTS()
 
         /// <summary>

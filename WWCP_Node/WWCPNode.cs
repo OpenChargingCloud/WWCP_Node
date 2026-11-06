@@ -3453,8 +3453,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region DisposeAsync()
 
         /// <summary>
-        /// Stop listening and let go of the console, the log file and the
-        /// debug bridge.
+        /// Stop listening and let go of the HTTP servers that are this node's
+        /// own, the console, the log file and the debug bridge.
         /// </summary>
         /// <remarks>
         /// A node of a particular kind that has something of its own to let go
@@ -3475,22 +3475,63 @@ namespace cloud.charging.open.protocols.WWCP.Node
             finally
             {
 
-                // Before the lock, which a check on its way out may still be
-                // waiting for to learn a server's pin.
-                foreach (var group in ntsGroups.Append(LegalTime).Distinct())
-                    await group.DisposeAsync();
+                try
+                {
+                    await LetGoOfTheServers();
+                }
+                finally
+                {
 
-                traceBridge?.   Dispose();
-                consoleLog?.    Dispose();
-                fileLog?.       Dispose();
-                MetrologicalLog?.Dispose();
+                    // Before the lock, which a check on its way out may still be
+                    // waiting for to learn a server's pin.
+                    foreach (var group in ntsGroups.Append(LegalTime).Distinct())
+                        await group.DisposeAsync();
 
-                reconfigureLock.Dispose();
+                    traceBridge?.   Dispose();
+                    consoleLog?.    Dispose();
+                    fileLog?.       Dispose();
+                    MetrologicalLog?.Dispose();
 
-                GC.SuppressFinalize(this);
+                    reconfigureLock.Dispose();
+
+                    GC.SuppressFinalize(this);
+
+                }
 
             }
 
+        }
+
+        #endregion
+
+        #region (private) LetGoOfTheServers()
+
+        /// <summary>
+        /// Let go of the port of plain HTTP that redirects to HTTPS, and of the
+        /// HTTP server where it is this node's own.
+        /// </summary>
+        /// <remarks>
+        /// Stopping a server closes its port and no more: its maintenance timer
+        /// and its Warden go on ticking until it is let go of, and a node let
+        /// go of used to stop its servers only. A process that makes nodes and
+        /// lets them go - a test run makes one for nearly every test - had
+        /// hundreds of them ticking by its end. A shared server is let go of by
+        /// whoever made it, as it is started and stopped by them; the redirect
+        /// is this node's wherever there is one. Each is let go of even where
+        /// the one before failed.
+        /// </remarks>
+        private async Task LetGoOfTheServers()
+        {
+            try
+            {
+                if (RedirectServer is not null)
+                    await RedirectServer.DisposeAsync();
+            }
+            finally
+            {
+                if (OwnsHTTPServer)
+                    await HTTPServer.DisposeAsync();
+            }
         }
 
         #endregion

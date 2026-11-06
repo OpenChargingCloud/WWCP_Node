@@ -227,6 +227,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AServerThatIsHandedInIsLetGoOfByWhoeverMadeIt()
+
+        /// <summary>
+        /// A node let go of leaves a server it was handed alone: whoever made it
+        /// starts it, stops it and lets go of it, and other programs may still
+        /// be registered within it.
+        /// </summary>
+        [Test]
+        public async Task AServerThatIsHandedInIsLetGoOfByWhoeverMadeIt()
+        {
+
+            var shared = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: IPPort.Parse(TestPorts.Free()));
+
+            try
+            {
+
+                await using (var node = Node(Server: shared))
+                    Assert.That(node.OwnsHTTPServer, Is.False);
+
+                Assert.That(NodeConformanceTests.TicksStill(shared), Is.True, "A node let go of a server it was handed.");
+
+            }
+            finally
+            {
+                await shared.DisposeAsync();
+            }
+
+        }
+
+        #endregion
+
         #region CertificatesBesideItNeedACertificate()
 
         /// <summary>
