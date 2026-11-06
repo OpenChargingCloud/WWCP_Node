@@ -23,6 +23,8 @@ using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.Configuration
@@ -50,10 +52,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Port">The port it listens on; 20000 above the web interface's where absent.</param>
     /// <param name="Passwords">Whether an account's password opens it as well as its keys; no where absent.</param>
     /// <param name="Sftp">Whether the node's files are served over SFTP on the SSH server; no where absent.</param>
-    public sealed record SSHConfiguration(Boolean?  Enabled    = null,
-                                          IPPort?   Port       = null,
-                                          Boolean?  Passwords  = null,
-                                          Boolean?  Sftp       = null)
+    /// <param name="AccessRules">The SSH access rules, which can only restrict who signs in and what they use - see <see cref="SSHAccessRules"/>; none where absent.</param>
+    public sealed record SSHConfiguration(Boolean?         Enabled      = null,
+                                          IPPort?          Port         = null,
+                                          Boolean?         Passwords    = null,
+                                          Boolean?         Sftp         = null,
+                                          SSHAccessRules?  AccessRules  = null)
     {
 
         #region Data
@@ -84,7 +88,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !ConfigurationReader.TryReadBoolean(JSON, "sftp",       SectionName, out var sftp,       out Error))
                 return false;
 
-            Configuration = new SSHConfiguration(enabled, port, passwords, sftp);
+            SSHAccessRules? accessRules = null;
+
+            if (JSON.TryGetValue("accessRules", out var rules) && rules.Type != JTokenType.Null &&
+                !SSHAccessRules.TryParse(rules, $"{SectionName}.accessRules", out accessRules, out Error))
+                return false;
+
+            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules);
 
             return true;
 
@@ -106,6 +116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Port      is not null)  json.Add("port",       Port.     Value.ToUInt16());
             if (Passwords is not null)  json.Add("passwords",  Passwords.Value);
             if (Sftp      is not null)  json.Add("sftp",       Sftp.     Value);
+            if (AccessRules is not null)  json.Add("accessRules",  AccessRules.ToJSON());
 
             return json;
 
@@ -119,7 +130,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             => Enabled == false
                    ? "no SSH"
-                   : $"SSH{(Port is not null ? $" on port {Port}" : "")}{(Passwords == true ? " with passwords" : "")}{(Sftp == true ? " and SFTP" : "")}";
+                   : $"SSH{(Port is not null ? $" on port {Port}" : "")}{(Passwords == true ? " with passwords" : "")}{(Sftp == true ? " and SFTP" : "")}" +
+                     (AccessRules is { Rules.Count: > 0 } ? $", {AccessRules.Rules.Count} access rule(s)" : "");
 
         #endregion
 

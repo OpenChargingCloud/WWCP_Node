@@ -457,6 +457,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var server  = new SshServer(new SshServerOptions {
                               HostKeys             = [ hostKey ],
                               Authenticator        = sshAuthenticator,
+                              AuthorizeSession     = AuthorizeSSHSession,
                               ShellHandler         = ServeShellAsync,
                               SftpSessions         = SftpSessionFor,
                               AuditSink            = new DelegateAuditSink(Audited),
@@ -707,6 +708,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return 1;
             }
 
+            // The access rules: who may have the command line, from where and to where.
+            if (SSHAccessRefusal(session, "shell") is String refused)
+            {
+                Log.Notice($"'{account.Id}' was refused the command line over SSH: {refused}.", "ssh", "cli", "security");
+                await Context.WriteAsync($"The command line of this {Kind.Name} is not permitted to '{account.Id}' from here.\r\n", CancellationToken);
+                return 1;
+            }
+
             if (Context.Size is not SshWindowSize size)
             {
                 await Context.WriteAsync($"This is the command line of the {Kind.Name}, and it wants a terminal to be typed at: " +
@@ -729,7 +738,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (Volatile.Read(ref signedOut) is String already)
                     return already;
 
-                if (sshAuthenticator?.WhyNoLongerIn(session) is not String why)
+                if (WhySSHSessionMayNotGoOn(session, "shell") is not String why)
                     return null;
 
                 if (Interlocked.CompareExchange(ref signedOut, why, null) is null)
@@ -934,6 +943,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                   ? $"SFTP is switched off on this {Kind.Name} (ssh.sftp)."
                                   : $"{(sftp.Reason.StartsWith("not served: ", StringComparison.Ordinal) ? sftp.Reason["not served: ".Length..] : sftp.Reason)}."),
                              "ssh", "sftp", "security");
+                    break;
+
+                // Said already, with the rule, where the node refused it: see AuthorizeSSHSession.
+                case PolicyDeniedEvent { PolicyType: "session" }:
                     break;
 
                 case PolicyDeniedEvent denied:

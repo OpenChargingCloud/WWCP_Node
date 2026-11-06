@@ -1,4 +1,4 @@
-import { nodeAPI, type SSHConfiguration, type SSHUpdate } from '../api/client';
+import { nodeAPI, type SSHAccessRule, type SSHConfiguration, type SSHUpdate } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
 import { must } from '../html';
@@ -22,6 +22,12 @@ import { html, nothing, render, repeat, type TemplateResult } from '../view';
  * and does not move the server: the next session that asks is served or
  * refused, and the sessions of SFTP open end when it is switched off - which
  * the page asks about first.
+ *
+ * The access rules say who may sign in, from where and to which of the node's
+ * addresses, and use what - the first that matches deciding, and never letting
+ * in more than the accounts do anyway. They are edited as the command line's
+ * sshAccessRules writes them, one a line, and saved the same way: in effect at
+ * once, and asked again of every session open.
  *
  * Beside that, what a person looking after the node wants to compare or copy:
  * the host key, as a client shows it the first time and as a known_hosts file
@@ -76,6 +82,34 @@ export function sftpSessionsEnding(Now: SSHConfiguration, Update: SSHUpdate): nu
 }
 
 
+/**
+ * A rule as the command line writes it, and as the node reads it back:
+ * "deny principal=account:* service=shell local=10.10.0.1 # the device network".
+ */
+export function ruleLine(Rule: SSHAccessRule): string {
+
+    return [
+        Rule.action,
+        ...(Rule.principal    !== undefined ? [ `principal=${Rule.principal}`           ] : []),
+        ...(Rule.service      !== undefined ? [ `service=${Rule.service}`               ] : []),
+        ...(Rule.source       !== undefined ? [ `source=${Rule.source.join(',')}`       ] : []),
+        ...(Rule.localAddress !== undefined ? [ `local=${Rule.localAddress.join(',')}`  ] : []),
+        ...(Rule.authMethod   !== undefined ? [ `auth=${Rule.authMethod.join(',')}`     ] : []),
+        ...(Rule.comment      !== undefined ? [ `# ${Rule.comment}`                     ] : [])
+    ].join(' ');
+
+}
+
+/**
+ * The rules typed, one a line - empty lines left out - as the node is sent them.
+ */
+export function typedRules(Text: string): string[] {
+
+    return Text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+
+}
+
+
 export const sshPage: Page = {
 
     title: 'SSH server',
@@ -114,6 +148,7 @@ export const sshPage: Page = {
 
                 <div class="cards stacked">
                     ${settingsCard(ssh)}
+                    ${accessRulesCard(ssh)}
                     ${hostKeysCard(ssh)}
                     ${sftpCard(ssh)}
                     ${sessionsCard(ssh)}
@@ -196,6 +231,75 @@ export const sshPage: Page = {
                         <span class="hint">Saved to <span class="path">${ssh.file}</span>, and in effect at once.</span>
 
                     </form>
+
+                </section>
+            `;
+
+        }
+
+
+        /** Who may sign in, from where and to where, and use what - and the form that changes it. */
+        function accessRulesCard(ssh: SSHConfiguration): TemplateResult {
+
+            const anybody = (Text: string) => html`<span class="muted">${Text}</span>`;
+
+            return html`
+                <section class="card" id="ssh-access-rules">
+
+                    <h2><i class="fa-solid fa-filter"></i> Access rules</h2>
+
+                    <p class="hint">
+                        Who may sign in over SSH, from where and to which of this ${config.nodeName}'s addresses, and use what.
+                        The first rule that matches decides; where none does, the accounts, their roles and keys decide alone.
+                        A rule can only restrict: <code>allow</code> lets on to what the accounts let in anyway, <code>deny</code> refuses.
+                    </p>
+
+                    ${ssh.accessRules.length === 0
+                          ? html`<p class="hint" id="no-access-rules">No rules: the accounts, their roles and keys decide alone.</p>`
+                          : html`
+                            <div class="table-scroll">
+                              <table class="records" id="access-rules">
+                                  <thead><tr><th>#</th><th>Does</th><th>Who</th><th>Service</th><th>From</th><th>To</th><th>Signed in with</th><th>Why</th></tr></thead>
+                                  <tbody>
+                                      ${ssh.accessRules.map((rule, at) => html`
+                                          <tr data-rule="${at + 1}">
+                                              <td>${at + 1}</td>
+                                              <td><span class="chip ${rule.action === 'deny' ? 'bad' : 'ok'}">${rule.action}</span></td>
+                                              <td>${rule.principal                ?? anybody('anybody')}</td>
+                                              <td>${rule.service                  ?? anybody('everything')}</td>
+                                              <td>${rule.source?.join(', ')       ?? anybody('anywhere')}</td>
+                                              <td>${rule.localAddress?.join(', ') ?? anybody('any address')}</td>
+                                              <td>${rule.authMethod?.join(', ')   ?? anybody('any way')}</td>
+                                              <td>${rule.comment                  ?? nothing}</td>
+                                          </tr>
+                                      `)}
+                                  </tbody>
+                              </table>
+                            </div>
+                          `}
+
+                    ${!mayChange ? nothing : html`
+                        <form id="access-rules-form" class="form-stack" @submit=${onSaveRules}>
+
+                            <label>The rules, one a line
+                                <textarea name="rules" rows="${Math.max(4, ssh.accessRules.length + 2)}" spellcheck="false" autocomplete="off"
+                                          .defaultValue=${ssh.accessRules.map(ruleLine).join('\n')}></textarea>
+                                <span class="hint">
+                                    As <code>sshAccessRules</code> writes them at the command line:
+                                    <code>deny principal=account:* service=shell local=10.10.0.1 # the device network</code>.
+                                    The conditions are <code>principal=</code>, <code>service=</code> (shell, sftp, subsystem:&lt;name&gt;),
+                                    <code>source=</code> and <code>local=</code> (addresses or networks, separated by commas) and <code>auth=</code>.
+                                </span>
+                            </label>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn primary">Save the rules</button>
+                                <span id="rules-note"  class="form-notice" role="status"></span>
+                                <span id="rules-error" class="form-error"  role="alert"></span>
+                            </div>
+
+                        </form>
+                    `}
 
                 </section>
             `;
@@ -500,6 +604,47 @@ export const sshPage: Page = {
         }
 
 
+        function onSaveRules(event: SubmitEvent): void {
+
+            event.preventDefault();
+
+            const form     = event.currentTarget as HTMLFormElement;
+            const rules    = typedRules(String(new FormData(form).get('rules') ?? ''));
+            const sessions = current!.sessions.length;
+
+            if (sessions > 0 &&
+                !confirm(`The rules are asked of the ${sessions} session(s) over SSH open now as well, and a session they refuse ends - yours too, if you are at the command line.\n\nGo on?`))
+                return;
+
+            void saveRules(rules, form);
+
+        }
+
+
+        async function saveRules(Rules: string[], form: HTMLFormElement): Promise<void> {
+
+            const note = must<HTMLElement>(content, '#rules-note');
+
+            note.textContent = '';
+            must<HTMLElement>(content, '#rules-error').textContent = '';
+
+            try
+            {
+                current = await whileSaving(content, note, () => api.ssh.save({ accessRules: Rules }));
+
+                draw();
+                form.reset();
+
+                must<HTMLElement>(content, '#rules-note').textContent = current.notice ?? 'Saved, and in effect.';
+            }
+            catch (problem)
+            {
+                must<HTMLElement>(content, '#rules-error').textContent = errorMessage(problem);
+            }
+
+        }
+
+
         async function load(): Promise<void> {
 
             try
@@ -515,6 +660,7 @@ export const sshPage: Page = {
                 // Loaded anew - Reload - is what the node has, the form too.
                 draw();
                 content.querySelector<HTMLFormElement>('#ssh-form')?.reset();
+                content.querySelector<HTMLFormElement>('#access-rules-form')?.reset();
 
             }
             catch (problem)
@@ -527,7 +673,8 @@ export const sshPage: Page = {
 
         }
 
-        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#ssh-form')));
+        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#ssh-form')) ||
+                                             typedSinceDrawn(content.querySelector('#access-rules-form')));
 
         void load();
 

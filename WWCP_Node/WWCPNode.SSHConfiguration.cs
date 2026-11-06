@@ -87,6 +87,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        // What the file says, and what a switch said, which wins
                        // over it: --no-ssh, or a port given with --ssh-port.
                        new JProperty("configured",     sshFile?.ToJSON() ?? new JObject()),
+                       new JProperty("accessRules",    SSHAccessRules.ToJSON()),
                        new JProperty("commandLine",    new JObject(
                                                            sshSettings?.Enabled is Boolean on ? [ new JProperty("enabled", on) ]                  : Array.Empty<JProperty>(),
                                                            sshSettings?.Port    is IPPort  at ? [ new JProperty("port",    at.ToUInt16()) ]       : Array.Empty<JProperty>()
@@ -267,12 +268,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                var file   = new SSHConfiguration(sent.Enabled   ?? sshFile?.Enabled,
-                                                  sent.Port      ?? sshFile?.Port,
-                                                  sent.Passwords ?? sshFile?.Passwords,
-                                                  sent.Sftp      ?? sshFile?.Sftp);
+                var file   = new SSHConfiguration(sent.Enabled     ?? sshFile?.Enabled,
+                                                  sent.Port        ?? sshFile?.Port,
+                                                  sent.Passwords   ?? sshFile?.Passwords,
+                                                  sent.Sftp        ?? sshFile?.Sftp,
+                                                  sent.AccessRules ?? sshFile?.AccessRules);
 
                 var sftpWas  = SFTPEnabled;
+                var rulesWas = SSHAccessRules.ToJSON().ToString();
 
                 var after  = EffectiveSSH(sshSettings, file, sshWebInterfacePort);
 
@@ -312,6 +315,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
 
                 sshFile = file;
+
+                // In effect at once: every session open now is asked again.
+                if (SSHAccessRules.ToJSON().ToString() != rulesWas)
+                {
+
+                    var ended = RecheckSSHSessions();
+
+                    Log.Notice(SSHAccessRules.Rules.Count == 0
+                                   ? "The SSH access rules were taken out: who may sign in over SSH is the accounts' alone again."
+                                   : $"The SSH access rules changed: {SSHAccessRules.Rules.Count} rule(s), the first that matches decides" +
+                                     (ended > 0 ? $"; {ended} open session(s) they refuse end." : "."),
+                               "ssh", "security");
+
+                }
 
                 // Without the server starting anew: the next session asks.
                 if (!restart && SFTPEnabled != sftpWas)

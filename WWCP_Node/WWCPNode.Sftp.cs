@@ -238,6 +238,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (sshAuthenticator?.WhyNoLongerIn(Session) is String notIn)
                 throw new InvalidOperationException(notIn);
 
+            // The access rules: who may have SFTP, from where and to where.
+            if (SSHAccessRefusal(Session, "sftp") is String refused)
+                throw new InvalidOperationException(refused);
+
             var id         = $"{Session.ConnectionId}/sftp-{Interlocked.Increment(ref lastSftpSession)}";
             var since      = TimeProvider.GetUtcNow();
             var from       = Session.Peer?.ToString() ?? "somewhere";
@@ -252,7 +256,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return already;
 
                 var why = SFTPEnabled
-                              ? sshAuthenticator?.WhyNoLongerIn(Session)
+                              ? WhySSHSessionMayNotGoOn(Session, "sftp")
                               : $"SFTP was switched off on this {Kind.Name}";
 
                 if (why is null)

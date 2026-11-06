@@ -13,7 +13,7 @@ import { describe, it }      from 'node:test';
 
 import type { SSHConfiguration, SSHUpdate } from '../api/client.ts';
 
-const { movesTheServer, sftpSessionsEnding, sshPage, when } = await import('./ssh.ts');
+const { movesTheServer, ruleLine, sftpSessionsEnding, sshPage, typedRules, when } = await import('./ssh.ts');
 
 
 /** What the stand-in node has, how it answers a save, and what it was told. */
@@ -32,6 +32,7 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         defaultPort:    22347,
         file:           'configuration.json',
         configured:     { enabled: true, port: 22347 },
+        accessRules:    [],
         commandLine:    {},
         limits:         { loginGraceTime: 30, maxAuthTries: 6, maxSessions: 4, maxConnections: 100,
                           maxUnauthenticated: 10, maxUnauthenticatedPerAddress: 3, clientAliveInterval: 60, clientAliveCountMax: 3 },
@@ -56,8 +57,10 @@ function node({ method, path, body }: Asked): unknown {
         const update = body as SSHUpdate;
         if (answer !== null)
             return answer(update);
+        // Rules sent as lines are the node's to read: a test that sends them says what the node made of them.
+        const { accessRules: _rules, ...settings } = update;
         held = { ...held, enabled: update.enabled ?? held.enabled, port: update.port ?? held.port, passwords: update.passwords ?? held.passwords,
-                          sftp: update.sftp ?? held.sftp, configured: { ...held.configured, ...update } };
+                          sftp: update.sftp ?? held.sftp, configured: { ...held.configured, ...settings } };
         return held;
     }
 
@@ -76,6 +79,9 @@ async function opened(Server: Partial<SSHConfiguration> = {}, Permissions = [ 's
     return open(sshPage, '/configuration/ssh', Permissions, node, root => root.querySelector('#ssh-form') !== null || root.querySelector('.error-box') !== null);
 
 }
+
+const rulesBox    = (root: HTMLElement) => root.querySelector<HTMLTextAreaElement>('#access-rules-form [name="rules"]');
+const submitRules = (root: HTMLElement) => root.querySelector<HTMLFormElement>('#access-rules-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
 
 const field  = (root: HTMLElement, name: string) => root.querySelector<HTMLInputElement>(`#ssh-form [name="${name}"]`)!;
 const submit = (root: HTMLElement) => root.querySelector<HTMLFormElement>('#ssh-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
@@ -400,6 +406,138 @@ describe('the SSH server page', () => {
             if (before)
                 Object.defineProperty(navigator, 'clipboard', before);
         }
+
+    });
+
+});
+
+
+describe('an SSH access rule, as a line', () => {
+
+    it('is written as the command line writes it, every condition left out where the rule has none', () => {
+
+        assert.equal(ruleLine({ action: 'deny' }), 'deny');
+        assert.equal(ruleLine({ action: 'deny', principal: 'account:*', service: 'shell', source: [ '10.0.0.0/8', '192.168.1.0/24' ],
+                                localAddress: [ '10.10.0.1' ], authMethod: [ 'password' ], comment: 'the device network' }),
+                     'deny principal=account:* service=shell source=10.0.0.0/8,192.168.1.0/24 local=10.10.0.1 auth=password # the device network');
+
+    });
+
+    it('is typed one a line, empty lines and the spaces around a line left out', () => {
+
+        assert.deepEqual(typedRules('  deny principal=account:*  \r\n\r\nallow service=sftp\n   \n'), [ 'deny principal=account:*', 'allow service=sftp' ]);
+        assert.deepEqual(typedRules(''), []);
+
+    });
+
+});
+
+
+describe('the SSH access rules on the SSH server page', () => {
+
+    const rules = [ { action: 'allow' as const, principal: 'station:*', service: 'subsystem:ocpp@open.charging.cloud' },
+                    { action: 'deny'  as const, principal: 'account:*', localAddress: [ '10.10.0.1' ], comment: 'the device network' } ];
+
+    it('says where there are none, and offers the form', async () => {
+
+        const root = await opened();
+
+        assert.match(root.querySelector('#no-access-rules')!.textContent!, /No rules/);
+        assert.equal(rulesBox(root)!.value, '');
+
+    });
+
+    it('shows the rules numbered, in order, with what each leaves out as everybody, everything, anywhere', async () => {
+
+        const root = await opened({ accessRules: rules });
+        const rows = [ ...root.querySelectorAll<HTMLTableRowElement>('#access-rules tbody tr') ];
+
+        assert.deepEqual(rows.map(row => row.dataset['rule']), [ '1', '2' ]);
+        assert.deepEqual([ ...rows[0]!.cells ].map(cell => cell.textContent!.trim()),
+                         [ '1', 'allow', 'station:*', 'subsystem:ocpp@open.charging.cloud', 'anywhere', 'any address', 'any way', '' ]);
+        assert.deepEqual([ ...rows[1]!.cells ].map(cell => cell.textContent!.trim()),
+                         [ '2', 'deny', 'account:*', 'everything', 'anywhere', '10.10.0.1', 'any way', 'the device network' ]);
+        assert.equal(rulesBox(root)!.value,
+                     'allow principal=station:* service=subsystem:ocpp@open.charging.cloud\n' +
+                     'deny principal=account:* local=10.10.0.1 # the device network');
+
+    });
+
+    it('sends the rules typed, one a line, and shows what the node made of them', async () => {
+
+        const root = await opened({ sessions: [] });
+
+        rulesBox(root)!.value = 'deny principal=account:* local=10.10.0.1 # the device network\n\n';
+
+        answer = () => ({ ...aServer({ sessions: [] }), accessRules: [ rules[1]! ] });
+
+        submitRules(root);
+        await until(() => /^Saved/.test(root.querySelector('#rules-note')?.textContent ?? ''), 'the rules were not saved');
+
+        assert.deepEqual(puts().map(one => one.body), [ { accessRules: [ 'deny principal=account:* local=10.10.0.1 # the device network' ] } ]);
+        assert.deepEqual([ ...root.querySelectorAll<HTMLTableRowElement>('#access-rules tbody tr') ].map(row => row.dataset['rule']), [ '1' ]);
+        assert.equal(said.length, 0, 'nobody connected, and it asked all the same');
+
+    });
+
+    it('sends no rule at all where every line is emptied - which takes them out', async () => {
+
+        const root = await opened({ sessions: [], accessRules: rules });
+
+        rulesBox(root)!.value = '   \n';
+
+        answer = () => ({ ...aServer({ sessions: [] }) });
+
+        submitRules(root);
+        await until(() => puts().length === 1, 'the rules were not sent');
+
+        assert.deepEqual(puts()[0]!.body, { accessRules: [] });
+
+    });
+
+    it('asks before rules that are asked of the sessions open now, and sends nothing when told no', async () => {
+
+        const root = await opened({ accessRules: rules });
+        const yes  = window.confirm;
+
+        window.confirm = (text?: string) => { said.push(String(text)); return false; };
+
+        try
+        {
+            submitRules(root);
+            await wait(10);
+        }
+        finally
+        {
+            window.confirm = yes;
+        }
+
+        assert.match(said.at(-1) ?? '', /1 session\(s\) over SSH open now/);
+        assert.equal(puts().length, 0, 'told no, it went to the node all the same');
+
+    });
+
+    it('says what the node refused where the form is, and keeps what was typed', async () => {
+
+        const root = await opened({ sessions: [] });
+
+        answer = () => refused(400, "'ssh.accessRules[0].service' must be \"shell\", \"sftp\" or \"subsystem:<name>\", not 'telnet'.");
+
+        rulesBox(root)!.value = 'deny service=telnet';
+
+        submitRules(root);
+        await until(() => /telnet/.test(root.querySelector('#rules-error')?.textContent ?? ''), 'the refusal is not said');
+
+        assert.equal(rulesBox(root)!.value, 'deny service=telnet', 'what was typed is gone after a refusal');
+
+    });
+
+    it('lets somebody who may only look see the rules, and offers no form', async () => {
+
+        const root = await opened({ accessRules: rules }, [ 'ssh:read' ]);
+
+        assert.equal(root.querySelectorAll('#access-rules tbody tr').length, 2);
+        assert.equal(rulesBox(root), null, 'the form is offered to somebody who may not change the rules');
 
     });
 

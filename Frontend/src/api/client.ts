@@ -282,7 +282,9 @@ export interface SSHConfiguration {
     /** The configuration file it is saved to. */
     file:           string;
     /** What the file's "ssh" section says. */
-    configured:     { enabled?: boolean; port?: number; passwords?: boolean; sftp?: boolean };
+    configured:     { enabled?: boolean; port?: number; passwords?: boolean; sftp?: boolean; accessRules?: SSHAccessRule[] };
+    /** The SSH access rules in effect, the first that matches deciding. */
+    accessRules:    SSHAccessRule[];
     /** What a switch on the command line said, which wins over the file: --no-ssh, --ssh-port. */
     commandLine:    { enabled?: boolean; port?: number };
     limits:         { loginGraceTime: number; maxAuthTries: number; maxSessions: number; maxConnections: number;
@@ -304,12 +306,34 @@ export interface SSHConfiguration {
     notice?:        string;
 }
 
+/**
+ * One SSH access rule: an action, and what it applies to - every condition left
+ * out matching everything. Rules can only restrict what the accounts, their
+ * roles and keys let in anyway.
+ */
+export interface SSHAccessRule {
+    action:         'allow' | 'deny';
+    /** "account:<name>", "station:<id>", "group:<name>" - * and ? as wildcards. */
+    principal?:     string;
+    /** "shell", "sftp", "subsystem:<name>"; left out for everything, signing in included. */
+    service?:       string;
+    /** The client addresses or networks it applies to. */
+    source?:        string[];
+    /** This node's addresses it applies to: which network the client came in on. */
+    localAddress?:  string[];
+    /** "publickey", "password", "keyboard-interactive". */
+    authMethod?:    string[];
+    comment?:       string;
+}
+
 /** What may be changed of the SSH server: each saved and made at once. */
 export interface SSHUpdate {
-    enabled?:    boolean;
-    port?:       number;
-    passwords?:  boolean;
-    sftp?:       boolean;
+    enabled?:      boolean;
+    port?:         number;
+    passwords?:    boolean;
+    sftp?:         boolean;
+    /** The access rules, replacing those there are: objects, or lines as the command line writes them. */
+    accessRules?:  (SSHAccessRule | string)[];
 }
 
 
