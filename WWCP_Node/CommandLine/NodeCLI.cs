@@ -22,6 +22,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 
 using org.GraphDefined.Vanaheimr.CLI;
+using org.GraphDefined.Vanaheimr.Illias;
 
 using cloud.charging.open.protocols.WWCP.Node.Web;
 
@@ -166,7 +167,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         #endregion
 
 
-        #region HistoryPathOf(Node, Caller)
+        #region HistoryPathOf(Node, Caller) / HistoryPathOf(Node, Account)
 
         /// <summary>
         /// Where the history of whoever is typing is kept between sessions: one
@@ -177,7 +178,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <para>
         /// Below the accounts because it is theirs: what an account typed says
         /// what it did, and goes wherever the accounts go - a backup, a move to
-        /// another machine - and nowhere else. It is the node owner's alone as
+        /// another machine - and nowhere else; deleted, the account takes it
+        /// along (see WWCPNode.History.cs). It is the node owner's alone as
         /// everything below the accounts is: the directory is OwnerOnly's, and
         /// what is made in it inherits that on Windows, while HistoryFile makes
         /// its own 0600 and 0700 on Unix.
@@ -195,11 +197,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         public static String HistoryPathOf(WWCPNode   Node,
                                            CLICaller  Caller)
 
+            => Caller.Account is { } account
+                   ? HistoryPathOf(Node, account.Id)
+                   : Path.Combine(Node.AccountsPath, HistoryDirectory, ConsoleHistoryFile);
+
+        /// <summary>
+        /// Where the history of the given account is kept between sessions.
+        /// </summary>
+        /// <param name="Node">The node.</param>
+        /// <param name="Account">The account.</param>
+        public static String HistoryPathOf(WWCPNode  Node,
+                                           User_Id   Account)
+
             => Path.Combine(Node.AccountsPath,
                             HistoryDirectory,
-                            Caller.Account is { } account
-                                ? FileNameOf(account.Id.ToString())
-                                : ConsoleHistoryFile);
+                            FileNameOf(Account.ToString()));
 
         /// <summary>
         /// The name of the history file of the given account.

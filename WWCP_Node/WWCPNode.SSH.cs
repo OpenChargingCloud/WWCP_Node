@@ -865,6 +865,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 sshSessions.TryRemove(session.ConnectionId, out _);
 
+                // A line typed between the account's deletion and the end of
+                // its session wrote its history file again: nothing writes it
+                // after this - see WWCPNode.History.cs.
+                if (!ExtAPI.TryGetUser(account.Id, out var stillThere) || stillThere is null)
+                    ForgetTheHistoryOf(account.Id, "deleted");
+
                 var lasted = TimeProvider.GetUtcNow() - since;
 
                 if (Volatile.Read(ref signedOut) is String why)

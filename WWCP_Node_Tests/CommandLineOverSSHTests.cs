@@ -412,6 +412,111 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnAccountsHistoryGoesWithIt
+
+        /// <summary>
+        /// What an account typed is its own, and goes when it goes: deleted, it
+        /// leaves no history file behind, and an account made again under its
+        /// name starts with none.
+        /// </summary>
+        [Test]
+        public async Task AnAccountsHistoryGoesWithIt()
+        {
+
+            await using (var client = await SignIn("aviewer", Role.Viewer.Name))
+            {
+                var (shell, screen) = await Open(client);
+                await screen.WaitFor("WWCP node> ");
+                var mark = screen.Text.Length;
+                await shell.WriteAsync("help\r");
+                await screen.WaitFor("WWCP node> ", mark);
+            }
+
+            var file = Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory, "aviewer");
+
+            Assert.That(new HistoryFile(file).Read(), Is.EqualTo(new[] { "help" }));
+
+            node!.ExtAPI.TryGetUser(User_Id.Parse("aviewer"), out var account);
+            var deleted = await node.ExtAPI.DeleteUser(account!, SkipUserDeletedNotifications: true);
+
+            Assert.That(deleted.Result,  Is.EqualTo(CommandResult.Success), deleted.Description?.FirstText());
+            Assert.That(File.Exists(file), Is.False, "the history of the account deleted");
+
+            await MakeAccount("aviewer", Role.Viewer.Name);
+
+            Assert.That(new HistoryFile(file).Read(), Is.Empty, "the history of the account made again");
+
+        }
+
+        #endregion
+
+        #region AnAccountMadeAgainDoesNotGetTheHistoryLeftBehind
+
+        /// <summary>
+        /// A history file whose account is gone - left by a node that did not
+        /// yet take it away with the account - is not the history of the next
+        /// account made under that name.
+        /// </summary>
+        [Test]
+        public async Task AnAccountMadeAgainDoesNotGetTheHistoryLeftBehind()
+        {
+
+            var file = Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory, "aviewer");
+
+            Assert.That(new HistoryFile(file).Add("syncNTS nowhere.example"), Is.True);
+
+            await MakeAccount("aviewer", Role.Viewer.Name);
+
+            Assert.That(File.Exists(file), Is.False);
+
+        }
+
+        #endregion
+
+        #region ASessionOfAnAccountDeletedLeavesNoHistoryBehind
+
+        /// <summary>
+        /// An account deleted while it is signed in may still type a line before
+        /// its session is ended - one that needs no role is not asked about -
+        /// and that line lands in a history file the deletion already took
+        /// away. Once the session is over, that file is gone as well.
+        /// </summary>
+        [Test]
+        public async Task ASessionOfAnAccountDeletedLeavesNoHistoryBehind()
+        {
+
+            // Ended by the recheck below, not by the one every few seconds.
+            node!.SSHSessionRecheckEvery = TimeSpan.FromHours(1);
+
+            var file                = Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory, "aviewer");
+
+            await using var client  = await SignIn("aviewer", Role.Viewer.Name);
+            var (shell, screen)     = await Open(client);
+
+            await screen.WaitFor("WWCP node> ");
+
+            node.ExtAPI.TryGetUser(User_Id.Parse("aviewer"), out var account);
+            var deleted = await node.ExtAPI.DeleteUser(account!, SkipUserDeletedNotifications: true);
+
+            Assert.That(deleted.Result, Is.EqualTo(CommandResult.Success), deleted.Description?.FirstText());
+
+            var mark = screen.Text.Length;
+            await shell.WriteAsync("help\r");
+            await screen.WaitFor("WWCP node> ", mark);
+
+            Assert.That(new HistoryFile(file).Read(), Is.EqualTo(new[] { "help" }), "the line typed after the deletion");
+
+            Assert.That(node.RecheckSSHSessions(), Is.EqualTo(1));
+
+            await screen.WaitFor("Signed out:", mark);
+
+            Assert.That(await shell.ExitStatus.WaitAsync(TimeSpan.FromSeconds(10)), Is.EqualTo(1));
+            Assert.That(File.Exists(file), Is.False);
+
+        }
+
+        #endregion
+
         #region AnAccountManagesItsOwnKeys
 
         /// <summary>

@@ -1264,6 +1264,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
+            //    An account's command line history goes with the account, and
+            //    one made starts without any - see WWCPNode.History.cs. On an
+            //    API that was handed in as well: the histories are this node's.
+            this.ExtAPI.OnUserAdded    += AnAccountWasAdded;
+            this.ExtAPI.OnUserDeleted  += AnAccountWasDeleted;
+
             // 2) The web interface at "/": the files of the bundle, and the
             //    single-page-application stub for every other page URL, so
             //    that a reload on /logs and a bookmark to it both work. The
@@ -3487,6 +3493,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
             finally
             {
+
+                // An API that was handed in outlives this node, and would go
+                // on taking histories from its directory.
+                ExtAPI.OnUserAdded    -= AnAccountWasAdded;
+                ExtAPI.OnUserDeleted  -= AnAccountWasDeleted;
 
                 try
                 {
