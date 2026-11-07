@@ -284,7 +284,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         {
 
             NTSGroup? group;
-            String[]  aeadChanges;
+            String[]  serverChanges;
 
             await reconfigureLock.WaitAsync();
 
@@ -302,17 +302,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!TryWriteNTSSection(section => NTSSection.WithoutGroup(section, Id), out var error, out var notSaved))
                     return (false, error, notSaved);
 
-                var wasAEADs = AEADs();
+                var wasAEADs      = AEADs();
+                var wasRefreshes  = Refreshes();
 
                 ntsGroups = [ .. ntsGroups.Where(other => other != group) ];
 
                 if (group.IsLegal)
                     LegalTime = NewLegalTime();
 
-                // A server this group named an AEAD algorithm for is offered
-                // what the groups left say, where they ask it too.
-                aeadChanges = [ .. AEADChanges(wasAEADs) ];
+                // A server this group named an AEAD algorithm or a refresh for
+                // is offered, and makes its key exchange again, as the groups
+                // left say, where they ask it too.
+                serverChanges = [ .. AEADChanges(wasAEADs), .. RefreshChanges(wasRefreshes) ];
                 OfferAEAD();
+                PutRefreshes();
 
             }
             finally
@@ -340,8 +343,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     (group.IsLegal
                          ? $"NTS group '{Id}' removed{ChangeOrigin.By(Origin)}: this {Kind.Name} has no legal time from now on."
                          : $"NTS group '{Id}' removed{ChangeOrigin.By(Origin)}.") +
-                    (aeadChanges.Length > 0
-                         ? $" With it: {String.Join(", ", aeadChanges)}."
+                    (serverChanges.Length > 0
+                         ? $" With it: {String.Join(", ", serverChanges)}."
                          : ""),
                     "nts", "config");
 

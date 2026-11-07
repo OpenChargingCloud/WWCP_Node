@@ -15,7 +15,7 @@ import { describe, it }      from 'node:test';
 import type { NTSTimeSource, ServerPins } from '../api/client';
 
 
-const { entryOf, nameTaken, readable, sentOf, withServer, withoutServer } = await import('./ntsServers.ts');
+const { entryOf, nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer } = await import('./ntsServers.ts');
 
 
 const usual = { ntsKE: 4460, ntp: 123 };
@@ -80,6 +80,47 @@ describe('a time server turned back into its entry', () => {
         assert.deepEqual(withServer(list, 1, { hostname: 'ptbtime2.ptb.de', priority: 1 }),
                          [ { hostname: 'ptbtime1.ptb.de', aead: 'AES-SIV-CMAC-256' },
                            { hostname: 'ptbtime2.ptb.de', priority: 1 } ]);
+
+    });
+
+    it('keeps when its entry has its key exchange made again, or the next save takes it back to the defaults', () => {
+
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { minRefreshSeconds: 3600, maxRefreshSeconds: 7200, nextExchange: '2026-11-07T12:00:00Z' }), usual),
+                         { hostname: 'ptbtime1.ptb.de', minRefreshSeconds: 3600, maxRefreshSeconds: 7200 });
+
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { minRefreshSeconds: null, maxRefreshSeconds: null, nextExchange: '2026-11-07T12:00:00Z' }), usual),
+                         { hostname: 'ptbtime1.ptb.de' },
+                         'when the next one is due is not what the entry sets');
+
+    });
+
+});
+
+
+describe('when a time server\'s key exchange is made again, as the page says it', () => {
+
+    it('says the node\'s defaults where the entry sets nothing', () => {
+
+        assert.equal(refreshSet({}), false);
+        assert.equal(refreshText({}, { defaultMinRefresh: 43200, defaultMaxRefresh: 86400 }), '12 to 24 hours');
+
+    });
+
+    it('says what the entry sets, in the largest unit both fit', () => {
+
+        assert.equal(refreshSet({ minRefreshSeconds: 5400 }), true);
+        assert.equal(refreshText({ minRefreshSeconds: 3600, maxRefreshSeconds: 7200 }, {}), '1 to 2 hours');
+        assert.equal(refreshText({ minRefreshSeconds: 5400, maxRefreshSeconds: 5400 }, {}), '90 minutes');
+        assert.equal(refreshText({ minRefreshSeconds: 61,   maxRefreshSeconds: 120  }, {}), '61 to 120 seconds');
+
+    });
+
+    it('takes the default for what the entry leaves out, but never a latest before the earliest', () => {
+
+        assert.equal(refreshText({ minRefreshSeconds: 3600 },          {}), '1 to 24 hours');
+        assert.equal(refreshText({ minRefreshSeconds: 172800 },        {}), '48 hours');
+        assert.equal(refreshText({ maxRefreshSeconds: 7200 },          {}), '2 hours');
+        assert.equal(refreshText({ maxRefreshSeconds: 129600 },        {}), '12 to 36 hours');
 
     });
 

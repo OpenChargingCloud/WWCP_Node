@@ -28,6 +28,51 @@ export function readable(hostname: string): string {
 }
 
 
+/** What a server's entry sets about when its key exchange is made again. */
+export interface Refresh {
+    minRefreshSeconds?: number | null;
+    maxRefreshSeconds?: number | null;
+}
+
+/** The node's defaults for it, where an entry sets nothing. */
+export interface RefreshDefaults {
+    defaultMinRefresh?: number;
+    defaultMaxRefresh?: number;
+}
+
+
+/** Whether a server's entry sets when its key exchange is made again. */
+export function refreshSet(entry: Refresh): boolean {
+    return entry.minRefreshSeconds != null || entry.maxRefreshSeconds != null;
+}
+
+
+/**
+ * When a server's key exchange is made again, as a sentence says it: "12 to
+ * 24 hours", "90 minutes". What its entry sets, and the node's defaults for
+ * what it does not - by the node's rule: never a latest before the earliest.
+ */
+export function refreshText(entry: Refresh, defaults: RefreshDefaults): string {
+
+    const usualMin  = defaults.defaultMinRefresh ?? 43200;
+    const usualMax  = defaults.defaultMaxRefresh ?? 86400;
+
+    const min = entry.minRefreshSeconds ?? (entry.maxRefreshSeconds != null && entry.maxRefreshSeconds < usualMin ? entry.maxRefreshSeconds : usualMin);
+    const max = entry.maxRefreshSeconds ?? Math.max(min, usualMax);
+
+    const [ unit, name ] = min % 3600 === 0 && max % 3600 === 0 ? [ 3600, 'hours' ]
+                         : min %   60 === 0 && max %   60 === 0 ? [   60, 'minutes' ]
+                         :                                         [    1, 'seconds' ];
+
+    const shown = (seconds: number): string => String(Math.round(seconds / unit * 100) / 100);
+
+    return min === max
+               ? `${shown(max)} ${name}`
+               : `${shown(min)} to ${shown(max)} ${name}`;
+
+}
+
+
 /**
  * Whether two names are the same server's: compared without the root's dot,
  * and without case.
@@ -59,7 +104,8 @@ function sameName(one: string, other: string): boolean {
  * would find another server under it after the next save.
  *
  * And the AEAD algorithm its entry offers, where it names one: left out, the
- * next save of any server would make it offer every one again.
+ * next save of any server would make it offer every one again. And when its
+ * key exchange is made again, where its entry sets that, by the same rule.
  */
 export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntry {
 
@@ -71,6 +117,8 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
     if (source.ntpPort   !== usual.ntp)    entry.ntpPort    = source.ntpPort;
     if (!source.enabled)                   entry.enabled    = false;
     if (source.aead)                       entry.aead       = source.aead;
+    if (source.minRefreshSeconds != null)  entry.minRefreshSeconds = source.minRefreshSeconds;
+    if (source.maxRefreshSeconds != null)  entry.maxRefreshSeconds = source.maxRefreshSeconds;
 
     return withPins(entry, draftOf(source.heldTo));
 

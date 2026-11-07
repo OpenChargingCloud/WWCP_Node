@@ -876,6 +876,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // exchanges - see WWCPNode.TimeServerCertificates.cs.
             AttachValidators(this.LegalTime.Sources);
 
+            // And makes its key exchange again after 12 to 24 hours, until an
+            // entry says otherwise - see WWCPNode.TimeServerRefresh.cs.
+            PutRefreshes();
+
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
             // what the file does not mention is left exactly as it was.
@@ -2338,8 +2342,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           new JProperty("aead",           Group.Settings?.Servers?.ElementAtOrDefault(index)?.AEAD is { } aead
                                                                               ? NTSServerConfiguration.AEADNameOf(aead)
                                                                               : null),
+                                          // When its key exchange is made again,
+                                          // as its own entry sets it, or null
+                                          // where it leaves it to the defaults -
+                                          // what the page sends back; when the
+                                          // next one is due is nextExchange.
+                                          new JProperty("minRefreshSeconds", Group.Settings?.Servers?.ElementAtOrDefault(index)?.MinRefresh?.TotalSeconds),
+                                          new JProperty("maxRefreshSeconds", Group.Settings?.Servers?.ElementAtOrDefault(index)?.MaxRefresh?.TotalSeconds),
                                           new JProperty("cookies",        held?.RemainingCookies),
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
+                                          new JProperty("nextExchange",   held?.RefreshAt?.ToString("o")),
                                           new JProperty("aeadAlgorithm",  held?.NTSKEResponse?.AEADAlgorithm.ToString()),
                                           new JProperty("rootCA",         RootCAJSON(held?.NTSKEResponse?.TLSInfo)),
                                           // The certificate the last key exchange
@@ -2393,7 +2405,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("defaultNTPPort",     NTSClient.DefaultNTP_Port.  ToUInt16()),
                            // What a server may be held to offer, and what it
                            // is offered where its entry names none, in order.
-                           new JProperty("aeadAlgorithms",     new JArray(NTSServerConfiguration.AEADAlgorithmsOffered.Select(NTSServerConfiguration.AEADNameOf)))
+                           new JProperty("aeadAlgorithms",     new JArray(NTSServerConfiguration.AEADAlgorithmsOffered.Select(NTSServerConfiguration.AEADNameOf))),
+                           // When a server's key exchange may be made again, and
+                           // when it is where its entry says nothing.
+                           new JProperty("minRefresh",         NTSServerConfiguration.MinRefreshSeconds),
+                           new JProperty("maxRefresh",         NTSServerConfiguration.MaxRefreshSeconds),
+                           new JProperty("defaultMinRefresh",  NTSServerConfiguration.DefaultMinRefresh.TotalSeconds),
+                           new JProperty("defaultMaxRefresh",  NTSServerConfiguration.DefaultMaxRefresh.TotalSeconds)
                        )),
 
                        new JProperty("file",         ConfigFile.Path)
@@ -2874,6 +2892,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasEnabled        = Group.Enabled;
             var wasPins           = Pins();
             var wasAEADs          = AEADs();
+            var wasRefreshes      = Refreshes();
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
@@ -2973,6 +2992,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // WWCPNode.TimeServerAEAD.cs.
             changed.AddRange(AEADChanges(wasAEADs));
 
+            // And when its key exchange is made again - see
+            // WWCPNode.TimeServerRefresh.cs.
+            changed.AddRange(RefreshChanges(wasRefreshes));
+
             if (wasQuorum != Group.Sources.MinServers)
                 changed.Add($"quorum = {Group.Sources.MinServers}");
 
@@ -3029,8 +3052,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             // What each server's key exchange offers, on the servers of every
             // group and on their clients: this group's entries may have changed
-            // what a server of another one is offered.
+            // what a server of another one is offered. And when it is made again,
+            // by the same rule.
             OfferAEAD();
+            PutRefreshes();
 
             if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)
             {

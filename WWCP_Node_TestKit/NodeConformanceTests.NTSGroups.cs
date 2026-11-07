@@ -366,6 +366,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AServerMakesItsKeyExchangeAgainAsItsEntrySays()
+
+        /// <summary>
+        /// A server's entry may set when its key exchange is made again: shown
+        /// with the server as it was sent, written down, and left out where the
+        /// defaults hold, which are among the limits. A longest time shorter than
+        /// the shortest is refused, and nothing is written.
+        /// </summary>
+        [Test]
+        public async Task AServerMakesItsKeyExchangeAgainAsItsEntrySays()
+        {
+
+            using var http          = await SignedIn();
+
+            await Send(http, HttpMethod.Post, NTSGroupsPath, JObject.Parse("""{ "id": "local" }"""));
+
+            var (saved,  shown)     = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ { "hostname": "lc1.local", "minRefreshSeconds": 3600, "maxRefreshSeconds": 7200 }, "lc2.local" ] }"""));
+            var (status, refusal)   = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ { "hostname": "lc1.local", "minRefreshSeconds": 7200, "maxRefreshSeconds": 3600 } ] }"""));
+
+            Assert.Multiple(() => {
+
+                Assert.That(saved,                                                                                      Is.EqualTo(HttpStatusCode.OK),  shown.ToString());
+                Assert.That(shown["timeSources"]?[0]?.Value<Double>("minRefreshSeconds"),                              Is.EqualTo(3600));
+                Assert.That(shown["timeSources"]?[0]?.Value<Double>("maxRefreshSeconds"),                              Is.EqualTo(7200));
+                Assert.That(shown["timeSources"]?[1]?["minRefreshSeconds"]?.Type,                                      Is.EqualTo(JTokenType.Null));
+                Assert.That(shown["limits"]?.Value<Double>("defaultMinRefresh"),                                       Is.EqualTo(43200));
+                Assert.That(shown["limits"]?.Value<Double>("defaultMaxRefresh"),                                       Is.EqualTo(86400));
+
+                Assert.That(status,                                                                                     Is.EqualTo(HttpStatusCode.BadRequest),  refusal.ToString());
+                Assert.That(refusal.Value<String>("error"),                                                             Does.Contain("maxRefreshSeconds' (3600) must not be shorter"));
+                Assert.That(OnDisk["nts"]?["groups"]?["local"]?["servers"]?[0]?.Value<Double>("minRefreshSeconds"),    Is.EqualTo(3600),  "what was written before the refusal stays");
+
+            });
+
+        }
+
+        #endregion
+
         #region WhoChangedAGroupIsWrittenDown()
 
         /// <summary>

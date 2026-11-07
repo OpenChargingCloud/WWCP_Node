@@ -45,14 +45,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Pins">What it is held to beside what every server is held to - see <see cref="ServerPins"/> - or null for nothing.</param>
     /// <param name="Id">What names it across every group of the node, whatever its host name becomes - or null where the file gives it none; see <see cref="IdsOf"/>.</param>
     /// <param name="AEAD">The one AEAD algorithm its key exchange offers, or null for every one in <see cref="AEADAlgorithmsOffered"/>, the server choosing.</param>
+    /// <param name="MinRefresh">The shortest time after a key exchange before the next one, or null for <see cref="DefaultMinRefresh"/>; see <see cref="RefreshOf"/>.</param>
+    /// <param name="MaxRefresh">The longest time after a key exchange before the next one, or null for <see cref="DefaultMaxRefresh"/>; see <see cref="RefreshOf"/>.</param>
     public sealed record NTSServerConfiguration(DomainName       Hostname,
-                                                Byte             Priority   = 0,
-                                                IPPort?          NTSKEPort  = null,
-                                                IPPort?          NTPPort    = null,
-                                                Boolean          Enabled    = true,
-                                                ServerPins?      Pins       = null,
-                                                String?          Id         = null,
-                                                AEADAlgorithms?  AEAD       = null)
+                                                Byte             Priority    = 0,
+                                                IPPort?          NTSKEPort   = null,
+                                                IPPort?          NTPPort     = null,
+                                                Boolean          Enabled     = true,
+                                                ServerPins?      Pins        = null,
+                                                String?          Id          = null,
+                                                AEADAlgorithms?  AEAD        = null,
+                                                TimeSpan?        MinRefresh  = null,
+                                                TimeSpan?        MaxRefresh  = null)
     {
 
         #region Data
@@ -64,6 +68,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public const Int32 MaxIdLength = 50;
 
         private static readonly Regex serverId = new ("^[a-z][a-z0-9-]*$", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// The shortest time an entry may set between two key exchanges with a
+        /// server: a minute, as the Secure Time Synchronization white paper says.
+        /// </summary>
+        public const UInt32 MinRefreshSeconds = 60;
+
+        /// <summary>
+        /// The longest time an entry may set between two key exchanges with a
+        /// server: sixty days, what the paper once gave OCPP 1.6 as its longest.
+        /// </summary>
+        public const UInt32 MaxRefreshSeconds = 60 * 86400;
+
+        /// <summary>
+        /// The shortest time after a key exchange with a server before the next
+        /// one, where its entry says nothing: twelve hours, as the paper says.
+        /// </summary>
+        public static readonly TimeSpan DefaultMinRefresh = TimeSpan.FromHours(12);
+
+        /// <summary>
+        /// The longest time after a key exchange with a server before the next
+        /// one, where its entry says nothing: a day, as the paper says.
+        /// </summary>
+        /// <remarks>
+        /// A key exchange is the only moment a server's certificate is seen, and
+        /// cookies alone would go on for much longer: a new one at least once a
+        /// day keeps a replaced certificate from going unnoticed for longer than
+        /// that, and keeps the load of TLS handshakes on public time servers low.
+        /// It used to be half an hour, the time library's own interval.
+        /// </remarks>
+        public static readonly TimeSpan DefaultMaxRefresh = TimeSpan.FromHours(24);
 
         #endregion
 
@@ -131,7 +166,54 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     NTPPort,
                     Enabled,
                     Priority,
-                    OfferedAEADAlgorithms: AEAD is { } aead ? [ aead ] : null);
+                    OfferedAEADAlgorithms:  AEAD is { } aead ? [ aead ] : null,
+                    MinRefresh:             RefreshOf(this).Min,
+                    MaxRefresh:             RefreshOf(this).Max);
+
+        #endregion
+
+        #region (static) RefreshOf(Entry) / RefreshOf(MinRefresh, MaxRefresh) / SetsRefresh(Entry)
+
+        /// <summary>
+        /// When the next key exchange with the server of the given entry is due:
+        /// at a random time between Min and Max after the last one.
+        /// </summary>
+        /// <remarks>
+        /// What the entry sets, and the defaults for what it does not. An entry
+        /// setting a shortest time beyond the default longest one has that as
+        /// its longest too, and one setting a longest time below the default
+        /// shortest one has that as its shortest: never a longest below the
+        /// shortest.
+        /// </remarks>
+        /// <param name="Entry">The entry, or null for one that says nothing.</param>
+        public static (TimeSpan Min, TimeSpan Max) RefreshOf(NTSServerConfiguration? Entry)
+
+            => RefreshOf(Entry?.MinRefresh, Entry?.MaxRefresh);
+
+        /// <summary>
+        /// When the next key exchange is due, for an entry that sets the given
+        /// times: at a random time between Min and Max after the last one.
+        /// </summary>
+        /// <param name="MinRefresh">The shortest time the entry sets, or null.</param>
+        /// <param name="MaxRefresh">The longest time the entry sets, or null.</param>
+        public static (TimeSpan Min, TimeSpan Max) RefreshOf(TimeSpan?  MinRefresh,
+                                                             TimeSpan?  MaxRefresh)
+        {
+
+            var min = MinRefresh ?? (MaxRefresh is { } maxOnly && maxOnly < DefaultMinRefresh ? maxOnly : DefaultMinRefresh);
+            var max = MaxRefresh ?? (min > DefaultMaxRefresh ? min : DefaultMaxRefresh);
+
+            return (min, max);
+
+        }
+
+        /// <summary>
+        /// Whether the given entry sets when its server's key exchange is made
+        /// again, or leaves it to the defaults.
+        /// </summary>
+        public static Boolean SetsRefresh(NTSServerConfiguration Entry)
+
+            => Entry.MinRefresh.HasValue || Entry.MaxRefresh.HasValue;
 
         #endregion
 
@@ -341,6 +423,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             }
 
+            // When its key exchange is made again: at a random time between the
+            // two, after the last one.
+            if (!ConfigurationReader.TryReadSeconds(json, "minRefreshSeconds", $"{Section}.servers[{Index}]", MinRefreshSeconds, MaxRefreshSeconds, out var minRefresh, out Error) ||
+                !ConfigurationReader.TryReadSeconds(json, "maxRefreshSeconds", $"{Section}.servers[{Index}]", MinRefreshSeconds, MaxRefreshSeconds, out var maxRefresh, out Error))
+            {
+                return false;
+            }
+
+            if (minRefresh.HasValue && maxRefresh.HasValue && maxRefresh.Value < minRefresh.Value)
+            {
+                Error = $"'{Section}.servers[{Index}].maxRefreshSeconds' ({maxRefresh.Value.TotalSeconds}) must not be shorter than its minRefreshSeconds ({minRefresh.Value.TotalSeconds}).";
+                return false;
+            }
+
             // What it is held to, beside the usual - the same for a time server
             // as for a name server.
             if (!ServerPins.TryParse(json, $"{Section}.servers[{Index}]", out var pins, out Error))
@@ -366,7 +462,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 enabled ?? true,
                                 pins,
                                 id,
-                                aead
+                                aead,
+                                minRefresh,
+                                maxRefresh
                             );
 
             return true;
@@ -387,7 +485,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && Pins?.SaysAnything != true)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && Pins?.SaysAnything != true)
                 return Hostname.ToString();
 
             var json = new JObject();
@@ -401,6 +499,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (NTPPort.  HasValue)     json.Add("ntpPort",   NTPPort.  Value.ToUInt16());
             if (!Enabled)               json.Add("enabled",   false);
             if (AEAD.HasValue)          json.Add("aead",      AEADNameOf(AEAD.Value));
+            if (MinRefresh.HasValue)    json.Add("minRefreshSeconds", MinRefresh.Value.TotalSeconds);
+            if (MaxRefresh.HasValue)    json.Add("maxRefreshSeconds", MaxRefresh.Value.TotalSeconds);
 
             Pins?.WriteInto(json);
 
@@ -411,11 +511,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #endregion
 
 
+        #region (static) RefreshText(Refresh)
+
+        /// <summary>
+        /// When a key exchange is made again, as a sentence says it: "12 to 24
+        /// hours", "90 minutes".
+        /// </summary>
+        public static String RefreshText((TimeSpan Min, TimeSpan Max) Refresh)
+        {
+
+            static String In(TimeSpan Time, Double Unit)
+
+                => (Time.TotalSeconds / Unit).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+            var (min, max)    = Refresh;
+            var (unit, name)  = min.TotalSeconds % 3600 == 0 && max.TotalSeconds % 3600 == 0 ? (3600.0, "hours")
+                              : min.TotalSeconds %   60 == 0 && max.TotalSeconds %   60 == 0 ? (  60.0, "minutes")
+                              :                                                                (   1.0, "seconds");
+
+            return min == max
+                       ? $"{In(max, unit)} {name}"
+                       : $"{In(min, unit)} to {In(max, unit)} {name}";
+
+        }
+
+        #endregion
+
+
         #region (override) ToString()
 
         public override String ToString()
 
-            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
+            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
 
         #endregion
 

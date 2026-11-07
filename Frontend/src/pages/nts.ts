@@ -9,7 +9,7 @@ import { rememberTab, tabFromURL, tabsView, type Tab } from '../tabs';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { html, keyed, live, nothing, render, repeat, type TemplateResult } from '../view';
 import { displayNameOf, firstLanguage, isGroupId, labelOf, NewGroupTab, type DisplayNameRow } from './ntsGroups';
-import { nameTaken, readable, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
+import { nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
 import { asShown, draftOf, withPins, type StoreOffers } from './pins';
 import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers } from './pinViews';
 
@@ -817,7 +817,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 
@@ -1003,6 +1003,13 @@ export const ntsPage: Page = {
                 const ntp       = String(data.get('ntpPort')   ?? '').trim();
                 const priority  = Number(data.get('priority')  ?? 0);
                 const aead      = String(data.get('aead')      ?? '');
+                const minRefresh  = String(data.get('minRefreshSeconds') ?? '').trim();
+                const maxRefresh  = String(data.get('maxRefreshSeconds') ?? '').trim();
+
+                if (minRefresh.length > 0 && maxRefresh.length > 0 && Number(maxRefresh) < Number(minRefresh)) {
+                    error().textContent = 'The latest next key exchange cannot come before the earliest.';
+                    return;
+                }
 
                 if (hostname.length === 0) {
                     error().textContent = 'A host name is needed.';
@@ -1035,6 +1042,8 @@ export const ntsPage: Page = {
                 if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
                 if (data.get('enabled') === null)                        entry.enabled    = false;
                 if (aead.length > 0)                                     entry.aead       = aead;
+                if (minRefresh.length > 0)                               entry.minRefreshSeconds = Number(minRefresh);
+                if (maxRefresh.length > 0)                               entry.maxRefreshSeconds = Number(maxRefresh);
 
                 // And what the dialog showed it held to, so that the
                 // node changes only what was changed here - see asShown.
@@ -1104,6 +1113,27 @@ export const ntsPage: Page = {
                         <span class="hint">
                             What the key exchange offers to protect the time requests with${shown?.aeadAlgorithm
                                 ? `; its last key exchange agreed on ${shown.aeadAlgorithm.replaceAll('_', '-')}`
+                                : ''}.
+                        </span>
+                    </label>
+
+                    <label>Next key exchange, at the earliest
+                        <input type="number" name="minRefreshSeconds" step="1"
+                               min="${configuration.limits.minRefresh ?? 60}" max="${configuration.limits.maxRefresh ?? 5184000}"
+                               placeholder="${configuration.limits.defaultMinRefresh ?? 43200}"
+                               value="${shown?.minRefreshSeconds ?? ''}" />
+                        <span class="hint">Seconds after the last one.</span>
+                    </label>
+
+                    <label>Next key exchange, at the latest
+                        <input type="number" name="maxRefreshSeconds" step="1"
+                               min="${configuration.limits.minRefresh ?? 60}" max="${configuration.limits.maxRefresh ?? 5184000}"
+                               placeholder="${configuration.limits.defaultMaxRefresh ?? 86400}"
+                               value="${shown?.maxRefreshSeconds ?? ''}" />
+                        <span class="hint">
+                            A new key exchange, at a random time between the two, checks the server's certificate again.
+                            Left empty, ${refreshText({}, configuration.limits)}${shown?.nextExchange
+                                ? `; the next one is due ${new Date(shown.nextExchange).toLocaleString()}`
                                 : ''}.
                         </span>
                     </label>

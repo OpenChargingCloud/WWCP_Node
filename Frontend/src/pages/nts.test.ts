@@ -286,6 +286,66 @@ describe('the NTS page', () => {
 
     });
 
+    it('sets when a server\'s key exchange is made again, and keeps every other server\'s', async () => {
+
+        const root = await opened({}, configuration => {
+            configuration.timeSources![1]!.minRefreshSeconds  = 3600;
+            configuration.timeSources![1]!.maxRefreshSeconds  = 7200;
+            configuration.limits.defaultMinRefresh            = 43200;
+            configuration.limits.defaultMaxRefresh            = 86400;
+        });
+
+        assert.match(root.textContent!.replace(/\s+/g, ' '), /key exchange again after 1 to 2 hours/, 'the list does not say when the other server\'s is made again');
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog  = document.querySelector('dialog')!;
+        const min     = dialog.querySelector<HTMLInputElement>('input[name="minRefreshSeconds"]')!;
+        const max     = dialog.querySelector<HTMLInputElement>('input[name="maxRefreshSeconds"]')!;
+
+        assert.equal(min.value,        '',       'a server whose entry sets none is not shown one');
+        assert.equal(min.placeholder,  '43200');
+        assert.equal(max.placeholder,  '86400');
+        assert.match(dialog.textContent!.replace(/\s+/g, ' '), /Left empty, 12 to 24 hours/);
+
+        min.value = '600';
+        max.value = '1200';
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        const servers = told.find(update => update.servers !== undefined)!.servers!;
+
+        assert.equal(servers[0]!.minRefreshSeconds,  600);
+        assert.equal(servers[0]!.maxRefreshSeconds,  1200);
+        assert.equal(servers[1]!.minRefreshSeconds,  3600, 'the other server\'s was not sent back, and the save would take it away');
+        assert.equal(servers[1]!.maxRefreshSeconds,  7200);
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
+    it('refuses a latest next key exchange before the earliest, and sends nothing', async () => {
+
+        const root = await opened({}, () => {});
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog  = document.querySelector('dialog')!;
+
+        dialog.querySelector<HTMLInputElement>('input[name="minRefreshSeconds"]')!.value = '7200';
+        dialog.querySelector<HTMLInputElement>('input[name="maxRefreshSeconds"]')!.value = '3600';
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+        await until(() => /cannot come before the earliest/.test(dialog.textContent ?? ''), 'the dialog did not say why');
+
+        assert.equal(told.some(update => update.servers !== undefined), false, 'it was sent');
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
     it('shows the AEAD algorithm a server\'s entry offers, and offers every one again where that is chosen', async () => {
 
         const root = await opened({}, configuration => {

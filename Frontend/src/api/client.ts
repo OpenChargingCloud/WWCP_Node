@@ -754,6 +754,13 @@ export interface NTSServerEntry extends PinKeys {
      */
     aead?:          string;
     /**
+     * When its key exchange is made again: at a random time between these
+     * two numbers of seconds after the last one. Left out, 12 and 24 hours
+     * (limits.defaultMinRefresh and defaultMaxRefresh).
+     */
+    minRefreshSeconds?: number;
+    maxRefreshSeconds?: number;
+    /**
      * What the page showed the server held to, in the keys above: the node
      * changes only what was changed on the page, and keeps what the server
      * learned while the page was open. Only on a server the page loaded.
@@ -814,8 +821,16 @@ export interface NTSTimeSource {
      * entry for the same host makes it offer.
      */
     aead?:          string | null;
+    /**
+     * When its own entry has its key exchange made again, in seconds, or null
+     * where it leaves that to the defaults: what the page sends back with it.
+     */
+    minRefreshSeconds?: number | null;
+    maxRefreshSeconds?: number | null;
     cookies?:       number | null;
     lastExchange?:  string | null;
+    /** When its next key exchange is due. */
+    nextExchange?:  string | null;
     /** The AEAD algorithm the last key exchange agreed on. */
     aeadAlgorithm?: string | null;
 
@@ -945,6 +960,11 @@ export interface NTSConfiguration {
         defaultNTPPort:      number;
         /** What a server's entry may name as its AEAD algorithm, and what it is offered where it names none, in order. */
         aeadAlgorithms?:     string[];
+        /** What a server's entry may set as its refresh, and what it is where it sets none, in seconds. */
+        minRefresh?:         number;
+        maxRefresh?:         number;
+        defaultMinRefresh?:  number;
+        defaultMaxRefresh?:  number;
     };
     file:         string;
     /** Only on the answer to a synchronisation, which carries both. */

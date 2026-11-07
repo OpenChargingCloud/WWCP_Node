@@ -404,6 +404,23 @@ answer says what its own entry names as `aead` (null where the server
 chooses), and what its last key exchange agreed on as `aeadAlgorithm`. The
 algorithms an entry may name are `limits.aeadAlgorithms`.
 
+`"minRefreshSeconds": 43200, "maxRefreshSeconds": 86400` say when the
+server's key exchange is made again: at a random time between the two after
+the last one, so that many nodes don't reach the same server at the same
+moment. The key exchange is the only moment the server's certificate is
+checked, and cookies alone would go on for much longer. Left out, it's 12 to
+24 hours, as the Secure Time Synchronization white paper says - before, it
+was half an hour. Each may be from 60 seconds to 60 days, and the latest is
+never before the earliest; an entry setting one of them has the default for
+the other, unless that would put the latest before the earliest. A server
+whose cookies run out makes a new key exchange at once, whatever these say,
+and one that fails when it's due isn't asked until a new one succeeds. By the
+server's name across every group, as its AEAD algorithm; a change lets go of
+the key exchange. Each server in the answer shows what its own entry sets
+(null where it sets nothing), and when the next one is due as `nextExchange`.
+The bounds and the defaults are `limits.minRefresh`, `maxRefresh`,
+`defaultMinRefresh` and `defaultMaxRefresh`.
+
 A server may be held to more than every server is held to - certificates
 it may show, roots its chain may end at, each by its SHA-256 fingerprint,
 written the way a certificate authority, a browser or openssl writes one:
