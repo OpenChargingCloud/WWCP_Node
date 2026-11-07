@@ -880,6 +880,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // entry says otherwise - see WWCPNode.TimeServerRefresh.cs.
             PutRefreshes();
             PutCorrections();
+            PutKeyExchangeHosts();
 
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
@@ -2362,6 +2363,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           // null where it says nothing.
                                           new JProperty("delayAsymmetryMs",  Group.Settings?.Servers?.ElementAtOrDefault(index)?.DelayAsymmetry?.TotalMilliseconds),
                                           new JProperty("delayVarAsymmetry", Group.Settings?.Servers?.ElementAtOrDefault(index)?.DelayVarAsymmetry),
+                                          // The key exchange server its own entry
+                                          // names, or null where it is the server.
+                                          new JProperty("ntsKEHostname",  Group.Settings?.Servers?.ElementAtOrDefault(index)?.NTSKEHostname?.ToString()),
                                           new JProperty("cookies",        held?.RemainingCookies),
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
                                           new JProperty("nextExchange",   held?.RefreshAt?.ToString("o")),
@@ -2911,6 +2915,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasAEADs          = AEADs();
             var wasRefreshes      = Refreshes();
             var wasCorrections    = Corrections();
+            var wasKeyExchanges   = KeyExchangeHosts();
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
@@ -3019,6 +3024,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // WWCPNode.TimeServerCorrections.cs.
             changed.AddRange(CorrectionChanges(wasCorrections));
 
+            // And where its keys come from - see
+            // WWCPNode.TimeServerKeyExchange.cs.
+            changed.AddRange(KeyExchangeHostChanges(wasKeyExchanges));
+
             if (wasQuorum != Group.Sources.MinServers)
                 changed.Add($"quorum = {Group.Sources.MinServers}");
 
@@ -3080,6 +3089,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             OfferAEAD();
             PutRefreshes();
             PutCorrections();
+            PutKeyExchangeHosts();
 
             if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)
             {

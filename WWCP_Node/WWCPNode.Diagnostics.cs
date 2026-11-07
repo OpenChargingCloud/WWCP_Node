@@ -833,20 +833,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // the group never makes.
             var offer  = AEADOffer(host);
 
-            var asking = host.Equals(configured.Hostname) &&
+            // And at its key exchange server, where it has one of its own,
+            // asking for it as the NTP server, as every round does.
+            var ownKeyExchange = KeyExchangeHostOf(host);
+
+            var asking = ownKeyExchange is null &&
+                         host.Equals(configured.Hostname) &&
                          ntsKEPort == configured.NTSKE_Port   &&
                          ntpPort   == configured.NTP_Port     &&
                          Offers(configured, offer)
                              ? configured
                              : new NTSClient(
-                                   host,
+                                   ownKeyExchange ?? host,
                                    NTSKE_Port:                  ntsKEPort,
                                    NTP_Port:                    ntpPort,
                                    RemoteCertificateValidator:  TimeServerValidator(host),
                                    Timeout:                     configured.Timeout,
                                    DNSClient:                   dnsClient,
                                    OfferedAEADAlgorithms:       offer,
-                                   TimeProvider:                TimeProvider
+                                   TimeProvider:                TimeProvider,
+                                   RequestedNTPServer:          ownKeyExchange is null ? null : host
                                );
 
             try

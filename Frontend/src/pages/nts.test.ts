@@ -325,6 +325,34 @@ describe('the NTS page', () => {
 
     });
 
+    it('names a server\'s key exchange server, and keeps every other server\'s', async () => {
+
+        const root = await opened({}, configuration => {
+            configuration.timeSources![1]!.ntsKEHostname = 'ke.example.';
+        });
+
+        assert.match(root.textContent!.replace(/\s+/g, ' '), /keys from ke\.example/, 'the list does not say where the other server\'s keys come from');
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog  = document.querySelector('dialog')!;
+        const host    = dialog.querySelector<HTMLInputElement>('input[name="hostname"]')!.value;
+
+        dialog.querySelector<HTMLInputElement>('input[name="ntsKEHostname"]')!.value = 'nts.example';
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        const servers = told.find(update => update.servers !== undefined)!.servers!;
+
+        assert.equal(servers[0]!.ntsKEHostname,  'nts.example');
+        assert.equal(servers[1]!.ntsKEHostname,  'ke.example',  'the other server\'s was not sent back, and the save would take it away');
+        assert.ok(host.length > 0);
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
     it('corrects a server\'s offsets, and keeps every other server\'s correction', async () => {
 
         const root = await opened({}, configuration => {

@@ -434,6 +434,16 @@ is corrected. At most a second either way, and a half. By the server's name
 across every group; each server in the answer shows what its own entry sets,
 and the bounds are `limits.maxDelayAsymmetryMs` and `maxDelayVarAsymmetry`.
 
+`"ntsKEHostname": "ke.example"` names a key exchange server other than the
+server itself, the white paper's NTSKEServerURL. The keys and cookies come from
+there, and the server's host name is asked for as the NTP server by an NTPv4
+Server Negotiation record; the NTP server is still the one the response names,
+or the key exchange server where it names none. The certificate checked is the
+key exchange server's, against its name; what the server is held to stays
+under the server's name. By the server's name across every group; a change
+lets go of the key exchange. Each server in the answer shows what its own
+entry names as `ntsKEHostname`.
+
 A server may be held to more than every server is held to - certificates
 it may show, roots its chain may end at, each by its SHA-256 fingerprint,
 written the way a certificate authority, a browser or openssl writes one:

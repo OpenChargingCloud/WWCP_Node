@@ -826,7 +826,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.ntsKEHostname ? `, keys from ${readable(source.ntsKEHostname)}` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 
@@ -1016,6 +1016,7 @@ export const ntsPage: Page = {
                 const maxRefresh  = String(data.get('maxRefreshSeconds') ?? '').trim();
                 const shift       = String(data.get('delayAsymmetryMs')  ?? '').trim();
                 const asymmetry   = String(data.get('delayVarAsymmetry') ?? '').trim();
+                const keyExchange = readable(String(data.get('ntsKEHostname') ?? '').trim());
 
                 if (minRefresh.length > 0 && maxRefresh.length > 0 && Number(maxRefresh) < Number(minRefresh)) {
                     error().textContent = 'The latest next key exchange cannot come before the earliest.';
@@ -1058,6 +1059,9 @@ export const ntsPage: Page = {
                 // Zero corrects nothing, as the node takes it.
                 if (shift.length     > 0 && Number(shift)     !== 0)     entry.delayAsymmetryMs  = Number(shift);
                 if (asymmetry.length > 0 && Number(asymmetry) !== 0)     entry.delayVarAsymmetry = Number(asymmetry);
+                // The server itself is no other key exchange server.
+                if (keyExchange.length > 0 && keyExchange.toLowerCase() !== hostname.toLowerCase())
+                                                                         entry.ntsKEHostname     = keyExchange;
 
                 // And what the dialog showed it held to, so that the
                 // node changes only what was changed here - see asShown.
@@ -1106,6 +1110,15 @@ export const ntsPage: Page = {
                         <input type="number" name="priority" min="0" max="255" step="1"
                                value="${shown?.priority ?? 0}" />
                         <span class="hint">A lower priority is asked first; servers sharing one are asked together.</span>
+                    </label>
+
+                    <label>NTS-KE server
+                        <input type="text" name="ntsKEHostname" placeholder="the host name above"
+                               value="${shown?.ntsKEHostname ? readable(shown.ntsKEHostname) : ''}" />
+                        <span class="hint">
+                            Where its keys come from, where that is another server: the host name above is then asked for as
+                            the NTP server. Left empty, the host name above.
+                        </span>
                     </label>
 
                     <label>NTS-KE port

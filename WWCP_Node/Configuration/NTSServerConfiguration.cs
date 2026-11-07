@@ -49,6 +49,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="MaxRefresh">The longest time after a key exchange before the next one, or null for <see cref="DefaultMaxRefresh"/>; see <see cref="RefreshOf"/>.</param>
     /// <param name="DelayAsymmetry">A correction added to every offset measured with it, for a known stable asymmetry of the delays, or null for none.</param>
     /// <param name="DelayVarAsymmetry">Where a hold-up of its delays is, from -0.5 (on the way there) to +0.5 (on the way back), or null for half each.</param>
+    /// <param name="NTSKEHostname">The key exchange server its keys and cookies come from, where it is another than the server itself, or null.</param>
     public sealed record NTSServerConfiguration(DomainName       Hostname,
                                                 Byte             Priority           = 0,
                                                 IPPort?          NTSKEPort          = null,
@@ -60,7 +61,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                                 TimeSpan?        MinRefresh         = null,
                                                 TimeSpan?        MaxRefresh         = null,
                                                 TimeSpan?        DelayAsymmetry     = null,
-                                                Double?          DelayVarAsymmetry  = null)
+                                                Double?          DelayVarAsymmetry  = null,
+                                                DomainName?      NTSKEHostname      = null)
     {
 
         #region Data
@@ -187,7 +189,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     MinRefresh:             RefreshOf(this).Min,
                     MaxRefresh:             RefreshOf(this).Max,
                     DelayAsymmetry:         DelayAsymmetry,
-                    DelayVarAsymmetry:      DelayVarAsymmetry);
+                    DelayVarAsymmetry:      DelayVarAsymmetry,
+                    NTSKEHost:              NTSKEHostname);
 
         #endregion
 
@@ -495,6 +498,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
+            // The key exchange server its keys and cookies come from, where it
+            // is another than the server itself.
+            if (!ConfigurationReader.TryReadString(json, "ntsKEHostname", $"{Section}.servers[{Index}]", 253, out var ntsKEHostname, out Error))
+                return false;
+
+            DomainName? keyExchange = null;
+
+            if (ntsKEHostname is not null && ntsKEHostname.Trim().Length > 0)
+            {
+
+                if (!DomainName.TryParse(ntsKEHostname.Trim(), out var parsed, out var keyExchangeProblem))
+                {
+                    Error = $"'{Section}.servers[{Index}].ntsKEHostname': {keyExchangeProblem}";
+                    return false;
+                }
+
+                keyExchange = parsed;
+
+            }
+
             // What it is held to, beside the usual - the same for a time server
             // as for a name server.
             if (!ServerPins.TryParse(json, $"{Section}.servers[{Index}]", out var pins, out Error))
@@ -525,7 +548,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 maxRefresh,
                                 // Zero corrects nothing, and is written as nothing.
                                 delayAsymmetry    is Double shift     && shift     != 0 ? TimeSpan.FromMilliseconds(shift) : null,
-                                delayVarAsymmetry is Double asymmetry && asymmetry != 0 ? asymmetry                        : null
+                                delayVarAsymmetry is Double asymmetry && asymmetry != 0 ? asymmetry                        : null,
+                                // The server itself named as its key exchange server is
+                                // no other one.
+                                keyExchange is not null && !keyExchange.Equals(domainName) ? keyExchange : null
                             );
 
             return true;
@@ -546,7 +572,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && Pins?.SaysAnything != true)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && NTSKEHostname is null && Pins?.SaysAnything != true)
                 return Hostname.ToString();
 
             var json = new JObject();
@@ -564,6 +590,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (MaxRefresh.HasValue)    json.Add("maxRefreshSeconds", MaxRefresh.Value.TotalSeconds);
             if (DelayAsymmetry.HasValue)    json.Add("delayAsymmetryMs",  DelayAsymmetry.Value.TotalMilliseconds);
             if (DelayVarAsymmetry.HasValue) json.Add("delayVarAsymmetry", DelayVarAsymmetry.Value);
+            if (NTSKEHostname is not null)  json.Add("ntsKEHostname",     NTSKEHostname.ToString());
 
             Pins?.WriteInto(json);
 
@@ -605,7 +632,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         public override String ToString()
 
-            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(SetsCorrection(this) ? $" - offsets corrected {CorrectionText(DelayAsymmetry, DelayVarAsymmetry)}" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
+            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(SetsCorrection(this) ? $" - offsets corrected {CorrectionText(DelayAsymmetry, DelayVarAsymmetry)}" : "")}{(NTSKEHostname is not null ? $" - keys from {NTSKEHostname.Trimmed}" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
 
         #endregion
 

@@ -97,6 +97,21 @@ describe('a time server turned back into its entry', () => {
 });
 
 
+describe('a time server\'s key exchange server', () => {
+
+    it('is kept with its entry, as people read it, or the next save takes it away', () => {
+
+        assert.deepEqual(entryOf(shown('a.example.', { ntsKEHostname: 'ke.example.' }), usual),
+                         { hostname: 'a.example', ntsKEHostname: 'ke.example' });
+
+        assert.deepEqual(entryOf(shown('a.example.', { ntsKEHostname: null }), usual),
+                         { hostname: 'a.example' });
+
+    });
+
+});
+
+
 describe('how a time server\'s offsets are corrected', () => {
 
     it('is kept with its entry, or the next save takes it away', () => {

@@ -769,6 +769,8 @@ export interface NTSServerEntry extends PinKeys {
      */
     delayAsymmetryMs?:  number;
     delayVarAsymmetry?: number;
+    /** The key exchange server its keys come from, where it is another than the server itself. */
+    ntsKEHostname?:     string;
     /**
      * What the page showed the server held to, in the keys above: the node
      * changes only what was changed on the page, and keeps what the server
@@ -839,6 +841,8 @@ export interface NTSTimeSource {
     /** How its own entry corrects its offsets, or null where it does not. */
     delayAsymmetryMs?:  number | null;
     delayVarAsymmetry?: number | null;
+    /** The key exchange server its own entry names, or null where it is the server. */
+    ntsKEHostname?:     string | null;
     cookies?:       number | null;
     lastExchange?:  string | null;
     /** When its next key exchange is due. */
