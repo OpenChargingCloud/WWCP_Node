@@ -388,7 +388,7 @@ export const sshPage: Page = {
         }
 
 
-        /** Who is connected now: at the command line, or with SFTP. */
+        /** Who is connected now: at the command line, with SFTP, or with a subsystem the kind serves - an account, or one of the logins a kind lets in besides. */
         function sessionsCard(ssh: SSHConfiguration): TemplateResult {
 
             return html`
@@ -401,12 +401,16 @@ export const sshPage: Page = {
                           : html`
                             <div class="table-scroll">
                               <table class="records">
-                                  <thead><tr><th>Account</th><th>At</th><th>From</th><th>Since</th><th>Key</th></tr></thead>
+                                  <thead><tr><th>Who</th><th>At</th><th>From</th><th>Since</th><th>Key</th></tr></thead>
                                   <tbody>
                                       ${repeat(ssh.sessions, session => session.id, session => html`
                                           <tr data-session="${session.id}">
-                                              <td>${session.account}</td>
-                                              <td>${session.kind === 'sftp' ? 'SFTP' : 'the command line'}</td>
+                                              <td>${session.account}${session.principal !== undefined && session.principal !== 'account'
+                                                                          ? html` <span class="muted">(${session.principal})</span>`
+                                                                          : nothing}</td>
+                                              <td>${session.kind === 'sftp'      ? 'SFTP'
+                                                  : session.kind === 'subsystem' ? html`${session.label ?? session.subsystem} <span class="muted">(${session.subsystem})</span>`
+                                                  :                                'the command line'}</td>
                                               <td>${session.from}</td>
                                               <td>${when(session.since)}</td>
                                               <td>${session.key !== null ? html`<code>${session.key}</code>` : html`<span class="muted">a password</span>`}</td>

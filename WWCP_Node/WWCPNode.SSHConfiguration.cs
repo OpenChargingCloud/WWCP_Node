@@ -133,12 +133,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("connections",    SSHConnections),
                        new JProperty("sessions",       new JArray(
                                                            SSHSessions.Select(session => new JObject(
-                                                               new JProperty("id",       session.Id),
-                                                               new JProperty("kind",     session.Kind),
-                                                               new JProperty("account",  session.Account),
-                                                               new JProperty("from",     session.From),
-                                                               new JProperty("key",      session.Key),
-                                                               new JProperty("since",    session.Since.ToString("o"))
+                                                               new JProperty("id",         session.Id),
+                                                               new JProperty("kind",       session.Kind),
+                                                               new JProperty("account",    session.Account),
+                                                               new JProperty("principal",  session.Principal),
+                                                               new JProperty("subsystem",  session.SubsystemName),
+                                                               new JProperty("label",      session.Label),
+                                                               new JProperty("from",       session.From),
+                                                               new JProperty("key",        session.Key),
+                                                               new JProperty("since",      session.Since.ToString("o"))
                                                            ))
                                                        )),
 

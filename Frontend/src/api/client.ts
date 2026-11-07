@@ -297,8 +297,10 @@ export interface SSHConfiguration {
     sftpAreas:      { path: string; read: string | null; write: string | null }[];
     /** Connections open now, signed in or not. */
     connections:    number;
-    /** The sessions over SSH - at the command line, or of SFTP - the oldest first. */
-    sessions:       { id: string; kind: 'cli' | 'sftp'; account: string; from: string; key: string | null; since: string }[];
+    /** The sessions over SSH - at the command line, of SFTP, or of a subsystem the kind serves - the oldest first.
+     *  "principal" is what signed in: "account", or what a kind lets in besides ("station"), whose name is then in "account". */
+    sessions:       { id: string; kind: 'cli' | 'sftp' | 'subsystem'; account: string; principal?: string;
+                      subsystem?: string | null; label?: string | null; from: string; key: string | null; since: string }[];
     /** Every account, with the keys it may sign in with. */
     accounts:       { account: string; keys: { fingerprint: string; algorithm: string; comment: string; label: string | null;
                                                created: string; createdBy: string | null; isDisabled: boolean }[] }[];

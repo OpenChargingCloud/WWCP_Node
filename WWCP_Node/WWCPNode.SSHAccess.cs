@@ -64,16 +64,37 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (protected virtual) SSHPrincipalOf(Session)
 
         /// <summary>
-        /// Who a session is, as the rules see it: an account of the node, with its roles as its groups. A
-        /// kind of node that lets others sign in - a local controller its charging stations - says who they
-        /// are here.
+        /// Who a session is, as the rules see it: an account of the node, with its roles as its groups -
+        /// or one of the logins a kind of node lets in besides (a local controller its charging stations,
+        /// see <see cref="AddSSHSignIns"/>), with the groups the kind says.
         /// </summary>
         /// <param name="Session">The session, as it signed in.</param>
         protected virtual SSHPrincipal SSHPrincipalOf(SshSessionInfo Session)
+        {
 
-            => User_Id.TryParse(Session.Username) is User_Id userId && ExtAPI.TryGetUser(userId, out var user) && user is not null
-                   ? new SSHPrincipal(SSHPrincipal.Account, user.Id.ToString(), [ .. RolesOf(user).Select(role => role.Name) ])
-                   : new SSHPrincipal("unknown", Session.Username, []);
+            if (SSHSignInsOf(Session) is ISSHSignIns signIns)
+            {
+
+                IReadOnlyList<String> groups;
+
+                try
+                {
+                    groups = signIns.GroupsOf(Session.Username);
+                }
+                catch (Exception)
+                {
+                    groups = [];
+                }
+
+                return new SSHPrincipal(signIns.PrincipalKind, Session.Username, groups);
+
+            }
+
+            return User_Id.TryParse(Session.Username) is User_Id userId && ExtAPI.TryGetUser(userId, out var user) && user is not null
+                       ? new SSHPrincipal(SSHPrincipal.Account, user.Id.ToString(), [ .. RolesOf(user).Select(role => role.Name) ])
+                       : new SSHPrincipal("unknown", Session.Username, []);
+
+        }
 
         #endregion
 
@@ -148,34 +169,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                        CancellationToken  CancellationToken)
         {
 
-            var refusal = SSHAccessRefusal(Session, null);
+            // As whom it signed in, from here on - a name that is let in as nothing is refused.
+            var refusal = RememberSSHSignIn(Session) ??
+                          SSHAccessRefusal(Session, null);
 
             if (refusal is not null)
                 Log.Notice($"'{Session.Username}' signed in over SSH from {Session.Peer?.ToString() ?? "somewhere"}, and was refused: {refusal}.",
                            "ssh", "auth", "security");
 
             return ValueTask.FromResult(refusal);
-
-        }
-
-        #endregion
-
-        #region (private) RecheckSSHSessions()
-
-        /// <summary>
-        /// Ask every open session - at the command line and of SFTP - at once whether it may go on, rather
-        /// than within the next few seconds: what is ended, by how many.
-        /// </summary>
-        private Int32 RecheckSSHSessions()
-        {
-
-            var ended = 0;
-
-            foreach (var recheck in sshSessionRechecks.Values.Concat(sftpSessionRechecks.Values).ToArray())
-                if (recheck() is not null)
-                    ended++;
-
-            return ended;
 
         }
 

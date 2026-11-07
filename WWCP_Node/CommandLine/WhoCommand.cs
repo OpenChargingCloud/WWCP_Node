@@ -75,10 +75,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 return Task.FromResult<String[]>([ $"Nobody is connected to this {cli.Node.Kind.Name} over SSH." ]);
 
             var mine  = cli.Caller.Session?.ConnectionId;
-            var width = sessions.Max(session => session.Account.Length);
+            var width = sessions.Max(session => session.Who.Length);
 
             return Task.FromResult<String[]>([
-                       .. sessions.Select(session => $"{session.Account.PadRight(width)}  {(session.Kind == WWCPNode.SSHSession.SFTP ? "with SFTP " : "")}from {session.From}, since {session.Since.ToLocalTime():HH:mm}" +
+                       .. sessions.Select(session => $"{session.Who.PadRight(width)}  {(session.Kind != WWCPNode.SSHSession.CommandLine ? $"with {session.What} " : "")}from {session.From}, since {session.Since.ToLocalTime():HH:mm}" +
                                                      (session.Key is not null ? $", key {session.Key}" : "") +
                                                      (session.Id == mine ? "  <- this one" : ""))
                    ]);
@@ -91,7 +91,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} - who is connected over SSH now: at this command line, or with SFTP";
+            => $"{CommandName} - who is connected over SSH now: at this command line, with SFTP, or with a subsystem the {cli.Node.Kind.Name} serves";
 
         #endregion
 

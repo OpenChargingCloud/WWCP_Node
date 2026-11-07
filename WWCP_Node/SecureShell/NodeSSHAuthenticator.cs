@@ -28,7 +28,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
     /// <summary>
     /// Who may sign in to a node over SSH: an account of the node, under its
-    /// name, with one of its keys - or its password, where the node says so.
+    /// name, with one of its keys - or its password, where the node says so;
+    /// and the logins a kind of node lets in besides, with what the kind says
+    /// (see <see cref="ISSHSignIns"/>), confined to their subsystems.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -97,14 +99,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #region AuthorizePublicKeyAsync(Request, CancellationToken)
 
-        /// <inheritdoc />
-        public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest  Request,
-                                                          CancellationToken        CancellationToken = default)
+        /// <summary>
+        /// Whether the given key lets the given name in: one of the account's keys - or, for a login a
+        /// kind of node lets in besides (see <see cref="ISSHSignIns"/>), what the kind says. A name that
+        /// is both is let in as neither.
+        /// </summary>
+        public async ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest  Request,
+                                                                CancellationToken        CancellationToken = default)
+        {
 
-            => ValueTask.FromResult(
-                   AccountMaySignIn(Request.Username) is IUser user &&
-                   node.ExtAPI.FindSSHKey(user.Id, Request.PublicKeyBlob, node.TimeProvider.GetUtcNow()) is not null
-               );
+            var (signIns, clash) = node.SSHLoginOf(Request.Username);
+
+            if (clash is not null)
+            {
+                node.WarnOfSSHClash(Request.Username, clash);
+                return false;
+            }
+
+            if (signIns is not null)
+                return await signIns.AuthorizePublicKeyAsync(Request, CancellationToken);
+
+            return AccountMaySignIn(Request.Username) is IUser user &&
+                   node.ExtAPI.FindSSHKey(user.Id, Request.PublicKeyBlob, node.TimeProvider.GetUtcNow()) is not null;
+
+        }
 
         #endregion
 
@@ -113,17 +131,30 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <summary>
         /// What the authorized_keys line of the key that let the account in
         /// confines the session to: where it may come from, and whether it gets
-        /// a terminal.
+        /// a terminal. A login a kind of node lets in is confined besides to
+        /// the subsystems it may use - no terminal, no forwarding, no command
+        /// line, no SFTP - whatever the kind's own entry says.
         /// </summary>
-        public ValueTask<SshSessionRestrictions> GetRestrictionsAsync(SshPublicKeyAuthRequest  Request,
-                                                                      CancellationToken        CancellationToken = default)
+        public async ValueTask<SshSessionRestrictions> GetRestrictionsAsync(SshPublicKeyAuthRequest  Request,
+                                                                            CancellationToken        CancellationToken = default)
+        {
 
-            => ValueTask.FromResult(
-                   (User_Id.TryParse(Request.Username) is User_Id userId
+            var (signIns, clash) = node.SSHLoginOf(Request.Username);
+
+            // Not let in, and so not asked - but where it is: nothing at all.
+            if (clash is not null)
+                return WWCPNode.SSHConfinementOf(null, Request.Username);
+
+            if (signIns is not null)
+                return (await signIns.GetRestrictionsAsync(Request, CancellationToken)).
+                           And(WWCPNode.SSHConfinementOf(signIns, Request.Username));
+
+            return (User_Id.TryParse(Request.Username) is User_Id userId
                         ? node.ExtAPI.FindSSHKey(userId, Request.PublicKeyBlob, node.TimeProvider.GetUtcNow())?.Key.Restrictions
                         : null)
-                       ?? SshSessionRestrictions.None
-               );
+                       ?? SshSessionRestrictions.None;
+
+        }
 
         #endregion
 
@@ -175,7 +206,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             if (!passwords)
                 return false;
 
-            var user = AccountMaySignIn(Username);
+            // A kind's login opens with its keys alone - and a name that is an account and such a login
+            // as well, with nothing: neither costs less than a password that opens nothing.
+            var user = node.SSHLoginOf(Username) is (null, null)
+                           ? AccountMaySignIn(Username)
+                           : null;
 
             return await node.ExtAPI.VerifySignInPassword(
                              Client,
@@ -204,6 +239,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <param name="Session">The session, as it signed in.</param>
         public String? WhyNoLongerIn(SshSessionInfo Session)
         {
+
+            var signedInAs        = node.SSHSignInsOf(Session);
+            var (now, clash)      = node.SSHLoginOf(Session.Username);
+
+            if (clash is not null)
+                return clash;
+
+            // One of the logins a kind lets in: still one of them, and still let in, as the kind says.
+            if (signedInAs is not null)
+            {
+
+                if (!ReferenceEquals(now, signedInAs))
+                    return $"'{Session.Username}' is no {signedInAs.PrincipalKind} of this {node.Kind.Name} any more";
+
+                try
+                {
+                    return signedInAs.WhyNoLongerIn(Session);
+                }
+                catch (Exception problem)
+                {
+                    // What can not be asked is not a pass.
+                    return $"whether the {signedInAs.PrincipalKind} '{Session.Username}' may go on could not be asked: {problem.Message}";
+                }
+
+            }
+
+            // Signed in as an account, and the name is a kind's login now.
+            if (now is not null)
+                return $"'{Session.Username}' is a {now.PrincipalKind} of this {node.Kind.Name} now, and no account";
 
             if (User_Id.TryParse(Session.Username) is not User_Id userId ||
                 !node.ExtAPI.TryGetUser(userId, out var user) ||

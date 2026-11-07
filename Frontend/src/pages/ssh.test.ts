@@ -239,6 +239,22 @@ describe('the SSH server page', () => {
 
     });
 
+    it('says which subsystem a session is of, and what a login a kind lets in besides is', async () => {
+
+        const root = await opened({ sessions: [ { id: 'c4/ocpp@open.charging.cloud-1', kind: 'subsystem', account: 'cs001', principal: 'station',
+                                                  subsystem: 'ocpp@open.charging.cloud', label: 'OCPP', from: '10.10.0.5:40000', key: 'SHA256:cskey', since: '2026-10-09T09:00:00Z' },
+                                                { id: 'c5', kind: 'cli', account: 'root', principal: 'account',
+                                                  subsystem: null, label: null, from: '192.0.2.7:51234', key: 'SHA256:rootskey', since: '2026-10-09T09:01:00Z' } ] });
+
+        const station = root.querySelector('#ssh-sessions [data-session="c4/ocpp@open.charging.cloud-1"]')!.textContent!;
+        const account = root.querySelector('#ssh-sessions [data-session="c5"]')!.textContent!;
+
+        assert.match(station, /cs001\s*\(station\)\s*OCPP\s*\(ocpp@open\.charging\.cloud\)\s*10\.10\.0\.5:40000/);
+        assert.match(account, /root\s*the command line/);
+        assert.doesNotMatch(account, /\(account\)/, 'an account is not said to be one');
+
+    });
+
     it('saves what is typed, and says what the node said of it', async () => {
 
         const root = await opened({ sessions: [] });

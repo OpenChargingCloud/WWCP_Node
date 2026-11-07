@@ -430,8 +430,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        (SSHPasswords ? " Passwords open it as well." : "") +
                        (SFTPEnabled
                             ? $" SFTP is served as well: {String.Join(", ", sftpAreasInEffect.Select(area => $"/{area.Path}"))}."
-                            : " SFTP is not (ssh.sftp)."),
+                            : " SFTP is not (ssh.sftp).") +
+                       (SSHSubsystems.Count > 0
+                            ? $" Subsystems: {String.Join(", ", SSHSubsystems.Select(subsystem => $"{subsystem.Label} ({subsystem.Name})"))}."
+                            : ""),
                        "ssh");
+
+            WarnOfSSHClashesAtTheStart();
 
         }
 
@@ -460,6 +465,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               AuthorizeSession     = AuthorizeSSHSession,
                               ShellHandler         = ServeShellAsync,
                               SftpSessions         = SftpSessionFor,
+                              Subsystems           = SubsystemFor,
                               AuditSink            = new DelegateAuditSink(Audited),
                               ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
                               Limits               = SSHServerLimits()
@@ -588,20 +594,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// One session over SSH: who, from where, with which key, since when -
-        /// and at what: the command line, or SFTP.
+        /// and at what: the command line, SFTP, or a subsystem a kind serves.
         /// </summary>
-        /// <param name="Id">The session's id: its connection's at the command line, and a number after it for SFTP.</param>
-        /// <param name="Account">The account.</param>
+        /// <param name="Id">The session's id: its connection's at the command line, and a number after it for SFTP and a subsystem.</param>
+        /// <param name="Account">The account - or the login of a kind of node, see <paramref name="Principal"/>.</param>
         /// <param name="From">Where from.</param>
         /// <param name="Key">The fingerprint of the key it signed in with, if one.</param>
         /// <param name="Since">When the session began.</param>
-        /// <param name="Kind">At what: <see cref="CommandLine"/> or <see cref="SFTP"/>.</param>
+        /// <param name="Kind">At what: <see cref="CommandLine"/>, <see cref="SFTP"/> or <see cref="Subsystem"/>.</param>
+        /// <param name="Principal">What signed in: "account", or what a kind lets in besides ("station").</param>
+        /// <param name="SubsystemName">The subsystem, where it is one: "ocpp@open.charging.cloud".</param>
+        /// <param name="Label">What the subsystem is called, where it is one: "OCPP".</param>
         public sealed record SSHSession(String          Id,
                                         String          Account,
                                         String          From,
                                         String?         Key,
                                         DateTimeOffset  Since,
-                                        String          Kind = SSHSession.CommandLine)
+                                        String          Kind           = SSHSession.CommandLine,
+                                        String          Principal      = SSHPrincipal.Account,
+                                        String?         SubsystemName  = null,
+                                        String?         Label          = null)
         {
 
             /// <summary>
@@ -613,6 +625,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
             /// A session of SFTP.
             /// </summary>
             public const String SFTP         = "sftp";
+
+            /// <summary>
+            /// A session of a subsystem a kind of node serves - see <see cref="SSHSubsystem"/>.
+            /// </summary>
+            public const String Subsystem    = "subsystem";
+
+            /// <summary>
+            /// Who it is, as who and the log write it: "root", or "cs001 (station)".
+            /// </summary>
+            public String Who
+                => Principal == SSHPrincipal.Account
+                       ? Account
+                       : $"{Account} ({Principal})";
+
+            /// <summary>
+            /// At what, as somebody says it: "the command line", "SFTP", "OCPP".
+            /// </summary>
+            public String What
+                => Kind switch {
+                       SFTP       => "SFTP",
+                       Subsystem  => Label ?? SubsystemName ?? "a subsystem",
+                       _          => "the command line"
+                   };
 
         }
 
@@ -945,13 +980,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              "ssh", "sftp", "security");
                     break;
 
+                // A subsystem a kind serves, refused: not permitted to the
+                // credential, or SubsystemFor's refusal after "not served: ".
+                case PolicyDeniedEvent { PolicyType: "subsystem" } subsystem when sshSubsystems.TryGetValue(subsystem.Target, out var served):
+                    Log.Info($"Refused {served.Label} over SSH{from}: " +
+                             $"{(subsystem.Reason.StartsWith("not served: ", StringComparison.Ordinal) ? subsystem.Reason["not served: ".Length..] : subsystem.Reason)}.",
+                             "ssh", "subsystem", "security");
+                    break;
+
                 // Said already, with the rule, where the node refused it: see AuthorizeSSHSession.
                 case PolicyDeniedEvent { PolicyType: "session" }:
                     break;
 
-                case PolicyDeniedEvent denied:
+                // Nobody serves it here: what is.
+                case PolicyDeniedEvent { Reason: "not served" } denied:
                     Log.Info($"Refused over SSH{from}: {denied.PolicyType}{(denied.Target.Length > 0 ? $" '{denied.Target}'" : "")} - " +
-                             (SFTPEnabled ? "only the command line and SFTP are served." : "only the command line is served."),
+                             $"only {Served()} {(SFTPEnabled || !sshSubsystems.IsEmpty ? "are" : "is")} served.",
+                             "ssh", "security");
+                    break;
+
+                // Served, but not to this credential: why.
+                case PolicyDeniedEvent denied:
+                    Log.Info($"Refused over SSH{from}: {denied.PolicyType}{(denied.Target.Length > 0 ? $" '{denied.Target}'" : "")} - {denied.Reason}.",
                              "ssh", "security");
                     break;
 
@@ -961,6 +1011,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 case ConnectionClosedEvent:
                     sshSignInKeys.TryRemove(Event.ConnectionId ?? "", out _);
+                    ForgetSSHSignIn(Event.ConnectionId);
                     if (sshSignInFailures.TryRemove(Event.ConnectionId ?? "", out var failures))
                         Log.Info($"Somebody{from} could not sign in over SSH as '{failures.Username}' {failures.Attempts} time(s) " +
                                  $"with {String.Join(" and ", failures.Methods)}, and left.",
@@ -981,6 +1032,30 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     break;
 
             }
+
+        }
+
+        #endregion
+
+        #region (private) Served()
+
+        /// <summary>
+        /// What the SSH server serves, as somebody says it: "the command line, SFTP and OCPP
+        /// (ocpp@open.charging.cloud)".
+        /// </summary>
+        private String Served()
+        {
+
+            var served = new List<String> { "the command line" };
+
+            if (SFTPEnabled)
+                served.Add("SFTP");
+
+            served.AddRange(SSHSubsystems.Select(subsystem => $"{subsystem.Label} ({subsystem.Name})"));
+
+            return served.Count == 1
+                       ? served[0]
+                       : $"{String.Join(", ", served.Take(served.Count - 1))} and {served[^1]}";
 
         }
 
