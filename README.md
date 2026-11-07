@@ -444,6 +444,17 @@ under the server's name. By the server's name across every group; a change
 lets go of the key exchange. Each server in the answer shows what its own
 entry names as `ntsKEHostname`.
 
+`"signedResponses": true` asks the server for a digitally signed response
+after every measurement - the white paper's SignedResponses. It's asked for
+after the measurement and not in it, as a second, scheduled response, so the
+signing slows down nothing measured, and it costs no cookie. Every signed
+response goes into the metrological log: the server, the key it names,
+whether the signature is that key's - checked against the public keys its key
+exchange fetched - and the response itself in Base64. A signature that isn't
+the key's is a critical security entry. A server is asked where any entry for
+it asks; a change lets go of the key exchange. Each server's answer in a sync
+says `signed`.
+
 A server may be held to more than every server is held to - certificates
 it may show, roots its chain may end at, each by its SHA-256 fingerprint,
 written the way a certificate authority, a browser or openssl writes one:

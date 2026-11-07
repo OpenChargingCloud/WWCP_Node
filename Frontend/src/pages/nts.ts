@@ -826,7 +826,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.ntsKEHostname ? `, keys from ${readable(source.ntsKEHostname)}` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.ntsKEHostname ? `, keys from ${readable(source.ntsKEHostname)}` : ''}${source.signedResponses ? ', signed responses' : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 
@@ -1053,6 +1053,7 @@ export const ntsPage: Page = {
                 if (ntsKE.length > 0 && Number(ntsKE) !== usual.ntsKE)  entry.ntsKEPort  = Number(ntsKE);
                 if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
                 if (data.get('enabled') === null)                        entry.enabled    = false;
+                if (data.get('signedResponses') !== null)                entry.signedResponses = true;
                 if (aead.length > 0)                                     entry.aead       = aead;
                 if (minRefresh.length > 0)                               entry.minRefreshSeconds = Number(minRefresh);
                 if (maxRefresh.length > 0)                               entry.maxRefreshSeconds = Number(maxRefresh);
@@ -1182,6 +1183,15 @@ export const ntsPage: Page = {
                         <span class="hint">
                             Where a measurement held up beyond the shortest of the last ones was held up: -0.5 all on the way
                             there, +0.5 all on the way back. Left empty, half each, as the offset assumes.
+                        </span>
+                    </label>
+
+                    <label class="checkbox">
+                        <input type="checkbox" name="signedResponses" ?checked=${shown?.signedResponses === true} />
+                        Ask for signed responses
+                        <span class="hint">
+                            After every measurement, a response the server signs, checked against its key and written
+                            into the metrological log as evidence.
                         </span>
                     </label>
 

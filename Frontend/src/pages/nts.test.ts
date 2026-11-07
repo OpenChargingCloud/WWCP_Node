@@ -325,6 +325,35 @@ describe('the NTS page', () => {
 
     });
 
+    it('asks a server for signed responses, and keeps every other server\'s asking', async () => {
+
+        const root = await opened({}, configuration => {
+            configuration.timeSources![1]!.signedResponses = true;
+        });
+
+        assert.match(root.textContent!.replace(/\s+/g, ' '), /signed responses/, 'the list does not say the other server is asked');
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog  = document.querySelector('dialog')!;
+        const box     = dialog.querySelector<HTMLInputElement>('input[name="signedResponses"]')!;
+
+        assert.equal(box.checked, false);
+
+        box.checked = true;
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        const servers = told.find(update => update.servers !== undefined)!.servers!;
+
+        assert.equal(servers[0]!.signedResponses,  true);
+        assert.equal(servers[1]!.signedResponses,  true, 'the other server\'s was not sent back, and the save would stop asking it');
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
     it('names a server\'s key exchange server, and keeps every other server\'s', async () => {
 
         const root = await opened({}, configuration => {

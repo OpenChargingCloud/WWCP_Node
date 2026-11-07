@@ -50,6 +50,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="DelayAsymmetry">A correction added to every offset measured with it, for a known stable asymmetry of the delays, or null for none.</param>
     /// <param name="DelayVarAsymmetry">Where a hold-up of its delays is, from -0.5 (on the way there) to +0.5 (on the way back), or null for half each.</param>
     /// <param name="NTSKEHostname">The key exchange server its keys and cookies come from, where it is another than the server itself, or null.</param>
+    /// <param name="SignedResponses">Whether it is asked for a digitally signed response after every measurement, which goes into the metrological log.</param>
     public sealed record NTSServerConfiguration(DomainName       Hostname,
                                                 Byte             Priority           = 0,
                                                 IPPort?          NTSKEPort          = null,
@@ -62,7 +63,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                                 TimeSpan?        MaxRefresh         = null,
                                                 TimeSpan?        DelayAsymmetry     = null,
                                                 Double?          DelayVarAsymmetry  = null,
-                                                DomainName?      NTSKEHostname      = null)
+                                                DomainName?      NTSKEHostname      = null,
+                                                Boolean          SignedResponses    = false)
     {
 
         #region Data
@@ -190,7 +192,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     MaxRefresh:             RefreshOf(this).Max,
                     DelayAsymmetry:         DelayAsymmetry,
                     DelayVarAsymmetry:      DelayVarAsymmetry,
-                    NTSKEHost:              NTSKEHostname);
+                    NTSKEHost:              NTSKEHostname,
+                    SignedResponses:        SignedResponses);
 
         #endregion
 
@@ -498,6 +501,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
+            // Whether it is asked for a signed response after every measurement.
+            if (!ConfigurationReader.TryReadBoolean(json, "signedResponses", where, out var signedResponses, out Error))
+                return false;
+
             // The key exchange server its keys and cookies come from, where it
             // is another than the server itself.
             if (!ConfigurationReader.TryReadString(json, "ntsKEHostname", $"{Section}.servers[{Index}]", 253, out var ntsKEHostname, out Error))
@@ -551,7 +558,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 delayVarAsymmetry is Double asymmetry && asymmetry != 0 ? asymmetry                        : null,
                                 // The server itself named as its key exchange server is
                                 // no other one.
-                                keyExchange is not null && !keyExchange.Equals(domainName) ? keyExchange : null
+                                keyExchange is not null && !keyExchange.Equals(domainName) ? keyExchange : null,
+                                signedResponses ?? false
                             );
 
             return true;
@@ -572,7 +580,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && NTSKEHostname is null && Pins?.SaysAnything != true)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && NTSKEHostname is null && !SignedResponses && Pins?.SaysAnything != true)
                 return Hostname.ToString();
 
             var json = new JObject();
@@ -591,6 +599,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (DelayAsymmetry.HasValue)    json.Add("delayAsymmetryMs",  DelayAsymmetry.Value.TotalMilliseconds);
             if (DelayVarAsymmetry.HasValue) json.Add("delayVarAsymmetry", DelayVarAsymmetry.Value);
             if (NTSKEHostname is not null)  json.Add("ntsKEHostname",     NTSKEHostname.ToString());
+            if (SignedResponses)            json.Add("signedResponses",   true);
 
             Pins?.WriteInto(json);
 
@@ -632,7 +641,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         public override String ToString()
 
-            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(SetsCorrection(this) ? $" - offsets corrected {CorrectionText(DelayAsymmetry, DelayVarAsymmetry)}" : "")}{(NTSKEHostname is not null ? $" - keys from {NTSKEHostname.Trimmed}" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
+            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(SetsCorrection(this) ? $" - offsets corrected {CorrectionText(DelayAsymmetry, DelayVarAsymmetry)}" : "")}{(NTSKEHostname is not null ? $" - keys from {NTSKEHostname.Trimmed}" : "")}{(SignedResponses ? " - signed responses" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
 
         #endregion
 

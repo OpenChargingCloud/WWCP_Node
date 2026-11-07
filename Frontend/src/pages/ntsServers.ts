@@ -145,6 +145,7 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
     if (source.delayAsymmetryMs  != null)  entry.delayAsymmetryMs  = source.delayAsymmetryMs;
     if (source.delayVarAsymmetry != null)  entry.delayVarAsymmetry = source.delayVarAsymmetry;
     if (source.ntsKEHostname)              entry.ntsKEHostname     = readable(source.ntsKEHostname);
+    if (source.signedResponses)            entry.signedResponses   = true;
 
     return withPins(entry, draftOf(source.heldTo));
 

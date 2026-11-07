@@ -1096,6 +1096,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 stopwatch.Stop();
 
+                // Every signed response, as evidence - see
+                // WWCPNode.TimeServerSignedResponses.cs.
+                WriteDownSignedResponses(verdict.Results);
+
                 #region What the group concluded, and what each server said
 
                 var servers = new JArray(
@@ -1107,6 +1111,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                       new JProperty("authenticated",  result.NTP?.NTSAuthenticationValid),
                                       new JProperty("keyExchange",    result.NTSKEFromCache ? "reused" : "new"),
                                       new JProperty("preflight",      result.PreflightSent),
+                                      new JProperty("signed",         result.SignedResponse is { } signed
+                                                                          ? new JObject(
+                                                                                new JProperty("ok",        signed.Success),
+                                                                                new JProperty("keyId",     signed.KeyId),
+                                                                                new JProperty("verified",  signed.Verified)
+                                                                            )
+                                                                          : null),
                                       new JProperty("error",          result.ErrorMessage?.ToString())
                                   ))
                               );

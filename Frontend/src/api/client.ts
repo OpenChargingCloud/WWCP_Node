@@ -771,6 +771,8 @@ export interface NTSServerEntry extends PinKeys {
     delayVarAsymmetry?: number;
     /** The key exchange server its keys come from, where it is another than the server itself. */
     ntsKEHostname?:     string;
+    /** Whether it is asked for a signed response after every measurement, which goes into the metrological log. */
+    signedResponses?:   boolean;
     /**
      * What the page showed the server held to, in the keys above: the node
      * changes only what was changed on the page, and keeps what the server
@@ -843,6 +845,8 @@ export interface NTSTimeSource {
     delayVarAsymmetry?: number | null;
     /** The key exchange server its own entry names, or null where it is the server. */
     ntsKEHostname?:     string | null;
+    /** Whether its own entry asks for signed responses. */
+    signedResponses?:   boolean;
     cookies?:       number | null;
     lastExchange?:  string | null;
     /** When its next key exchange is due. */

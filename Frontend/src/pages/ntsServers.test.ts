@@ -97,6 +97,18 @@ describe('a time server turned back into its entry', () => {
 });
 
 
+describe('a time server asked for signed responses', () => {
+
+    it('is kept with its entry, or the next save stops asking', () => {
+
+        assert.deepEqual(entryOf(shown('a.example.', { signedResponses: true  }), usual), { hostname: 'a.example', signedResponses: true });
+        assert.deepEqual(entryOf(shown('a.example.', { signedResponses: false }), usual), { hostname: 'a.example' });
+
+    });
+
+});
+
+
 describe('a time server\'s key exchange server', () => {
 
     it('is kept with its entry, as people read it, or the next save takes it away', () => {

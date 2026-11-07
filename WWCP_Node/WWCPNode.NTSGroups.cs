@@ -306,6 +306,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var wasRefreshes    = Refreshes();
                 var wasCorrections  = Corrections();
                 var wasKeyExchanges = KeyExchangeHosts();
+                var wasSigned       = SignedResponseServers();
 
                 ntsGroups = [ .. ntsGroups.Where(other => other != group) ];
 
@@ -315,11 +316,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // A server this group named an AEAD algorithm, a refresh or a
                 // correction for is offered, makes its key exchange again and is
                 // corrected as the groups left say, where they ask it too.
-                serverChanges = [ .. AEADChanges(wasAEADs), .. RefreshChanges(wasRefreshes), .. CorrectionChanges(wasCorrections), .. KeyExchangeHostChanges(wasKeyExchanges) ];
+                serverChanges = [ .. AEADChanges(wasAEADs), .. RefreshChanges(wasRefreshes), .. CorrectionChanges(wasCorrections), .. KeyExchangeHostChanges(wasKeyExchanges), .. SignedResponseChanges(wasSigned) ];
                 OfferAEAD();
                 PutRefreshes();
                 PutCorrections();
                 PutKeyExchangeHosts();
+                PutSignedResponses();
 
             }
             finally

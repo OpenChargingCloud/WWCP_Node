@@ -881,6 +881,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             PutRefreshes();
             PutCorrections();
             PutKeyExchangeHosts();
+            PutSignedResponses();
 
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
@@ -2366,6 +2367,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           // The key exchange server its own entry
                                           // names, or null where it is the server.
                                           new JProperty("ntsKEHostname",  Group.Settings?.Servers?.ElementAtOrDefault(index)?.NTSKEHostname?.ToString()),
+                                          // Whether its own entry asks for signed responses.
+                                          new JProperty("signedResponses", Group.Settings?.Servers?.ElementAtOrDefault(index)?.SignedResponses ?? false),
                                           new JProperty("cookies",        held?.RemainingCookies),
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
                                           new JProperty("nextExchange",   held?.RefreshAt?.ToString("o")),
@@ -2916,6 +2919,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasRefreshes      = Refreshes();
             var wasCorrections    = Corrections();
             var wasKeyExchanges   = KeyExchangeHosts();
+            var wasSigned         = SignedResponseServers();
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
@@ -3028,6 +3032,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // WWCPNode.TimeServerKeyExchange.cs.
             changed.AddRange(KeyExchangeHostChanges(wasKeyExchanges));
 
+            // And whether its responses are to be signed - see
+            // WWCPNode.TimeServerSignedResponses.cs.
+            changed.AddRange(SignedResponseChanges(wasSigned));
+
             if (wasQuorum != Group.Sources.MinServers)
                 changed.Add($"quorum = {Group.Sources.MinServers}");
 
@@ -3090,6 +3098,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             PutRefreshes();
             PutCorrections();
             PutKeyExchangeHosts();
+            PutSignedResponses();
 
             if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)
             {
