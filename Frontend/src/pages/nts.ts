@@ -551,6 +551,15 @@ export const ntsPage: Page = {
                         </span>
                     </label>
 
+                    <label>Preflight after ... seconds without a round
+                        <input type="number" name="preflightSeconds" step="1" min="1" max="86400"
+                               value="${typeof settings.preflightSeconds === 'number' ? settings.preflightSeconds : ''}" ?disabled=${off} />
+                        <span class="hint">
+                            A round after this long sends each server its query a first time and ignores the answer, so that
+                            an ARP lookup or a firewall's new state is not measured. Left empty, never.
+                        </span>
+                    </label>
+
                     <label>Timeout of a test in seconds
                         <input type="number" name="timeoutSeconds" step="0.1" min="0.1" max="${limits.maxTimeout}"
                                value="${settings.timeoutSeconds ?? ''}" placeholder="${theClientsOwnTimeout}" ?disabled=${off} />
@@ -1297,6 +1306,7 @@ export const ntsPage: Page = {
 
             const form     = event.currentTarget as HTMLFormElement;
             const timeout  = numberField(form, 'timeoutSeconds');
+            const preflight = numberField(form, 'preflightSeconds');
 
             // An emptied field is not given, which the node reads as
             // "keep what you have" - not 0, which it refuses, and the
@@ -1306,7 +1316,10 @@ export const ntsPage: Page = {
                 maxDeviationSeconds:  numberField(form, 'maxDeviationSeconds'),
                 checkEverySeconds:    numberField(form, 'checkEverySeconds'),
                 errorLogging:         numberField(form, 'errorLogging'),
-                maxErrors:            numberField(form, 'maxErrors')
+                maxErrors:            numberField(form, 'maxErrors'),
+                // An emptied field is never - false - and not "keep what you
+                // have", as the reporting threshold's.
+                preflightSeconds:     Number.isNaN(preflight) ? false : preflight
             };
 
             // Left empty, the client's own is what a test allows.

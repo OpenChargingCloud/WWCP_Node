@@ -729,6 +729,8 @@ export interface NTSUpdate {
     errorLogging?:               number;
     /** How many checks in a row may produce no time before what rests on the group is limited. */
     maxErrors?:                  number;
+    /** After how long without a round the servers are first sent a query whose answer is ignored; false for never. */
+    preflightSeconds?:           number | false;
 }
 
 /**
@@ -945,6 +947,8 @@ export interface NTSConfiguration {
         /** How many checks in a row may produce no time before that is written down, and before what rests on the group is limited. */
         errorLogging?:              number;
         maxErrors?:                 number;
+        /** After how long without a round the servers are first sent a query whose answer is ignored - false for never. */
+        preflightSeconds?:          number | false;
     };
     /** How the count of checks in a row that produced no time stands. */
     errors?:      { inARow: number; limited: boolean };

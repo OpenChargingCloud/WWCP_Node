@@ -2292,7 +2292,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            // before that is written down, and before what
                            // rests on the group is limited.
                            new JProperty("errorLogging",               Group.ErrorLogging),
-                           new JProperty("maxErrors",                  Group.MaxErrors)
+                           new JProperty("maxErrors",                  Group.MaxErrors),
+                           // After how long without a round its servers are
+                           // first sent a query whose answer is ignored, or
+                           // false for never.
+                           new JProperty(NTSConfiguration.PreflightKey,
+                                         Group.Preflight is { } preflight
+                                             ? new JValue((Int64) preflight.TotalSeconds)
+                                             : new JValue(false))
                        )),
 
                        // How the count of those stands.
@@ -2910,6 +2917,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasThreshold      = Group.OffsetReportingThreshold;
             var wasErrorLogging   = Group.ErrorLogging;
             var wasMaxErrors      = Group.MaxErrors;
+            var wasPreflight      = Group.Preflight;
 
             Group.Settings = Group.Settings?.OverriddenBy(Configuration) ?? Configuration;
 
@@ -3106,6 +3114,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (Group.MaxErrors != wasMaxErrors)
                 changed.Add($"limited after {Group.MaxErrors} errors in a row");
+
+            if (Group.Preflight != wasPreflight)
+                changed.Add(Group.Preflight is { } preflight
+                                ? $"preflight after {preflight.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)} s without a round"
+                                : "no preflight");
 
             if (changed.Count > 0)
                 LogTime(Group,

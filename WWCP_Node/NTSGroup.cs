@@ -212,6 +212,44 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    : Settings?.OffsetReportingThreshold ?? NTSConfiguration.DefaultOffsetReportingThreshold;
 
         /// <summary>
+        /// After how long without a round this group's servers are first sent a
+        /// query whose answer is ignored - null for never, as where nobody says.
+        /// </summary>
+        /// <remarks>
+        /// The Preflight of the Secure Time Synchronization white paper, chrony's
+        /// "presend": a server not asked for a while is reached through an ARP
+        /// lookup, a firewall's new state, a tunnel being set up, which the query
+        /// sent ahead takes on, so that the measured one does not. Not the
+        /// pre-flight check of the name resolution.
+        /// </remarks>
+        public TimeSpan?        Preflight
+            => Settings?.Preflight is { } preflight && preflight > TimeSpan.Zero
+                   ? preflight
+                   : null;
+
+        /// <summary>
+        /// When this group last began a round, whatever came of it.
+        /// </summary>
+        public DateTimeOffset?  LastAsked           { get; private set; }
+
+        /// <summary>
+        /// Begin a round now: whether its servers are first sent a query whose
+        /// answer is ignored, as the last round began at least Preflight ago, or
+        /// none did yet.
+        /// </summary>
+        public Boolean BeginRound(DateTimeOffset Now)
+        {
+
+            var preflight = Preflight is { } after &&
+                            (LastAsked is not { } last || Now - last >= after);
+
+            LastAsked = Now;
+
+            return preflight;
+
+        }
+
+        /// <summary>
         /// How many checks in a row may produce no time before that is written
         /// down - and written down again once one does.
         /// </summary>

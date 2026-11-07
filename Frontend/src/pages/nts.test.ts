@@ -533,6 +533,26 @@ describe('the NTS page', () => {
 
     });
 
+    it('saves after how long without a round a preflight is sent, and never where the field is emptied', async () => {
+
+        const root = await opened({}, configuration => { configuration.settings.preflightSeconds = 60; });
+
+        assert.equal(field(root, 'policy-form', 'preflightSeconds').value, '60');
+
+        submit(root, 'policy-form');
+        await until(() => told.length === 1, 'the policy was not saved');
+
+        assert.equal(told[0]!.preflightSeconds, 60);
+
+        field(root, 'policy-form', 'preflightSeconds').value = '';
+
+        submit(root, 'policy-form');
+        await until(() => told.length === 2, 'the emptied preflight was not saved');
+
+        assert.equal(told[1]!.preflightSeconds, false, 'an emptied field is never, and not the preflight kept');
+
+    });
+
     it('says how many checks in a row produced no time, and when that limits legal time', async () => {
 
         const errors = (root: HTMLElement) => root.querySelector('#nts-errors .v')!.textContent!.replace(/s+/g, ' ').trim();

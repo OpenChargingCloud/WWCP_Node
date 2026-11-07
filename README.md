@@ -327,6 +327,7 @@ a group, and what it is when absent:
 | `checkEverySeconds` | `900` | how often the clock is checked |
 | `errorLogging` | `5` | failed checks in a row before that is written down |
 | `maxErrors` | `10`, `50` for "local" | failed checks in a row before what rests on the group is limited |
+| `preflightSeconds` | `false` | after how long without a round each server is first sent its query, whose answer is ignored - the white paper's Preflight, chrony's `presend`, not the pre-flight check of name resolution; `false` for never |
 | `legalTimeAuthority` | - | who the operator says stands behind it |
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |

@@ -1077,7 +1077,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                var verdict = await group.Measure(timeEngine, dnsClient, CancellationToken);
+                // Its servers first sent a query whose answer is ignored, where
+                // the group has not asked them for its Preflight.
+                var preflight = Group.BeginRound(TimeProvider.GetUtcNow());
+
+                var verdict = await group.Measure(timeEngine, dnsClient, CancellationToken, preflight);
 
                 // Taken away while its servers were being asked: whatever came
                 // back - a server cut off in the middle reads as one that did
@@ -1096,6 +1100,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                       new JProperty("roundTrip_ms",   result.NTP?.RoundTripDelay.TotalMilliseconds),
                                       new JProperty("authenticated",  result.NTP?.NTSAuthenticationValid),
                                       new JProperty("keyExchange",    result.NTSKEFromCache ? "reused" : "new"),
+                                      new JProperty("preflight",      result.PreflightSent),
                                       new JProperty("error",          result.ErrorMessage?.ToString())
                                   ))
                               );
