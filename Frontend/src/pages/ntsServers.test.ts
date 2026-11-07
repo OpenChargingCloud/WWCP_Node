@@ -15,7 +15,7 @@ import { describe, it }      from 'node:test';
 import type { NTSTimeSource, ServerPins } from '../api/client';
 
 
-const { entryOf, nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer } = await import('./ntsServers.ts');
+const { correctionText, entryOf, nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer } = await import('./ntsServers.ts');
 
 
 const usual = { ntsKE: 4460, ntp: 123 };
@@ -91,6 +91,30 @@ describe('a time server turned back into its entry', () => {
         assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { minRefreshSeconds: null, maxRefreshSeconds: null, nextExchange: '2026-11-07T12:00:00Z' }), usual),
                          { hostname: 'ptbtime1.ptb.de' },
                          'when the next one is due is not what the entry sets');
+
+    });
+
+});
+
+
+describe('how a time server\'s offsets are corrected', () => {
+
+    it('is kept with its entry, or the next save takes it away', () => {
+
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { delayAsymmetryMs: -0.05, delayVarAsymmetry: -0.5 }), usual),
+                         { hostname: 'ptbtime1.ptb.de', delayAsymmetryMs: -0.05, delayVarAsymmetry: -0.5 });
+
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { delayAsymmetryMs: null, delayVarAsymmetry: null }), usual),
+                         { hostname: 'ptbtime1.ptb.de' });
+
+    });
+
+    it('is said as the node says it', () => {
+
+        assert.equal(correctionText({}),                                                  null);
+        assert.equal(correctionText({ delayAsymmetryMs: -0.05 }),                         'by -0.05 ms');
+        assert.equal(correctionText({ delayVarAsymmetry: -0.5 }),                         'for an asymmetry of -0.5');
+        assert.equal(correctionText({ delayAsymmetryMs: 1, delayVarAsymmetry: 0.25 }),    'by 1 ms and for an asymmetry of 0.25');
 
     });
 

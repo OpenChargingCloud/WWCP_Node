@@ -404,6 +404,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
+        #region AServersOffsetsAreCorrectedAsItsEntrySays()
+
+        /// <summary>
+        /// A server's entry may correct the offsets measured with it: shown with
+        /// the server as it was sent and written down. An asymmetry beyond a half
+        /// either way is refused, and nothing is written.
+        /// </summary>
+        [Test]
+        public async Task AServersOffsetsAreCorrectedAsItsEntrySays()
+        {
+
+            using var http          = await SignedIn();
+
+            await Send(http, HttpMethod.Post, NTSGroupsPath, JObject.Parse("""{ "id": "local" }"""));
+
+            var (saved,  shown)     = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ { "hostname": "lc1.local", "delayAsymmetryMs": -0.05, "delayVarAsymmetry": -0.5 }, "lc2.local" ] }"""));
+            var (status, refusal)   = await Send(http, HttpMethod.Put, $"{NTSGroupsPath}/local", JObject.Parse("""{ "servers": [ { "hostname": "lc1.local", "delayVarAsymmetry": 0.75 } ] }"""));
+
+            Assert.Multiple(() => {
+
+                Assert.That(saved,                                                                                      Is.EqualTo(HttpStatusCode.OK),  shown.ToString());
+                Assert.That(shown["timeSources"]?[0]?.Value<Double>("delayAsymmetryMs"),                               Is.EqualTo(-0.05).Within(1e-9));
+                Assert.That(shown["timeSources"]?[0]?.Value<Double>("delayVarAsymmetry"),                              Is.EqualTo(-0.5));
+                Assert.That(shown["timeSources"]?[1]?["delayAsymmetryMs"]?.Type,                                       Is.EqualTo(JTokenType.Null));
+
+                Assert.That(status,                                                                                     Is.EqualTo(HttpStatusCode.BadRequest),  refusal.ToString());
+                Assert.That(refusal.Value<String>("error"),                                                             Does.Contain("delayVarAsymmetry' must be between -0.5 and 0.5"));
+                Assert.That(OnDisk["nts"]?["groups"]?["local"]?["servers"]?[0]?.Value<Double>("delayVarAsymmetry"),    Is.EqualTo(-0.5),  "what was written before the refusal stays");
+
+            });
+
+        }
+
+        #endregion
+
         #region WhoChangedAGroupIsWrittenDown()
 
         /// <summary>

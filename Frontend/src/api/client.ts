@@ -761,6 +761,13 @@ export interface NTSServerEntry extends PinKeys {
     minRefreshSeconds?: number;
     maxRefreshSeconds?: number;
     /**
+     * How the offsets measured with it are corrected: by this many
+     * milliseconds, and for where a hold-up of the delays is, from -0.5 (on
+     * the way there) to +0.5 (on the way back). Left out, not at all.
+     */
+    delayAsymmetryMs?:  number;
+    delayVarAsymmetry?: number;
+    /**
      * What the page showed the server held to, in the keys above: the node
      * changes only what was changed on the page, and keeps what the server
      * learned while the page was open. Only on a server the page loaded.
@@ -827,6 +834,9 @@ export interface NTSTimeSource {
      */
     minRefreshSeconds?: number | null;
     maxRefreshSeconds?: number | null;
+    /** How its own entry corrects its offsets, or null where it does not. */
+    delayAsymmetryMs?:  number | null;
+    delayVarAsymmetry?: number | null;
     cookies?:       number | null;
     lastExchange?:  string | null;
     /** When its next key exchange is due. */
@@ -965,6 +975,9 @@ export interface NTSConfiguration {
         maxRefresh?:         number;
         defaultMinRefresh?:  number;
         defaultMaxRefresh?:  number;
+        /** How far either way the offsets of a server may be corrected, and its hold-ups put on one way. */
+        maxDelayAsymmetryMs?:   number;
+        maxDelayVarAsymmetry?:  number;
     };
     file:         string;
     /** Only on the answer to a synchronisation, which carries both. */

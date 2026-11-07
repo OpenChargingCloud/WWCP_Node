@@ -9,7 +9,7 @@ import { rememberTab, tabFromURL, tabsView, type Tab } from '../tabs';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { html, keyed, live, nothing, render, repeat, type TemplateResult } from '../view';
 import { displayNameOf, firstLanguage, isGroupId, labelOf, NewGroupTab, type DisplayNameRow } from './ntsGroups';
-import { nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
+import { correctionText, nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
 import { asShown, draftOf, withPins, type StoreOffers } from './pins';
 import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers } from './pinViews';
 
@@ -817,7 +817,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 
@@ -1005,6 +1005,8 @@ export const ntsPage: Page = {
                 const aead      = String(data.get('aead')      ?? '');
                 const minRefresh  = String(data.get('minRefreshSeconds') ?? '').trim();
                 const maxRefresh  = String(data.get('maxRefreshSeconds') ?? '').trim();
+                const shift       = String(data.get('delayAsymmetryMs')  ?? '').trim();
+                const asymmetry   = String(data.get('delayVarAsymmetry') ?? '').trim();
 
                 if (minRefresh.length > 0 && maxRefresh.length > 0 && Number(maxRefresh) < Number(minRefresh)) {
                     error().textContent = 'The latest next key exchange cannot come before the earliest.';
@@ -1044,6 +1046,9 @@ export const ntsPage: Page = {
                 if (aead.length > 0)                                     entry.aead       = aead;
                 if (minRefresh.length > 0)                               entry.minRefreshSeconds = Number(minRefresh);
                 if (maxRefresh.length > 0)                               entry.maxRefreshSeconds = Number(maxRefresh);
+                // Zero corrects nothing, as the node takes it.
+                if (shift.length     > 0 && Number(shift)     !== 0)     entry.delayAsymmetryMs  = Number(shift);
+                if (asymmetry.length > 0 && Number(asymmetry) !== 0)     entry.delayVarAsymmetry = Number(asymmetry);
 
                 // And what the dialog showed it held to, so that the
                 // node changes only what was changed here - see asShown.
@@ -1135,6 +1140,26 @@ export const ntsPage: Page = {
                             Left empty, ${refreshText({}, configuration.limits)}${shown?.nextExchange
                                 ? `; the next one is due ${new Date(shown.nextExchange).toLocaleString()}`
                                 : ''}.
+                        </span>
+                    </label>
+
+                    <label>Offset correction (ms)
+                        <input type="number" name="delayAsymmetryMs" step="any"
+                               min="${-(configuration.limits.maxDelayAsymmetryMs ?? 1000)}" max="${configuration.limits.maxDelayAsymmetryMs ?? 1000}"
+                               placeholder="0" value="${shown?.delayAsymmetryMs ?? ''}" />
+                        <span class="hint">
+                            Added to every offset measured with this server, for a known asymmetry of the path: where packets
+                            there are on average 0.1 ms slower than packets back, -0.05.
+                        </span>
+                    </label>
+
+                    <label>Delay asymmetry
+                        <input type="number" name="delayVarAsymmetry" step="any"
+                               min="${-(configuration.limits.maxDelayVarAsymmetry ?? 0.5)}" max="${configuration.limits.maxDelayVarAsymmetry ?? 0.5}"
+                               placeholder="0" value="${shown?.delayVarAsymmetry ?? ''}" />
+                        <span class="hint">
+                            Where a measurement held up beyond the shortest of the last ones was held up: -0.5 all on the way
+                            there, +0.5 all on the way back. Left empty, half each, as the offset assumes.
                         </span>
                     </label>
 

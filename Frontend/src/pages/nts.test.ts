@@ -325,6 +325,34 @@ describe('the NTS page', () => {
 
     });
 
+    it('corrects a server\'s offsets, and keeps every other server\'s correction', async () => {
+
+        const root = await opened({}, configuration => {
+            configuration.timeSources![1]!.delayAsymmetryMs   = 2;
+        });
+
+        assert.match(root.textContent!.replace(/\s+/g, ' '), /offsets corrected by 2 ms/, 'the list does not say how the other server is corrected');
+
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        const dialog  = document.querySelector('dialog')!;
+
+        dialog.querySelector<HTMLInputElement>('input[name="delayAsymmetryMs"]')!.value  = '-0.05';
+        dialog.querySelector<HTMLInputElement>('input[name="delayVarAsymmetry"]')!.value = '0';
+        dialog.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        const servers = told.find(update => update.servers !== undefined)!.servers!;
+
+        assert.equal(servers[0]!.delayAsymmetryMs,             -0.05);
+        assert.equal('delayVarAsymmetry' in servers[0]!,       false, 'zero corrects nothing, and is sent as nothing');
+        assert.equal(servers[1]!.delayAsymmetryMs,             2,     'the other server\'s was not sent back, and the save would take it away');
+
+        document.querySelector('dialog')?.remove();
+
+    });
+
     it('refuses a latest next key exchange before the earliest, and sends nothing', async () => {
 
         const root = await opened({}, () => {});

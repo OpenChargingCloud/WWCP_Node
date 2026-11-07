@@ -303,19 +303,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return (false, error, notSaved);
 
                 var wasAEADs      = AEADs();
-                var wasRefreshes  = Refreshes();
+                var wasRefreshes    = Refreshes();
+                var wasCorrections  = Corrections();
 
                 ntsGroups = [ .. ntsGroups.Where(other => other != group) ];
 
                 if (group.IsLegal)
                     LegalTime = NewLegalTime();
 
-                // A server this group named an AEAD algorithm or a refresh for
-                // is offered, and makes its key exchange again, as the groups
-                // left say, where they ask it too.
-                serverChanges = [ .. AEADChanges(wasAEADs), .. RefreshChanges(wasRefreshes) ];
+                // A server this group named an AEAD algorithm, a refresh or a
+                // correction for is offered, makes its key exchange again and is
+                // corrected as the groups left say, where they ask it too.
+                serverChanges = [ .. AEADChanges(wasAEADs), .. RefreshChanges(wasRefreshes), .. CorrectionChanges(wasCorrections) ];
                 OfferAEAD();
                 PutRefreshes();
+                PutCorrections();
 
             }
             finally

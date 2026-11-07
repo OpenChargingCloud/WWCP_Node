@@ -47,16 +47,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="AEAD">The one AEAD algorithm its key exchange offers, or null for every one in <see cref="AEADAlgorithmsOffered"/>, the server choosing.</param>
     /// <param name="MinRefresh">The shortest time after a key exchange before the next one, or null for <see cref="DefaultMinRefresh"/>; see <see cref="RefreshOf"/>.</param>
     /// <param name="MaxRefresh">The longest time after a key exchange before the next one, or null for <see cref="DefaultMaxRefresh"/>; see <see cref="RefreshOf"/>.</param>
+    /// <param name="DelayAsymmetry">A correction added to every offset measured with it, for a known stable asymmetry of the delays, or null for none.</param>
+    /// <param name="DelayVarAsymmetry">Where a hold-up of its delays is, from -0.5 (on the way there) to +0.5 (on the way back), or null for half each.</param>
     public sealed record NTSServerConfiguration(DomainName       Hostname,
-                                                Byte             Priority    = 0,
-                                                IPPort?          NTSKEPort   = null,
-                                                IPPort?          NTPPort     = null,
-                                                Boolean          Enabled     = true,
-                                                ServerPins?      Pins        = null,
-                                                String?          Id          = null,
-                                                AEADAlgorithms?  AEAD        = null,
-                                                TimeSpan?        MinRefresh  = null,
-                                                TimeSpan?        MaxRefresh  = null)
+                                                Byte             Priority           = 0,
+                                                IPPort?          NTSKEPort          = null,
+                                                IPPort?          NTPPort            = null,
+                                                Boolean          Enabled            = true,
+                                                ServerPins?      Pins               = null,
+                                                String?          Id                 = null,
+                                                AEADAlgorithms?  AEAD               = null,
+                                                TimeSpan?        MinRefresh         = null,
+                                                TimeSpan?        MaxRefresh         = null,
+                                                TimeSpan?        DelayAsymmetry     = null,
+                                                Double?          DelayVarAsymmetry  = null)
     {
 
         #region Data
@@ -99,6 +103,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// It used to be half an hour, the time library's own interval.
         /// </remarks>
         public static readonly TimeSpan DefaultMaxRefresh = TimeSpan.FromHours(24);
+
+        /// <summary>
+        /// The largest correction, either way, an entry may add to the offsets
+        /// measured with its server: a second, far beyond what a path is ever
+        /// asymmetric by, and short of what would hide a clock that is wrong.
+        /// </summary>
+        public const Double MaxDelayAsymmetryMs = 1000;
+
+        /// <summary>
+        /// How far a hold-up of the delays may be put on one way: all of it, on
+        /// the way there (-0.5) or back (+0.5).
+        /// </summary>
+        public const Double MaxDelayVarAsymmetry = 0.5;
 
         #endregion
 
@@ -168,7 +185,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     Priority,
                     OfferedAEADAlgorithms:  AEAD is { } aead ? [ aead ] : null,
                     MinRefresh:             RefreshOf(this).Min,
-                    MaxRefresh:             RefreshOf(this).Max);
+                    MaxRefresh:             RefreshOf(this).Max,
+                    DelayAsymmetry:         DelayAsymmetry,
+                    DelayVarAsymmetry:      DelayVarAsymmetry);
 
         #endregion
 
@@ -214,6 +233,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public static Boolean SetsRefresh(NTSServerConfiguration Entry)
 
             => Entry.MinRefresh.HasValue || Entry.MaxRefresh.HasValue;
+
+        #endregion
+
+        #region (static) SetsCorrection(Entry) / CorrectionText(DelayAsymmetry, DelayVarAsymmetry)
+
+        /// <summary>
+        /// Whether the given entry corrects the offsets measured with its server.
+        /// </summary>
+        public static Boolean SetsCorrection(NTSServerConfiguration Entry)
+
+            => Entry.DelayAsymmetry.HasValue || Entry.DelayVarAsymmetry.HasValue;
+
+        /// <summary>
+        /// How the offsets measured with a server are corrected, as a sentence
+        /// says it: "by -0.05 ms", "for an asymmetry of -0.5", "by 1 ms and for an
+        /// asymmetry of 0.25", or "not" where nothing is set.
+        /// </summary>
+        public static String CorrectionText(TimeSpan?  DelayAsymmetry,
+                                            Double?    DelayVarAsymmetry)
+        {
+
+            static String Number(Double Value) => Value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+
+            var by   = DelayAsymmetry    is { } shift     ? $"by {Number(shift.TotalMilliseconds)} ms"       : null;
+            var asym = DelayVarAsymmetry is { } asymmetry ? $"for an asymmetry of {Number(asymmetry)}"       : null;
+
+            return by is not null && asym is not null
+                       ? $"{by} and {asym}"
+                       : by ?? asym ?? "not";
+
+        }
 
         #endregion
 
@@ -437,6 +487,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
+            // What is known about the path to it: a correction of every offset
+            // measured, and where a hold-up of the delays is.
+            if (!ConfigurationReader.TryReadNumber(json, "delayAsymmetryMs",  $"{Section}.servers[{Index}]", -MaxDelayAsymmetryMs,  MaxDelayAsymmetryMs,  out var delayAsymmetry,    out Error) ||
+                !ConfigurationReader.TryReadNumber(json, "delayVarAsymmetry", $"{Section}.servers[{Index}]", -MaxDelayVarAsymmetry, MaxDelayVarAsymmetry, out var delayVarAsymmetry, out Error))
+            {
+                return false;
+            }
+
             // What it is held to, beside the usual - the same for a time server
             // as for a name server.
             if (!ServerPins.TryParse(json, $"{Section}.servers[{Index}]", out var pins, out Error))
@@ -464,7 +522,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 id,
                                 aead,
                                 minRefresh,
-                                maxRefresh
+                                maxRefresh,
+                                // Zero corrects nothing, and is written as nothing.
+                                delayAsymmetry    is Double shift     && shift     != 0 ? TimeSpan.FromMilliseconds(shift) : null,
+                                delayVarAsymmetry is Double asymmetry && asymmetry != 0 ? asymmetry                        : null
                             );
 
             return true;
@@ -485,7 +546,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && Pins?.SaysAnything != true)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && Pins?.SaysAnything != true)
                 return Hostname.ToString();
 
             var json = new JObject();
@@ -501,6 +562,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (AEAD.HasValue)          json.Add("aead",      AEADNameOf(AEAD.Value));
             if (MinRefresh.HasValue)    json.Add("minRefreshSeconds", MinRefresh.Value.TotalSeconds);
             if (MaxRefresh.HasValue)    json.Add("maxRefreshSeconds", MaxRefresh.Value.TotalSeconds);
+            if (DelayAsymmetry.HasValue)    json.Add("delayAsymmetryMs",  DelayAsymmetry.Value.TotalMilliseconds);
+            if (DelayVarAsymmetry.HasValue) json.Add("delayVarAsymmetry", DelayVarAsymmetry.Value);
 
             Pins?.WriteInto(json);
 
@@ -542,7 +605,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         public override String ToString()
 
-            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
+            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(SetsCorrection(this) ? $" - offsets corrected {CorrectionText(DelayAsymmetry, DelayVarAsymmetry)}" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
 
         #endregion
 

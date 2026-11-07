@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Globalization;
 using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
@@ -149,7 +150,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (seconds < Minimum || seconds > Maximum)
             {
-                Error = $"'{Where(Path, Name)}' must be between {Minimum} and {Maximum} seconds.";
+                Error = $"'{Where(Path, Name)}' must be between {Minimum.ToString(CultureInfo.InvariantCulture)} and {Maximum.ToString(CultureInfo.InvariantCulture)} seconds.";
                 return false;
             }
 
@@ -197,7 +198,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (Double.IsNaN(number) || number < Minimum || number > Maximum)
             {
-                Error = $"'{Where(Path, Name)}' must be between {Minimum} and {Maximum}.";
+                Error = $"'{Where(Path, Name)}' must be between {Minimum.ToString(CultureInfo.InvariantCulture)} and {Maximum.ToString(CultureInfo.InvariantCulture)}.";
                 return false;
             }
 

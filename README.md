@@ -421,6 +421,18 @@ the key exchange. Each server in the answer shows what its own entry sets
 The bounds and the defaults are `limits.minRefresh`, `maxRefresh`,
 `defaultMinRefresh` and `defaultMaxRefresh`.
 
+`"delayAsymmetryMs": -0.05, "delayVarAsymmetry": -0.5` correct the offsets
+measured with the server for what's known about the path to it, as chrony's
+`offset` and `asymmetry` do. `delayAsymmetryMs` is added to every offset:
+where packets there are on average 0.1 ms slower than packets back, the
+offset is 0.05 ms too large, and the correction is -0.05. `delayVarAsymmetry`
+says where a measurement held up beyond the shortest of the server's last 16
+delays was held up, from -0.5 (all on the way there) to +0.5 (all on the way
+back); the offset is corrected by it times the hold-up. Left out or 0, nothing
+is corrected. At most a second either way, and a half. By the server's name
+across every group; each server in the answer shows what its own entry sets,
+and the bounds are `limits.maxDelayAsymmetryMs` and `maxDelayVarAsymmetry`.
+
 A server may be held to more than every server is held to - certificates
 it may show, roots its chain may end at, each by its SHA-256 fingerprint,
 written the way a certificate authority, a browser or openssl writes one:

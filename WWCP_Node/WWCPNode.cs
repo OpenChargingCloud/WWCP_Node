@@ -879,6 +879,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // And makes its key exchange again after 12 to 24 hours, until an
             // entry says otherwise - see WWCPNode.TimeServerRefresh.cs.
             PutRefreshes();
+            PutCorrections();
 
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
@@ -2349,6 +2350,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           // next one is due is nextExchange.
                                           new JProperty("minRefreshSeconds", Group.Settings?.Servers?.ElementAtOrDefault(index)?.MinRefresh?.TotalSeconds),
                                           new JProperty("maxRefreshSeconds", Group.Settings?.Servers?.ElementAtOrDefault(index)?.MaxRefresh?.TotalSeconds),
+                                          // How the offsets measured with it are
+                                          // corrected, as its own entry says, or
+                                          // null where it says nothing.
+                                          new JProperty("delayAsymmetryMs",  Group.Settings?.Servers?.ElementAtOrDefault(index)?.DelayAsymmetry?.TotalMilliseconds),
+                                          new JProperty("delayVarAsymmetry", Group.Settings?.Servers?.ElementAtOrDefault(index)?.DelayVarAsymmetry),
                                           new JProperty("cookies",        held?.RemainingCookies),
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
                                           new JProperty("nextExchange",   held?.RefreshAt?.ToString("o")),
@@ -2411,7 +2417,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("minRefresh",         NTSServerConfiguration.MinRefreshSeconds),
                            new JProperty("maxRefresh",         NTSServerConfiguration.MaxRefreshSeconds),
                            new JProperty("defaultMinRefresh",  NTSServerConfiguration.DefaultMinRefresh.TotalSeconds),
-                           new JProperty("defaultMaxRefresh",  NTSServerConfiguration.DefaultMaxRefresh.TotalSeconds)
+                           new JProperty("defaultMaxRefresh",  NTSServerConfiguration.DefaultMaxRefresh.TotalSeconds),
+                           // How far either way the offsets of a server may be
+                           // corrected, and its hold-ups put on one way.
+                           new JProperty("maxDelayAsymmetryMs",   NTSServerConfiguration.MaxDelayAsymmetryMs),
+                           new JProperty("maxDelayVarAsymmetry",  NTSServerConfiguration.MaxDelayVarAsymmetry)
                        )),
 
                        new JProperty("file",         ConfigFile.Path)
@@ -2893,6 +2903,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasPins           = Pins();
             var wasAEADs          = AEADs();
             var wasRefreshes      = Refreshes();
+            var wasCorrections    = Corrections();
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
@@ -2996,6 +3007,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // WWCPNode.TimeServerRefresh.cs.
             changed.AddRange(RefreshChanges(wasRefreshes));
 
+            // And how its offsets are corrected - see
+            // WWCPNode.TimeServerCorrections.cs.
+            changed.AddRange(CorrectionChanges(wasCorrections));
+
             if (wasQuorum != Group.Sources.MinServers)
                 changed.Add($"quorum = {Group.Sources.MinServers}");
 
@@ -3056,6 +3071,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // by the same rule.
             OfferAEAD();
             PutRefreshes();
+            PutCorrections();
 
             if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)
             {

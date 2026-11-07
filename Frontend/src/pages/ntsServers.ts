@@ -28,6 +28,28 @@ export function readable(hostname: string): string {
 }
 
 
+/** How a server's entry corrects the offsets measured with it. */
+export interface Correction {
+    delayAsymmetryMs?:  number | null;
+    delayVarAsymmetry?: number | null;
+}
+
+
+/**
+ * How a server's offsets are corrected, as a sentence says it - as the node
+ * says it: "by -0.05 ms", "for an asymmetry of -0.5", both joined by "and";
+ * null where they are not.
+ */
+export function correctionText(entry: Correction): string | null {
+
+    const by   = entry.delayAsymmetryMs  != null ? `by ${entry.delayAsymmetryMs} ms`                   : null;
+    const asym = entry.delayVarAsymmetry != null ? `for an asymmetry of ${entry.delayVarAsymmetry}`    : null;
+
+    return by !== null && asym !== null ? `${by} and ${asym}` : by ?? asym;
+
+}
+
+
 /** What a server's entry sets about when its key exchange is made again. */
 export interface Refresh {
     minRefreshSeconds?: number | null;
@@ -105,7 +127,8 @@ function sameName(one: string, other: string): boolean {
  *
  * And the AEAD algorithm its entry offers, where it names one: left out, the
  * next save of any server would make it offer every one again. And when its
- * key exchange is made again, where its entry sets that, by the same rule.
+ * key exchange is made again, where its entry sets that, by the same rule,
+ * and how its offsets are corrected.
  */
 export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntry {
 
@@ -119,6 +142,8 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
     if (source.aead)                       entry.aead       = source.aead;
     if (source.minRefreshSeconds != null)  entry.minRefreshSeconds = source.minRefreshSeconds;
     if (source.maxRefreshSeconds != null)  entry.maxRefreshSeconds = source.maxRefreshSeconds;
+    if (source.delayAsymmetryMs  != null)  entry.delayAsymmetryMs  = source.delayAsymmetryMs;
+    if (source.delayVarAsymmetry != null)  entry.delayVarAsymmetry = source.delayVarAsymmetry;
 
     return withPins(entry, draftOf(source.heldTo));
 
