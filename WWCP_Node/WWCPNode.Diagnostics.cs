@@ -458,6 +458,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The verdict is Norn's, taken from what its validation decided; the
         /// reasons are its chain's, in words, because the platform's own texts
         /// for them are in whatever language the machine speaks.
+        ///
+        /// Of revocation it says what the key exchange asked, and only that. A
+        /// key exchange this node judges leaves revocation to the node and asks
+        /// nothing, so nothing is said of it here; the node's judgement, which
+        /// follows, says what it found. One that asked online says so, and a
+        /// status it could not have is not held against the certificate, so it
+        /// is no reason why a chain did not validate either.
         /// </remarks>
         /// <param name="TLS">What the key exchange kept of its TLS session.</param>
         /// <param name="Now">The moment the days that are left are counted from.</param>
@@ -512,21 +519,30 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
-            var host   = TLS.CheckedHostname?.Trimmed;
-            var errors = TLS.CertificatePolicyErrors ?? SslPolicyErrors.None;
+            var host     = TLS.CheckedHostname?.Trimmed;
+            var errors   = TLS.CertificatePolicyErrors ?? SslPolicyErrors.None;
+            var online   = TLS.RevocationMode == X509RevocationMode.Online;
+            var unknown  = TLS.ChainStatus.Any(UnknownRevocation);
 
             if (errors == SslPolicyErrors.None)
+            {
+
                 yield return ("notice", String.Concat(
                                             "Validated: the chain ends at a root this machine trusts",
-                                            TLS.RevocationMode == X509RevocationMode.Online ? ", nothing in it is revoked (asked online)"                : "",
-                                            host is not null                                ? $", and '{host}' is one of the server certificate's names" : "",
+                                            online && !unknown ? ", nothing in it is revoked (asked online)"                : "",
+                                            host is not null   ? $", and '{host}' is one of the server certificate's names" : "",
                                             "."
                                         ));
+
+                if (online && unknown)
+                    yield return ("notice", "Whether its chain is revoked could not be asked, which is not held against it.");
+
+            }
 
             else
             {
 
-                var reasons = TLS.ChainStatus.Select(ReasonFor).Distinct().ToList();
+                var reasons = TLS.ChainStatus.Where(status => !UnknownRevocation(status)).Select(ReasonFor).Distinct().ToList();
 
                 if (errors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors) && reasons.Count == 0)
                     reasons.Add("its chain did not validate");
@@ -601,6 +617,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
         }
 
         /// <summary>
+        /// Whether a chain's status says only that whether a certificate in it
+        /// is revoked could not be had - which is held against no certificate.
+        /// </summary>
+        private static Boolean UnknownRevocation(X509ChainStatusFlags Status)
+
+            => Status is X509ChainStatusFlags.RevocationStatusUnknown
+                      or X509ChainStatusFlags.OfflineRevocation;
+
+        /// <summary>
         /// Why a chain did not validate, in words.
         /// </summary>
         private static String ReasonFor(X509ChainStatusFlags Status)
@@ -610,8 +635,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    X509ChainStatusFlags.PartialChain             => "no chain up to a root could be built",
                    X509ChainStatusFlags.NotTimeValid             => "a certificate in it is outside its validity",
                    X509ChainStatusFlags.Revoked                  => "a certificate in it has been revoked",
-                   X509ChainStatusFlags.RevocationStatusUnknown  => "whether a certificate in it is revoked could not be found out",
-                   X509ChainStatusFlags.OfflineRevocation        => "the revocation lists could not be reached",
                    X509ChainStatusFlags.NotSignatureValid        => "a signature in it does not verify",
                    X509ChainStatusFlags.NotValidForUsage         => "a certificate in it is not meant for this use",
                    X509ChainStatusFlags.Cyclic                   => "the chain runs in a circle",

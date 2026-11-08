@@ -296,8 +296,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// a certificate in it names somewhere to ask: what is revoked is
         /// refused as untrusted, and what could not be asked within
         /// <see cref="RevocationWait"/> is not held against it. A handshake
-        /// that asks no revocation itself - the name servers' - is asked after
-        /// here; one that asks online - a key exchange - is believed.
+        /// that asks no revocation itself - the name servers', and a key
+        /// exchange this asks about, which leaves it to this - is asked after
+        /// here; one that asked online itself is believed.
         /// </para>
         /// <para>
         /// Then, where it went ahead: what trust on first use learns from it, and
@@ -734,9 +735,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The chain is built again from the certificates the machine found,
         /// against the root it ended at - whether that root is to be trusted
         /// was the machine's question, and is not asked twice. Where the chain
-        /// was built online already, as a key exchange builds it, what is
-        /// revoked never reaches this without chain errors, and nothing is
-        /// asked again.
+        /// was built online already, as a key exchange nobody judges builds
+        /// it, what is revoked never reaches this without chain errors, and
+        /// nothing is asked again.
         /// </remarks>
         /// <param name="Certificate">The certificate the server showed.</param>
         /// <param name="Machine">The chain the machine built for it.</param>

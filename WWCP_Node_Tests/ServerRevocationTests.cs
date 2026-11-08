@@ -594,9 +594,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region AChainTheHandshakeBuiltOnlineIsNotAskedAgain()
 
         /// <summary>
-        /// A key exchange builds its chain online itself, and what is revoked
-        /// then never reaches the judgement without chain errors: a chain that
-        /// was asked about already is not asked about again.
+        /// A handshake that builds its chain online itself - a key exchange
+        /// nobody judges - never hands over what is revoked without chain
+        /// errors: a chain that was asked about already is not asked about
+        /// again.
         /// </summary>
         [Test]
         public async Task AChainTheHandshakeBuiltOnlineIsNotAskedAgain()

@@ -96,8 +96,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private static (String Level, String Text)[] Steps(X509Certificate2                    Server,
                                                            X509Certificate2[]                  Chain,
                                                            SslPolicyErrors                     Errors,
-                                                           X509ChainStatusFlags[]?             Status   = null,
-                                                           String                              Hostname = "time.example")
+                                                           X509ChainStatusFlags[]?             Status      = null,
+                                                           String                              Hostname    = "time.example",
+                                                           X509RevocationMode                  Revocation  = X509RevocationMode.Online)
 
             => [.. WWCPNode.TLSSteps(new NTSKE_TLSInfo(
                                    ServerCertificate:              Server,
@@ -109,7 +110,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                    ValidatedChain:                 Chain,
                                    ChainStatus:                    Status ?? [],
                                    CheckedHostname:                DomainName.Parse(Hostname),
-                                   RevocationMode:                 X509RevocationMode.Online
+                                   RevocationMode:                 Revocation
                                ),
                                Now)];
 
@@ -142,6 +143,65 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             }));
 
             Assert.That(steps.Select(step => step.Level), Is.EqualTo(new[] { "info", "info", "info", "info", "info", "notice" }));
+
+        }
+
+        #endregion
+
+        #region AKeyExchangeThatLeftRevocationToTheNodeSaysNothingOfIt()
+
+        /// <summary>
+        /// The node judges every key exchange it makes, and the key exchange
+        /// leaves revocation to it: the verdict says nothing of revocation,
+        /// because nothing was asked - the judgement, which follows, says what
+        /// the node found.
+        /// </summary>
+        [Test]
+        public void AKeyExchangeThatLeftRevocationToTheNodeSaysNothingOfIt()
+        {
+
+            using var root    = Root("Test Root",     TimeSpan.FromDays(-365), TimeSpan.FromDays(1000));
+            using var server  = Leaf("time.example",  root,  TimeSpan.FromDays(-10),  TimeSpan.FromDays(79));
+
+            var steps = Steps(server, [ server, root ], SslPolicyErrors.None, Revocation: X509RevocationMode.NoCheck);
+
+            Assert.That(steps[^1], Is.EqualTo(("notice", "Validated: the chain ends at a root this machine trusts, and 'time.example' is one of the server certificate's names.")));
+
+        }
+
+        #endregion
+
+        #region AStatusAKeyExchangeCouldNotHaveIsSaidAndNotHeldAgainstIt()
+
+        /// <summary>
+        /// A key exchange that asked online, and could not have the status of
+        /// its chain: validated all the same, and said so - not "nothing in it
+        /// is revoked". Beside a reason why a chain did not validate, such a
+        /// status is no reason.
+        /// </summary>
+        [Test]
+        public void AStatusAKeyExchangeCouldNotHaveIsSaidAndNotHeldAgainstIt()
+        {
+
+            using var root    = Root("Test Root",     TimeSpan.FromDays(-365), TimeSpan.FromDays(1000));
+            using var server  = Leaf("time.example",  root,  TimeSpan.FromDays(-10),  TimeSpan.FromDays(79));
+
+            var validated = Steps(server, [ server, root ], SslPolicyErrors.None,
+                                  [ X509ChainStatusFlags.RevocationStatusUnknown, X509ChainStatusFlags.OfflineRevocation ]);
+
+            var refused   = Steps(server, [ server, root ], SslPolicyErrors.RemoteCertificateChainErrors,
+                                  [ X509ChainStatusFlags.UntrustedRoot, X509ChainStatusFlags.RevocationStatusUnknown, X509ChainStatusFlags.OfflineRevocation ]);
+
+            Assert.Multiple(() => {
+
+                Assert.That(validated[^2..], Is.EqualTo(new[] {
+                    ("notice", "Validated: the chain ends at a root this machine trusts, and 'time.example' is one of the server certificate's names."),
+                    ("notice", "Whether its chain is revoked could not be asked, which is not held against it.")
+                }));
+
+                Assert.That(refused[^1],     Is.EqualTo(("error", "Not validated: its root is not one this machine trusts.")));
+
+            });
 
         }
 
