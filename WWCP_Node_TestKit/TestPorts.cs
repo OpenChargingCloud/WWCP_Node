@@ -40,6 +40,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     /// again - now and then two that are needed at once. A charging station's
     /// setup was stopped by it, told that its display and its web interface
     /// would both listen on 127.0.0.1:36729.
+    ///
+    /// Windows hands them out one after another, upwards, to every process
+    /// alike, and comes round again to the ports a test run has been handed -
+    /// by then a stretch of them, hundreds in a row. Where the operating
+    /// system offers one of those, a port is looked for elsewhere: at random
+    /// among the dynamic ports, from <see cref="LowestDynamicPort"/> up. Asked
+    /// again, Windows offered the next one up, until a hundred had been
+    /// offered: a charging station's test run at four cores was told so in
+    /// the set-up of a test or two, in three runs of six.
     /// </remarks>
     public static class TestPorts
     {
@@ -47,10 +56,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #region Data
 
         /// <summary>
-        /// How often the operating system is asked for a port before this
-        /// gives up on it.
+        /// How many ports are tried - the one the operating system offers, and
+        /// then others - before this gives up.
         /// </summary>
         public const Int32 MaxAttempts = 100;
+
+        /// <summary>
+        /// The lowest of the dynamic ports - IANA's, from here to 65535 - among
+        /// which a port is looked for where the operating system offered one
+        /// this test run has been handed already. Windows hands these out to
+        /// anybody who asks for any free port, and Linux, by default, those up
+        /// to 60999.
+        /// </summary>
+        public const UInt16 LowestDynamicPort = 49152;
 
         /// <summary>
         /// How often <see cref="StartedOnFreshPorts"/> makes and starts a node
@@ -77,7 +95,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #region Free()
 
         /// <summary>
-        /// A TCP port nobody was listening on a moment ago, and that nobody
+        /// A TCP port nobody held a moment ago, on any address, and that nobody
         /// else in this test run has been handed.
         /// </summary>
         /// <remarks>
@@ -89,36 +107,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// that the gap is milliseconds wide instead of the whole test run.
         /// A port that nothing here can hold for the whole test is one a
         /// <see cref="ClosedPort"/> gives.
+        ///
+        /// The port is tried as a <see cref="ClosedPort"/> holds its own: bound
+        /// on [::], for both families, and exclusively, so that a port somebody
+        /// holds on any address is passed over. A port looked for elsewhere is
+        /// bound by its number, and Windows binds a listener on 127.0.0.1 next
+        /// to somebody else's on 0.0.0.0 - which the port's probe used to be.
         /// </remarks>
-        /// <exception cref="InvalidOperationException">The operating system offered nothing but ports this test run already has.</exception>
+        /// <exception cref="InvalidOperationException">No port was found that this test run had not been handed and that nobody else held.</exception>
         public static UInt16 Free()
 
-            => Free(Listening: () => {
-                                   var probe = new TcpListener(IPAddress.Loopback, 0);
-                                   probe.Start();
-                                   return probe;
-                               },
-                    Pause:     TimeSpan.FromMilliseconds(200));
+            => Free(Holding:    port => ClosedPort.Bind(port, Exclusively: true),
+                    Pause:      TimeSpan.FromMilliseconds(200),
+                    Elsewhere:  null);
 
         /// <summary>
-        /// A port from what Listening started - asked again, after a pause,
+        /// A port from a socket Holding holds - asked again, after a pause,
         /// where the operating system had no buffer space left for a socket.
         /// </summary>
-        /// <param name="Listening">A listener, started, on a port of the operating system's choice.</param>
+        /// <param name="Holding">A socket bound to the given port; at port 0, to one of the operating system's choice.</param>
         /// <param name="Pause">How long to wait before asking again the first time; the second waits twice as long, and so on.</param>
-        internal static UInt16 Free(Func<TcpListener>  Listening,
-                                    TimeSpan           Pause)
+        /// <param name="Elsewhere">Where to look once the operating system offered a port handed out already; at random among the dynamic ports, where none is given.</param>
+        internal static UInt16 Free(Func<UInt16, Socket>  Holding,
+                                    TimeSpan              Pause,
+                                    Func<UInt16>?         Elsewhere)
         {
 
-            var listener = Take(Offer:   () => OnceThereIsRoom(Listening, Pause),
-                                PortOf:  probe => (UInt16) ((IPEndPoint) probe.LocalEndpoint).Port,
-                                LetGo:   probe => probe.Stop());
+            using var holder = Take(Bound:      port   => OnceThereIsRoom(() => Holding(port), Pause),
+                                    PortOf:     socket => (UInt16) ((IPEndPoint) socket.LocalEndPoint!).Port,
+                                    LetGo:      socket => socket.Dispose(),
+                                    Elsewhere:  Elsewhere);
 
-            var port = (UInt16) ((IPEndPoint) listener.LocalEndpoint).Port;
-
-            listener.Stop();
-
-            return port;
+            return (UInt16) ((IPEndPoint) holder.LocalEndPoint!).Port;
 
         }
 
@@ -361,38 +381,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #endregion
 
 
-        #region (internal) Take(Offer)
+        #region (internal) Take(Bound, Elsewhere)
 
         /// <summary>
-        /// The first port an offer makes that this test run has not been
-        /// handed yet.
+        /// The first port Bound makes of a port asked for - 0 at first, for the
+        /// operating system's choice - that this test run has not been handed
+        /// yet.
         /// </summary>
-        internal static UInt16 Take(Func<UInt16> Offer)
+        internal static UInt16 Take(Func<UInt16, UInt16>  Bound,
+                                    Func<UInt16>?         Elsewhere)
 
-            => Take(Offer,
-                    PortOf:  port => port,
-                    LetGo:   null);
+            => Take(Bound,
+                    PortOf:     port => port,
+                    LetGo:      null,
+                    Elsewhere:  Elsewhere);
 
         #endregion
 
-        #region (internal) Take(Offer, PortOf, LetGo)
+        #region (internal) Take(Bound, PortOf, LetGo, Elsewhere)
 
         /// <summary>
-        /// The first thing an offer makes whose port this test run has not been
-        /// handed yet - a listener, a socket, a number - claimed as it is taken.
+        /// The first thing bound to a port that this test run has not been
+        /// handed yet - a socket, a number - claimed as it is taken: one on a
+        /// port of the operating system's choice, and where it offered one
+        /// handed out already, one on a port looked for elsewhere.
         /// </summary>
         /// <remarks>
+        /// <para>
+        /// The operating system is asked once. Asked again, it would offer one
+        /// handed out already again: Windows offers the next port up, and once
+        /// it has come round to the ports a test run has been handed, a stretch
+        /// of them follows. Elsewhere is a port this test run has not been
+        /// handed; one that somebody else holds, or that may not be bound at
+        /// all - Windows keeps ranges of the dynamic ports for itself - is
+        /// passed over.
+        /// </para>
+        /// <para>
         /// What is turned down is held until something is taken, and only then
         /// let go of: let go of at once, it would be the very port the operating
-        /// system offers next.
+        /// system offers to whoever asks next.
+        /// </para>
         /// </remarks>
-        /// <param name="Offer">Something with a port, a new one at each call.</param>
+        /// <param name="Bound">Something bound to the given port, a new one at each call; at port 0, to one of the operating system's choice.</param>
         /// <param name="PortOf">Its port.</param>
         /// <param name="LetGo">What to do with one that is turned down, once something has been taken.</param>
-        /// <exception cref="InvalidOperationException">The offer made nothing but ports this test run already has, <see cref="MaxAttempts"/> times.</exception>
-        internal static T Take<T>(Func<T>          Offer,
+        /// <param name="Elsewhere">The port to try next; at random among the dynamic ports this test run has not been handed, where none is given.</param>
+        /// <exception cref="InvalidOperationException">No port was found that this test run had not been handed and that nobody else held, in <see cref="MaxAttempts"/> attempts.</exception>
+        internal static T Take<T>(Func<UInt16, T>  Bound,
                                   Func<T, UInt16>  PortOf,
-                                  Action<T>?       LetGo)
+                                  Action<T>?       LetGo,
+                                  Func<UInt16>?    Elsewhere)
         {
 
             var turnedDown = new List<T>();
@@ -403,7 +441,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 for (var attempt = 0; attempt < MaxAttempts; attempt++)
                 {
 
-                    var offered = Offer();
+                    T offered;
+
+                    if (attempt == 0)
+                        offered = Bound(0);
+
+                    else
+                    {
+                        try
+                        {
+                            offered = Bound((Elsewhere ?? AnUnclaimedDynamicPort)());
+                        }
+                        catch (SocketException taken) when (IsTaken(taken))
+                        {
+                            continue;
+                        }
+                    }
 
                     if (TryClaim(PortOf(offered)))
                         return offered;
@@ -420,9 +473,58 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                         LetGo(offered);
             }
 
-            throw new InvalidOperationException($"{MaxAttempts} ports were offered, and this test run had been handed every one of them already.");
+            throw new InvalidOperationException($"{MaxAttempts} ports were tried, and every one of them had been handed out in this test run already or was held by somebody else.");
 
         }
+
+        #endregion
+
+        #region (internal) Unclaimed(Pick)
+
+        /// <summary>
+        /// A port Pick picks that this test run has not been handed - or, where
+        /// <see cref="MaxAttempts"/> picks found none, the last one picked,
+        /// which is turned down then as it is taken.
+        /// </summary>
+        /// <param name="Pick">A port, at each call.</param>
+        internal static UInt16 Unclaimed(Func<UInt16> Pick)
+        {
+            lock (padlock)
+            {
+
+                var port = Pick();
+
+                for (var picked = 1; picked < MaxAttempts && claimed.Contains(port); picked++)
+                    port = Pick();
+
+                return port;
+
+            }
+        }
+
+        #endregion
+
+        #region (internal) ADynamicPort()
+
+        /// <summary>
+        /// One of the dynamic ports, from <see cref="LowestDynamicPort"/> to
+        /// 65535, at random.
+        /// </summary>
+        internal static UInt16 ADynamicPort()
+
+            => (UInt16) Random.Shared.Next(LowestDynamicPort, UInt16.MaxValue + 1);
+
+        #endregion
+
+        #region (private static) AnUnclaimedDynamicPort()
+
+        /// <summary>
+        /// One of the dynamic ports, at random, that this test run has not been
+        /// handed.
+        /// </summary>
+        private static UInt16 AnUnclaimedDynamicPort()
+
+            => Unclaimed(ADynamicPort);
 
         #endregion
 

@@ -42,6 +42,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     /// anybody who asks for any free port, and which no other test of this run
     /// is given. A statistical test of a few thousand real ports is not one to
     /// run on a machine other test runs share: it would take their ports away.
+    /// Where it matters what somebody else holds, the test holds a real port
+    /// of its own.
     /// </remarks>
     [TestFixture]
     public class TestPortsTests
@@ -50,21 +52,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region APortIsHandedOutOnce()
 
         /// <summary>
-        /// Offered a port it has handed out already, the kit asks again.
+        /// Offered a port it has handed out already, the kit looks for one
+        /// elsewhere.
         /// </summary>
         [Test]
         public void APortIsHandedOutOnce()
         {
 
-            var offers  = new Queue<UInt16>([ 5000, 5000, 5001 ]);
+            var elsewhere  = new Queue<UInt16>([ 5001 ]);
 
-            var first   = TestPorts.Take(offers.Dequeue);
-            var second  = TestPorts.Take(offers.Dequeue);
+            var first      = TestPorts.Take(Bound:      port => port is 0 ? (UInt16) 5000 : port,
+                                            Elsewhere:  elsewhere.Dequeue);
+
+            var second     = TestPorts.Take(Bound:      port => port is 0 ? (UInt16) 5000 : port,
+                                            Elsewhere:  elsewhere.Dequeue);
 
             Assert.Multiple(() => {
-                Assert.That(first,         Is.EqualTo(5000));
-                Assert.That(second,        Is.EqualTo(5001),  "5000 was handed out twice");
-                Assert.That(offers.Count,  Is.Zero,           "the kit did not ask again");
+                Assert.That(first,            Is.EqualTo(5000));
+                Assert.That(second,           Is.EqualTo(5001),  "5000 was handed out twice");
+                Assert.That(elsewhere.Count,  Is.Zero,           "the kit did not look elsewhere");
             });
 
         }
@@ -92,9 +98,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region AnOfferOfNothingButPortsHandedOutIsGivenUpOnWithASentence()
 
         /// <summary>
-        /// An offer that never makes anything but ports handed out already is
-        /// given up on after so many attempts, with a sentence - rather than
-        /// asked for ever.
+        /// Where nothing but ports handed out already is found, the kit gives up
+        /// after so many attempts, with a sentence - rather than looking for
+        /// ever.
         /// </summary>
         [Test]
         public void AnOfferOfNothingButPortsHandedOutIsGivenUpOnWithASentence()
@@ -102,13 +108,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var asked = 0;
 
-            Assert.That(TestPorts.Take(() => 5002), Is.EqualTo(5002));
+            Assert.That(TestPorts.Take(Bound: port => (UInt16) 5002, Elsewhere: () => 5002), Is.EqualTo(5002));
 
-            var problem = Assert.Throws<InvalidOperationException>(() => TestPorts.Take(() => { asked++; return 5002; }));
+            var problem = Assert.Throws<InvalidOperationException>(() => TestPorts.Take(Bound:      port => { asked++; return (UInt16) 5002; },
+                                                                                        Elsewhere:  () => 5002));
 
             Assert.Multiple(() => {
                 Assert.That(asked,             Is.EqualTo(TestPorts.MaxAttempts));
-                Assert.That(problem?.Message,  Is.EqualTo($"{TestPorts.MaxAttempts} ports were offered, and this test run had been handed every one of them already."));
+                Assert.That(problem?.Message,  Is.EqualTo($"{TestPorts.MaxAttempts} ports were tried, and every one of them had been handed out in this test run already or was held by somebody else."));
             });
 
         }
@@ -131,18 +138,195 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var offered   = new Queue<(UInt16 Port, String Name)>([ (5003, "turned down"), (5004, "taken") ]);
             var events    = new List<String>();
 
-            var taken     = TestPorts.Take(Offer:   () => {
-                                                        var next = offered.Dequeue();
-                                                        events.Add($"offered {next.Name}");
-                                                        return next;
-                                                    },
-                                           PortOf:  offer => offer.Port,
-                                           LetGo:   offer => events.Add($"let go of {offer.Name}"));
+            var taken     = TestPorts.Take(Bound:      port => {
+                                                           var next = offered.Dequeue();
+                                                           events.Add($"offered {next.Name}");
+                                                           return next;
+                                                       },
+                                           PortOf:     offer => offer.Port,
+                                           LetGo:      offer => events.Add($"let go of {offer.Name}"),
+                                           Elsewhere:  () => 5004);
 
             Assert.Multiple(() => {
                 Assert.That(taken.Port,  Is.EqualTo(5004));
                 Assert.That(events,      Is.EqualTo(new[] { "offered turned down", "offered taken", "let go of turned down" }));
             });
+
+        }
+
+        #endregion
+
+        #region AStretchOfPortsHandedOutIsNoDeadEnd()
+
+        /// <summary>
+        /// Where the operating system's offers have come round to a stretch of
+        /// ports handed out already - longer than the kit tries ports - a port
+        /// is found all the same, elsewhere. Windows offers the next port up at
+        /// each bind to port 0: asked again and again, it offered a hundred
+        /// ports in a row that a charging station's test run had been handed.
+        /// </summary>
+        [Test]
+        public void AStretchOfPortsHandedOutIsNoDeadEnd()
+        {
+
+            for (var port = 6000; port < 6000 + 2 * TestPorts.MaxAttempts; port++)
+                Assert.That(TestPorts.TryClaim((UInt16) port), Is.True, "the test's own premise");
+
+            var next   = (UInt16) 6000;
+
+            var taken  = TestPorts.Take(Bound:      port => port is 0 ? next++ : port,
+                                        Elsewhere:  () => 7000);
+
+            Assert.Multiple(() => {
+                Assert.That(taken,  Is.EqualTo(7000));
+                Assert.That(next,   Is.EqualTo(6001),  "the operating system is asked once");
+            });
+
+        }
+
+        #endregion
+
+        #region APortSomebodyElseHoldsIsPassedOver()
+
+        /// <summary>
+        /// A port looked for elsewhere that somebody else holds, or that may not
+        /// be bound at all - Windows keeps ranges of the dynamic ports for
+        /// itself, and says AccessDenied of them - is passed over.
+        /// </summary>
+        [Test]
+        public void APortSomebodyElseHoldsIsPassedOver()
+        {
+
+            Assert.That(TestPorts.TryClaim(5005), Is.True, "the test's own premise");
+
+            var elsewhere  = new Queue<UInt16>([ 7001, 7002, 7003 ]);
+
+            var taken      = TestPorts.Take(Bound:      port => port switch {
+                                                                    0     => 5005,
+                                                                    7001  => throw new SocketException((Int32) SocketError.AddressAlreadyInUse),
+                                                                    7002  => throw new SocketException((Int32) SocketError.AccessDenied),
+                                                                    _     => port
+                                                                },
+                                            Elsewhere:  elsewhere.Dequeue);
+
+            Assert.Multiple(() => {
+                Assert.That(taken,            Is.EqualTo(7003));
+                Assert.That(elsewhere.Count,  Is.Zero);
+            });
+
+        }
+
+        #endregion
+
+        #region AnyOtherRefusalOfAPortElsewhereStands()
+
+        /// <summary>
+        /// Any other refusal of a port looked for elsewhere stands: passing over
+        /// is for a port somebody has.
+        /// </summary>
+        [Test]
+        public void AnyOtherRefusalOfAPortElsewhereStands()
+        {
+
+            Assert.That(TestPorts.TryClaim(5006), Is.True, "the test's own premise");
+
+            var refused = Assert.Throws<SocketException>(() => TestPorts.Take(Bound:      port => port is 0
+                                                                                                      ? (UInt16) 5006
+                                                                                                      : throw new SocketException((Int32) SocketError.AddressNotAvailable),
+                                                                              Elsewhere:  () => 7004));
+
+            Assert.That(refused!.SocketErrorCode, Is.EqualTo(SocketError.AddressNotAvailable));
+
+        }
+
+        #endregion
+
+        #region ElsewhereIsAPortThisRunHasNotBeenHanded()
+
+        /// <summary>
+        /// A port is looked for elsewhere among those this test run has not been
+        /// handed.
+        /// </summary>
+        [Test]
+        public void ElsewhereIsAPortThisRunHasNotBeenHanded()
+        {
+
+            Assert.That(TestPorts.TryClaim(5007), Is.True, "the test's own premise");
+
+            var picks = new Queue<UInt16>([ 5007, 5008 ]);
+
+            Assert.Multiple(() => {
+                Assert.That(TestPorts.Unclaimed(picks.Dequeue),  Is.EqualTo(5008));
+                Assert.That(picks.Count,                         Is.Zero);
+            });
+
+        }
+
+        #endregion
+
+        #region ElsewhereIsAmongTheDynamicPorts()
+
+        /// <summary>
+        /// A port is looked for elsewhere among the dynamic ports, from
+        /// <see cref="TestPorts.LowestDynamicPort"/> to 65535.
+        /// </summary>
+        [Test]
+        public void ElsewhereIsAmongTheDynamicPorts()
+        {
+
+            var picked = Enumerable.Range(0, 1000).Select(_ => TestPorts.ADynamicPort()).ToArray();
+
+            Assert.That(picked, Is.All.InRange(TestPorts.LowestDynamicPort, UInt16.MaxValue));
+
+        }
+
+        #endregion
+
+        #region APortSomebodyListensOnForEveryAddressIsPassedOver()
+
+        /// <summary>
+        /// A port looked for elsewhere that somebody listens on for every
+        /// address - on 0.0.0.0, next to which Windows binds a listener on
+        /// 127.0.0.1 - is passed over, and another one taken: a port is tried
+        /// as a <see cref="ClosedPort"/> holds its own.
+        /// </summary>
+        [Test]
+        public void APortSomebodyListensOnForEveryAddressIsPassedOver()
+        {
+
+            var handedOut  = TestPorts.Free();
+
+            var somebody   = new TcpListener(IPAddress.Any, 0);
+            somebody.Start();
+
+            try
+            {
+
+                var held       = (UInt16) ((IPEndPoint) somebody.LocalEndpoint).Port;
+                var elsewhere  = new List<UInt16>();
+
+                var port       = TestPorts.Free(Holding:    number => ClosedPort.Bind(number is 0 ? handedOut : number, Exclusively: true),
+                                                Pause:      TimeSpan.Zero,
+                                                Elsewhere:  () => {
+                                                                var next = elsewhere.Count == 0
+                                                                               ? held
+                                                                               : TestPorts.Unclaimed(TestPorts.ADynamicPort);
+                                                                elsewhere.Add(next);
+                                                                return next;
+                                                            });
+
+                Assert.Multiple(() => {
+                    Assert.That(elsewhere[0],              Is.EqualTo(held),       "the port somebody listens on was not looked at");
+                    Assert.That(port,                      Is.Not.EqualTo(held),   "a port somebody listens on was handed out");
+                    Assert.That(port,                      Is.EqualTo(elsewhere[^1]));
+                    Assert.That(TestPorts.TryClaim(port),  Is.False,               "handed out, and so claimed");
+                });
+
+            }
+            finally
+            {
+                somebody.Stop();
+            }
 
         }
 
@@ -236,17 +420,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             var asked = 0;
-            var port  = TestPorts.Free(Listening: () => {
+            var port  = TestPorts.Free(Holding:    number => {
 
-                                                      if (++asked < 3)
-                                                          throw new SocketException((Int32) SocketError.NoBufferSpaceAvailable);
+                                                       if (++asked < 3)
+                                                           throw new SocketException((Int32) SocketError.NoBufferSpaceAvailable);
 
-                                                      var listener = new TcpListener(IPAddress.Loopback, 0);
-                                                      listener.Start();
-                                                      return listener;
+                                                       return ClosedPort.Bind(number, Exclusively: true);
 
-                                                  },
-                                       Pause:     TimeSpan.Zero);
+                                                   },
+                                       Pause:      TimeSpan.Zero,
+                                       Elsewhere:  null);
 
             Assert.Multiple(() => {
                 Assert.That(port,                     Is.GreaterThan(0));

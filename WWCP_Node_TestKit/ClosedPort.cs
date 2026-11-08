@@ -71,7 +71,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     /// The port is claimed in <see cref="TestPorts"/> as well. The operating
     /// system knows nothing of a port <see cref="TestPorts.Free()"/> has just
     /// handed out to somebody who has not bound it yet, and may give it to the
-    /// socket here; claimed, it is turned down, and another is asked for. And
+    /// socket here; claimed, it is turned down, and another is looked for
+    /// elsewhere, among the dynamic ports, as <see cref="TestPorts.Free()"/>
+    /// looks for one. And
     /// once this has let go of its port, <see cref="TestPorts.Free()"/> does not
     /// hand it out in the same test run.
     ///
@@ -117,16 +119,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #region Constructor(s)
 
         /// <summary>
-        /// A port the operating system chooses, held from the start, and one
+        /// A port the operating system chooses - or, where it offered one handed
+        /// out already, one found elsewhere - held from the start, and one
         /// nobody else in this test run has been handed.
         /// </summary>
-        /// <exception cref="InvalidOperationException">The operating system offered nothing but ports this test run already has.</exception>
+        /// <exception cref="InvalidOperationException">No port was found that this test run had not been handed and that nobody else held.</exception>
         public ClosedPort()
         {
 
-            holder  = TestPorts.Take(Offer:   () => Bind(0, Exclusively: true),
-                                     PortOf:  socket => (UInt16) ((IPEndPoint) socket.LocalEndPoint!).Port,
-                                     LetGo:   socket => socket.Dispose());
+            holder  = TestPorts.Take(Bound:      port   => Bind(port, Exclusively: true),
+                                     PortOf:     socket => (UInt16) ((IPEndPoint) socket.LocalEndPoint!).Port,
+                                     LetGo:      socket => socket.Dispose(),
+                                     Elsewhere:  null);
 
             Number  = IPPort.Parse((UInt16) ((IPEndPoint) holder.LocalEndPoint!).Port);
 
@@ -199,7 +203,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         #endregion
 
 
-        #region (private static) Bind(Port, Exclusively)
+        #region (internal static) Bind(Port, Exclusively)
 
         /// <summary>
         /// A socket bound to the port on [::] in dual mode, and not listening.
@@ -207,8 +211,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// otherwise the test's own server can, on 127.0.0.1 and [::1]. Port 0
         /// lets the operating system choose one.
         /// </summary>
-        private static Socket Bind(UInt16   Port,
-                                   Boolean  Exclusively)
+        internal static Socket Bind(UInt16   Port,
+                                    Boolean  Exclusively)
         {
 
             // Without IPv6 there is no dual-mode socket either, neither this one
