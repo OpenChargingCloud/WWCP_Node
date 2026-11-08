@@ -70,7 +70,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         {
 
             var hostKey  = SSHHostKeyAsKept();
-            var limits   = SSHServerLimits();
+            var limits   = SSHServerLimitsInEffect();
 
             return new JObject(
 
@@ -101,7 +101,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                            new JProperty("maxUnauthenticated",            limits.MaxUnauthenticated),
                                                            new JProperty("maxUnauthenticatedPerAddress",  limits.MaxUnauthenticatedPerAddress),
                                                            new JProperty("clientAliveInterval",           limits.ClientAliveInterval is TimeSpan every ? (Int32?) every.TotalSeconds : null),
-                                                           new JProperty("clientAliveCountMax",           limits.ClientAliveCountMax)
+                                                           new JProperty("clientAliveCountMax",           limits.ClientAliveCountMax),
+                                                           new JProperty("byKind",                        SSHMaxConnectionsJSON())
                                                        )),
 
                        new JProperty("hostKeys",       new JArray(
@@ -271,14 +272,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                var file   = new SSHConfiguration(sent.Enabled     ?? sshFile?.Enabled,
-                                                  sent.Port        ?? sshFile?.Port,
-                                                  sent.Passwords   ?? sshFile?.Passwords,
-                                                  sent.Sftp        ?? sshFile?.Sftp,
-                                                  sent.AccessRules ?? sshFile?.AccessRules);
+                var file   = new SSHConfiguration(sent.Enabled         ?? sshFile?.Enabled,
+                                                  sent.Port            ?? sshFile?.Port,
+                                                  sent.Passwords       ?? sshFile?.Passwords,
+                                                  sent.Sftp            ?? sshFile?.Sftp,
+                                                  sent.AccessRules     ?? sshFile?.AccessRules,
+                                                  MergedMaxConnections(sshFile?.MaxConnections, sent.MaxConnections));
 
-                var sftpWas  = SFTPEnabled;
-                var rulesWas = SSHAccessRules.ToJSON().ToString();
+                var sftpWas    = SFTPEnabled;
+                var rulesWas   = SSHAccessRules.ToJSON().ToString();
+                var limitsWas  = SSHMaxConnectionsSaid();
 
                 var after  = EffectiveSSH(sshSettings, file, sshWebInterfacePort);
 
@@ -294,7 +297,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 {
                     try
                     {
-                        started = await StartedSSHServer(after.Port!.Value, after.Passwords);
+                        started = await StartedSSHServer(after.Port!.Value, after.Passwords, file);
                     }
                     catch (PortUnavailableException)
                     {
@@ -318,6 +321,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
 
                 sshFile = file;
+
+                // In effect at once, for the next one to sign in: the connections
+                // open stay, even beyond what their kind may have now.
+                if (SSHMaxConnectionsSaid() != limitsWas)
+                    Log.Notice($"The SSH server lets in at once {SSHMaxConnectionsSaid()} from now on; connections open beyond that stay, and the next of their kind is refused.",
+                               "ssh", "security");
 
                 // In effect at once: every session open now is asked again.
                 if (SSHAccessRules.ToJSON().ToString() != rulesWas)
@@ -361,7 +370,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     {
                         try
                         {
-                            started = await StartedSSHServer(after.Port!.Value, after.Passwords);
+                            started = await StartedSSHServer(after.Port!.Value, after.Passwords, file);
                         }
                         catch (PortUnavailableException problem)
                         {
@@ -385,7 +394,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 }
 
-                return new SSHConfigurationChange(true, Notice: CommandLineWins(sent));
+                var notices = new[] { CommandLineWins(sent), SSHServerTakesFewer() }.OfType<String>().ToArray();
+
+                return new SSHConfigurationChange(true, Notice: notices.Length > 0 ? String.Join(" ", notices) : null);
 
             }
             finally

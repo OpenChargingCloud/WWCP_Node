@@ -485,6 +485,8 @@ export const sshPage: Page = {
                     <dl class="facts">
                         <dt>Signing in</dt>              <dd>within ${limits.loginGraceTime} s, at most ${limits.maxAuthTries} tries</dd>
                         <dt>Connections</dt>             <dd>at most ${limits.maxConnections}, ${limits.maxUnauthenticated} of them not signed in yet - ${limits.maxUnauthenticatedPerAddress} from one address</dd>
+                        ${limits.byKind !== undefined ? html`
+                        <dt>Of each kind</dt>            <dd id="ssh-limits-by-kind">${Object.entries(limits.byKind).map(([ kind, each ], n) => html`${n > 0 ? ', ' : ''}<span data-kind=${kind}>${kind} ${each.connections} of ${each.maxConnections}</span>`)} open - ssh.maxConnections</dd>` : ''}
                         <dt>Sessions</dt>                <dd>at most ${limits.maxSessions} on a connection</dd>
                         <dt>Is the client still there</dt><dd>${limits.clientAliveInterval !== null ? `asked every ${limits.clientAliveInterval} s, let go after ${limits.clientAliveCountMax} unanswered` : 'never asked'}</dd>
                     </dl>

@@ -53,11 +53,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Passwords">Whether an account's password opens it as well as its keys; no where absent.</param>
     /// <param name="Sftp">Whether the node's files are served over SFTP on the SSH server; no where absent.</param>
     /// <param name="AccessRules">The SSH access rules, which can only restrict who signs in and what they use - see <see cref="SSHAccessRules"/>; none where absent.</param>
-    public sealed record SSHConfiguration(Boolean?         Enabled      = null,
-                                          IPPort?          Port         = null,
-                                          Boolean?         Passwords    = null,
-                                          Boolean?         Sftp         = null,
-                                          SSHAccessRules?  AccessRules  = null)
+    /// <param name="MaxConnections">How many connections each kind that signs in may have open at once - "account" for the accounts, "station" for what a kind of node lets in besides; <see cref="DefaultMaxConnectionsOfAccounts"/> and <see cref="DefaultMaxConnectionsOfLogins"/> where absent.</param>
+    public sealed record SSHConfiguration(Boolean?                             Enabled         = null,
+                                          IPPort?                              Port            = null,
+                                          Boolean?                             Passwords       = null,
+                                          Boolean?                             Sftp            = null,
+                                          SSHAccessRules?                      AccessRules     = null,
+                                          IReadOnlyDictionary<String, Int32>?  MaxConnections  = null)
     {
 
         #region Data
@@ -66,6 +68,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// The name of this section in the configuration file.
         /// </summary>
         public const String SectionName = "ssh";
+
+        /// <summary>
+        /// How many connections the accounts may have open at once, where the section says nothing.
+        /// </summary>
+        public const Int32  DefaultMaxConnectionsOfAccounts  = 20;
+
+        /// <summary>
+        /// How many connections the logins of a kind of node - a local controller's charging stations -
+        /// may have open at once, where the section says nothing.
+        /// </summary>
+        public const Int32  DefaultMaxConnectionsOfLogins    = 100;
+
+        /// <summary>
+        /// The most connections the section may give a kind.
+        /// </summary>
+        public const Int32  MaxMaxConnections                = 10000;
 
         #endregion
 
@@ -94,7 +112,62 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !SSHAccessRules.TryParse(rules, $"{SectionName}.accessRules", out accessRules, out Error))
                 return false;
 
-            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules);
+            if (!TryReadMaxConnections(JSON, out var maxConnections, out Error))
+                return false;
+
+            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules, maxConnections);
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryReadMaxConnections(JSON, out MaxConnections, out Error)
+
+        /// <summary>
+        /// "maxConnections": how many connections each kind may have open at once, by its name - or the
+        /// sentence that says what is wrong with it.
+        /// </summary>
+        private static Boolean TryReadMaxConnections(JObject                                       JSON,
+                                                     out IReadOnlyDictionary<String, Int32>?       MaxConnections,
+                                                     [NotNullWhen(false)] out String?              Error)
+        {
+
+            MaxConnections  = null;
+            Error           = null;
+
+            if (!JSON.TryGetValue("maxConnections", out var token) || token.Type == JTokenType.Null)
+                return true;
+
+            if (token is not JObject perKind)
+            {
+                Error = $"'{SectionName}.maxConnections' must be an object, with how many connections each kind may have open at once: " +
+                        $"{{ \"{SSHPrincipal.Account}\": {DefaultMaxConnectionsOfAccounts}, \"station\": {DefaultMaxConnectionsOfLogins} }}.";
+                return false;
+            }
+
+            var read = new Dictionary<String, Int32>(StringComparer.Ordinal);
+
+            foreach (var kind in perKind.Properties())
+            {
+
+                if (kind.Name != SSHPrincipal.Account && !WWCPNode.IsPrincipalKind(kind.Name))
+                {
+                    Error = $"'{SectionName}.maxConnections' names '{kind.Name}', which is no kind that signs in: '{SSHPrincipal.Account}' for the accounts, " +
+                            "or what a kind of node lets in besides - a lower-case letter, then lower-case letters, digits, '-' or '_', at most 32 characters.";
+                    return false;
+                }
+
+                if (!ConfigurationReader.TryReadUInt32(perKind, kind.Name, $"{SectionName}.maxConnections", 1, MaxMaxConnections, out var max, out Error))
+                    return false;
+
+                if (max is UInt32 number)
+                    read[kind.Name] = (Int32) number;
+
+            }
+
+            MaxConnections = read;
 
             return true;
 
@@ -118,6 +191,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Sftp      is not null)  json.Add("sftp",       Sftp.     Value);
             if (AccessRules is not null)  json.Add("accessRules",  AccessRules.ToJSON());
 
+            if (MaxConnections is not null)
+                json.Add("maxConnections", new JObject(MaxConnections.Select(kind => new JProperty(kind.Key, kind.Value))));
+
             return json;
 
         }
@@ -131,7 +207,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             => Enabled == false
                    ? "no SSH"
                    : $"SSH{(Port is not null ? $" on port {Port}" : "")}{(Passwords == true ? " with passwords" : "")}{(Sftp == true ? " and SFTP" : "")}" +
-                     (AccessRules is { Rules.Count: > 0 } ? $", {AccessRules.Rules.Count} access rule(s)" : "");
+                     (AccessRules is { Rules.Count: > 0 } ? $", {AccessRules.Rules.Count} access rule(s)" : "") +
+                     (MaxConnections is { Count: > 0 } ? $", at most {String.Join(", ", MaxConnections.Select(kind => $"{kind.Value} {kind.Key} connection(s)"))}" : "");
 
         #endregion
 

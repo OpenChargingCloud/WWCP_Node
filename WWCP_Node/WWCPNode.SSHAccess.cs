@@ -163,7 +163,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Asked by the SSH server once a client has signed in: refused where the rules refuse it at the
-        /// door - and said in the log, which the server's audit then does not say again.
+        /// door, or where its kind has as many connections open as it may - and said in the log, which the
+        /// server's audit then does not say again.
         /// </summary>
         private ValueTask<String?> AuthorizeSSHSession(SshSessionInfo     Session,
                                                        CancellationToken  CancellationToken)
@@ -174,10 +175,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
                           SSHAccessRefusal(Session, null);
 
             if (refusal is not null)
+            {
+
                 Log.Notice($"'{Session.Username}' signed in over SSH from {Session.Peer?.ToString() ?? "somewhere"}, and was refused: {refusal}.",
                            "ssh", "auth", "security");
 
-            return ValueTask.FromResult(refusal);
+                return ValueTask.FromResult<String?>(refusal);
+
+            }
+
+            // Counted in its kind until its connection closes - or refused, its kind full.
+            var full = AdmitSSHConnection(Session, out var kind);
+
+            if (full is not null)
+                SayFullSSHKind(kind, Session, full);
+
+            return ValueTask.FromResult(full);
 
         }
 

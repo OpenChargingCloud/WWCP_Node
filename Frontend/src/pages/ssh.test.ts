@@ -34,8 +34,9 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         configured:     { enabled: true, port: 22347 },
         accessRules:    [],
         commandLine:    {},
-        limits:         { loginGraceTime: 30, maxAuthTries: 6, maxSessions: 4, maxConnections: 100,
-                          maxUnauthenticated: 10, maxUnauthenticatedPerAddress: 3, clientAliveInterval: 60, clientAliveCountMax: 3 },
+        limits:         { loginGraceTime: 30, maxAuthTries: 6, maxSessions: 4, maxConnections: 130,
+                          maxUnauthenticated: 10, maxUnauthenticatedPerAddress: 3, clientAliveInterval: 60, clientAliveCountMax: 3,
+                          byKind: { account: { maxConnections: 20, connections: 1 }, station: { maxConnections: 100, connections: 0 } } },
         hostKeys:       [ { algorithm: 'ssh-ed25519', fingerprint: 'SHA256:hostkeyhostkey', publicKey: 'ssh-ed25519 AAAAC3host lc@machine',
                             file: 'ssh/ssh_host_ed25519_key', knownHosts: '[127.0.0.1]:22347 ssh-ed25519 AAAAC3host' } ],
         algorithms:     { keyExchange: [ 'mlkem768x25519-sha256', 'curve25519-sha256' ], hostKey: [ 'ssh-ed25519' ],
@@ -175,6 +176,9 @@ describe('the SSH server page', () => {
         assert.deepEqual([ ...root.querySelectorAll('[data-algorithms="Key exchange"] .chip') ].map(chip => chip.textContent),
                          [ 'mlkem768x25519-sha256', 'curve25519-sha256' ], 'in the order the server prefers them');
         assert.match(root.querySelector('#ssh-limits')!.textContent!, /within 30 s, at most 6 tries/);
+        assert.match(root.querySelector('#ssh-limits')!.textContent!, /at most 130, 10 of them not signed in yet/);
+        assert.equal(root.querySelector('#ssh-limits-by-kind')!.textContent!.replace(/\s+/g, ' ').trim(),
+                     'account 1 of 20, station 0 of 100 open - ssh.maxConnections', 'each kind, apart');
         assert.equal(field(root, 'port').value, '22347');
         assert.equal(field(root, 'enabled').checked, true);
         assert.equal(field(root, 'passwords').checked, false);

@@ -282,14 +282,18 @@ export interface SSHConfiguration {
     /** The configuration file it is saved to. */
     file:           string;
     /** What the file's "ssh" section says. */
-    configured:     { enabled?: boolean; port?: number; passwords?: boolean; sftp?: boolean; accessRules?: SSHAccessRule[] };
+    configured:     { enabled?: boolean; port?: number; passwords?: boolean; sftp?: boolean; accessRules?: SSHAccessRule[];
+                      maxConnections?: Record<string, number> };
     /** The SSH access rules in effect, the first that matches deciding. */
     accessRules:    SSHAccessRule[];
     /** What a switch on the command line said, which wins over the file: --no-ssh, --ssh-port. */
     commandLine:    { enabled?: boolean; port?: number };
     limits:         { loginGraceTime: number; maxAuthTries: number; maxSessions: number; maxConnections: number;
                       maxUnauthenticated: number; maxUnauthenticatedPerAddress: number;
-                      clientAliveInterval: number | null; clientAliveCountMax: number };
+                      clientAliveInterval: number | null; clientAliveCountMax: number;
+                      /** Each kind that signs in - "account", and what the kind of node lets in besides: "station" -
+                       *  with how many connections it may have open at once, and how many it has. */
+                      byKind?: Record<string, { maxConnections: number; connections: number }> };
     hostKeys:       { algorithm: string; fingerprint: string; publicKey: string; file: string; knownHosts: string }[];
     /** What it offers, in the order it prefers them. */
     algorithms:     { keyExchange: string[]; hostKey: string[]; cipher: string[]; mac: string[]; compression: string[] };

@@ -419,7 +419,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!SSHEnabled || SSHPort is not IPPort port)
                 return;
 
-            sshServer = await StartedSSHServer(port, SSHPasswords);
+            sshServer = await StartedSSHServer(port, SSHPasswords, sshFile);
 
             var accounts = AccountsWithSSHKeys();
 
@@ -442,18 +442,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) StartedSSHServer(Port, Passwords)
+        #region (private) StartedSSHServer(Port, Passwords, File)
 
         /// <summary>
         /// An SSH server of this node on the given port, listening - with the
-        /// host key of this node, made now if there is none yet.
+        /// host key of this node, made now if there is none yet, and the limits
+        /// the given "ssh" section says.
         /// </summary>
         /// <exception cref="PortUnavailableException">Where the port is taken.</exception>
-        private async Task<SshServer> StartedSSHServer(IPPort   Port,
-                                                       Boolean  Passwords)
+        private async Task<SshServer> StartedSSHServer(IPPort             Port,
+                                                       Boolean            Passwords,
+                                                       SSHConfiguration?  File)
         {
 
             var hostKey = await LoadOrCreateSSHHostKey();
+            var limits  = SSHServerLimits(File);
 
             SSHHostKey  = $"{hostKey.AlgorithmNames[0]} {SshFingerprint.Sha256(hostKey.PublicKeyBlob)}";
 
@@ -468,8 +471,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               Subsystems           = SubsystemFor,
                               AuditSink            = new DelegateAuditSink(Audited),
                               ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
-                              Limits               = SSHServerLimits()
+                              Limits               = limits
                           });
+
+            RememberSSHServerLimits(server, limits);
 
             try
             {
@@ -484,24 +489,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
             return server;
 
         }
-
-        #endregion
-
-        #region (private static) SSHServerLimits()
-
-        /// <summary>
-        /// What the SSH server allows: the server's defaults, and this node's
-        /// own - a sign-in within half a minute, four sessions on a connection,
-        /// a client asked every minute whether it is still there.
-        /// </summary>
-        private static SshServerLimits SSHServerLimits()
-
-            => new () {
-                   LoginGraceTime       = SSHLoginGraceTime,
-                   MaxSessions          = 4,
-                   ClientAliveInterval  = TimeSpan.FromSeconds(60),
-                   ClientAliveCountMax  = 3
-               };
 
         #endregion
 
@@ -1018,6 +1005,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 case ConnectionClosedEvent:
                     sshSignInKeys.TryRemove(Event.ConnectionId ?? "", out _);
                     ForgetSSHSignIn(Event.ConnectionId);
+                    ReleaseSSHConnection(Event.ConnectionId);
                     if (sshSignInFailures.TryRemove(Event.ConnectionId ?? "", out var failures))
                         Log.Info($"Somebody{from} could not sign in over SSH as '{failures.Username}' {failures.Attempts} time(s) " +
                                  $"with {String.Join(" and ", failures.Methods)}, and left.",

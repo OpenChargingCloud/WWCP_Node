@@ -191,9 +191,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private static) IsPrincipalKind(Kind)
+        #region (internal static) IsPrincipalKind(Kind)
 
-        private static Boolean IsPrincipalKind(String? Kind)
+        internal static Boolean IsPrincipalKind(String? Kind)
 
             => Kind is not null &&
                Kind.Length is > 0 and <= 32 &&

@@ -1149,6 +1149,29 @@ cannot be read stops the start: a new one would be another machine to every
 client that knew this one. Who signed in, from where and with which key, who
 could not, and what was refused are in the log, tagged `ssh`.
 
+Each kind that signs in has connections of its own. The accounts may have
+20 open at once, and the logins a kind of node lets in besides - a local
+controller's charging stations - 100, unless the `ssh` section says
+otherwise, from 1 to 10000 for each kind:
+
+```json
+"ssh": { "enabled": true, "maxConnections": { "account": 20, "station": 500 } }
+```
+
+A connection counts once it has signed in, until it closes, however it
+closes. One more of a full kind is refused at the door, and the log says so
+at most once a minute for each kind, with how many it did not say: stations
+knocking again and again write a line a minute, not a line each. So
+stations filling the server leave room for an account, and an account's
+scripts leave room for the stations. The server as a whole lets in what
+every kind may have together and the 10 connections not signed in yet
+besides, so that no kind takes another's place before it is known who
+signed in. It takes that number when it starts: a change of
+`maxConnections` holds at once for each kind - the connections open beyond
+it stay, and the next of their kind is refused - and for the server as a
+whole once it starts again, which the answer says where that is fewer until
+then. A kind not sent keeps what it had.
+
 **Configuration > SSH server** (`/configuration/ssh`, `nodeMenu.ssh`) shows
 the server - whether it runs, on which address and port, whether passwords
 open it and whether it serves SFTP - and what the file and the command line
@@ -1158,8 +1181,9 @@ reading and writing each needs; who is connected now - at the command line
 or with SFTP - from where, since when and with which key; the keys every
 account may sign in with; what the server allows; and the algorithms it
 offers, in the order it prefers them. `GET /api/v1/configuration/ssh` at
-`ssh:read` says all of it; `PUT` at `ssh:edit` takes `enabled`, `port`,
-`passwords` and `sftp`, saves them in the `ssh` section and makes them at
+`ssh:read` says all of it, each kind's connections under
+`limits.byKind`; `PUT` at `ssh:edit` takes `enabled`, `port`, `passwords`,
+`sftp` and `maxConnections`, saves them in the `ssh` section and makes them at
 once (`TryUpdateSSHConfiguration`): a new port is bound before the old one is
 let go, and a port that is taken is a 409 that leaves the server where it was
 and the file as it was. Moved, switched off or told otherwise of passwords,
