@@ -216,6 +216,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region NoBeginningTakesOutNoKey
+
+        /// <summary>
+        /// "SHA256:" alone - typed, or written as a URL would - is the beginning
+        /// of every fingerprint, so it is no key's: it does not take out the one
+        /// key an account signs in with.
+        /// </summary>
+        [Test]
+        public async Task NoBeginningTakesOutNoKey()
+        {
+
+            var key = SshHostKey.GenerateEd25519();
+
+            await cli.Execute($"sshKeys root add {KeyLine(key)}");
+
+            var bare     = await cli.Execute("sshKeys root remove SHA256:");
+            var escaped  = await cli.Execute("sshKeys root remove SHA256%3A");
+
+            Assert.Multiple(() => {
+                Assert.That(bare,     Is.EqualTo(new[] { "'root' has no key SHA256:." }));
+                Assert.That(escaped,  Is.EqualTo(new[] { "'root' has no key SHA256%3A." }));
+                Assert.That(node.ExtAPI.FindSSHKey(Root, key.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Not.Null, "taken out");
+            });
+
+        }
+
+        #endregion
+
 
         #region AnAPIKeyIsShownOnceAndNamedByItsHintAndHash
 
@@ -306,6 +334,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(first),  out _),  Is.False);
                 Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(second), out _),  Is.False);
                 Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(third),  out _),  Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region NoBeginningTakesBackNoAPIKey
+
+        /// <summary>
+        /// "...", as the list ends a hint with, or a "#" with nothing of the hash
+        /// after it is the beginning of every key, so it is no key's: it does not
+        /// take back the one key an account has.
+        /// </summary>
+        [Test]
+        public async Task NoBeginningTakesBackNoAPIKey()
+        {
+
+            var key   = "Only0key0of0the0account0abc";
+
+            await cli.Execute($"apiKeys root add key {key}");
+
+            var dots  = await cli.Execute("apiKeys root remove ...");
+            var hash  = await cli.Execute("apiKeys root remove #");
+
+            Assert.Multiple(() => {
+                Assert.That(dots,  Is.EqualTo(new[] { "'root' has no API key that is or begins with '...'." }));
+                Assert.That(hash,  Is.EqualTo(new[] { "'root' has no API key that is or begins with '#'." }));
+                Assert.That(node.ExtAPI.TryGetAPIKey(APIKey_Id.Of(key), out _), Is.True, "taken back");
             });
 
         }

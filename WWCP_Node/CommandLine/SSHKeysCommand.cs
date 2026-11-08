@@ -266,7 +266,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                Where(key => key.Fingerprint["SHA256:".Length..].StartsWith(wanted, StringComparison.Ordinal)).
                                ToArray();
 
-            if (matching.Length == 0)
+            // "SHA256:" alone begins every fingerprint, and is no key's.
+            if (wanted.Length == 0 || matching.Length == 0)
                 return [ $"'{Account.Id}' has no key {Fingerprint}." ];
 
             if (matching.Length > 1 && !matching.Any(key => key.Fingerprint == "SHA256:" + wanted))
