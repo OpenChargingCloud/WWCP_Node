@@ -45,7 +45,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     /// alike, and comes round again to the ports a test run has been handed -
     /// by then a stretch of them, hundreds in a row. Where the operating
     /// system offers one of those, a port is looked for elsewhere: at random
-    /// among the dynamic ports, from <see cref="LowestDynamicPort"/> up. Asked
+    /// below the dynamic ports, from <see cref="LowestPortElsewhere"/> to
+    /// <see cref="HighestPortElsewhere"/>. Asked
     /// again, Windows offered the next one up, until a hundred had been
     /// offered: a charging station's test run at four cores was told so in
     /// the set-up of a test or two, in three runs of six.
@@ -62,13 +63,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public const Int32 MaxAttempts = 100;
 
         /// <summary>
-        /// The lowest of the dynamic ports - IANA's, from here to 65535 - among
-        /// which a port is looked for where the operating system offered one
-        /// this test run has been handed already. Windows hands these out to
-        /// anybody who asks for any free port, and Linux, by default, those up
-        /// to 60999.
+        /// The lowest of the ports among which a port is looked for where the
+        /// operating system offered one this test run has been handed already.
         /// </summary>
-        public const UInt16 LowestDynamicPort = 49152;
+        /// <remarks>
+        /// They lie below the dynamic ports of Windows, from 49152, and of
+        /// Linux, from 32768 by default - the ports both take the local port of
+        /// an outgoing connection from, and hand to anybody who asks for any
+        /// free port. A port found free among those could be taken by somebody's
+        /// outgoing connection before the test binds it: the operating system
+        /// would hand it out there sooner or later. One it offered itself is
+        /// safe from that for a while, since Windows hands out the ports after
+        /// it first. Pointed out by the charging station.
+        /// </remarks>
+        public const UInt16 LowestPortElsewhere   = 20000;
+
+        /// <summary>
+        /// The highest of the ports among which a port is looked for where the
+        /// operating system offered one this test run has been handed already:
+        /// the last one below Linux's dynamic ports.
+        /// </summary>
+        public const UInt16 HighestPortElsewhere  = 32767;
 
         /// <summary>
         /// How often <see cref="StartedOnFreshPorts"/> makes and starts a node
@@ -127,7 +142,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// </summary>
         /// <param name="Holding">A socket bound to the given port; at port 0, to one of the operating system's choice.</param>
         /// <param name="Pause">How long to wait before asking again the first time; the second waits twice as long, and so on.</param>
-        /// <param name="Elsewhere">Where to look once the operating system offered a port handed out already; at random among the dynamic ports, where none is given.</param>
+        /// <param name="Elsewhere">Where to look once the operating system offered a port handed out already; at random below the dynamic ports, where none is given.</param>
         internal static UInt16 Free(Func<UInt16, Socket>  Holding,
                                     TimeSpan              Pause,
                                     Func<UInt16>?         Elsewhere)
@@ -413,8 +428,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// it has come round to the ports a test run has been handed, a stretch
         /// of them follows. Elsewhere is a port this test run has not been
         /// handed; one that somebody else holds, or that may not be bound at
-        /// all - Windows keeps ranges of the dynamic ports for itself - is
-        /// passed over.
+        /// all - Windows keeps ranges of ports for itself, which "netsh int
+        /// ipv4 show excludedportrange protocol=tcp" lists - is passed over.
         /// </para>
         /// <para>
         /// What is turned down is held until something is taken, and only then
@@ -425,7 +440,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <param name="Bound">Something bound to the given port, a new one at each call; at port 0, to one of the operating system's choice.</param>
         /// <param name="PortOf">Its port.</param>
         /// <param name="LetGo">What to do with one that is turned down, once something has been taken.</param>
-        /// <param name="Elsewhere">The port to try next; at random among the dynamic ports this test run has not been handed, where none is given.</param>
+        /// <param name="Elsewhere">The port to try next; at random below the dynamic ports, among those this test run has not been handed, where none is given.</param>
         /// <exception cref="InvalidOperationException">No port was found that this test run had not been handed and that nobody else held, in <see cref="MaxAttempts"/> attempts.</exception>
         internal static T Take<T>(Func<UInt16, T>  Bound,
                                   Func<T, UInt16>  PortOf,
@@ -450,7 +465,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                     {
                         try
                         {
-                            offered = Bound((Elsewhere ?? AnUnclaimedDynamicPort)());
+                            offered = Bound((Elsewhere ?? AnUnclaimedPortElsewhere)());
                         }
                         catch (SocketException taken) when (IsTaken(taken))
                         {
@@ -504,27 +519,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
         #endregion
 
-        #region (internal) ADynamicPort()
+        #region (internal) APortElsewhere()
 
         /// <summary>
-        /// One of the dynamic ports, from <see cref="LowestDynamicPort"/> to
-        /// 65535, at random.
+        /// A port below the dynamic ports, from <see cref="LowestPortElsewhere"/>
+        /// to <see cref="HighestPortElsewhere"/>, at random.
         /// </summary>
-        internal static UInt16 ADynamicPort()
+        internal static UInt16 APortElsewhere()
 
-            => (UInt16) Random.Shared.Next(LowestDynamicPort, UInt16.MaxValue + 1);
+            => (UInt16) Random.Shared.Next(LowestPortElsewhere, HighestPortElsewhere + 1);
 
         #endregion
 
-        #region (private static) AnUnclaimedDynamicPort()
+        #region (private static) AnUnclaimedPortElsewhere()
 
         /// <summary>
-        /// One of the dynamic ports, at random, that this test run has not been
-        /// handed.
+        /// A port below the dynamic ports, at random, that this test run has not
+        /// been handed.
         /// </summary>
-        private static UInt16 AnUnclaimedDynamicPort()
+        private static UInt16 AnUnclaimedPortElsewhere()
 
-            => Unclaimed(ADynamicPort);
+            => Unclaimed(APortElsewhere);
 
         #endregion
 

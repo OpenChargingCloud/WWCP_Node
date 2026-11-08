@@ -38,9 +38,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     /// charging station's setup was stopped by it, told that its display and
     /// its web interface would both listen on 127.0.0.1:36729. What it offers
     /// cannot be arranged here, so the taking is asked with offers the tests
-    /// make up: ports below 32768, which neither Linux nor Windows hands to
-    /// anybody who asks for any free port, and which no other test of this run
-    /// is given. A statistical test of a few thousand real ports is not one to
+    /// make up: ports below 20000, which neither Linux nor Windows hands to
+    /// anybody who asks for any free port, nor the kit where it looks for one
+    /// elsewhere, and which no other test of this run is given. A statistical test of a few thousand real ports is not one to
     /// run on a machine other test runs share: it would take their ports away.
     /// Where it matters what somebody else holds, the test holds a real port
     /// of its own.
@@ -264,19 +264,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region ElsewhereIsAmongTheDynamicPorts()
+        #region ElsewhereIsBelowTheDynamicPorts()
 
         /// <summary>
-        /// A port is looked for elsewhere among the dynamic ports, from
-        /// <see cref="TestPorts.LowestDynamicPort"/> to 65535.
+        /// A port is looked for elsewhere below the dynamic ports of Windows and
+        /// of Linux, where neither takes the local port of an outgoing
+        /// connection from: from <see cref="TestPorts.LowestPortElsewhere"/> to
+        /// <see cref="TestPorts.HighestPortElsewhere"/>, below 32768.
         /// </summary>
         [Test]
-        public void ElsewhereIsAmongTheDynamicPorts()
+        public void ElsewhereIsBelowTheDynamicPorts()
         {
 
-            var picked = Enumerable.Range(0, 1000).Select(_ => TestPorts.ADynamicPort()).ToArray();
+            var picked = Enumerable.Range(0, 1000).Select(_ => TestPorts.APortElsewhere()).ToArray();
 
-            Assert.That(picked, Is.All.InRange(TestPorts.LowestDynamicPort, UInt16.MaxValue));
+            Assert.Multiple(() => {
+                Assert.That(picked,                          Is.All.InRange(TestPorts.LowestPortElsewhere, TestPorts.HighestPortElsewhere));
+                Assert.That(picked,                          Is.All.LessThan(32768));
+            });
 
         }
 
@@ -310,7 +315,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                 Elsewhere:  () => {
                                                                 var next = elsewhere.Count == 0
                                                                                ? held
-                                                                               : TestPorts.Unclaimed(TestPorts.ADynamicPort);
+                                                                               : TestPorts.Unclaimed(TestPorts.APortElsewhere);
                                                                 elsewhere.Add(next);
                                                                 return next;
                                                             });

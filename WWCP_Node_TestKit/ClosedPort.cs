@@ -72,7 +72,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     /// system knows nothing of a port <see cref="TestPorts.Free()"/> has just
     /// handed out to somebody who has not bound it yet, and may give it to the
     /// socket here; claimed, it is turned down, and another is looked for
-    /// elsewhere, among the dynamic ports, as <see cref="TestPorts.Free()"/>
+    /// elsewhere, below the dynamic ports, as <see cref="TestPorts.Free()"/>
     /// looks for one. And
     /// once this has let go of its port, <see cref="TestPorts.Free()"/> does not
     /// hand it out in the same test run.
