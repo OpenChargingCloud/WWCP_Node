@@ -38,10 +38,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// A charging station that runs OCPP over SSH gets its NTS keys and cookies
     /// over the connection it has anyway, as a further channel of it: with the
     /// key it signs in with for OCPP, against the host key it pins for OCPP -
-    /// no certificate, no second key pair. The keys come from a secret the
-    /// server sends in the SSH Key Binding record (option B), which takes
-    /// nothing from the connection, so that a station may make its key exchange
-    /// again on a connection that lasts for weeks.
+    /// no certificate, no second key pair. A key exchange takes its keys from the
+    /// exporter of the connection (option A), which the node's SSH server hands
+    /// the handler, and a nonce the server sends in the SSH Key Binding record:
+    /// every exchange gets keys of its own, and a station may make its key
+    /// exchange again on a connection that lasts for weeks. A client without the
+    /// exporter, such as OpenSSH's ssh -s, gets a secret the server sends in that
+    /// record instead (option B).
     /// </para>
     /// <para>
     /// The node serves what an NTS server of Norn answers: that server holds the

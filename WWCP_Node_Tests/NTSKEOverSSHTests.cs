@@ -32,6 +32,7 @@ using org.GraphDefined.Vanaheimr.Hermod.Mail;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
+using org.GraphDefined.Vanaheimr.Norn.NTS.NTSKERecords;
 
 using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.CommandLine;
@@ -193,8 +194,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(ntsKEResult.Success, Is.True, ntsKEResult.ErrorMessage);
             Assert.That(ntsKEResult.Response!.Cookies.Count(), Is.EqualTo(NTSServer.MaxCookiesPerResponse));
 
-            // The server put its keys into the cookies, the station derived its own from the secret
-            // of the SSH Key Binding record: a query both sides can read proves they are the same.
+            // The node's SSH server hands the handler the exporter of the station's connection, so
+            // the station gets option A.
+            Assert.That(SelectedMethodOf(ntsKEResult), Is.EqualTo(SSHKeyBindingMethods.Exporter));
+
+            // The server put its keys into the cookies, the station derived its own from the
+            // exporter of its connection: a query both sides can read proves they are the same.
             var ntsQueryResult     = await ntsClient.QueryTime(NTSKEResponse: ntsKEResult.Response,
                                                                Timeout:       TimeSpan.FromSeconds(10));
 
@@ -250,10 +255,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var ocpp               = await cs001.OpenSubsystemAsync(Echo, CancellationToken);
             var before             = await EchoOf(ocpp, "BootNotification");
 
-            // Two key exchanges as further channels of it, e.g. a day apart: option B takes nothing
-            // from the connection, so each gets a secret of its own.
+            // Three key exchanges as further channels of it, e.g. a day apart. Each takes the
+            // exporter of the connection (option A) with a nonce of its own, and so keys of its own.
             var first              = await ntsClient.GetNTSKERecordsOverSSH(cs001, CancellationToken: CancellationToken);
             var second             = await ntsClient.GetNTSKERecordsOverSSH(cs001, CancellationToken: CancellationToken);
+            var third              = await ntsClient.GetNTSKERecordsOverSSH(cs001, CancellationToken: CancellationToken);
 
             var after              = await EchoOf(ocpp, "Heartbeat");
 
@@ -261,7 +267,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(before,                    Is.EqualTo("BootNotification"));
                 Assert.That(first. Success,            Is.True, first. ErrorMessage);
                 Assert.That(second.Success,            Is.True, second.ErrorMessage);
-                Assert.That(second.Response!.C2SKey,   Is.Not.EqualTo(first.Response!.C2SKey), "two exchanges derived the same keys");
+                Assert.That(third. Success,            Is.True, third. ErrorMessage);
+                Assert.That(SelectedMethodOf(first),   Is.EqualTo(SSHKeyBindingMethods.Exporter));
+                Assert.That(SelectedMethodOf(second),  Is.EqualTo(SSHKeyBindingMethods.Exporter));
+                Assert.That(SelectedMethodOf(third),   Is.EqualTo(SSHKeyBindingMethods.Exporter));
+                Assert.That(second.Response!.C2SKey,   Is.Not.EqualTo(first. Response!.C2SKey), "two exchanges derived the same keys");
+                Assert.That(third. Response!.C2SKey,   Is.Not.EqualTo(second.Response!.C2SKey), "two exchanges derived the same keys");
+                Assert.That(third. Response!.C2SKey,   Is.Not.EqualTo(first. Response!.C2SKey), "two exchanges derived the same keys");
                 Assert.That(after,                     Is.EqualTo("Heartbeat"), "the OCPP channel did not outlast the key exchanges");
             });
 
@@ -437,6 +449,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                    NTP_Port:             ntpPort,
                    IPVersionPreference:  IPVersionPreference.IPv4Only
                );
+
+        /// <summary>
+        /// Where the keys of a key exchange came from: the exporter of the connection (option A)
+        /// or the secret the server sent (option B).
+        /// </summary>
+        private static SSHKeyBindingMethods? SelectedMethodOf(NTSKEResult Result)
+
+            => Result.Response?.NTSKERecords.OfType<SSHKeyBinding>().SingleOrDefault() is SSHKeyBinding keyBinding &&
+               keyBinding.TryGetSelection(out var method, out _, out _)
+                   ? method
+                   : null;
 
         private static Stations StationsWith(params (String Name, ISshHostKey Key, String[] Subsystems)[] Logins)
         {
