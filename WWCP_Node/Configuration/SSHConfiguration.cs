@@ -54,12 +54,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Sftp">Whether the node's files are served over SFTP on the SSH server; no where absent.</param>
     /// <param name="AccessRules">The SSH access rules, which can only restrict who signs in and what they use - see <see cref="SSHAccessRules"/>; none where absent.</param>
     /// <param name="MaxConnections">How many connections each kind that signs in may have open at once - "account" for the accounts, "station" for what a kind of node lets in besides; <see cref="DefaultMaxConnectionsOfAccounts"/> and <see cref="DefaultMaxConnectionsOfLogins"/> where absent.</param>
+    /// <param name="StrictKex">Whether a client must signal strict KEX, the protection against Terrapin (CVE-2023-48795), or is turned away before it signs in; yes where absent.</param>
     public sealed record SSHConfiguration(Boolean?                             Enabled         = null,
                                           IPPort?                              Port            = null,
                                           Boolean?                             Passwords       = null,
                                           Boolean?                             Sftp            = null,
                                           SSHAccessRules?                      AccessRules     = null,
-                                          IReadOnlyDictionary<String, Int32>?  MaxConnections  = null)
+                                          IReadOnlyDictionary<String, Int32>?  MaxConnections  = null,
+                                          Boolean?                             StrictKex       = null)
     {
 
         #region Data
@@ -103,7 +105,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!ConfigurationReader.TryReadBoolean(JSON, "enabled",    SectionName, out var enabled,    out Error) ||
                 !ConfigurationReader.TryReadPort   (JSON, "port",       SectionName, out var port,       out Error) ||
                 !ConfigurationReader.TryReadBoolean(JSON, "passwords",  SectionName, out var passwords,  out Error) ||
-                !ConfigurationReader.TryReadBoolean(JSON, "sftp",       SectionName, out var sftp,       out Error))
+                !ConfigurationReader.TryReadBoolean(JSON, "sftp",       SectionName, out var sftp,       out Error) ||
+                !ConfigurationReader.TryReadBoolean(JSON, "strictKex",  SectionName, out var strictKex,  out Error))
                 return false;
 
             SSHAccessRules? accessRules = null;
@@ -115,7 +118,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!TryReadMaxConnections(JSON, out var maxConnections, out Error))
                 return false;
 
-            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules, maxConnections);
+            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules, maxConnections, strictKex);
 
             return true;
 
@@ -189,6 +192,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Port      is not null)  json.Add("port",       Port.     Value.ToUInt16());
             if (Passwords is not null)  json.Add("passwords",  Passwords.Value);
             if (Sftp      is not null)  json.Add("sftp",       Sftp.     Value);
+            if (StrictKex is not null)  json.Add("strictKex",  StrictKex.Value);
             if (AccessRules is not null)  json.Add("accessRules",  AccessRules.ToJSON());
 
             if (MaxConnections is not null)
@@ -207,6 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             => Enabled == false
                    ? "no SSH"
                    : $"SSH{(Port is not null ? $" on port {Port}" : "")}{(Passwords == true ? " with passwords" : "")}{(Sftp == true ? " and SFTP" : "")}" +
+                     (StrictKex == false ? ", strict KEX not required" : "") +
                      (AccessRules is { Rules.Count: > 0 } ? $", {AccessRules.Rules.Count} access rule(s)" : "") +
                      (MaxConnections is { Count: > 0 } ? $", at most {String.Join(", ", MaxConnections.Select(kind => $"{kind.Value} {kind.Key} connection(s)"))}" : "");
 

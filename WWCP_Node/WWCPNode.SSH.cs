@@ -175,6 +175,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Boolean              SSHPasswords            { get; private set; }
 
         /// <summary>
+        /// Whether a client must signal strict KEX - the protection against
+        /// Terrapin (CVE-2023-48795), which OpenSSH has since 9.6 and PuTTY
+        /// since 0.80 - or is turned away before it signs in. Yes unless the
+        /// file's ssh.strictKex says no.
+        /// </summary>
+        public Boolean              SSHStrictKex            { get; private set; } = true;
+
+        /// <summary>
         /// Where the host key is kept: beside the configuration file.
         /// </summary>
         public String               SSHHostKeyPath
@@ -231,7 +239,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             sshFile              = File;
             sshWebInterfacePort  = WebInterfacePort;
 
-            (SSHEnabled, SSHPort, SSHPasswords) = EffectiveSSH(Settings, File, WebInterfacePort);
+            (SSHEnabled, SSHPort, SSHPasswords, SSHStrictKex) = EffectiveSSH(Settings, File, WebInterfacePort);
 
             if (SSHEnabled && SSHPort is null)
             {
@@ -251,16 +259,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private static) EffectiveSSH(Settings, File, WebInterfacePort)
 
         /// <summary>
-        /// Whether the SSH server runs, on which port, and whether passwords open
-        /// it: a switch, then the file, then the program's default.
+        /// Whether the SSH server runs, on which port, whether passwords open it,
+        /// and whether a client must signal strict KEX: a switch, then the file,
+        /// then the program's default.
         /// </summary>
-        private static (Boolean Enabled, IPPort? Port, Boolean Passwords) EffectiveSSH(SSHSettings?       Settings,
-                                                                                         SSHConfiguration?  File,
-                                                                                         IPPort             WebInterfacePort)
+        private static (Boolean Enabled, IPPort? Port, Boolean Passwords, Boolean StrictKex) EffectiveSSH(SSHSettings?       Settings,
+                                                                                                            SSHConfiguration?  File,
+                                                                                                            IPPort             WebInterfacePort)
 
             => (Settings?.Enabled ?? File?.Enabled ?? Settings?.OnByDefault == true,
                 Settings?.Port    ?? File?.Port    ?? SSHSettings.DefaultPortFor(WebInterfacePort),
-                File?.Passwords   ?? false);
+                File?.Passwords   ?? false,
+                File?.StrictKex   ?? true);
 
         #endregion
 
@@ -419,7 +429,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!SSHEnabled || SSHPort is not IPPort port)
                 return;
 
-            sshServer = await StartedSSHServer(port, SSHPasswords, sshFile);
+            sshServer = await StartedSSHServer(port, SSHPasswords, SSHStrictKex, sshFile);
 
             var accounts = AccountsWithSSHKeys();
 
@@ -428,6 +438,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                             ? $"no account has a key yet, so nobody can sign in."
                             : $"{accounts.Count} account(s) can sign in with a key: {String.Join(", ", accounts)}.") +
                        (SSHPasswords ? " Passwords open it as well." : "") +
+                       (SSHStrictKex ? "" : " A client without strict KEX is let in (ssh.strictKex), which Terrapin can attack.") +
                        (SFTPEnabled
                             ? $" SFTP is served as well: {String.Join(", ", sftpAreasInEffect.Select(area => $"/{area.Path}"))}."
                             : " SFTP is not (ssh.sftp).") +
@@ -452,6 +463,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <exception cref="PortUnavailableException">Where the port is taken.</exception>
         private async Task<SshServer> StartedSSHServer(IPPort             Port,
                                                        Boolean            Passwords,
+                                                       Boolean            StrictKex,
                                                        SSHConfiguration?  File)
         {
 
@@ -470,6 +482,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               SftpSessions         = SftpSessionFor,
                               Subsystems           = SubsystemFor,
                               AuditSink            = new DelegateAuditSink(Audited),
+                              RequireStrictKex     = StrictKex,
                               ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
                               Limits               = limits
                           });

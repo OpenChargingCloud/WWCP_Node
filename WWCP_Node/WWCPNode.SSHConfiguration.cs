@@ -77,6 +77,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("enabled",        SSHEnabled),
                        new JProperty("port",           SSHPort?.ToUInt16()),
                        new JProperty("passwords",      SSHPasswords),
+                       new JProperty("strictKex",      SSHStrictKex),
                        new JProperty("sftp",           SFTPEnabled),
                        new JProperty("sftpByDefault",  sshSettings?.SftpByDefault == true),
                        new JProperty("listenAddress",  listenAddress.ToString()),
@@ -277,7 +278,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                   sent.Passwords       ?? sshFile?.Passwords,
                                                   sent.Sftp            ?? sshFile?.Sftp,
                                                   sent.AccessRules     ?? sshFile?.AccessRules,
-                                                  MergedMaxConnections(sshFile?.MaxConnections, sent.MaxConnections));
+                                                  MergedMaxConnections(sshFile?.MaxConnections, sent.MaxConnections),
+                                                  sent.StrictKex       ?? sshFile?.StrictKex);
 
                 var sftpWas    = SFTPEnabled;
                 var rulesWas   = SSHAccessRules.ToJSON().ToString();
@@ -288,7 +290,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (after.Enabled && after.Port is null)
                     return new SSHConfigurationChange(false, $"The web interface's port {sshWebInterfacePort} plus {SSHSettings.DefaultPortOffset} is no port: give the SSH server one.");
 
-                var restart  = (SSHEnabled, SSHPort, SSHPasswords) != after;
+                var restart  = (SSHEnabled, SSHPort, SSHPasswords, SSHStrictKex) != after;
                 var rebind   = restart && after.Enabled && SSHEnabled && sshServer is not null && after.Port == SSHPort;
                 var started  = default(SshServer);
 
@@ -297,7 +299,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 {
                     try
                     {
-                        started = await StartedSSHServer(after.Port!.Value, after.Passwords, file);
+                        started = await StartedSSHServer(after.Port!.Value, after.Passwords, after.StrictKex, file);
                     }
                     catch (PortUnavailableException)
                     {
@@ -363,14 +365,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     if (running is not null)
                         await running.DisposeAsync();
 
-                    (SSHEnabled, SSHPort, SSHPasswords) = after;
+                    (SSHEnabled, SSHPort, SSHPasswords, SSHStrictKex) = after;
 
                     // On the port it had, it is bound once the old one let go.
                     if (rebind)
                     {
                         try
                         {
-                            started = await StartedSSHServer(after.Port!.Value, after.Passwords, file);
+                            started = await StartedSSHServer(after.Port!.Value, after.Passwords, after.StrictKex, file);
                         }
                         catch (PortUnavailableException problem)
                         {
@@ -388,6 +390,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     Log.Notice(SSHEnabled
                                    ? $"The command line is served over SSH on {SSHURL} from now on{(SSHPasswords ? ", and passwords open it as well" : ", with keys alone")}" +
+                                     (SSHStrictKex ? "" : ", to clients without strict KEX as well") +
                                      (SFTPEnabled ? ", and SFTP with it." : ".")
                                    : "The command line is no longer served over SSH, and neither is SFTP.",
                                "ssh");

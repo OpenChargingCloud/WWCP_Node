@@ -221,6 +221,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private static JObject Section(String File)
             => (JObject) JObject.Parse(System.IO.File.ReadAllText(File))["ssh"]!;
 
+        /// <summary>
+        /// Whether a client from before strict KEX - an OpenSSH older than 9.6:
+        /// its KEXINIT without the marker - is turned away: the server ends the
+        /// connection within 5 s. Not turned away, it is still waited for after
+        /// 1.5 s, for the key exchange's next message.
+        /// </summary>
+        private static async Task<Boolean> AnOldClientIsTurnedAway(UInt16 Port)
+        {
+
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(System.Net.IPAddress.Loopback, Port).WaitAsync(TimeSpan.FromSeconds(5));
+
+            var pipe = DuplexPipe.FromStream(tcp.GetStream());
+
+            await SshVersionExchange.WriteAsync(pipe.Output, SshIdentificationString.Parse("SSH-2.0-OpenSSH_9.3"));
+            await SshVersionExchange.ReadAsync (pipe.Input);
+
+            SshPacketFraming.WritePacket(pipe.Output, NullTransportCipher.Instance, KexInitMessage.CreateLocal(IsServer: false, Initial: false).Encode());
+            await pipe.Output.FlushAsync();
+
+            using var within = new CancellationTokenSource(TimeSpan.FromSeconds(1.5));
+
+            try
+            {
+                while (true)
+                {
+                    var read = await pipe.Input.ReadAsync(within.Token);
+                    pipe.Input.AdvanceTo(read.Buffer.End);
+                    if (read.IsCompleted)
+                        return true;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+
+        }
+
         #endregion
 
 
@@ -477,6 +520,57 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(await Listens(port),                       Is.True);
                 Assert.That(await Listens(asked),                      Is.False);
             });
+
+        }
+
+        #endregion
+
+        #region AClientWithoutStrictKexIsTurnedAwayUntilTheFileSaysOtherwise()
+
+        /// <summary>
+        /// Strict KEX is required where the file says nothing: a client without
+        /// it is turned away before it signs in, one with it signs in. Saved as
+        /// "strictKex": false, the server starts anew and lets the old one in.
+        /// </summary>
+        [Test]
+        public async Task AClientWithoutStrictKexIsTurnedAwayUntilTheFileSaysOtherwise()
+        {
+
+            var (node, port) = await Started();
+            var key          = SshHostKey.GenerateEd25519();
+
+            Assert.That((await node.AuthorizeSSHKey("root", SshPublicKey.FromHostKey(key, "tester").ToAuthorizedKeyLine())).IsAdded, Is.True);
+
+            using var http   = Client(node);
+            var (_, before)  = await Send(http, HttpMethod.Get);
+
+            Assert.Multiple(() => {
+                Assert.That(node.SSHStrictKex,                           Is.True, "strict KEX is required where the file says nothing");
+                Assert.That(before.Value<Boolean>("strictKex"),          Is.True);
+                Assert.That(before["configured"]!["strictKex"],          Is.Null, "nothing was written into the file for it");
+            });
+
+            Assert.That(await AnOldClientIsTurnedAway(port), Is.True, "a client without strict KEX was let go on");
+
+            // One that requires strict KEX itself gets in only where both agreed on it.
+            await using (var client = await SshClient.ConnectAsync("127.0.0.1", port, new SshClientOptions {
+                                                                       Username          = "root",
+                                                                       VerifyHostKey     = blob => node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
+                                                                       Credentials       = [ key ],
+                                                                       RequireStrictKex  = true
+                                                                   }))
+                Assert.That(client.Closed.IsCompleted, Is.False, "a client with strict KEX signs in as before");
+
+            var (status, after) = await Send(http, HttpMethod.Put, new JObject { ["strictKex"] = false });
+
+            Assert.Multiple(() => {
+                Assert.That(status,                                      Is.EqualTo(HttpStatusCode.OK), after.ToString());
+                Assert.That(node.SSHStrictKex,                           Is.False);
+                Assert.That(Section(ConfigFile).Value<Boolean>("strictKex"), Is.False, "saved to the file");
+                Assert.That(node.SSHPort?.ToUInt16(),                    Is.EqualTo(port), "the server started anew where it was");
+            });
+
+            Assert.That(await AnOldClientIsTurnedAway(port), Is.False, "a client without strict KEX was turned away although the file lets it in");
 
         }
 

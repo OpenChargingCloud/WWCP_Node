@@ -272,6 +272,8 @@ export interface SSHConfiguration {
     enabled:        boolean;
     port:           number | null;
     passwords:      boolean;
+    /** Whether a client must signal strict KEX (Terrapin), or is turned away before it signs in. */
+    strictKex:      boolean;
     sftp:           boolean;
     /** Whether this kind serves SFTP where the file does not say: off, except where the program says so. */
     sftpByDefault:  boolean;
@@ -282,7 +284,7 @@ export interface SSHConfiguration {
     /** The configuration file it is saved to. */
     file:           string;
     /** What the file's "ssh" section says. */
-    configured:     { enabled?: boolean; port?: number; passwords?: boolean; sftp?: boolean; accessRules?: SSHAccessRule[];
+    configured:     { enabled?: boolean; port?: number; passwords?: boolean; strictKex?: boolean; sftp?: boolean; accessRules?: SSHAccessRule[];
                       maxConnections?: Record<string, number> };
     /** The SSH access rules in effect, the first that matches deciding. */
     accessRules:    SSHAccessRule[];
@@ -337,6 +339,7 @@ export interface SSHUpdate {
     enabled?:      boolean;
     port?:         number;
     passwords?:    boolean;
+    strictKex?:    boolean;
     sftp?:         boolean;
     /** The access rules, replacing those there are: objects, or lines as the command line writes them. */
     accessRules?:  (SSHAccessRule | string)[];

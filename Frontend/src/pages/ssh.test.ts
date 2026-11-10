@@ -25,6 +25,7 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         enabled:        true,
         port:           22347,
         passwords:      false,
+        strictKex:      true,
         sftp:           false,
         sftpByDefault:  false,
         listenAddress:  '127.0.0.1',
@@ -61,6 +62,7 @@ function node({ method, path, body }: Asked): unknown {
         // Rules sent as lines are the node's to read: a test that sends them says what the node made of them.
         const { accessRules: _rules, ...settings } = update;
         held = { ...held, enabled: update.enabled ?? held.enabled, port: update.port ?? held.port, passwords: update.passwords ?? held.passwords,
+                 strictKex: update.strictKex ?? held.strictKex,
                           sftp: update.sftp ?? held.sftp, configured: { ...held.configured, ...settings } };
         return held;
     }
@@ -100,6 +102,8 @@ describe('whether a change moves the SSH server', () => {
         assert.equal(movesTheServer(now, { enabled: true, passwords: false, port: 22400 }), true,  'another port');
         assert.equal(movesTheServer(now, { enabled: false, passwords: false }),             true,  'switched off');
         assert.equal(movesTheServer(now, { enabled: true, passwords: true }),               true,  'passwords');
+        assert.equal(movesTheServer(now, { enabled: true, passwords: false, strictKex: false }), true,  'strict KEX no longer required');
+        assert.equal(movesTheServer(now, { enabled: true, passwords: false, strictKex: true }),  false, 'strict KEX required, as it is');
         assert.equal(movesTheServer(aServer({ commandLine: { port: 22347 } }), { enabled: true, passwords: false, port: 22400 }), false,
                      'a port the command line keeps is not moved to');
         assert.equal(movesTheServer(aServer({ enabled: false, url: null, port: 22347 }), { enabled: false, passwords: true }), false,
@@ -182,6 +186,7 @@ describe('the SSH server page', () => {
         assert.equal(field(root, 'port').value, '22347');
         assert.equal(field(root, 'enabled').checked, true);
         assert.equal(field(root, 'passwords').checked, false);
+        assert.equal(field(root, 'strictKex').checked, true, 'strict KEX is required where the file says nothing');
         assert.equal(field(root, 'sftp').checked, false);
         assert.ok(root.querySelector('#sftp-served') === null, 'SFTP is said to be served where it is off');
         assert.ok(root.querySelector('#command-line-wins') === null, 'a switch is said to win where none said anything');
@@ -273,7 +278,7 @@ describe('the SSH server page', () => {
         submit(root);
         await until(() => /^Saved/.test(root.querySelector('#form-note')?.textContent ?? ''), 'the save did not go through');
 
-        assert.deepEqual(puts().map(one => one.body), [ { enabled: true, passwords: true, sftp: false, port: 22400 } ]);
+        assert.deepEqual(puts().map(one => one.body), [ { enabled: true, passwords: true, strictKex: true, sftp: false, port: 22400 } ]);
         assert.equal(root.querySelector('#form-note')!.textContent, 'Saved for the next start without that switch.', 'what the node said is not said');
         assert.equal(root.querySelector('#ssh-url')?.textContent, 'ssh://127.0.0.1:22400', 'the page shows what it sent, not what the node took');
         assert.equal(said.length, 0, 'nobody connected, and it asked all the same');
@@ -316,7 +321,7 @@ describe('the SSH server page', () => {
         submit(root);
         await until(() => puts().length === 1, 'the save did not go to the node');
 
-        assert.deepEqual(puts()[0]!.body, { enabled: true, passwords: false, sftp: false }, 'an emptied port was sent as something');
+        assert.deepEqual(puts()[0]!.body, { enabled: true, passwords: false, strictKex: true, sftp: false }, 'an emptied port was sent as something');
         assert.equal(said.length, 0, 'it asked although nothing moves');
 
     });
@@ -347,7 +352,7 @@ describe('the SSH server page', () => {
         submit(root);
         await until(() => puts().length === 1, 'told yes, it did not go to the node');
 
-        assert.deepEqual(puts()[0]!.body, { enabled: true, passwords: false, sftp: false, port: 22347 });
+        assert.deepEqual(puts()[0]!.body, { enabled: true, passwords: false, strictKex: true, sftp: false, port: 22347 });
 
         // Opened anew, with what was said and asked so far forgotten.
         const nobody   = await opened({ sftp: true, configured: { enabled: true, port: 22347, sftp: true }, sessions: [] });
@@ -401,6 +406,7 @@ describe('the SSH server page', () => {
         assert.equal(field(root, 'port').disabled,      true);
         assert.equal(field(root, 'enabled').disabled,   true);
         assert.equal(field(root, 'passwords').disabled, true);
+        assert.equal(field(root, 'strictKex').disabled, true);
         assert.ok(root.querySelector<HTMLButtonElement>('#ssh-form button[type="submit"]')!.disabled, 'the save is offered');
         assert.match(root.querySelector('.notice')!.textContent!, /look at the SSH server/);
 

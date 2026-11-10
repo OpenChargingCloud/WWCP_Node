@@ -57,15 +57,17 @@ export function when(Iso: string): string {
 
 /**
  * Whether a change of the settings moves the server - another port, switched
- * off or on, passwords told otherwise - which ends every session over SSH.
+ * off or on, passwords or strict KEX told otherwise - which ends every session
+ * over SSH.
  */
 export function movesTheServer(Now: SSHConfiguration, Update: SSHUpdate): boolean {
 
     const enabled   = Now.commandLine.enabled ?? Update.enabled   ?? Now.enabled;
     const port      = Now.commandLine.port    ?? Update.port      ?? Now.port;
     const passwords = Update.passwords ?? Now.passwords;
+    const strictKex = Update.strictKex ?? Now.strictKex;
 
-    return enabled !== Now.enabled || (enabled && (port !== Now.port || passwords !== Now.passwords));
+    return enabled !== Now.enabled || (enabled && (port !== Now.port || passwords !== Now.passwords || strictKex !== Now.strictKex));
 
 }
 
@@ -211,6 +213,15 @@ export const sshPage: Page = {
                             <input type="checkbox" name="passwords" ?checked=${ssh.configured.passwords ?? ssh.passwords} ?disabled=${!mayChange} />
                             Let an account's password open it as well as its keys
                             <span class="hint">Off, only a key an account was given signs in - which a password typed somewhere else cannot give away.</span>
+                        </label>
+
+                        <label class="checkbox">
+                            <input type="checkbox" name="strictKex" ?checked=${ssh.configured.strictKex ?? ssh.strictKex} ?disabled=${!mayChange} />
+                            Turn away a client without strict KEX
+                            <span class="hint">
+                                Strict KEX keeps Terrapin (CVE-2023-48795) from cutting messages off the start of a connection.
+                                OpenSSH has it since 9.6, PuTTY since 0.80; an older client is turned away before it signs in.
+                            </span>
                         </label>
 
                         <label class="checkbox">
@@ -557,6 +568,7 @@ export const sshPage: Page = {
             const update: SSHUpdate = {
                 enabled:    data.get('enabled')   !== null,
                 passwords:  data.get('passwords') !== null,
+                strictKex:  data.get('strictKex') !== null,
                 sftp:       data.get('sftp')      !== null,
                 // An emptied field is the port the file has, not none.
                 ...(typed.length > 0 ? { port: Number(typed) } : {})
