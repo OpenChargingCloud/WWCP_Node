@@ -31,6 +31,7 @@ using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
+using org.GraphDefined.Vanaheimr.Norn.Monitoring;
 using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
@@ -1015,6 +1016,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
         ///
         /// The clock of this node is not stepped by any of it, the same as
         /// "Sync now".
+        ///
+        /// <b>Stages.</b> Every step says which of the stages of the white paper
+        /// "Secure Time Synchronization", section 3.2.7, it belongs to - see
+        /// <see cref="TimeServerTestStages"/> - and a test that ends without a
+        /// time says in "failedAt" which one it ended at, so that a CSMS or a
+        /// diagnostic agent need not read it out of the sentences. Beside them
+        /// the offset and the round trip the answer gave, and the id of the
+        /// server where it is one of the group's: what OCPP's TestTimeServer
+        /// tells.
         /// </remarks>
         /// <param name="Host">
         /// Which time server: a name to ask in its own right, an address to ask
@@ -1042,9 +1052,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var clock  = Stopwatch.StartNew();
             var steps  = new JArray();
 
+            // Where the test has got to - one of the stages of the white paper
+            // "Secure Time Synchronization", section 3.2.7 - which every step
+            // is written down with, and which a test that ends without a time
+            // ended at. Set as the test gets there, and not worked out from the
+            // steps afterwards: a chain the machine does not trust is an error
+            // step at the server's authentication, and the test still goes on
+            // where the node trusts the root itself.
+            var stage      = TimeServerTestStages.Configuration;
+            Double? offset_ms     = null;
+            Double? roundTrip_ms  = null;
+            String? clientId      = null;
+
             void Step(String Level, String Text)
                 => steps.Add(new JObject(
                        new JProperty("at_ms",  clock.ElapsedMilliseconds),
+                       new JProperty("stage",  stage),
                        new JProperty("level",  Level),
                        new JProperty("text",   Text)
                    ));
@@ -1053,10 +1076,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 clock.Stop();
                 return new JObject(
-                           new JProperty("host",        Where),
-                           new JProperty("ok",          OK),
-                           new JProperty("runtime_ms",  clock.ElapsedMilliseconds),
-                           new JProperty("steps",       steps)
+                           new JProperty("host",          Where),
+                           new JProperty("id",            clientId),
+                           new JProperty("ok",            OK),
+                           new JProperty("failedAt",      OK ? null : stage),
+                           new JProperty("runtime_ms",    clock.ElapsedMilliseconds),
+                           new JProperty("offset_ms",     offset_ms),
+                           new JProperty("roundTrip_ms",  roundTrip_ms),
+                           new JProperty("steps",         steps)
                        );
             }
 
@@ -1124,6 +1151,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var ntsKEPort  = entry?.NTSKEPort ?? configured.NTSKE_Port;
             var ntpPort    = entry?.NTPPort   ?? configured.NTP_Port;
 
+            // Its id, which OCPP names it by: the instance of its
+            // NTPClientController. Only for a server of the group.
+            clientId       = entry is not null
+                                 ? ServerIdOf(Group, entry)
+                                 : null;
+
             Step("info", directedAt is null
                              ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
                                              "Asking {0}: key exchange on port {1}, time on port {2}, {3:0.#} second(s) allowed.",
@@ -1137,6 +1170,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             #endregion
 
             #region Does the name resolve
+
+            stage = TimeServerTestStages.NameResolution;
 
             if (!System.Net.IPAddress.TryParse(host.ToString().TrimEnd('.'), out _))
             {
@@ -1228,6 +1263,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // Over SSH, where the server's entry says so, as every round
                 // makes it: on a connection of its own, its host key judged, and
                 // with a client that never renews its cookies over TLS.
+                stage = TimeServerTestStages.Connection;
+
                 if (SSHOf(host) is NTSServerSSH overSSH)
                 {
 
@@ -1254,11 +1291,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                       ? await OCPPConnectionTo(host, CancellationToken)
                                       : own = await ConnectToTimeServerOverSSH(host, overSSH, CancellationToken);
 
+                        stage = TimeServerTestStages.ServerAuthentication;
+
                         if (overSSH.UseOCPPConnection)
                             Step("info", $"It shows the SSH host key {SshFingerprint.Sha256(ssh.ServerHostKey)}, which OCPP holds it to.");
 
                         else if (HostKeyJudgementOf(host) is TimeServerHostKeyJudgement shown && shown.At >= judgedFrom)
                             Step(shown.Matched ? "info" : "warning", $"It showed the SSH host key {shown.Shown}: {shown.Why}.");
+
+                        stage = TimeServerTestStages.KeyExchange;
 
                         keyExchange = await asking.GetNTSKERecordsOverSSH(ssh, CancellationToken: CancellationToken);
 
@@ -1266,8 +1307,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     catch (Exception e) when (!CancellationToken.IsCancellationRequested)
                     {
 
+                        // A host key that was refused is why there is no
+                        // connection, and the stage the test ended at.
                         if (HostKeyJudgementOf(host) is TimeServerHostKeyJudgement refused && refused.At >= judgedFrom && !refused.Accepted)
+                        {
+                            stage = TimeServerTestStages.ServerAuthentication;
                             Step("error", $"It showed the SSH host key {refused.Shown}, but {refused.Why}: refused.");
+                        }
 
                         Step("error", $"No SSH connection for the key exchange: {e.Message}");
                         Log.Warning($"NTS test: the key exchange over SSH with {name} failed: {e.Message}", "nts", "ntske", "ssh", "test");
@@ -1290,6 +1336,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (keyExchange.Response?.TimingInfo is NTSKE_TimingInfo timing)
                 {
 
+                    stage = TimeServerTestStages.Connection;
+
                     if (timing.ConnectedIPAddress is not null)
                         Step("info", $"Connected to {timing.ConnectedIPAddress}" +
                                      (timing.ResolvedIPAddresses.Any()
@@ -1308,6 +1356,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 // Before the verdict on the exchange, and whichever way it went:
                 // a certificate that was refused is the one to see most of all.
+                stage = TimeServerTestStages.ServerAuthentication;
+
                 if (keyExchange.TLSInfo is NTSKE_TLSInfo tlsInfo)
                     foreach (var (level, text) in TLSSteps(tlsInfo, TimeProvider.GetUtcNow()))
                         Step(level, text);
@@ -1326,10 +1376,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (!keyExchange.Success || keyExchange.Response is null)
                 {
+                    stage = TimeServerTestStages.Of(keyExchange.ErrorCategory);
                     Step("error", $"The key exchange failed ({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}");
                     Log.Warning($"NTS test: the key exchange with {name} failed: {keyExchange.ErrorMessage}", "nts", "ntske", "test");
                     return Done(where, false);
                 }
+
+                stage = TimeServerTestStages.KeyExchange;
 
                 var response = keyExchange.Response;
 
@@ -1357,6 +1410,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 #region The authenticated time request
 
+                stage = TimeServerTestStages.TimeRequest;
+
                 Step("info", "Authenticated NTP request ...");
 
                 var query = await asking.QueryTime(NTSKEResponse:      response,
@@ -1365,6 +1420,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (!query.Success || query.Response is null)
                 {
+                    stage = TimeServerTestStages.Of(query.ErrorCategory);
                     Step("error", $"The NTP request to {query.RemoteDescription} failed " +
                                   $"({query.ErrorCategory}): {query.ErrorMessage}");
                     Log.Warning($"NTS test: the NTP request to {name} failed: {query.ErrorMessage}", "nts", "ntp", "test");
@@ -1377,10 +1433,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              (query.NewCookieReceived ? ", and a fresh one came back" : "") + ".");
 
                 if (query.StopwatchRoundTripTime is TimeSpan roundTrip)
+                {
+                    roundTrip_ms = roundTrip.TotalMilliseconds;
                     Step("info", String.Format(System.Globalization.CultureInfo.InvariantCulture,
                                                "Round trip {0:0.0} ms.", roundTrip.TotalMilliseconds));
+                }
 
                 var offset = query.Response.ClockOffset;
+
+                offset_ms = offset?.TotalMilliseconds;
 
                 // Invariant, so that a decimal point stays a point: these
                 // sentences are English, and a node in a German locale
@@ -1527,6 +1588,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var servers = new JArray(
                                   verdict.Results.Select(result => new JObject(
                                       new JProperty("hostname",       result.ServerHostname.ToString()),
+                                      new JProperty("id",             ServerIdOf(Group, result.ServerHostname)),
                                       new JProperty("ok",             TimeSyncVerdict.CanBeTrusted(result)),
                                       new JProperty("offset_ms",      result.NTP?.Offset.TotalMilliseconds),
                                       new JProperty("roundTrip_ms",   result.NTP?.RoundTripDelay.TotalMilliseconds),
@@ -1674,6 +1736,50 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+
+        #region (static) ServerIdOf(Group, Server)
+
+        /// <summary>
+        /// The id of a server of a group - what OCPP names it by, the instance
+        /// of its NTPClientController - or null where it is none of the group's.
+        /// </summary>
+        /// <param name="Group">The group.</param>
+        /// <param name="Server">One of its servers.</param>
+        public static String? ServerIdOf(NTSGroup           Group,
+                                         NTSServerEndpoint  Server)
+        {
+
+            var index = 0;
+
+            foreach (var source in Group.Sources.Sources)
+            {
+
+                if (ReferenceEquals(source, Server))
+                    return index < Group.ServerIds.Count ? Group.ServerIds[index] : null;
+
+                index++;
+
+            }
+
+            return null;
+
+        }
+
+        /// <summary>
+        /// The id of the first server of a group with the given host name, or
+        /// null where the group has none: the host name is what a round's
+        /// measurement says which server it was.
+        /// </summary>
+        /// <param name="Group">The group.</param>
+        /// <param name="Hostname">The host name of one of its servers.</param>
+        public static String? ServerIdOf(NTSGroup    Group,
+                                         DomainName  Hostname)
+
+            => Group.Sources.Sources.FirstOrDefault(source => source.Hostname.Equals(Hostname)) is NTSServerEndpoint server
+                   ? ServerIdOf(Group, server)
+                   : null;
+
+        #endregion
 
         #region (static) AnsweredLine(GroupName, Milliseconds, Verdict)
 
