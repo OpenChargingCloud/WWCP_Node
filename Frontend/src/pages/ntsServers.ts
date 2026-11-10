@@ -1,4 +1,4 @@
-import type { NTSServerEntry, NTSTimeSource } from '../api/client';
+import type { NTSServerEntry, NTSServerSSH, NTSTimeSource } from '../api/client';
 import { draftOf, withAsShown, withPins } from './pins';
 
 /**
@@ -96,6 +96,36 @@ export function refreshText(entry: Refresh, defaults: RefreshDefaults): string {
 
 
 /**
+ * Where a key exchange over SSH goes, as a URL says it:
+ * "ssh://ntske@time.lan:22".
+ */
+export function sshText(ssh: NTSServerSSH, hostname: string): string {
+    return `ssh://${ssh.user ?? 'ntske'}@${readable(hostname)}:${ssh.port ?? 22}`;
+}
+
+
+/**
+ * What a server reached over SSH is held to, as a sentence says it: its host
+ * keys and its CAs, and what a host key that is none of them comes to.
+ */
+export function sshHeldToText(ssh: NTSServerSSH): string {
+
+    const pins = ssh.hostKeyPins ?? [];
+    const cas  = (ssh.hostCAs ?? []).map(ca => `the CA ${ca}`);
+
+    if (pins.length === 0 && cas.length === 0)
+        return 'held to no host key: refused until it is';
+
+    const mismatch = ssh.onMismatch === 'record' ? ', another one used and recorded'
+                   : ssh.onMismatch === 'accept' ? ', another one used'
+                   :                                '';
+
+    return `held to ${[ ...pins, ...cas ].join(', ')}${mismatch}`;
+
+}
+
+
+/**
  * Whether two names are the same server's: compared without the root's dot,
  * and without case.
  */
@@ -129,6 +159,10 @@ function sameName(one: string, other: string): boolean {
  * next save of any server would make it offer every one again. And when its
  * key exchange is made again, where its entry sets that, by the same rule,
  * and how its offsets are corrected.
+ *
+ * And its key exchange over SSH, with the host key it is held to: left out,
+ * the next save of any server would have it make its key exchange over TLS,
+ * at a port nobody listens on.
  */
 export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntry {
 
@@ -146,6 +180,7 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
     if (source.delayVarAsymmetry != null)  entry.delayVarAsymmetry = source.delayVarAsymmetry;
     if (source.ntsKEHostname)              entry.ntsKEHostname     = readable(source.ntsKEHostname);
     if (source.signedResponses)            entry.signedResponses   = true;
+    if (source.ssh)                        entry.ssh               = { ...source.ssh };
 
     return withPins(entry, draftOf(source.heldTo));
 

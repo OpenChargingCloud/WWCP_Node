@@ -882,6 +882,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             PutCorrections();
             PutKeyExchangeHosts();
             PutSignedResponses();
+            PutSSH();
 
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
@@ -2369,6 +2370,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           new JProperty("ntsKEHostname",  Group.Settings?.Servers?.ElementAtOrDefault(index)?.NTSKEHostname?.ToString()),
                                           // Whether its own entry asks for signed responses.
                                           new JProperty("signedResponses", Group.Settings?.Servers?.ElementAtOrDefault(index)?.SignedResponses ?? false),
+                                          // How its own entry has its key exchange go
+                                          // over SSH, or null for TLS; and the host key
+                                          // the server showed last, and what it came to.
+                                          new JProperty("ssh",            Group.Settings?.Servers?.ElementAtOrDefault(index)?.SSH?.ToJSON()),
+                                          new JProperty("sshHostKey",     HostKeyJudgementOf(source.Hostname)?.Shown ?? held?.SSHHostKey),
+                                          new JProperty("hostKeyJudgement", HostKeyJudgementOf(source.Hostname)?.ToJSON()),
                                           new JProperty("cookies",        held?.RemainingCookies),
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
                                           new JProperty("nextExchange",   held?.RefreshAt?.ToString("o")),
@@ -2919,6 +2926,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasRefreshes      = Refreshes();
             var wasCorrections    = Corrections();
             var wasKeyExchanges   = KeyExchangeHosts();
+            var wasOverSSH        = TimeServersOverSSH();
             var wasSigned         = SignedResponseServers();
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
@@ -3032,6 +3040,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // WWCPNode.TimeServerKeyExchange.cs.
             changed.AddRange(KeyExchangeHostChanges(wasKeyExchanges));
 
+            // And whether its key exchange goes over SSH, and how - see
+            // WWCPNode.TimeServerSSH.cs.
+            changed.AddRange(SSHChanges(wasOverSSH));
+
             // And whether its responses are to be signed - see
             // WWCPNode.TimeServerSignedResponses.cs.
             changed.AddRange(SignedResponseChanges(wasSigned));
@@ -3099,6 +3111,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             PutCorrections();
             PutKeyExchangeHosts();
             PutSignedResponses();
+            PutSSH();
 
             if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)
             {

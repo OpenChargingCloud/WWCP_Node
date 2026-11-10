@@ -15,7 +15,7 @@ import { describe, it }      from 'node:test';
 import type { NTSTimeSource, ServerPins } from '../api/client';
 
 
-const { correctionText, entryOf, nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer } = await import('./ntsServers.ts');
+const { correctionText, entryOf, nameTaken, readable, refreshSet, refreshText, sentOf, sshHeldToText, sshText, withServer, withoutServer } = await import('./ntsServers.ts');
 
 
 const usual = { ntsKE: 4460, ntp: 123 };
@@ -103,6 +103,39 @@ describe('a time server asked for signed responses', () => {
 
         assert.deepEqual(entryOf(shown('a.example.', { signedResponses: true  }), usual), { hostname: 'a.example', signedResponses: true });
         assert.deepEqual(entryOf(shown('a.example.', { signedResponses: false }), usual), { hostname: 'a.example' });
+
+    });
+
+});
+
+
+describe('a time server whose key exchange goes over SSH', () => {
+
+    const ssh = { port: 2222, user: 'station', hostKeyPins: [ 'SHA256:' + 'A'.repeat(43) ], onMismatch: 'record' as const };
+
+    it('is kept with its entry, or the next save has it make its key exchange over TLS', () => {
+
+        assert.deepEqual(entryOf(shown('time.lan.', { ssh }), usual), { hostname: 'time.lan', ssh });
+        assert.deepEqual(entryOf(shown('time.lan.', { ssh: null }), usual), { hostname: 'time.lan' });
+
+    });
+
+    it('stays with a server when another one is saved', () => {
+
+        const list = [ entryOf(shown('time.lan.', { ssh }), usual), entryOf(shown('b.example.'), usual) ];
+
+        assert.deepEqual(withServer(list, 1, { hostname: 'b.example', priority: 2 })[0], { hostname: 'time.lan', ssh });
+
+    });
+
+    it('says where it goes and what it is held to', () => {
+
+        assert.equal(sshText(ssh, 'time.lan.'),          'ssh://station@time.lan:2222');
+        assert.equal(sshText({}, 'time.lan'),            'ssh://ntske@time.lan:22');
+
+        assert.equal(sshHeldToText(ssh),                 `held to SHA256:${'A'.repeat(43)}, another one used and recorded`);
+        assert.equal(sshHeldToText({ hostCAs: [ 'SHA256:ca' ] }), 'held to the CA SHA256:ca');
+        assert.equal(sshHeldToText({}),                  'held to no host key: refused until it is');
 
     });
 

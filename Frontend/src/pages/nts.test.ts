@@ -354,6 +354,47 @@ describe('the NTS page', () => {
 
     });
 
+    it('shows a server whose key exchange goes over SSH by its host key, and keeps how when it or another one is saved', async () => {
+
+        const ssh  = { port: 2222, hostKeyPins: [ 'SHA256:' + 'A'.repeat(43) ] };
+        const root = await opened({}, configuration => {
+            configuration.timeSources![1]!.ssh              = ssh;
+            configuration.timeSources![1]!.sshHostKey       = 'SHA256:' + 'B'.repeat(43);
+            configuration.timeSources![1]!.hostKeyJudgement = { at: '2026-11-10T12:00:00Z', hostKey: 'SHA256:' + 'B'.repeat(43), matched: false, accepted: false,
+                                                                why: `its host key SHA256:${'B'.repeat(43)} is none it is held to` };
+        });
+
+        const text = root.textContent!.replace(/\s+/g, ' ');
+
+        assert.match(text, /key exchange over SSH: ssh:\/\/ntske@ptbtime2\.ptb\.de:2222/);
+        assert.match(text, /SSH host key SHA256:B{43}/);
+        assert.match(text, /held to SHA256:A{43}/);
+        assert.match(root.querySelector('.host-key-verdict')!.textContent!, /is none it is held to: refused/);
+
+        // Saving the other server sends this one back with its key exchange over SSH ...
+        root.querySelector<HTMLButtonElement>('[data-edit="0"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+        document.querySelector('dialog')!.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        assert.deepEqual(told.find(update => update.servers !== undefined)!.servers![1]!.ssh, ssh, 'the save would have it make its key exchange over TLS');
+        document.querySelector('dialog')?.remove();
+        told.length = 0;
+
+        // ... and so does saving it itself, from a dialog that says so.
+        root.querySelector<HTMLButtonElement>('[data-edit="1"]')!.click();
+        await until(() => document.querySelector('dialog #server-form') !== null, 'the server\'s dialog did not open');
+
+        assert.match(document.querySelector('dialog #server-over-ssh')!.textContent!.replace(/\s+/g, ' '), /goes over SSH, ssh:\/\/ntske@ptbtime2\.ptb\.de:2222/);
+
+        document.querySelector('dialog')!.querySelector<HTMLFormElement>('#server-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+        await until(() => told.some(update => update.servers !== undefined), 'the server was not saved');
+
+        assert.deepEqual(told.find(update => update.servers !== undefined)!.servers![1]!.ssh, ssh, 'its own dialog would have it make its key exchange over TLS');
+        document.querySelector('dialog')?.remove();
+
+    });
+
     it('names a server\'s key exchange server, and keeps every other server\'s', async () => {
 
         const root = await opened({}, configuration => {

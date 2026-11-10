@@ -51,6 +51,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="DelayVarAsymmetry">Where a hold-up of its delays is, from -0.5 (on the way there) to +0.5 (on the way back), or null for half each.</param>
     /// <param name="NTSKEHostname">The key exchange server its keys and cookies come from, where it is another than the server itself, or null.</param>
     /// <param name="SignedResponses">Whether it is asked for a digitally signed response after every measurement, which goes into the metrological log.</param>
+    /// <param name="SSH">How its key exchange goes over SSH instead of TLS, or null for NTS-KE over TLS - see <see cref="NTSServerSSH"/>.</param>
     public sealed record NTSServerConfiguration(DomainName       Hostname,
                                                 Byte             Priority           = 0,
                                                 IPPort?          NTSKEPort          = null,
@@ -64,7 +65,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                                 TimeSpan?        DelayAsymmetry     = null,
                                                 Double?          DelayVarAsymmetry  = null,
                                                 DomainName?      NTSKEHostname      = null,
-                                                Boolean          SignedResponses    = false)
+                                                Boolean          SignedResponses    = false,
+                                                NTSServerSSH?    SSH                = null)
     {
 
         #region Data
@@ -166,6 +168,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// </summary>
         public PinMismatch  OnMismatch
             => Pins?.OnMismatch ?? PinMismatch.Refuse;
+
+        /// <summary>
+        /// Whether its key exchange goes over SSH: NTSv4SSH in the OCPP Device
+        /// Model, NTSv4 otherwise.
+        /// </summary>
+        public Boolean      IsOverSSH
+            => SSH is not null;
 
         #endregion
 
@@ -530,6 +539,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!ServerPins.TryParse(json, $"{Section}.servers[{Index}]", out var pins, out Error))
                 return false;
 
+            // Its key exchange over SSH instead of TLS, where its entry says so:
+            // then nothing of TLS applies to it - no port of NTS-KE over TLS, no
+            // other key exchange server, no certificate to be held to.
+            NTSServerSSH? ssh = null;
+
+            if (json.TryGetValue("ssh", out var sshToken) && sshToken.Type != JTokenType.Null)
+            {
+
+                if (!NTSServerSSH.TryParse(sshToken, $"{Section}.servers[{Index}].ssh", out ssh, out Error))
+                    return false;
+
+                var ofTLS = new List<String>();
+
+                if (ntsKEPort.HasValue)                  ofTLS.Add("ntsKEPort");
+                if (keyExchange is not null)             ofTLS.Add("ntsKEHostname");
+                if (pins?.SaysAnything == true)          ofTLS.Add("what its certificate is held to");
+
+                if (ofTLS.Count > 0)
+                {
+                    Error = $"'{Section}.servers[{Index}]': its key exchange goes over SSH, so {String.Join(" and ", ofTLS)} of NTS-KE over TLS do not apply to it.";
+                    return false;
+                }
+
+            }
+
             if (hostname is null)
             {
                 Error = $"{where} names no host!";
@@ -559,7 +593,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 // The server itself named as its key exchange server is
                                 // no other one.
                                 keyExchange is not null && !keyExchange.Equals(domainName) ? keyExchange : null,
-                                signedResponses ?? false
+                                signedResponses ?? false,
+                                ssh
                             );
 
             return true;
@@ -580,7 +615,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && NTSKEHostname is null && !SignedResponses && Pins?.SaysAnything != true)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && NTSKEHostname is null && !SignedResponses && Pins?.SaysAnything != true && SSH is null)
                 return Hostname.ToString();
 
             var json = new JObject();
@@ -602,6 +637,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (SignedResponses)            json.Add("signedResponses",   true);
 
             Pins?.WriteInto(json);
+
+            if (SSH is not null)            json.Add("ssh",               SSH.ToJSON());
 
             return json;
 

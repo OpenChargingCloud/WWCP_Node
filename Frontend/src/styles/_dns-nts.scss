@@ -153,6 +153,7 @@
 
     .answer.ok  { color: $color-ok;    }
     .answer.bad { color: $color-error; }
+    .answer.warn { color: #92400e; }
 
     .actions {
         display:  flex;

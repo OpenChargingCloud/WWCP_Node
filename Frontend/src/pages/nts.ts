@@ -9,7 +9,7 @@ import { rememberTab, tabFromURL, tabsView, type Tab } from '../tabs';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { html, keyed, live, nothing, render, repeat, type TemplateResult } from '../view';
 import { displayNameOf, firstLanguage, isGroupId, labelOf, NewGroupTab, type DisplayNameRow } from './ntsGroups';
-import { correctionText, nameTaken, readable, refreshSet, refreshText, sentOf, withServer, withoutServer, type UsualPorts } from './ntsServers';
+import { correctionText, nameTaken, readable, refreshSet, refreshText, sentOf, sshHeldToText, sshText, withServer, withoutServer, type UsualPorts } from './ntsServers';
 import { asShown, draftOf, withPins, type StoreOffers } from './pins';
 import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers } from './pinViews';
 
@@ -816,9 +816,11 @@ export const ntsPage: Page = {
                             synced:  boolean): TemplateResult {
 
             const usual  = usualPorts();
-            const ports  = source.ntsKEPort !== usual.ntsKE || source.ntpPort !== usual.ntp
-                               ? `, ports ${source.ntsKEPort} and ${source.ntpPort}`
-                               : '';
+            const ports  = source.ssh
+                               ? source.ntpPort !== usual.ntp ? `, NTP port ${source.ntpPort}` : ''
+                               : source.ntsKEPort !== usual.ntsKE || source.ntpPort !== usual.ntp
+                                     ? `, ports ${source.ntsKEPort} and ${source.ntpPort}`
+                                     : '';
 
             return html`
                 <div class="time-server-row ${source.enabled ? '' : 'off'}">
@@ -826,7 +828,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.ntsKEHostname ? `, keys from ${readable(source.ntsKEHostname)}` : ''}${source.signedResponses ? ', signed responses' : ''}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.ntsKEHostname ? `, keys from ${readable(source.ntsKEHostname)}` : ''}${source.signedResponses ? ', signed responses' : ''}${source.ssh ? html`, key exchange over SSH: <code class="ssh-url">${sshText(source.ssh, source.hostname)}</code>` : nothing}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 
@@ -848,7 +850,7 @@ export const ntsPage: Page = {
                     </div>
 
                     <div class="root-ca">
-                        ${source.rootCA
+                        ${source.ssh ? hostKeyView(source) : source.rootCA
                               ? html`
                                     <span class="ca-name" title="${source.rootCA.subject}">
                                         <span class="muted small">Root CA</span> ${source.rootCA.name}
@@ -856,12 +858,13 @@ export const ntsPage: Page = {
                                     <span class="fingerprint" title="SHA-256 fingerprint of the root CA">${fingerprintView(source.rootCA.fingerprint)}</span>
                                 `
                               : html`<span class="muted small">Root CA: no key exchange yet</span>`}
+                        ${source.ssh ? nothing : html`
                         <span class="server-certificate small">
                             ${heldToView(draftOf(source.heldTo), offers?.nameOf)}
                             ${source.judgement || source.known && !source.rootCA
                                   ? certificateVerdictView(source.judgement, source.known)
                                   : nothing}
-                        </span>
+                        </span>`}
                     </div>
 
                     <div class="actions">
@@ -877,6 +880,31 @@ export const ntsPage: Page = {
                     </div>
 
                 </div>
+            `;
+
+        }
+
+
+        /**
+         * What a server whose key exchange goes over SSH is held to, the host
+         * key it showed last, and what that came to: there is no certificate
+         * and no root CA.
+         */
+        function hostKeyView(source: NTSTimeSource): TemplateResult {
+
+            const judgement = source.hostKeyJudgement;
+
+            return html`
+                <span class="host-key">
+                    <span class="muted small">SSH host key</span>
+                    ${source.sshHostKey
+                          ? html`<span class="fingerprint" title="SHA-256 fingerprint of the host key it showed last">${source.sshHostKey}</span>`
+                          : html`<span class="muted small">none shown yet</span>`}
+                </span>
+                <span class="server-certificate small">${sshHeldToText(source.ssh!)}</span>
+                ${judgement && !judgement.matched
+                      ? html`<span class="answer ${judgement.accepted ? 'warn' : 'bad'} small host-key-verdict">${judgement.why}: ${judgement.accepted ? 'used' : 'refused'}</span>`
+                      : nothing}
             `;
 
         }
@@ -1069,6 +1097,11 @@ export const ntsPage: Page = {
                 if (shown !== null)
                     entry.pinsAsShown = asShown(shown.heldTo);
 
+                // And its key exchange over SSH, which the dialog does not
+                // change: left out, it would go over TLS from then on.
+                if (shown?.ssh)
+                    entry.ssh = { ...shown.ssh };
+
                 void tell(withServer(list, index, withPins(entry, pins.draft)));
 
             }
@@ -1093,6 +1126,14 @@ export const ntsPage: Page = {
                 ${shown?.id
                       ? html`<p class="muted small" id="server-id">
                                  Its id is <code>${shown.id}</code>, which a CSMS knows it by, whatever its host name becomes.
+                             </p>`
+                      : nothing}
+
+                ${shown?.ssh
+                      ? html`<p class="notice small" id="server-over-ssh">
+                                 Its key exchange goes over SSH, <code>${sshText(shown.ssh, shown.hostname)}</code>,
+                                 ${sshHeldToText(shown.ssh)}. That is kept as it is: the configuration file and a CSMS
+                                 change it. The NTS-KE server and port and what a certificate is held to do not apply.
                              </p>`
                       : nothing}
 

@@ -778,11 +778,46 @@ export interface NTSServerEntry extends PinKeys {
     /** Whether it is asked for a signed response after every measurement, which goes into the metrological log. */
     signedResponses?:   boolean;
     /**
+     * Its key exchange over SSH instead of TLS - NTSv4SSH of the OCPP Device
+     * Model - and the host key it is held to. Left out, over TLS.
+     */
+    ssh?:               NTSServerSSH;
+    /**
      * What the page showed the server held to, in the keys above: the node
      * changes only what was changed on the page, and keeps what the server
      * learned while the page was open. Only on a server the page loaded.
      */
     pinsAsShown?:   PinKeys;
+}
+
+/**
+ * How a time server's key exchange goes over SSH: the subsystem
+ * "ntske/1@open.charging.cloud" on its SSH port, signed in under a user name
+ * with the node's own key, the server held to its host key.
+ */
+export interface NTSServerSSH {
+    /** Its SSH port; left out, 22. */
+    port?:         number;
+    /** The user name signed in under; left out, "ntske". */
+    user?:         string;
+    /** The SHA-256 fingerprints of the host keys it may show, "SHA256:..." as ssh-keygen -l writes them. */
+    hostKeyPins?:  string[];
+    /** The SHA-256 fingerprints of the SSH CA keys that may sign its host certificate. */
+    hostCAs?:      string[];
+    /** What a host key that is none of them comes to; left out, "refuse". */
+    onMismatch?:   'refuse' | 'record' | 'accept';
+}
+
+/** What the host key a time server showed over SSH came to. */
+export interface NTSHostKeyJudgement {
+    at:        string;
+    /** The SHA-256 fingerprint of the key it showed. */
+    hostKey:   string;
+    /** Whether it is pinned, or certified by one of its CAs. */
+    matched:   boolean;
+    /** Whether the connection went on. */
+    accepted:  boolean;
+    why:       string;
 }
 
 /** How one synchronisation of the group went. */
@@ -851,6 +886,12 @@ export interface NTSTimeSource {
     ntsKEHostname?:     string | null;
     /** Whether its own entry asks for signed responses. */
     signedResponses?:   boolean;
+    /** How its own entry has its key exchange go over SSH, or null where it goes over TLS: what the page sends back with it. */
+    ssh?:               NTSServerSSH | null;
+    /** The SHA-256 fingerprint of the SSH host key it showed last. */
+    sshHostKey?:        string | null;
+    /** What that host key came to. */
+    hostKeyJudgement?:  NTSHostKeyJudgement | null;
     cookies?:       number | null;
     lastExchange?:  string | null;
     /** When its next key exchange is due. */

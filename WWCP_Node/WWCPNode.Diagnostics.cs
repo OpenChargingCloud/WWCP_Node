@@ -31,6 +31,7 @@ using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
 
@@ -883,10 +884,56 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 #region The key exchange
 
-                Step("info", "Key exchange over TLS ...");
-
                 var judgedFrom  = TimeProvider.GetUtcNow();
-                var keyExchange = await asking.GetNTSKERecords(CancellationToken: CancellationToken);
+                NTSKEResult keyExchange;
+
+                // Over SSH, where the server's entry says so, as every round
+                // makes it: on a connection of its own, its host key judged, and
+                // with a client that never renews its cookies over TLS.
+                if (SSHOf(host) is NTSServerSSH overSSH)
+                {
+
+                    Step("info", $"Key exchange over SSH, {overSSH.TextFor(host.Trimmed)} ...");
+
+                    asking = new NTSClient(
+                                 host,
+                                 NTP_Port:               ntpPort,
+                                 Timeout:                configured.Timeout,
+                                 DNSClient:              dnsClient,
+                                 OfferedAEADAlgorithms:  offer,
+                                 TimeProvider:           TimeProvider,
+                                 CookiePoolPolicy:       new NTSCookiePoolPolicy { RenegotiateWhenExhausted = false }
+                             );
+
+                    try
+                    {
+
+                        await using var ssh = await ConnectToTimeServerOverSSH(host, overSSH, CancellationToken);
+
+                        if (HostKeyJudgementOf(host) is TimeServerHostKeyJudgement shown && shown.At >= judgedFrom)
+                            Step(shown.Matched ? "info" : "warning", $"It showed the SSH host key {shown.Shown}: {shown.Why}.");
+
+                        keyExchange = await asking.GetNTSKERecordsOverSSH(ssh, CancellationToken: CancellationToken);
+
+                    }
+                    catch (Exception e) when (!CancellationToken.IsCancellationRequested)
+                    {
+
+                        if (HostKeyJudgementOf(host) is TimeServerHostKeyJudgement refused && refused.At >= judgedFrom && !refused.Accepted)
+                            Step("error", $"It showed the SSH host key {refused.Shown}, but {refused.Why}: refused.");
+
+                        Step("error", $"No SSH connection for the key exchange: {e.Message}");
+                        Log.Warning($"NTS test: the key exchange over SSH with {name} failed: {e.Message}", "nts", "ntske", "ssh", "test");
+                        return Done(where, false);
+
+                    }
+
+                }
+                else
+                {
+                    Step("info", "Key exchange over TLS ...");
+                    keyExchange = await asking.GetNTSKERecords(CancellationToken: CancellationToken);
+                }
 
                 if (keyExchange.Response?.TimingInfo is NTSKE_TimingInfo timing)
                 {

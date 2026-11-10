@@ -455,6 +455,36 @@ the key's is a critical security entry. A server is asked where any entry for
 it asks; a change lets go of the key exchange. Each server's answer in a sync
 says `signed`.
 
+`"ssh": { … }` has the server's key exchange go over SSH instead of TLS - the
+subsystem `ntske/1@open.charging.cloud` of the white paper "NTS Key
+Establishment over SSH", NTSv4SSH of the OCPP Device Model - for a time server
+on a network without a PKI of its own:
+
+```json
+{ "hostname": "time.lan", "ssh": { "port": 22, "user": "ntske", "hostKeyPins": [ "SHA256:…" ] } }
+```
+
+The node signs in under `user` (left out, `ntske`) on `port` (left out, 22)
+with a key of its own: `ssh/ntske_client_ed25519_key` beside its SSH host key,
+made the first time it's needed and kept, never the host key itself. Whoever
+runs the time server enters its public half into the `authorized_keys` there,
+or has it signed by an SSH CA; a CSMS reads it as SSHClientPublicKey. There is
+no certificate, so the server is believed by its host key alone:
+`hostKeyPins` are SHA-256 fingerprints of the keys it may show, as
+`ssh-keygen -l` writes them - of the key itself, not of a certificate - and
+`hostCAs` those of SSH CAs whose host certificate for its name it may show.
+A server held to none of them is believed by nobody. A host key that is none
+of them is refused, unless `onMismatch` there says `record` or `accept`, as
+for a certificate; on first use nothing is learned. Nothing of TLS applies:
+`ntsKEPort`, `ntsKEHostname` and what a certificate is held to are refused
+beside `ssh`. The key exchange offers the exporter of the connection (option
+A) before a transported secret (option B), and its cookies are never renewed
+over TLS - the next key exchange over SSH renews them. By the server's name
+across every group, as everything else; a change lets go of the key exchange.
+Each server in the answer shows what its own entry sets as `ssh`, the host key
+it showed last as `sshHostKey`, and what that came to as `hostKeyJudgement`.
+The test of a server makes its key exchange over SSH as well.
+
 A server may be held to more than every server is held to - certificates
 it may show, roots its chain may end at, each by its SHA-256 fingerprint,
 written the way a certificate authority, a browser or openssl writes one:
