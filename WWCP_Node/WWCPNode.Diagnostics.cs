@@ -25,6 +25,8 @@ using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
@@ -140,6 +142,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// list - or null for all of them, the way this node resolves
         /// anything else.
         /// </param>
+        /// <remarks>
+        /// What comes back is one answer for the web interface, the command
+        /// line and OCPP's QueryDNS alike, so that the three cannot disagree
+        /// about what a name server said. Where nothing was asked at all, it
+        /// says why in "refused", in one of the reason codes of QueryDNS -
+        /// see <see cref="DNSQueryRefusals"/>: a question that was put and
+        /// came back with nothing is a different thing from one that never
+        /// left, and only OCPP's Rejected may stand for the second.
+        /// </remarks>
         public async Task<JObject> ResolveAsync(String                                Name,
                                                 IEnumerable<DNSResourceRecordTypes>?  RecordTypes         = null,
                                                 Int32?                                Server              = null,
@@ -159,10 +170,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var asked        = String.Join(", ", recordTypes);
 
+            // Read once: a change of the name servers while this runs must not
+            // make the place asked for point at another server than its id.
+            var servers      = configuredDNSServers;
+            var ids          = DNSConfiguration.IdsOf(servers.Select((_, index) => dnsServerIdsGiven.ElementAtOrDefault(index)));
+
+            String? serverId = null;
+
             if (!DNSEnabled)
             {
                 Log.Warning($"DNS test for '{name}' was not run: name resolution is switched off.", "dns", "test");
-                return Failed(name, asked, $"Name resolution is switched off on this {Kind.Name}.");
+                return Failed(name, $"Name resolution is switched off on this {Kind.Name}.", DNSQueryRefusals.Disabled);
             }
 
             #region One server, or all of them
@@ -172,15 +190,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Server is Int32 which)
             {
 
-                if (which < 0 || which >= configuredDNSServers.Count)
-                    return Failed(name, asked, $"This {Kind.Name} has no name server number {which + 1}.");
+                if (which < 0 || which >= servers.Count)
+                    return Failed(name, $"This {Kind.Name} has no name server number {which + 1}.", DNSQueryRefusals.UnknownServer);
 
-                only = configuredDNSServers[which];
+                only      = servers[which];
+                serverId  = ids[which];
 
                 if (only.IPAddress is null)
-                    return Failed(name, asked,
+                    return Failed(name,
                                   $"'{only}' is configured by name rather than by address, so it cannot be asked on its own " +
-                                   "without first resolving it - which is the thing being tested.");
+                                   "without first resolving it - which is the thing being tested.",
+                                  DNSQueryRefusals.ServerByName);
 
             }
 
@@ -189,7 +209,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!DNSServiceName.TryParse(name, out var serviceName, out var problem))
             {
                 Log.Warning($"DNS test: \"{name}\" is not a name that can be looked up: {problem}", "dns", "test");
-                return Failed(name, asked, $"\"{name}\" is not a name that can be looked up: {problem}");
+                return Failed(name, $"\"{name}\" is not a name that can be looked up: {problem}", DNSQueryRefusals.InvalidName);
             }
 
             Log.Info(
@@ -244,7 +264,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var records  = answer.Answers.Take(MaxQueryAnswers).ToArray();
 
                 Log.Notice(
-                    $"DNS test: '{serviceName}' {asked} -> {answer.ResponseCode} from {answer.Origin}, " +
+                    $"DNS test: '{serviceName}' {asked} -> {RCodeName(answer.ResponseCode)} from {answer.Origin}, " +
                     $"{answer.Answers.Count()} answer(s) in {stopwatch.ElapsedMilliseconds} ms" +
                     (records.Length > 0
                          ? $": {String.Join("; ", records.Select(record => record.ToString()))}"
@@ -254,14 +274,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 return new JObject(
 
-                           new JProperty("name",          serviceName.ToString()),
-                           new JProperty("asked",         only?.ToString()),
-                           new JProperty("turnedAround",  saying),
-                           new JProperty("recordTypes",   new JArray(recordTypes.Select(recordType => recordType.ToString()))),
-                           new JProperty("ok",            answer.ResponseCode == DNSResponseCodes.NoError),
-                           new JProperty("responseCode",  answer.ResponseCode.ToString()),
-                           new JProperty("server",        answer.Origin.ToString()),
-                           new JProperty("runtime_ms",    stopwatch.ElapsedMilliseconds),
+                           new JProperty("name",             serviceName.ToString()),
+                           new JProperty("asked",            only?.ToString()),
+                           new JProperty("serverId",         serverId),
+                           new JProperty("turnedAround",     saying),
+                           new JProperty("reverseLookupOf",  turnedAround ? typed : null),
+                           new JProperty("recordTypes",      new JArray(recordTypes.Select(RecordTypeName))),
+                           new JProperty("ok",               answer.ResponseCode == DNSResponseCodes.NoError),
+                           new JProperty("responseCode",     RCodeName(answer.ResponseCode)),
+                           new JProperty("server",           answer.Origin.ToString()),
+                           new JProperty("answeredBy",       AddressOf(answer.Origin)),
+                           new JProperty("runtime_ms",       stopwatch.ElapsedMilliseconds),
                            new JProperty("authoritative", answer.AuthoritativeAnswer),
                            new JProperty("truncated",     answer.IsTruncated),
                            new JProperty("dnssec",        answer.DNSSECStatus?.ToString()),
@@ -270,9 +293,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("answers",       new JArray(
                                records.Select(record => new JObject(
                                    new JProperty("name",         record.DomainName.ToString()),
-                                   new JProperty("type",         record.Type.ToString()),
+                                   new JProperty("type",         RecordTypeName(record.Type)),
                                    new JProperty("timeToLive",   (Int64) record.TimeToLive.TotalSeconds),
-                                   new JProperty("value",        record.RText ?? record.ToString())
+                                   new JProperty("value",        RDataOf(record))
                                ))
                            )),
 
@@ -292,25 +315,264 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 // A refused certificate is the most likely reason a server over
                 // TLS answered nothing, and the one most worth seeing.
-                var failed = Failed(serviceName.ToString(), asked, e.Message);
-                failed.Add("certificates", CertificatesJudged());
+                var failed = Failed(serviceName.ToString(), e.Message);
+                failed.Add("runtime_ms",    stopwatch.ElapsedMilliseconds);
+                failed.Add("certificates",  CertificatesJudged());
 
                 return failed;
 
             }
 
 
-            static JObject Failed(String Name, String RecordTypes, String Error)
+            // What was asked, beside why nothing came of it - and, where
+            // nothing was asked at all, why not.
+            JObject Failed(String Name, String Error, String? Refused = null)
 
-                => new (
-                       new JProperty("name",         Name),
-                       new JProperty("recordTypes",  new JArray(RecordTypes.Split(", "))),
-                       new JProperty("ok",           false),
-                       new JProperty("error",        Error),
-                       new JProperty("answers",      new JArray())
+                => JSONObject.Create(
+                       new JProperty("name",             Name),
+                       serverId is not null
+                           ? new JProperty("serverId",         serverId)
+                           : null,
+                       turnedAround
+                           ? new JProperty("reverseLookupOf",  typed)
+                           : null,
+                       new JProperty("recordTypes",      new JArray(recordTypes.Select(RecordTypeName))),
+                       new JProperty("ok",               false),
+                       new JProperty("error",            Error),
+                       Refused is not null
+                           ? new JProperty("refused",          Refused)
+                           : null,
+                       new JProperty("answers",          new JArray())
                    );
 
         }
+
+        #endregion
+
+        #region DNSServerIndexOf(Server)
+
+        /// <summary>
+        /// The place in the list of the configured name server somebody named:
+        /// by its id, by its place counted from 1, or by its address - with or
+        /// without its transport and port, as "192.0.2.53",
+        /// "192.0.2.53:853" or "tls://192.0.2.53:853". Null when it names none.
+        /// </summary>
+        /// <remarks>
+        /// Its id is what a CSMS knows it by, its place what the page and the
+        /// log count, and its address what somebody reading the configuration
+        /// file sees. An id begins with a letter, so a number is never one.
+        /// An address that two servers share - the same resolver over UDP and
+        /// over TLS - is the first of them, unless its transport is said.
+        /// </remarks>
+        /// <param name="Server">The name server, as somebody named it.</param>
+        public Int32? DNSServerIndexOf(String? Server)
+        {
+
+            var wanted   = Server?.Trim() ?? "";
+
+            if (wanted.Length == 0)
+                return null;
+
+            var servers  = configuredDNSServers;
+            var ids      = DNSConfiguration.IdsOf(servers.Select((_, index) => dnsServerIdsGiven.ElementAtOrDefault(index)));
+
+            for (var index = 0; index < ids.Count; index++)
+                if (String.Equals(ids[index], wanted, StringComparison.OrdinalIgnoreCase))
+                    return index;
+
+            if (Int32.TryParse(wanted, NumberStyles.None, CultureInfo.InvariantCulture, out var place))
+                return place >= 1 && place <= servers.Count
+                           ? place - 1
+                           : null;
+
+            for (var index = 0; index < servers.Count; index++)
+            {
+
+                var server   = servers[index];
+                var address  = AddressOf(server);
+                var host     = HostOf(server);
+                var hostPort = $"{host}:{server.Port}";
+
+                if (String.Equals(address,  wanted,               StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(hostPort, wanted,               StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(host,     wanted.Trim('[', ']'), StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(host.Trim('[', ']'), wanted.TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+                {
+                    return index;
+                }
+
+            }
+
+            return null;
+
+        }
+
+        #endregion
+
+        #region (static) AddressOf(Server)
+
+        /// <summary>
+        /// A name server as "transport://address:port", e.g.
+        /// "tls://192.0.2.53:853" or "udp://[2001:db8::53]:53" - which is what
+        /// QueryDNS says an answer came from.
+        /// </summary>
+        /// <remarks>
+        /// Not its ToString(), which adds its query timeout: a fact about how
+        /// long it is waited for, and none about where it is.
+        /// </remarks>
+        /// <param name="Server">A name server.</param>
+        public static String AddressOf(DNSServerConfig Server)
+
+            => $"{Server.Transport.ToString().ToLowerInvariant()}://{HostOf(Server)}:{Server.Port}";
+
+
+        /// <summary>
+        /// The address of a name server, an IPv6 address shortened and in
+        /// brackets, or its name where it is configured by name.
+        /// </summary>
+        /// <remarks>
+        /// The server an answer came from is the far end of the socket it came
+        /// over, which a dual-stack socket gives as an IPv4 address mapped into
+        /// IPv6: 127.0.0.1 came back as
+        /// "[0000:0000:0000:0000:0000:ffff:7f00:0001]". It is the address that
+        /// was configured, and it is said as that.
+        /// </remarks>
+        private static String HostOf(DNSServerConfig Server)
+        {
+
+            if (Server.IPAddress is IIPAddress address &&
+                System.Net.IPAddress.TryParse(address.ToString(), out var ip))
+            {
+
+                if (ip.IsIPv4MappedToIPv6)
+                    ip = ip.MapToIPv4();
+
+                return ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                           ? $"[{ip}]"
+                           : ip.ToString();
+
+            }
+
+            return Server.DomainName?.ToString().TrimEnd('.') ?? "";
+
+        }
+
+        #endregion
+
+        #region (static) RDataOf(Record)
+
+        /// <summary>
+        /// The data of a record in presentation format (RFC 1035 section 5.1):
+        /// "192.0.2.80", "10 5 4460 ntp.example.org." - what a zone file has
+        /// after the type.
+        /// </summary>
+        /// <remarks>
+        /// Taken from the record's line of a zone file, whose first four fields
+        /// - name, time to live, class and type - hold no whitespace. Not its
+        /// RText, which an A or AAAA record leaves empty, and not its
+        /// ToString(), which the page used to show for those: the address,
+        /// followed by its name, type, class, time to live and the moment it
+        /// expires, in the machine's language.
+        ///
+        /// A record that has no line of a zone file - an OPT, which RFC 6891
+        /// keeps out of them - says what it can.
+        /// </remarks>
+        /// <param name="Record">A resource record.</param>
+        public static String RDataOf(IDNSResourceRecord Record)
+        {
+
+            try
+            {
+
+                var fields = Record.ToZoneFileString().Split((Char[]?) null, 5, StringSplitOptions.RemoveEmptyEntries);
+
+                if (fields.Length == 5)
+                    return fields[4].Trim();
+
+            }
+            catch (Exception)
+            { }
+
+            return Record.RText ?? Record.ToString() ?? "";
+
+        }
+
+        #endregion
+
+        #region (static) RCodeName(ResponseCode)
+
+        /// <summary>
+        /// The name the IANA registry of DNS RCODEs gives a response code -
+        /// "NoError", "NXDomain", "ServFail", "Refused" - or its number where
+        /// it gives none.
+        /// </summary>
+        /// <remarks>
+        /// The registry's names and not Hermod's: "NameError" is what RFC 1035
+        /// called it, and "NXDOMAIN" what everybody looking at a resolver
+        /// searches for. One name for the page, the command line and QueryDNS,
+        /// which says it is the registry's.
+        ///
+        /// 16 is BADVERS where it is the RCODE of a message, and BADSIG only
+        /// in a TSIG record, which this is never asked about.
+        /// </remarks>
+        /// <param name="ResponseCode">A response code.</param>
+        public static String RCodeName(DNSResponseCodes ResponseCode)
+
+            => (Int32) ResponseCode switch {
+                   0   => "NoError",
+                   1   => "FormErr",
+                   2   => "ServFail",
+                   3   => "NXDomain",
+                   4   => "NotImp",
+                   5   => "Refused",
+                   6   => "YXDomain",
+                   7   => "YXRRSet",
+                   8   => "NXRRSet",
+                   9   => "NotAuth",
+                   10  => "NotZone",
+                   11  => "DSOTYPENI",
+                   16  => "BADVERS",
+                   17  => "BADKEY",
+                   18  => "BADTIME",
+                   19  => "BADMODE",
+                   20  => "BADNAME",
+                   21  => "BADALG",
+                   22  => "BADTRUNC",
+                   23  => "BADCOOKIE",
+                   var number => number.ToString(CultureInfo.InvariantCulture)
+               };
+
+        #endregion
+
+        #region (static) CertificateStatusOf(Outcome)
+
+        /// <summary>
+        /// The outcome of a judgement of a name server's certificate as the
+        /// value of DNSServerController.CertificateStatus that it is:
+        /// "pinMismatch" is "PinMismatch" - which is what the command line
+        /// and QueryDNS say.
+        /// </summary>
+        /// <param name="Outcome">The outcome of a judgement, as its JSON has it.</param>
+        public static String CertificateStatusOf(String? Outcome)
+
+            => String.IsNullOrEmpty(Outcome)
+                   ? "Unknown"
+                   : Char.ToUpperInvariant(Outcome[0]) + Outcome[1..];
+
+        #endregion
+
+        #region (static) RecordTypeName(RecordType)
+
+        /// <summary>
+        /// The mnemonic of a record type, or the generic form of RFC 3597
+        /// section 5 where Hermod has none for it: a type asked for by number
+        /// comes back as "TYPE" and that number, which is what a zone file
+        /// writes and what is read back - see ADNSResourceRecord.TypeName.
+        /// </summary>
+        /// <param name="RecordType">A record type.</param>
+        public static String RecordTypeName(DNSResourceRecordTypes RecordType)
+
+            => ADNSResourceRecord.TypeName(RecordType);
 
         #endregion
 
@@ -388,38 +650,112 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return false;
             }
 
-            if (array.Count > MaxQueryRecordTypes)
+            return TryParseRecordTypes(array.Select(token => token.Type == JTokenType.String || token.Type == JTokenType.Integer
+                                                                 ? token.Value<String>() ?? ""
+                                                                 : token.ToString()),
+                                       out RecordTypes,
+                                       out Error,
+                                       out _);
+
+        }
+
+        #endregion
+
+        #region TryParseRecordTypes(Texts, out RecordTypes, out Error, out Refused)
+
+        /// <summary>
+        /// The record types of a test query, as the command line and QueryDNS
+        /// name them: at most <see cref="MaxQueryRecordTypes"/>, each a
+        /// mnemonic or a number - see <see cref="TryParseRecordType"/>.
+        /// </summary>
+        /// <param name="Texts">The record types, as somebody wrote them; empty ones are left out.</param>
+        /// <param name="RecordTypes">The record types, or null where none was given.</param>
+        /// <param name="Error">Why they could not be read, in words.</param>
+        /// <param name="Refused">And as a reason code of QueryDNS - see <see cref="DNSQueryRefusals"/>.</param>
+        public static Boolean TryParseRecordTypes(IEnumerable<String>?                                    Texts,
+                                                  out IEnumerable<DNSResourceRecordTypes>?                RecordTypes,
+                                                  [NotNullWhen(false)] out String?                        Error,
+                                                  [NotNullWhen(false)] out String?                        Refused)
+        {
+
+            RecordTypes  = null;
+            Error        = null;
+            Refused      = null;
+
+            var texts    = (Texts ?? []).Select(text => text?.Trim() ?? "").Where(text => text.Length > 0).ToArray();
+
+            if (texts.Length > MaxQueryRecordTypes)
             {
-                Error = $"One query may ask for at most {MaxQueryRecordTypes} record types.";
+                Error    = $"One query may ask for at most {MaxQueryRecordTypes} record types.";
+                Refused  = DNSQueryRefusals.TooManyRecordTypes;
                 return false;
             }
 
-            var parsed = new List<DNSResourceRecordTypes>();
+            var parsed   = new List<DNSResourceRecordTypes>();
 
-            foreach (var token in array)
+            foreach (var text in texts)
             {
 
-                var text = token.Value<String>()?.Trim() ?? "";
-
-                if (text.Length == 0)
-                    continue;
-
-                if (Enum.TryParse<DNSResourceRecordTypes>(text, ignoreCase: true, out var recordType))
-                    parsed.Add(recordType);
-
-                else if (UInt16.TryParse(text, out var number))
-                    parsed.Add((DNSResourceRecordTypes) number);
-
-                else
+                if (!TryParseRecordType(text, out var recordType))
                 {
-                    Error = $"'{text}' is not a DNS resource record type.";
+                    Error    = $"'{text}' is not a DNS resource record type.";
+                    Refused  = DNSQueryRefusals.InvalidRecordType;
                     return false;
                 }
 
+                parsed.Add(recordType);
+
             }
 
-            RecordTypes = parsed;
+            RecordTypes = parsed.Count > 0 ? parsed : null;
             return true;
+
+        }
+
+        #endregion
+
+        #region TryParseRecordType(Text, out RecordType)
+
+        /// <summary>
+        /// One record type of a test query: its mnemonic, in any case, or its
+        /// number.
+        /// </summary>
+        /// <remarks>
+        /// A number is not taken as a mnemonic's spelling: Enum.TryParse reads
+        /// "1" as the member whose value is 1 and "99999" as no error at all,
+        /// so digits are read as a number of 16 bits and nothing else, and a
+        /// mnemonic only where the enumeration has it.
+        /// </remarks>
+        /// <param name="Text">The record type, as somebody wrote it.</param>
+        /// <param name="RecordType">The record type.</param>
+        public static Boolean TryParseRecordType(String                      Text,
+                                                 out DNSResourceRecordTypes  RecordType)
+        {
+
+            var text = Text.Trim();
+
+            // The generic form of RFC 3597 section 5, for a type that has no
+            // mnemonic yet: "TYPE65" is 65.
+            if (text.Length > 4 && text.StartsWith("TYPE", StringComparison.OrdinalIgnoreCase) && text[4..].All(Char.IsAsciiDigit))
+                text = text[4..];
+
+            if (text.Length > 0 && text.All(Char.IsAsciiDigit))
+            {
+                var isNumber = UInt16.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var number);
+                RecordType   = (DNSResourceRecordTypes) number;
+                return isNumber;
+            }
+
+            if (text.Length > 0 &&
+                Char.IsAsciiLetter(text[0]) &&
+                Enum.TryParse(text, ignoreCase: true, out RecordType) &&
+                Enum.IsDefined(RecordType))
+            {
+                return true;
+            }
+
+            RecordType = default;
+            return false;
 
         }
 
