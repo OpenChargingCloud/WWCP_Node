@@ -436,29 +436,63 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// The form verified every password it was sent, as fast as they came:
         /// fifteen wrong ones in three seconds, each answered "Invalid
         /// password!", while guessing over Basic auth was rationed.
+        ///
+        /// The ration is a bucket of ten that refills by one every six seconds,
+        /// so a guess comes back while the others are being verified. Where a
+        /// hash takes a while - a busy runner took 13 s for ten - the eleventh
+        /// is let through, and so was the right password after ten. So the test
+        /// guesses on until one is refused with at least three seconds to wait,
+        /// sends the right password well within them, and holds the ration to
+        /// what it promises: ten, and one more every six seconds.
         /// </remarks>
         [Test]
         public async Task GuessingAtTheSignInIsRationed()
         {
 
-            using var http = Anonymous();
+            using var http      = Anonymous();
 
-            var guesses = new List<HttpStatusCode>();
+            var started         = DateTimeOffset.UtcNow;
+            var guesses         = new List<HttpStatusCode>();
+            var refusedFor      = default(TimeSpan?);
 
-            for (var guess = 1; guess <= 10; guess++)
+            for (var guess = 1; guess <= 40 && refusedFor is null; guess++)
             {
+
                 using var response = await http.PostAsync(SignInPath, SignInBody(AdminLogin, $"Not-The-Password-{guess}"));
-                guesses.Add(response.StatusCode);
+
+                if (response.StatusCode != HttpStatusCode.TooManyRequests)
+                {
+                    guesses.Add(response.StatusCode);
+                    continue;
+                }
+
+                var retryAfter = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(1);
+
+                if (retryAfter >= TimeSpan.FromSeconds(3))
+                    refusedFor = retryAfter;
+
+                // Nearly a guess again: wait for it and spend it, so that the
+                // next refusal comes with the full wait for the one after.
+                else
+                    await Task.Delay(retryAfter);
+
             }
 
-            using var right  = await http.PostAsync(SignInPath, SignInBody(AdminLogin, Password));
-            var said         = await right.Content.ReadAsStringAsync();
+            using var right     = await http.PostAsync(SignInPath, SignInBody(AdminLogin, Password));
+            var said            = await right.Content.ReadAsStringAsync();
+            var ration          = 10 + (Int32) Math.Floor((DateTimeOffset.UtcNow - started).TotalSeconds / 6) + 1;
 
             Assert.Multiple(() => {
                 Assert.That(guesses,           Is.All.EqualTo(HttpStatusCode.Unauthorized),
                             String.Join(", ", guesses.Select(status => (Int32) status)));
+                Assert.That(guesses,           Has.Count.GreaterThanOrEqualTo(10),
+                            "the first ten guesses are let through");
+                Assert.That(guesses,           Has.Count.LessThanOrEqualTo(ration),
+                            "more than ten and one every six seconds were let through");
+                Assert.That(refusedFor,        Is.Not.Null,
+                            "no guess was refused for long enough to send the right password in time");
                 Assert.That(right.StatusCode,  Is.EqualTo(HttpStatusCode.TooManyRequests),
-                            "after ten guesses the right password waits like any other: " + said);
+                            "after the guesses the right password waits like any other: " + said);
                 Assert.That(said,              Does.Contain("\"description\""),
                             "what the sign-in page shows");
             });
