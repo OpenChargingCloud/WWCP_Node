@@ -806,6 +806,8 @@ export interface NTSServerSSH {
     hostCAs?:      string[];
     /** What a host key that is none of them comes to; left out, "refuse". */
     onMismatch?:   'refuse' | 'record' | 'accept';
+    /** The key exchange goes over the SSH connection of OCPP to the server's host, with its login and the host key OCPP holds it to: none of the above then. */
+    useOCPPConnection?: boolean;
 }
 
 /** What the host key a time server showed over SSH came to. */

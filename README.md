@@ -483,6 +483,18 @@ over TLS - the next key exchange over SSH renews them. By the server's name
 across every group, as everything else; a change lets go of the key exchange.
 Each server in the answer shows what its own entry sets as `ssh`, the host key
 it showed last as `sshHostKey`, and what that came to as `hostKeyJudgement`.
+
+`"ssh": { "useOCPPConnection": true }` has the key exchange go over the SSH
+connection the node's OCPP goes over to the server's host, as one more channel
+of it (section 8.3 of the white paper; SSHUseOCPPConnection of the Device
+Model): a CSMS or a local controller that serves `ntske/1@open.charging.cloud`
+beside OCPP on its SSH listener. The node signs in as OCPP does, and the server
+is held to the host key OCPP holds it to, so `port`, `user`, `hostKeyPins`,
+`hostCAs` and `onMismatch` are refused beside it, and no key of the node's own
+is made. Where OCPP goes over no SSH connection to that host, or its connection
+is down, the server cannot be reached for its key exchange, and no other way is
+tried; the cookies it handed out before keep NTP going. Who dials OCPP says which
+connections there are: a charging station sets `OCPPOverSSH` of its node.
 The test of a server makes its key exchange over SSH as well.
 
 A server may be held to more than every server is held to - certificates

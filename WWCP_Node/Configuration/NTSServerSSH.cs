@@ -38,8 +38,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <remarks>
     /// <para>
     /// "ssh" in the entry of a server: { "port", "user", "hostKeyPins",
-    /// "hostCAs", "onMismatch" }, every one of them optional. Its mode is
-    /// NTSv4SSH in the OCPP Device Model (section 7 of the white paper).
+    /// "hostCAs", "onMismatch" }, every one of them optional - or {
+    /// "useOCPPConnection": true } alone. Its mode is NTSv4SSH in the OCPP
+    /// Device Model (section 7 of the white paper).
+    /// </para>
+    /// <para>
+    /// With "useOCPPConnection" the key exchange is one more channel of the
+    /// SSH connection OCPP goes over to the server's host (section 8.3): with
+    /// the login, the key and the host key of that connection, which OCPP
+    /// judged, so neither port, user, host key nor CA of its own applies.
+    /// Where OCPP goes over no SSH connection to it, or that connection is
+    /// down, the server cannot be reached for its key exchange, and the
+    /// cookies it handed out before keep NTP going.
     /// </para>
     /// <para>
     /// There is no certificate, so a server is believed by its host key alone:
@@ -55,11 +65,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="HostKeyPins">The SHA-256 fingerprints of the host keys it may show.</param>
     /// <param name="HostCAs">The SHA-256 fingerprints of the SSH CA keys that may sign its host certificate.</param>
     /// <param name="OnMismatch">What a host key comes to that is none of them.</param>
-    public sealed record NTSServerSSH(UInt16?                 Port         = null,
-                                      String?                 User         = null,
-                                      IReadOnlyList<String>?  HostKeyPins  = null,
-                                      IReadOnlyList<String>?  HostCAs      = null,
-                                      PinMismatch             OnMismatch   = PinMismatch.Refuse)
+    /// <param name="UseOCPPConnection">Whether the key exchange goes over the SSH connection of OCPP to the server's host, instead of one of its own.</param>
+    public sealed record NTSServerSSH(UInt16?                 Port               = null,
+                                      String?                 User               = null,
+                                      IReadOnlyList<String>?  HostKeyPins        = null,
+                                      IReadOnlyList<String>?  HostCAs            = null,
+                                      PinMismatch             OnMismatch         = PinMismatch.Refuse,
+                                      Boolean                 UseOCPPConnection  = false)
     {
 
         #region Data
@@ -223,8 +235,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (JSON is not JObject json)
             {
-                Error = $"'{Path}' must be an object: {{ \"port\", \"user\", \"hostKeyPins\", \"hostCAs\", \"onMismatch\" }}.";
+                Error = $"'{Path}' must be an object: {{ \"port\", \"user\", \"hostKeyPins\", \"hostCAs\", \"onMismatch\" }}, or {{ \"useOCPPConnection\": true }}.";
                 return false;
+            }
+
+            if (!ConfigurationReader.TryReadBoolean(json, "useOCPPConnection", Path, out var useOCPPConnection, out Error))
+                return false;
+
+            // The connection of OCPP brings its own port, login, key and host key.
+            if (useOCPPConnection == true)
+            {
+
+                var ofItsOwn = new[] { "port", "user", "hostKeyPins", "hostCAs", "onMismatch" }.
+                                   Where(name => json[name] is JToken token && token.Type != JTokenType.Null).
+                                   ToArray();
+
+                if (ofItsOwn.Length > 0)
+                {
+                    Error = $"'{Path}': {String.Join(", ", ofItsOwn.Select(name => $"\"{name}\""))} do{(ofItsOwn.Length == 1 ? "es" : "")} not apply with \"useOCPPConnection\": " +
+                            "the key exchange goes over the SSH connection of OCPP, with its port, its login and the host key OCPP holds it to.";
+                    return false;
+                }
+
+                SSH = new NTSServerSSH(UseOCPPConnection: true);
+                return true;
+
             }
 
             if (!ConfigurationReader.TryReadPort   (json, "port",        Path,                                     out var port,  out Error) ||
@@ -346,6 +381,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             var json = new JObject();
 
+            if (UseOCPPConnection)
+                return new JObject(new JProperty("useOCPPConnection", true));
+
             if (Port.HasValue)                      json.Add("port",        Port.Value);
             if (User is not null)                   json.Add("user",        User);
             if (Pins.Count > 0)                     json.Add("hostKeyPins", new JArray(Pins));
@@ -362,14 +400,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         /// <summary>
         /// What it is, as a sentence says it: "ssh://ntske@time.lan:22, held to
-        /// SHA256:..." - for the log.
+        /// SHA256:...", or "the SSH connection of OCPP to time.lan" - for the
+        /// log.
         /// </summary>
         public String TextFor(String Hostname)
 
-            => $"ssh://{UserOrDefault}@{Hostname}:{PortOrDefault}" +
-               (IsPinned
-                    ? $", held to {String.Join(", ", Pins.Concat(CAs.Select(ca => $"the CA {ca}")))}"
-                    : ", held to no host key");
+            => UseOCPPConnection
+                   ? $"the SSH connection of OCPP to {Hostname}"
+                   : $"ssh://{UserOrDefault}@{Hostname}:{PortOrDefault}" +
+                     (IsPinned
+                          ? $", held to {String.Join(", ", Pins.Concat(CAs.Select(ca => $"the CA {ca}")))}"
+                          : ", held to no host key");
 
         #endregion
 

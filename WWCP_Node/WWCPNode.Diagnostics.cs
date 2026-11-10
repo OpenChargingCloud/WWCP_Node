@@ -26,6 +26,8 @@ using System.Security.Cryptography.X509Certificates;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Hermod.SSH;
+using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
@@ -905,12 +907,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                  CookiePoolPolicy:       new NTSCookiePoolPolicy { RenegotiateWhenExhausted = false }
                              );
 
+                    // OCPP's connection, where the entry says so, goes on after the
+                    // test; one of the test's own does not.
+                    SshClient? own = null;
+
                     try
                     {
 
-                        await using var ssh = await ConnectToTimeServerOverSSH(host, overSSH, CancellationToken);
+                        var ssh = overSSH.UseOCPPConnection
+                                      ? await OCPPConnectionTo(host, CancellationToken)
+                                      : own = await ConnectToTimeServerOverSSH(host, overSSH, CancellationToken);
 
-                        if (HostKeyJudgementOf(host) is TimeServerHostKeyJudgement shown && shown.At >= judgedFrom)
+                        if (overSSH.UseOCPPConnection)
+                            Step("info", $"It shows the SSH host key {SshFingerprint.Sha256(ssh.ServerHostKey)}, which OCPP holds it to.");
+
+                        else if (HostKeyJudgementOf(host) is TimeServerHostKeyJudgement shown && shown.At >= judgedFrom)
                             Step(shown.Matched ? "info" : "warning", $"It showed the SSH host key {shown.Shown}: {shown.Why}.");
 
                         keyExchange = await asking.GetNTSKERecordsOverSSH(ssh, CancellationToken: CancellationToken);
@@ -926,6 +937,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         Log.Warning($"NTS test: the key exchange over SSH with {name} failed: {e.Message}", "nts", "ntske", "ssh", "test");
                         return Done(where, false);
 
+                    }
+                    finally
+                    {
+                        if (own is not null)
+                            await own.DisposeAsync();
                     }
 
                 }

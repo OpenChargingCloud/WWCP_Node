@@ -136,6 +136,8 @@ describe('a time server whose key exchange goes over SSH', () => {
         assert.equal(sshHeldToText(ssh),                 `held to SHA256:${'A'.repeat(43)}, another one used and recorded`);
         assert.equal(sshHeldToText({ hostCAs: [ 'SHA256:ca' ] }), 'held to the CA SHA256:ca');
         assert.equal(sshHeldToText({}),                  'held to no host key: refused until it is');
+        assert.equal(sshText({ useOCPPConnection: true }, 'csms.lan.'), 'the SSH connection of OCPP to csms.lan');
+        assert.equal(sshHeldToText({ useOCPPConnection: true }),        'held to the host key OCPP holds it to');
 
     });
 

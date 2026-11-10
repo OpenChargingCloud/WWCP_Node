@@ -27,6 +27,7 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
+using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
@@ -100,6 +101,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnEntryOverTheConnectionOfOCPPIsWrittenAndReadBack()
+
+        /// <summary>
+        /// "useOCPPConnection": the key exchange as one more channel of the SSH
+        /// connection of OCPP, written back as it was said; false is the same as
+        /// saying nothing.
+        /// </summary>
+        [Test]
+        public void AnEntryOverTheConnectionOfOCPPIsWrittenAndReadBack()
+        {
+
+            var shared  = Parsed("""{ "hostname": "csms.lan", "ssh": { "useOCPPConnection": true } }""");
+            var own     = Parsed("""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": false, "port": 2222 } }""");
+
+            Assert.Multiple(() => {
+
+                Assert.That(shared.IsOverSSH,                      Is.True);
+                Assert.That(shared.SSH!.UseOCPPConnection,         Is.True);
+                Assert.That(shared.SSH.TextFor("csms.lan"),        Is.EqualTo("the SSH connection of OCPP to csms.lan"));
+                Assert.That(JToken.DeepEquals(shared.ToJSON(), JToken.Parse("""{ "hostname": "csms.lan.", "ssh": { "useOCPPConnection": true } }""")),
+                            Is.True, shared.ToJSON().ToString());
+
+                Assert.That(own.SSH!.UseOCPPConnection,            Is.False);
+                Assert.That(JToken.DeepEquals(own.ToJSON(), JToken.Parse("""{ "hostname": "time.lan.", "ssh": { "port": 2222 } }""")),
+                            Is.True, own.ToJSON().ToString());
+
+            });
+
+        }
+
+        #endregion
+
         #region WhatIsNoEntryOverSSHIsRefused()
 
         /// <summary>
@@ -122,6 +155,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "onMismatch": "accept" } }"""),                      Does.Contain("held to no host key and no CA"));
                 Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "onMismatch": "maybe", "hostKeyPins": [ ] } }"""),   Does.Contain("is none of"));
                 Assert.That(Refused("""{ "hostname": "time.lan", "ssh": 22 }"""),                                              Does.Contain("must be an object"));
+
+                Assert.That(Refused($$"""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": true, "port": 2222, "hostKeyPins": [ "{{pinA}}" ] } }"""),
+                            Does.Contain("\"port\", \"hostKeyPins\" do not apply with \"useOCPPConnection\""));
+                Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": true, "onMismatch": "record" } }"""),
+                            Does.Contain("\"onMismatch\" does not apply"));
+                Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": "yes" } }"""),  Does.Contain("useOCPPConnection").And.Contain("must be true or false"));
 
                 Assert.That(Refused("""{ "hostname": "time.lan", "ntsKEPort": 4461, "ssh": { } }"""),                          Does.Contain("ntsKEPort").And.Contain("do not apply"));
                 Assert.That(Refused("""{ "hostname": "time.lan", "ntsKEHostname": "ke.lan", "ssh": { } }"""),                  Does.Contain("ntsKEHostname"));
@@ -426,6 +465,98 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await using var again = await Node($$"""{ "port": {{sshPort}}, "hostKeyPins": [ "{{hostKey}}" ] }""", WithItsKey: false);
 
             Assert.That(again.NTSKEClientPublicKey, Is.EqualTo(made), "a new key at the next start");
+
+        }
+
+        #endregion
+
+        #region AKeyExchangeSharesTheConnectionOfOCPP()
+
+        /// <summary>
+        /// "useOCPPConnection": the key exchange is one more channel of the SSH
+        /// connection OCPP goes over to the server's host - with OCPP's login,
+        /// and the host key OCPP holds it to, not judged again - and leaves that
+        /// connection open; so does the test of the server. No key of the
+        /// node's own is made for it.
+        /// </summary>
+        [Test]
+        public async Task AKeyExchangeSharesTheConnectionOfOCPP()
+        {
+
+            var serversKey = server!.SSHHostKeys[0].PublicKeyBlob;
+
+            await using var ocpp = await SshClient.ConnectAsync("127.0.0.1",
+                                                                sshPort.ToUInt16(),
+                                                                new SshClientOptions {
+                                                                    Username       = "ntske",
+                                                                    Credentials    = [ nodeKey ],
+                                                                    VerifyHostKey  = blob => blob.AsSpan().SequenceEqual(serversKey)
+                                                                });
+
+            await using var node = await Node("""{ "useOCPPConnection": true }""", WithItsKey: false);
+
+            var askedFor = new List<DomainName>();
+
+            node.OCPPOverSSH = new OCPPConnectionsOverSSH(host => { askedFor.Add(host); return host.Equals(timeServer) ? ocpp : null; },
+                                                          () => "ssh-ed25519 AAAA ocpp");
+
+            var synced  = await node.SyncTimeAsync();
+            var shown   = TheServer(node);
+            var tested  = await node.TestTimeServerAsync(timeServer.Trimmed);
+            var said    = String.Join(" | ", ((JArray) tested["steps"]!).Select(step => step["text"]!.Value<String>()));
+
+            Assert.Multiple(() => {
+
+                Assert.That(synced.Value<Boolean>("ok"),                Is.True,  synced.ToString());
+                Assert.That(shown["cookies"]?.Value<Int32>(),           Is.GreaterThan(0), shown.ToString());
+                Assert.That(shown["sshHostKey"]?.Value<String>(),       Is.EqualTo(hostKey));
+                Assert.That(shown["hostKeyJudgement"]?.Type ?? JTokenType.Null, Is.EqualTo(JTokenType.Null), "OCPP's host key was judged again");
+                Assert.That(shown["ssh"]?["useOCPPConnection"]?.Value<Boolean>(), Is.True);
+
+                Assert.That(tested.Value<Boolean>("ok"),                Is.True,  said);
+                Assert.That(said,                                       Does.Contain("the SSH connection of OCPP to " + timeServer.Trimmed));
+                Assert.That(said,                                       Does.Contain($"It shows the SSH host key {hostKey}, which OCPP holds it to"));
+
+                Assert.That(askedFor,                                   Is.Not.Empty);
+                Assert.That(askedFor,                                   Has.All.EqualTo(timeServer));
+                Assert.That(ocpp.Closed.IsCompleted,                    Is.False, "OCPP's connection was closed");
+                Assert.That(File.Exists(node.NTSKEClientKeyPath),       Is.False, "a key of the node's own was made");
+
+            });
+
+        }
+
+        #endregion
+
+        #region WithoutAConnectionOfOCPPThereIsNoKeyExchange()
+
+        /// <summary>
+        /// Where OCPP goes over no SSH connection to the server's host - or its
+        /// connection is down - there is no key exchange, and no other way is
+        /// tried: not a connection of the node's own, not TLS.
+        /// </summary>
+        [Test]
+        public async Task WithoutAConnectionOfOCPPThereIsNoKeyExchange()
+        {
+
+            await using var node = await Node("""{ "useOCPPConnection": true }""");
+
+            var unset   = await node.SyncTimeAsync();
+
+            node.OCPPOverSSH = new OCPPConnectionsOverSSH(host => null, () => null);
+
+            var down    = await node.SyncTimeAsync();
+            var tested  = await node.TestTimeServerAsync(timeServer.Trimmed);
+            var said    = String.Join(" | ", ((JArray) tested["steps"]!).Select(step => step["text"]!.Value<String>()));
+
+            Assert.Multiple(() => {
+                Assert.That(unset.Value<Boolean>("ok"),                 Is.False, "a key exchange without a connection of OCPP");
+                Assert.That(down. Value<Boolean>("ok"),                 Is.False, "a key exchange without a connection of OCPP");
+                Assert.That(TheServer(node)["cookies"]?.Type ?? JTokenType.Null, Is.EqualTo(JTokenType.Null));
+                Assert.That(tested.Value<Boolean>("ok"),                Is.False);
+                Assert.That(said,                                       Does.Contain($"OCPP goes over no SSH connection to {timeServer.Trimmed} now"));
+                Assert.That(said,                                       Does.Not.Contain("over TLS"));
+            });
 
         }
 
