@@ -332,7 +332,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         #endregion
 
 
-        #region (private static) Outcome(Result)
+        #region (static) Outcome(Result)
 
         /// <summary>
         /// What the NTS page shows after 'Sync now', as lines for the console:
@@ -343,8 +343,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// records that the group was asked and what the group concluded, and
         /// which server was the one that did not answer is only in here and on
         /// the page.
+        ///
+        /// Public, so that a CSMS writes what a charging station told it of a
+        /// round in the same lines as its own syncNTS: the two can then be laid
+        /// side by side.
         /// </remarks>
-        private static String[] Outcome(JObject Result)
+        /// <param name="Result">What SyncTimeAsync returned, or JSON of the same shape.</param>
+        public static String[] Outcome(JObject Result)
         {
 
             var lines    = new List<String>();
@@ -391,7 +396,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
         #endregion
 
-        #region (private static) Tested(Result)
+        #region (static) Tested(Result)
 
         /// <summary>
         /// What the Test button's dialog shows, as lines for the console: whether
@@ -404,8 +409,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// beginning and the end of it, as it has for the button.
         ///
         /// Warnings and errors say so, where the page says it in colour.
+        ///
+        /// Public, so that a CSMS writes what a charging station told it of a
+        /// test in the same lines as its own syncNTS.
         /// </remarks>
-        private static String[] Tested(JObject Result)
+        /// <param name="Result">What TestTimeServerAsync returned, or JSON of the same shape.</param>
+        public static String[] Tested(JObject Result)
         {
 
             var host   = (Result.Value<String>("host") ?? "").TrimEnd('.');
