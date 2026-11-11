@@ -103,7 +103,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
 
       # The test project, which takes the library and the four beside it with
       # it: six projects, and "they still compile together at their tips" is
