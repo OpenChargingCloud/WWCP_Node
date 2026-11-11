@@ -579,12 +579,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Makes the command line a session over SSH gets: the kind's own, with
-        /// its own commands, where the program says so; the node's otherwise.
+        /// its own commands, where the kind sets one; the node's otherwise.
         /// </summary>
         /// <remarks>
-        /// The program's to say, because the command line of a kind is the
-        /// program's vocabulary and not the library's: the vehicle's
-        /// "discover" is in EVCLI, not in EV. Set before the node starts.
+        /// The kind's to say, because what a kind of node can be told is the
+        /// kind's and not the program's that runs it: the CSMS, the charging
+        /// station, the local controller and the vehicle set their own in
+        /// their constructors - the vehicle's "discover" is in EV, not in
+        /// EVCLI - so that a test or another program that runs one gets the
+        /// same commands. A program with commands of its own sets another
+        /// after that. Set before the node starts.
         /// </remarks>
         public Func<ICLITerminal, CLICaller, NodeCLI>?  CommandLines  { get; set; }
 
