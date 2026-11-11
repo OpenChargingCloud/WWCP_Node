@@ -167,6 +167,76 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ANameThatResolvesToNoAddressIsWhereTheTestEnded()
+
+        /// <summary>
+        /// A time server whose name the node's name servers do not answer for:
+        /// the test says so at the step of name resolution, asks anyway, and says
+        /// that it ended at the name - not at the key exchange that could not
+        /// connect to anything.
+        /// </summary>
+        [Test]
+        public async Task ANameThatResolvesToNoAddressIsWhereTheTestEnded()
+        {
+
+            var directory = TestNodes.TemporaryDirectory("time-server-test");
+
+            try
+            {
+
+                // A name server from the documentation's range (RFC 5737), where
+                // nothing answers.
+                var dnsClient = new DNSClient([ new DNSServerConfig(IPv4Address.Parse("192.0.2.53"), IPPort.DNS) ],
+                                              QueryTimeout: TimeSpan.FromSeconds(1));
+
+                var configuration = new JObject(
+                                        new JProperty("nts", new JObject(
+                                            new JProperty("groups", new JObject(
+                                                new JProperty("legal", new JObject(
+                                                    new JProperty("servers", new JArray(new JObject(
+                                                        new JProperty("hostname",   "nts-no-answer.example")
+                                                    ))),
+                                                    new JProperty("timeoutSeconds", 3)
+                                                ))
+                                            ))
+                                        ))
+                                    );
+
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName), configuration.ToString());
+
+                await using var node = new WWCPNode(
+                                           DNSClient:         dnsClient,
+                                           HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                           AccountsPath:      Path.Combine(directory, "accounts"),
+                                           ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
+                                           CertificatesPath:  Path.Combine(directory, "certificates"),
+                                           LogToConsole:      false,
+                                           BridgeDebugLog:    false
+                                       );
+
+                var result  = await node.TestTimeServerAsync("nts-no-answer.example");
+                var steps   = result["steps"]!.OfType<JObject>().ToArray();
+
+                TestContext.Out.WriteLine(result.ToString());
+
+                Assert.Multiple(() => {
+                    Assert.That(result.Value<Boolean>("ok"),        Is.False);
+                    Assert.That(result.Value<String>("failedAt"),   Is.EqualTo("NameResolution"), String.Join(" | ", steps.Select(step => $"{step["stage"]}: {step["text"]}")));
+                    Assert.That(steps.First(step => step.Value<String>("stage") == "NameResolution").Value<String>("text"),
+                                Does.Contain("timed out"));
+                });
+
+            }
+            finally
+            {
+                TestNodes.Remove(directory);
+            }
+
+        }
+
+        #endregion
+
     }
 
 }

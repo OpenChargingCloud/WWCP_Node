@@ -1173,6 +1173,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             stage = TimeServerTestStages.NameResolution;
 
+            // Whether the name found no address here. The key exchange is asked
+            // anyway - its own lookup is the one that counts - but where it then
+            // connects to nothing, it is the name the test ended at, not the key
+            // exchange: it used to say "failedAt": "KeyExchange" after waiting its
+            // whole timeout for the same name servers.
+            var unresolved = false;
+
             if (!System.Net.IPAddress.TryParse(host.ToString().TrimEnd('.'), out _))
             {
                 try
@@ -1193,14 +1200,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                         Select(record => (record.RText ?? record.ToString()).Split(',')[0].Trim()).
                                         ToArray();
 
+                    unresolved = addresses.Length == 0;
+
+                    // A query nobody answered says so: it used to read
+                    // "resolved to nothing (ServerFailure)", which is what a
+                    // name server says, and none had said anything.
                     Step(addresses.Length > 0 ? "info" : "warning",
-                         addresses.Length > 0
-                             ? $"'{name}' resolves to {String.Join(", ", addresses)}."
-                             : $"'{name}' resolved to nothing ({lookedUp.ResponseCode}).");
+                         addresses.Length > 0  ? $"'{name}' resolves to {String.Join(", ", addresses)}."
+                       : lookedUp.IsTimeout    ? $"'{name}' could not be looked up here: its name servers did not answer, the query timed out. Asking anyway."
+                                               : $"'{name}' resolved to nothing ({lookedUp.ResponseCode}). Asking anyway.");
 
                 }
                 catch (Exception e)
                 {
+                    unresolved = true;
                     Step("warning", $"'{name}' could not be looked up here: {e.Message}. Asking anyway.");
                 }
             }
@@ -1258,6 +1271,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 #region The key exchange
 
                 var judgedFrom  = TimeProvider.GetUtcNow();
+                var overTLS     = false;
                 NTSKEResult keyExchange;
 
                 // Over SSH, where the server's entry says so, as every round
@@ -1315,6 +1329,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                             Step("error", $"It showed the SSH host key {refused.Shown}, but {refused.Why}: refused.");
                         }
 
+                        // A connection of its own to a name that has no address
+                        // here never was one: the test ended at the name.
+                        else if (unresolved &&
+                                 !overSSH.UseOCPPConnection &&
+                                 stage == TimeServerTestStages.Connection)
+                        {
+                            stage = TimeServerTestStages.NameResolution;
+                        }
+
                         Step("error", $"No SSH connection for the key exchange: {e.Message}");
                         Log.Warning($"NTS test: the key exchange over SSH with {name} failed: {e.Message}", "nts", "ntske", "ssh", "test");
                         return Done(where, false);
@@ -1331,6 +1354,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 {
                     Step("info", "Key exchange over TLS ...");
                     keyExchange = await asking.GetNTSKERecords(CancellationToken: CancellationToken);
+                    overTLS     = true;
                 }
 
                 if (keyExchange.Response?.TimingInfo is NTSKE_TimingInfo timing)
@@ -1344,13 +1368,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           ? $", of {timing.ResolvedIPAddresses.Count()} address(es) that were offered"
                                           : "") + ".");
 
-                    Step("info", "Where the time went: " +
-                                 String.Join(", ", new[] {
-                                     timing.DNSLookupDuration      is TimeSpan dns  ? $"name {dns.TotalMilliseconds:0} ms"      : null,
-                                     timing.TCPConnectDuration     is TimeSpan tcp  ? $"TCP {tcp.TotalMilliseconds:0} ms"       : null,
-                                     timing.TLSHandshakeDuration   is TimeSpan tls  ? $"TLS {tls.TotalMilliseconds:0} ms"       : null,
-                                     timing.NTSKEProtocolDuration  is TimeSpan ke   ? $"key exchange {ke.TotalMilliseconds:0} ms" : null
-                                 }.Where(one => one is not null)) + ".");
+                    var went = new[] {
+                                   timing.DNSLookupDuration      is TimeSpan dns  ? $"name {dns.TotalMilliseconds:0} ms"      : null,
+                                   timing.TCPConnectDuration     is TimeSpan tcp  ? $"TCP {tcp.TotalMilliseconds:0} ms"       : null,
+                                   timing.TLSHandshakeDuration   is TimeSpan tls  ? $"TLS {tls.TotalMilliseconds:0} ms"       : null,
+                                   timing.NTSKEProtocolDuration  is TimeSpan ke   ? $"key exchange {ke.TotalMilliseconds:0} ms" : null
+                               }.Where(one => one is not null).ToArray();
+
+                    // Nothing timed is nothing to say: it used to say "Where the
+                    // time went: ." for an exchange that got nowhere.
+                    if (went.Length > 0)
+                        Step("info", $"Where the time went: {String.Join(", ", went)}.");
 
                 }
 
@@ -1376,8 +1404,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (!keyExchange.Success || keyExchange.Response is null)
                 {
-                    stage = TimeServerTestStages.Of(keyExchange.ErrorCategory);
+
+                    // Over TLS with the server itself, to a name that found no
+                    // address here, and connected to nothing: the name is where
+                    // the test ended, whatever the exchange calls its timeout.
+                    var atTheName = overTLS                &&
+                                    unresolved             &&
+                                    ownKeyExchange is null &&
+                                    keyExchange.Response?.TimingInfo?.ConnectedIPAddress is null;
+
+                    stage = atTheName
+                                ? TimeServerTestStages.NameResolution
+                                : TimeServerTestStages.Of(keyExchange.ErrorCategory);
+
                     Step("error", $"The key exchange failed ({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}");
+
+                    // Said where the exchange does not say it itself: a DNS error
+                    // of its own already names the name, a timeout does not.
+                    if (atTheName && TimeServerTestStages.Of(keyExchange.ErrorCategory) != TimeServerTestStages.NameResolution)
+                        Step("error", $"It connected to nothing: '{name}' has no address here, and that is where this test ended.");
+
                     Log.Warning($"NTS test: the key exchange with {name} failed: {keyExchange.ErrorMessage}", "nts", "ntske", "test");
                     return Done(where, false);
                 }
