@@ -1544,36 +1544,55 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <see cref="SyncTimeAsync(CancellationToken)"/>.
         /// </summary>
         /// <remarks>
-        /// Counted as running against the group for as long as it runs, so that
-        /// taking the group away waits for it; and asked with a token that
-        /// taking it away cancels, so that it does not have to wait long. What
-        /// was cancelled that way is written down nowhere - not into the group,
-        /// which nobody has any more, and not into the log, which says the
-        /// group was removed.
+        /// <para>
+        /// Counted as running against the group until the task it returns has
+        /// completed, so that taking the group away waits for it; and asked with
+        /// a token that taking it away cancels, so that it does not have to wait
+        /// long. What was cancelled that way is written down nowhere - not into
+        /// the group, which nobody has any more, and not into the log, which says
+        /// the group was removed.
+        /// </para>
+        /// <para>
+        /// Until the task has completed, and not only until the asking is done.
+        /// Counted down in a finally of the asking, the check told the group it
+        /// had ended while its task was still to be completed, and taking the
+        /// group away, which goes on on a thread of its own, could return before
+        /// it was. A continuation of the task counts it down instead, and a
+        /// continuation runs only once its task has completed.
+        /// </para>
         /// </remarks>
         /// <param name="Group">The group of time servers.</param>
-        public async Task<JObject> SyncTimeAsync(NTSGroup           Group,
-                                                 CancellationToken  CancellationToken = default)
+        public Task<JObject> SyncTimeAsync(NTSGroup           Group,
+                                           CancellationToken  CancellationToken = default)
         {
 
             if (!Group.TryBegin())
-                return Removed();
+                return Task.FromResult(Removed());
 
-            try
+            var asked = AskAsync();
+
+            _ = asked.ContinueWith(_ => Group.End(),
+                                   CancellationToken.None,
+                                   TaskContinuationOptions.ExecuteSynchronously,
+                                   TaskScheduler.Default);
+
+            return asked;
+
+
+            async Task<JObject> AskAsync()
             {
+                try
+                {
 
-                using var asking = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, Group.Stopping);
+                    using var asking = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, Group.Stopping);
 
-                return await AskTheGroupAsync(Group, asking.Token);
+                    return await AskTheGroupAsync(Group, asking.Token);
 
-            }
-            catch (OperationCanceledException) when (Group.Stopping.IsCancellationRequested)
-            {
-                return Removed();
-            }
-            finally
-            {
-                Group.End();
+                }
+                catch (OperationCanceledException) when (Group.Stopping.IsCancellationRequested)
+                {
+                    return Removed();
+                }
             }
 
 
