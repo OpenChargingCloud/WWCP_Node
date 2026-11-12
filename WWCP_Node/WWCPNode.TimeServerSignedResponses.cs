@@ -157,9 +157,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      $"NTS: the signature of {server}'s response is not that of its key {signed.KeyId}.",
                                      data, "nts", "signed", "security");
 
+                // Signed, and not with a key the signature could be held to: one the key
+                // exchange did not name, or another than the one that was asked for. The
+                // time library says which, and both leave the signature unchecked.
                 else
                     Log.Metrological(LogLevel.Warning,
-                                     $"NTS: {server} signed its response with a key {signed.KeyId} its key exchange did not name, which leaves it unchecked.",
+                                     $"NTS: the signature of {server}'s response with its key {signed.KeyId} is unchecked: {signed.ErrorMessage ?? "its key exchange did not name that key"}.",
                                      data, "nts", "signed");
 
             }
