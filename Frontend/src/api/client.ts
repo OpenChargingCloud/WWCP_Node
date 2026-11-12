@@ -50,8 +50,12 @@ export interface LogPage {
 // Who may do what
 // ---------------------------------------------------------------------------
 
-/** What a role may be allowed to touch on every node. A kind of node adds its own. */
-export type NodeResource = 'configuration' | 'dns' | 'nts' | 'certificates' | 'ssh';
+/**
+ * What a role may be allowed to touch on every node, as the node's
+ * NodeResources name it. A kind of node adds its own.
+ */
+export type NodeResource = 'configuration' | 'dns' | 'nts' | 'certificates' | 'ssh' | 'log'
+                         | 'node' | 'reset' | 'reset-immediate' | 'state' | 'firmware' | 'signatures';
 
 /** How a resource may be touched. */
 export type Operation = 'read' | 'edit' | 'run';

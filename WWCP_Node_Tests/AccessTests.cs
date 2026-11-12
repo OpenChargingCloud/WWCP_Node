@@ -364,6 +364,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ThePagesKnowTheResourcesTheNodeKnows()
+
+        /// <summary>
+        /// The pages name the node's resources a second time, as a type, so that
+        /// asking for one that does not exist does not compile. That copy had
+        /// fallen behind - it knew no "log" - and a kind of node added what was
+        /// missing itself.
+        /// </summary>
+        [Test]
+        public void ThePagesKnowTheResourcesTheNodeKnows()
+        {
+
+            var repository  = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "WWCP_Node/WWCP_Node.csproj", "WWCP_Node_TestKit/WWCP_Node_TestKit.csproj");
+            var client      = File.ReadAllText(Path.Combine(repository, "Frontend", "src", "api", "client.ts"));
+
+            var from        = client.IndexOf("export type NodeResource =", StringComparison.Ordinal);
+            Assert.That(from, Is.GreaterThanOrEqualTo(0), "api/client.ts has no type NodeResource any more!");
+
+            var type        = client[from .. client.IndexOf(';', from)];
+            var named       = System.Text.RegularExpressions.Regex.Matches(type, "'([^']+)'").
+                                  Select(match => match.Groups[1].Value);
+
+            Assert.That(named, Is.EqualTo(NodeResources.All));
+
+        }
+
+        #endregion
+
         #region TheSupportMaySeeWhatIsGoingOnAndRestartAnIdleNodeAndNothingElse()
 
         /// <summary>
