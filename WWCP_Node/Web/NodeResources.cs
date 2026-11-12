@@ -93,9 +93,76 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         public const String  Log            = "log";
 
         /// <summary>
+        /// The node itself, told to do something no other resource is about:
+        /// run, a message asked of it that it would send by itself, as a
+        /// BootNotification or a Heartbeat.
+        /// </summary>
+        /// <remarks>
+        /// The white paper "Signed OCPP Messages and Signer Roles", section
+        /// 5.3 (Q12): these six are what every kind of node can be asked over
+        /// OCPP, by a signer whose role is one of the node's - so that a role
+        /// may sign what it may do on the web page and at the command line,
+        /// and nothing else.
+        /// </remarks>
+        public const String  Node            = "node";
+
+        /// <summary>
+        /// Restarting the node once it is idle: run, a restart that waits
+        /// until nothing is going on that it would end.
+        /// </summary>
+        /// <remarks>
+        /// A resource of its own, and not the node's: an operator's telephone
+        /// support restarts nodes all day, so many people hold this, and it
+        /// is to be all they hold.
+        /// </remarks>
+        public const String  Reset           = "reset";
+
+        /// <summary>
+        /// Restarting the node at once: run, a restart that ends what is
+        /// going on - the sessions of a charging station, and on a local
+        /// controller the line of every station behind it.
+        /// </summary>
+        /// <remarks>
+        /// Apart from <see cref="Reset"/>, because it is the one of the two
+        /// that can do damage.
+        /// </remarks>
+        public const String  ResetImmediate  = "reset-immediate";
+
+        /// <summary>
+        /// What is going on, apart from how the node is configured: read, the
+        /// state of a charging station's EVSEs, or whether a local
+        /// controller's line to its CSMS stands and which stations it has
+        /// seen; run, that state reported again.
+        /// </summary>
+        /// <remarks>
+        /// A resource of its own, and not a way of reading the others:
+        /// somebody who is to see that an EVSE is faulted is not thereby
+        /// somebody who is to read where the node dials and whom it lets in.
+        /// </remarks>
+        public const String  State           = "state";
+
+        /// <summary>
+        /// The node's firmware: read, which one runs; edited, another one
+        /// installed.
+        /// </summary>
+        public const String  Firmware        = "firmware";
+
+        /// <summary>
+        /// Who may sign what: the signer roles, the keys bound to them and the
+        /// signature policy - read, and edited.
+        /// </summary>
+        /// <remarks>
+        /// Whoever edits this decides what every other role may sign, which is
+        /// why no role but the administrators' holds it unless the file says
+        /// so. Reading it gives away nothing: the keys are public ones.
+        /// </remarks>
+        public const String  Signatures      = "signatures";
+
+        /// <summary>
         /// All of them.
         /// </summary>
-        public static readonly IReadOnlyList<String>  All = [ Configuration, DNS, NTS, Certificates, SSH, Log ];
+        public static readonly IReadOnlyList<String>  All = [ Configuration, DNS, NTS, Certificates, SSH, Log,
+                                                              Node, Reset, ResetImmediate, State, Firmware, Signatures ];
 
     }
 

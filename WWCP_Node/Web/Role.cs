@@ -31,8 +31,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Data rather than vocabulary. The node brings two - the administrators',
-    /// who may do everything, and the viewer, who may look at everything - a
+    /// Data rather than vocabulary. The node brings three - the administrators',
+    /// who may do everything, the viewer, who may look at everything, and the
+    /// support, who may see what is going on and restart an idle node - a
     /// kind of node brings its own, and the configuration file may add more or
     /// say differently what one of them may do. Nothing about a role is
     /// compiled into the routes that ask for it: a route asks for a permission,
@@ -83,6 +84,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         public static readonly Role  Viewer       = new ("viewer",
                                                          [ Permission.Read(Permission.AnyResource) ],
                                                          "may look at everything, and change nothing");
+
+        /// <summary>
+        /// An operator's telephone support: sees what is going on, has it
+        /// reported again, and restarts the node once it is idle.
+        /// </summary>
+        /// <remarks>
+        /// Many people hold this role, so it is to let them do almost nothing:
+        /// no configuration, no log, no restart at once. A kind of node that
+        /// has more for them - a charging station its stuck connectors - says
+        /// so by bringing its own "support", and an operator gives single
+        /// accounts more through a further role (white paper "Signed OCPP
+        /// Messages and Signer Roles", section 5.3, Q12).
+        /// </remarks>
+        public static readonly Role  Support      = new ("support",
+                                                         [ Permission.Read(NodeResources.State),
+                                                           Permission.Run (NodeResources.State),
+                                                           Permission.Run (NodeResources.Reset) ],
+                                                         "sees what is going on, has it reported again, and restarts the node once it is idle");
 
         #endregion
 

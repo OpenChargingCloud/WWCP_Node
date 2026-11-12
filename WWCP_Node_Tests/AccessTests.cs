@@ -326,7 +326,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(access.Resources,                                                Is.EqualTo(NodeResources.All));
-                Assert.That(Names(access.Roles),                                             Is.EqualTo(new[] { "viewer", WWCPNode.AdminRole }));
+                Assert.That(Names(access.Roles),                                             Is.EqualTo(new[] { "viewer", "support", WWCPNode.AdminRole }));
                 Assert.That(access.RoleNamed("viewer")!.     Allows("dns", Operation.Read),  Is.True);
                 Assert.That(access.RoleNamed("viewer")!.     Allows("dns", Operation.Edit),  Is.False);
                 Assert.That(access.RoleNamed("SystemAdmin")!.Allows("dns", Operation.Edit),  Is.True, "a role is found in any case, as a group is");
@@ -347,7 +347,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
 
                 Assert.That(access.Resources,        Is.EqualTo(NodeResources.All.Concat(VehicleResources)));
-                Assert.That(Names(access.Roles),     Is.EqualTo(new[] { "viewer", "driver", "service", WWCPNode.AdminRole }),
+                Assert.That(Names(access.Roles),     Is.EqualTo(new[] { "viewer", "support", "driver", "service", WWCPNode.AdminRole }),
                             "the viewer first and the administrators last, which is how a sentence naming them reads best");
 
                 Assert.That(access.RoleNamed("driver")!.Allows("session", Operation.Run),   Is.True);
@@ -364,6 +364,67 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region TheSupportMaySeeWhatIsGoingOnAndRestartAnIdleNodeAndNothingElse()
+
+        /// <summary>
+        /// The node's third role, for an operator's telephone support: many
+        /// people hold it, so it lets them do almost nothing (white paper
+        /// "Signed OCPP Messages and Signer Roles", section 5.3, Q12).
+        /// </summary>
+        [Test]
+        public void TheSupportMaySeeWhatIsGoingOnAndRestartAnIdleNodeAndNothingElse()
+        {
+
+            var access   = Combine();
+            var support  = access.RoleNamed("support")!;
+
+            Assert.Multiple(() => {
+
+                Assert.That(support.Permissions.Select(permission => permission.ToString()),
+                            Is.EqualTo(new[] { "state:read", "state:run", "reset:run" }));
+
+                Assert.That(support.Allows(NodeResources.Reset,          Operation.Run),   Is.True);
+                Assert.That(support.Allows(NodeResources.ResetImmediate, Operation.Run),   Is.False, "the support restarts a node at once");
+                Assert.That(support.Allows(NodeResources.Node,           Operation.Run),   Is.False);
+                Assert.That(support.Allows(NodeResources.Configuration,  Operation.Read),  Is.False, "the support reads the configuration");
+                Assert.That(support.Allows(NodeResources.Log,            Operation.Read),  Is.False, "the support reads the log");
+                Assert.That(support.Allows(NodeResources.Firmware,       Operation.Edit),  Is.False);
+                Assert.That(support.Allows(NodeResources.Signatures,     Operation.Read),  Is.False);
+
+                // Who may sign what is the administrators' to say, and everybody's to read.
+                Assert.That(access.RoleNamed("viewer")!.         Allows(NodeResources.Signatures, Operation.Read),  Is.True);
+                Assert.That(access.RoleNamed("viewer")!.         Allows(NodeResources.Signatures, Operation.Edit),  Is.False);
+                Assert.That(access.RoleNamed(WWCPNode.AdminRole)!.Allows(NodeResources.Signatures, Operation.Edit),  Is.True);
+
+            });
+
+        }
+
+        #endregion
+
+        #region AKindOfNodeThatHasMoreForTheSupportBringsItsOwn()
+
+        /// <summary>
+        /// A charging station lets its support release a stuck connector: it
+        /// brings a "support" of its own, as it may bring its own viewer.
+        /// </summary>
+        [Test]
+        public void AKindOfNodeThatHasMoreForTheSupportBringsItsOwn()
+        {
+
+            var support  = new Role("support", [ .. Role.Support.Permissions, Permission.Run("unlock") ]);
+            var access   = Combine(KindResources: [ "unlock" ], KindRoles: [ support ]);
+
+            Assert.Multiple(() => {
+                Assert.That(Names(access.Roles),                                           Is.EqualTo(new[] { "viewer", "support", WWCPNode.AdminRole }), "one support, not two");
+                Assert.That(access.RoleNamed("support")!.Allows("unlock", Operation.Run),   Is.True);
+                Assert.That(access.RoleNamed("support")!.Allows("reset",  Operation.Run),   Is.True);
+            });
+
+        }
+
+        #endregion
+
         #region AKindOfNodeThatMeansSomethingElseByViewerSaysSo()
 
         [Test]
@@ -374,7 +435,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var access  = Combine(KindRoles: [ viewer ]);
 
             Assert.Multiple(() => {
-                Assert.That(Names(access.Roles),                                 Is.EqualTo(new[] { "viewer", WWCPNode.AdminRole }), "one viewer, not two");
+                Assert.That(Names(access.Roles),                                 Is.EqualTo(new[] { "viewer", "support", WWCPNode.AdminRole }), "one viewer, not two");
                 Assert.That(access.RoleNamed("viewer")!.Allows("dns", Operation.Read),  Is.False);
             });
 
@@ -425,7 +486,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(Names(access.Roles),                    Is.EqualTo(new[] { "viewer", "cpo", "installer", WWCPNode.AdminRole }));
+                Assert.That(Names(access.Roles),                    Is.EqualTo(new[] { "viewer", "support", "cpo", "installer", WWCPNode.AdminRole }));
                 Assert.That(access.RoleNamed("cpo")!.Permissions,   Is.Empty);
                 Assert.That(access.NamedOnly,                       Is.EquivalentTo(new[] { "cpo", "installer" }));
 
@@ -448,16 +509,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             Assert.That(AccessControl.TryCombine(VehicleResources, [ Driver ], null,
-                                                 Roles("""{ "support": [ "dns:read", "nts:read" ] }"""),
+                                                 Roles("""{ "helpdesk": [ "dns:read", "nts:read" ] }"""),
                                                  "electric vehicle",
                                                  out var access, out var notes, out var error),
                         Is.True, error);
 
             Assert.Multiple(() => {
-                Assert.That(Names(access!.Roles),                                   Is.EqualTo(new[] { "viewer", "driver", "support", WWCPNode.AdminRole }));
-                Assert.That(access!.RoleNamed("support")!.Allows("dns", Operation.Read),  Is.True);
-                Assert.That(access!.RoleNamed("support")!.Allows("dns", Operation.Edit),  Is.False);
-                Assert.That(notes.Single(),                                          Does.Contain("adds the role 'support'").And.Contain("dns:read, nts:read"));
+                Assert.That(Names(access!.Roles),                                   Is.EqualTo(new[] { "viewer", "support", "driver", "helpdesk", WWCPNode.AdminRole }));
+                Assert.That(access!.RoleNamed("helpdesk")!.Allows("dns", Operation.Read),  Is.True);
+                Assert.That(access!.RoleNamed("helpdesk")!.Allows("dns", Operation.Edit),  Is.False);
+                Assert.That(notes.Single(),                                          Does.Contain("adds the role 'helpdesk'").And.Contain("dns:read, nts:read"));
             });
 
         }
@@ -477,7 +538,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                         Is.True, error);
 
             Assert.Multiple(() => {
-                Assert.That(Names(access!.Roles),                                          Is.EqualTo(new[] { "viewer", "driver", WWCPNode.AdminRole }),
+                Assert.That(Names(access!.Roles),                                          Is.EqualTo(new[] { "viewer", "support", "driver", WWCPNode.AdminRole }),
                             "the same role, under the name its kind gave it");
                 Assert.That(access!.RoleNamed("driver")!.Allows("session", Operation.Run),  Is.False);
                 Assert.That(access!.RoleNamed("driver")!.Allows("session", Operation.Read), Is.True);
@@ -517,14 +578,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             Assert.That(AccessControl.TryCombine(VehicleResources, null, null,
-                                                 Roles("""{ "support": [ "dsn:read" ] }"""),
+                                                 Roles("""{ "helpdesk": [ "dsn:read" ] }"""),
                                                  "electric vehicle",
                                                  out _, out _, out var error),
                         Is.False);
 
             Assert.That(error, Does.Contain("'dsn'").
                                And.Contain("this electric vehicle does not have").
-                               And.Contain("configuration, dns, nts, certificates, ssh, log, vehicle, session"));
+                               And.Contain("configuration, dns, nts, certificates, ssh, log, node, reset, reset-immediate, state, firmware, signatures, vehicle, session"));
 
         }
 
@@ -544,7 +605,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             Assert.That(AccessControl.TryCombine(null, null, [ "viewer", "cpo", "installer" ],
-                                                 Roles("""{ "support": [ "dns:read" ] }"""),
+                                                 Roles("""{ "helpdesk": [ "dns:read" ] }"""),
                                                  "charging station",
                                                  out _, out _, out var error),
                         Is.False);
@@ -570,6 +631,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(access.PermissionsOf([ access.RoleNamed("driver")! ]).Select(permission => permission.ToString()),
                         Is.EqualTo(new[] { "configuration:read", "dns:read", "nts:read", "certificates:read", "ssh:read", "log:read",
+                                           "node:read", "reset:read", "reset-immediate:read", "state:read", "firmware:read", "signatures:read",
                                            "vehicle:read", "vehicle:edit", "session:read", "session:run" }));
 
         }
@@ -616,16 +678,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await using var node = await StartedNode("""
                                                      {
                                                        "nts":   { "groups": { "legal": { "enabled": false } } },
-                                                       "roles": { "support": [ "dns:read", "nts:read" ] }
+                                                       "roles": { "helpdesk": [ "dns:read", "nts:read" ] }
                                                      }
                                                      """);
 
             var groups = node.ExtAPI.UserGroups.Select(group => group.Id.ToString()).Order(StringComparer.Ordinal).ToArray();
 
             Assert.Multiple(() => {
-                Assert.That(node.Roles,  Is.EqualTo(new[] { "viewer", "support", WWCPNode.AdminRole }));
-                Assert.That(groups,      Is.EqualTo(new[] { "support", WWCPNode.AdminRole, "viewer" }));
-                Assert.That(node.Log.Recent(500, Tag: "security").Any(entry => entry.Message.Contains("adds the role 'support'")),
+                Assert.That(node.Roles,  Is.EqualTo(new[] { "viewer", "support", "helpdesk", WWCPNode.AdminRole }));
+                Assert.That(groups,      Is.EqualTo(new[] { "helpdesk", "support", WWCPNode.AdminRole, "viewer" }));
+                Assert.That(node.Log.Recent(500, Tag: "security").Any(entry => entry.Message.Contains("adds the role 'helpdesk'")),
                             Is.True,
                             "who may do what is a decision about trust, and one the file made: said at the start, tagged as such");
             });
@@ -640,7 +702,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void ANodeWhoseFileNamesAResourceItDoesNotHaveDoesNotStart()
         {
 
-            Assert.That(() => NodeWith("""{ "nts": { "groups": { "legal": { "enabled": false } } }, "roles": { "support": [ "dsn:read" ] } }"""),
+            Assert.That(() => NodeWith("""{ "nts": { "groups": { "legal": { "enabled": false } } }, "roles": { "helpdesk": [ "dsn:read" ] } }"""),
                         Throws.InvalidOperationException.With.Message.Contains("'dsn'").
                                                           And.Message.Contains("Repair or remove"));
 
@@ -675,7 +737,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.IsAllowed(alice, NodeResources.DNS,          Operation.Read),  Is.True);
                 Assert.That(node.IsAllowed(alice, NodeResources.DNS,          Operation.Edit),  Is.False);
                 Assert.That(node.PermissionsOf(alice).Select(permission => permission.ToString()),
-                            Is.EqualTo(new[] { "configuration:read", "dns:read", "nts:read", "certificates:read", "ssh:read", "log:read" }));
+                            Is.EqualTo(new[] { "configuration:read", "dns:read", "nts:read", "certificates:read", "ssh:read", "log:read",
+                                               "node:read", "reset:read", "reset-immediate:read", "state:read", "firmware:read", "signatures:read" }));
 
                 Assert.That(node.RolesOf(robert),                                                   Is.Empty);
                 Assert.That(node.IsAllowed(robert, NodeResources.DNS,          Operation.Read),  Is.False);

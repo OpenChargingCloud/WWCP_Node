@@ -54,7 +54,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         protected static JObject RolesTheFileAdds
 
             => new (
-                   new JProperty("support",   new JArray("dns:read")),
+                   new JProperty("helpdesk",  new JArray("dns:read")),
                    new JProperty("dnsdesk",   new JArray("dns:read", "dns:edit")),
                    new JProperty("timedesk",  new JArray("nts:read"))
                );
@@ -74,9 +74,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Assert.Multiple(() => {
 
-                Assert.That(Node.Roles,  Does.Contain("support").And.Contain("dnsdesk").And.Contain("timedesk"));
+                Assert.That(Node.Roles,  Does.Contain("helpdesk").And.Contain("dnsdesk").And.Contain("timedesk"));
 
-                foreach (var role in new[] { "support", "dnsdesk", "timedesk" })
+                foreach (var role in new[] { "helpdesk", "dnsdesk", "timedesk" })
                     Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(role), out _),
                                 Is.True,
                                 $"The {Node.Kind.Name} made no group for the role '{role}'.");
@@ -106,7 +106,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task ARoleTheFileAddsMayDoWhatItSaysAndNothingElse()
         {
 
-            await AccountIn("supporter",   "support",   "Supporting-Only-1");
+            await AccountIn("supporter",   "helpdesk",   "Supporting-Only-1");
             await AccountIn("timekeeper",  "timedesk",  "Keeping-Time-Only-1");
 
             using var supporter   = await SignedInAs("supporter",   "Supporting-Only-1");
@@ -127,7 +127,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(dns.   StatusCode,                         Is.EqualTo(HttpStatusCode.OK),         "reading the name servers is what the role is for");
                 Assert.That(nts.   StatusCode,                         Is.EqualTo(HttpStatusCode.Forbidden),  "the time source is none of its business");
                 Assert.That(change.StatusCode,                         Is.EqualTo(HttpStatusCode.Forbidden),  "reading is not changing");
-                Assert.That(me["roles"]?.      Values<String>(),       Is.EqualTo(new[] { "support" }));
+                Assert.That(me["roles"]?.      Values<String>(),       Is.EqualTo(new[] { "helpdesk" }));
                 Assert.That(me["permissions"]?.Values<String>(),       Is.EqualTo(new[] { "dns:read" }));
 
                 Assert.That(time.  StatusCode,                         Is.EqualTo(HttpStatusCode.OK),         "reading the time source is what the other role is for");
@@ -153,7 +153,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task ARefusalNamesTheRolesTheFileAdds()
         {
 
-            await AccountIn("supporter", "support", "Supporting-Only-1");
+            await AccountIn("supporter", "helpdesk", "Supporting-Only-1");
 
             using var http          = await SignedInAs("supporter", "Supporting-Only-1");
 
@@ -164,7 +164,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(refused,  Is.EqualTo(HttpStatusCode.Forbidden));
                 Assert.That(said,     Does.StartWith("This needs the ").And.EndWith(" role."));
                 Assert.That(said,     Does.Contain("dnsdesk"),      "the role the file gave the permission is not among the ones to ask for");
-                Assert.That(said,     Does.Not.Contain("support"),  "the role the file did not give it is");
+                Assert.That(said,     Does.Not.Contain("helpdesk"), "the role the file did not give it is");
                 Assert.That(said,     Does.Not.Contain("timedesk"), "a role the file gave another resource is");
             });
 
@@ -185,7 +185,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var said = Node.Log.Recent(500, Tag: "security").Select(entry => entry.Message).ToArray();
 
             Assert.Multiple(() => {
-                Assert.That(said,  Has.Some.EqualTo("The configuration file adds the role 'support', which may do dns:read."),  String.Join(" | ", said));
+                Assert.That(said,  Has.Some.EqualTo("The configuration file adds the role 'helpdesk', which may do dns:read."),  String.Join(" | ", said));
                 Assert.That(said,  Has.Some.StartsWith("The configuration file adds the role 'dnsdesk', which may do "),       String.Join(" | ", said));
                 Assert.That(said,  Has.Some.EqualTo("The configuration file adds the role 'timedesk', which may do nts:read."), String.Join(" | ", said));
             });

@@ -799,22 +799,28 @@ what it may do: a list of permissions, each an operation on a resource and
 written `dns:edit`. The operations are three and fixed - `read`, `edit`, and
 `run` for asking a server something or running a session - so that "may
 read" means the same on every kind of node. The resources are names:
-`configuration`, `dns`, `nts`, `certificates` and `ssh` for what every node has,
-and whatever a kind of node adds - `vehicle`, `v2g` and `session` for a
+`configuration`, `dns`, `nts`, `certificates`, `ssh` and `log` for what every node
+has, `node`, `reset`, `reset-immediate`, `state`, `firmware` and `signatures`
+for what every node can be asked over OCPP by somebody who signs for it - a
+message of its own, a restart once it is idle and one at once, what is going
+on, its firmware, and who may sign what - and whatever a kind of node adds - `vehicle`, `v2g` and `session` for a
 vehicle. `*` is every resource there is, the kind's included. The clock, the
 log and the event stream are none of them, and for anybody signed in.
 
 The roles are data, put together at every start from three places. The node
-brings two: `viewer`, who may read everything, and `systemadmin`, who may do
-everything - the first account goes there, and nobody but the node says what
-it may do, because a role that could be narrowed could leave nobody able to
-put that right. A kind of node hands in its resources and its roles as
-`Resources` and `RoleDefinitions` - a vehicle's `driver` and `service` - and
-may bring a `viewer` of its own. And the `roles` section of the configuration
+brings three: `viewer`, who may read everything, `support`, who may see what
+is going on, have it reported again and restart the node once it is idle
+(`state:read`, `state:run`, `reset:run`) and nothing else, and
+`systemadmin`, who may do everything - the first account goes there, and
+nobody but the node says what it may do, because a role that could be
+narrowed could leave nobody able to put that right. A kind of node hands in
+its resources and its roles as `Resources` and `RoleDefinitions` - a
+vehicle's `driver` and `service` - and may bring a `viewer` or a `support`
+of its own. And the `roles` section of the configuration
 file adds roles, or says differently what one of them may do:
 
 ```json
-"roles": { "support": [ "dns:read", "nts:read" ] }
+"roles": { "helpdesk": [ "dns:read", "nts:read" ] }
 ```
 
 A role there that names a resource the node does not have stops the start,

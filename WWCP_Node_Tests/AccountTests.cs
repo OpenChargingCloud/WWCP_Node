@@ -159,8 +159,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await using var node = await StartedNode();
 
             Assert.Multiple(() => {
-                Assert.That(node.Roles,              Is.EqualTo(new[] { Role.Viewer.Name, Role.SystemAdmin.Name }));
-                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "systemadmin", "viewer" }));
+                Assert.That(node.Roles,              Is.EqualTo(new[] { Role.Viewer.Name, Role.Support.Name, Role.SystemAdmin.Name }));
+                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "support", "systemadmin", "viewer" }));
                 Assert.That(RootIsASystemAdmin(node), Is.True);
             });
 
@@ -190,8 +190,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await using var node = await StartedNode([ "viewer", "cpo", "installer", "systemadmin" ]);
 
             Assert.Multiple(() => {
-                Assert.That(node.Roles,              Is.EqualTo(new[] { "viewer", "cpo", "installer", "systemadmin" }));
-                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "cpo", "installer", "systemadmin", "viewer" }));
+                Assert.That(node.Roles,              Is.EqualTo(new[] { "viewer", "support", "cpo", "installer", "systemadmin" }));
+                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "cpo", "installer", "support", "systemadmin", "viewer" }));
                 Assert.That(RootIsASystemAdmin(node), Is.True);
             });
 
@@ -219,8 +219,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await using var node = await StartedNode([ "viewer" ]);
 
             Assert.Multiple(() => {
-                Assert.That(node.Roles,              Is.EqualTo(new[] { "viewer", "systemadmin" }));
-                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "systemadmin", "viewer" }));
+                Assert.That(node.Roles,              Is.EqualTo(new[] { "viewer", "support", "systemadmin" }));
+                Assert.That(GroupsOf(node),          Is.EqualTo(new[] { "support", "systemadmin", "viewer" }));
                 Assert.That(RootIsASystemAdmin(node), Is.True);
             });
 

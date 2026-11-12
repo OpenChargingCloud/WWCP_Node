@@ -35,8 +35,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// <remarks>
     /// <para>
     /// Put together once, when the node is made, from three places in this
-    /// order: the node's own - the resources every node has, the viewer and
-    /// the administrators - then what the kind of node brings, then what the
+    /// order: the node's own - the resources every node has, the viewer, the
+    /// support and the administrators - then what the kind of node brings, then what the
     /// configuration file says. Each may add, and the later ones may say
     /// differently what a role of an earlier one may do; nobody but the node
     /// says what the administrators may do, which is everything.
@@ -146,9 +146,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             #endregion
 
-            #region The roles: the viewer, the kind's, the ones known by name, the administrators
+            #region The roles: the viewer, the support, the kind's, the ones known by name, the administrators
 
-            var roles = new List<Role> { Role.Viewer };
+            var roles = new List<Role> { Role.Viewer, Role.Support };
 
             foreach (var role in KindRoles ?? [])
             {
@@ -163,9 +163,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
                 var index = IndexOf(roles, role.Name);
 
-                // The node's viewer is a default, and a kind of node that means
-                // something else by "viewer" says so by bringing its own.
-                if (index >= 0 && ReferenceEquals(roles[index], Role.Viewer))
+                // The node's viewer and support are defaults, and a kind of node
+                // that means something else by them says so by bringing its own.
+                if (index >= 0 && (ReferenceEquals(roles[index], Role.Viewer) ||
+                                   ReferenceEquals(roles[index], Role.Support)))
                     roles[index] = role;
 
                 else if (index >= 0)

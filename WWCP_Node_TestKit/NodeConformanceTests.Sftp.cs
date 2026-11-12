@@ -304,7 +304,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task AnAccountReadsTheLogFilesExactlyWhereItMayReadTheLog()
         {
 
-            var account          = await AccountIn("supporter", "support", "Supporting-Only-1");
+            var account          = await AccountIn("supporter", "helpdesk", "Supporting-Only-1");
 
             var day              = DayFile("2026-01-02");
             var content          = $"2026-01-02T12:00:00.000Z [Info] The day {Guid.NewGuid():N} was logged.\n";

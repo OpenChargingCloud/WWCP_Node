@@ -73,7 +73,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         TimeClientOn,
 
         /// <summary>
-        /// Two roles the file adds, which no kind of node brings: "support",
+        /// Two roles the file adds, which no kind of node brings: "helpdesk",
         /// which may read the name resolution and nothing else, and "dnsdesk",
         /// which may change it as well - see
         /// <see cref="NodeConformanceTests.RolesTheFileAdds"/>.
