@@ -369,7 +369,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                           $"spread {Milliseconds(group?.Value<Double?>("spread_ms"))}");
 
                 if (group?.Value<Boolean?>("deviationExceeded") == true)
-                    lines.Add("  The servers disagree by more than the agreed deviation - see the log.");
+                    lines.Add(group.Value<Int32?>("agreeing") is Int32 agreeing
+                                  ? $"  The servers disagree by more than the agreed deviation, and {agreeing} of them agree - see the log."
+                                  :  "  The servers disagree by more than the agreed deviation - see the log.");
 
             }
             else

@@ -1675,6 +1675,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                     new JProperty("name",               group.Name),
                                     new JProperty("answered",           verdict.Answered),
                                     new JProperty("required",           verdict.Required),
+                                    new JProperty("agreeing",           verdict.Agreeing),
                                     new JProperty("offset_ms",          verdict.Offset?.TotalMilliseconds),
                                     new JProperty("spread_ms",          verdict.Spread?.TotalMilliseconds),
                                     new JProperty("deviationExceeded",  verdict.DeviationExceeded)
@@ -1685,10 +1686,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!verdict.IsUsable)
                 {
 
+                    // Before the failure, so that the log reads "disagree by ...",
+                    // then "produced no time": the spread is written down whether
+                    // the round has a time or not.
+                    if (verdict.DeviationExceeded)
+                        LogTime(Group, LogLevel.Warning, DeviationWarning(group.Name, verdict.Spread!.Value, group.MaxDeviation), "nts", "test");
+
                     var failure = Failed(
-                                      verdict.Outcome == TimeSyncOutcome.NothingAnswered
-                                          ? "No time server answered."
-                                          : $"Only {verdict.Answered} of {verdict.Required} time server(s) answered.",
+                                      NoTimeReason(verdict),
                                       new JProperty("runtime_ms",  stopwatch.ElapsedMilliseconds),
                                       new JProperty("group",       groupJSON),
                                       new JProperty("servers",     servers)
@@ -1727,10 +1732,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                   ? asking[0]
                                   : null);
 
-                // Written down rather than acted on, which is what the white
-                // paper asks for: the disagreement belongs in the metrological
-                // log book, and the time is still a time. Both lines read the
-                // same under every culture - see DeviationWarning.
+                // Written down, which is what the white paper asks for: the
+                // disagreement belongs in the metrological log book. That there
+                // is a time all the same means a majority of the servers agreed
+                // and outvoted the rest (section 3.2.3, "Agreement"); without
+                // one the round has failed above. Both lines read the same
+                // under every culture - see DeviationWarning.
                 if (verdict.DeviationExceeded)
                     LogTime(Group, LogLevel.Warning, DeviationWarning(group.Name, verdict.Spread!.Value, group.MaxDeviation), "nts", "test");
 
@@ -1843,6 +1850,32 @@ namespace cloud.charging.open.protocols.WWCP.Node
             => Group.Sources.Sources.FirstOrDefault(source => source.Hostname.Equals(Hostname)) is NTSServerEndpoint server
                    ? ServerIdOf(Group, server)
                    : null;
+
+        #endregion
+
+        #region (static) NoTimeReason(Verdict)
+
+        /// <summary>
+        /// Why a round produced no time, as the error of its result.
+        /// </summary>
+        /// <remarks>
+        /// Three different things to go and look at: nobody answered, too few
+        /// answered, or enough answered and they contradict each other.
+        /// </remarks>
+        /// <param name="Verdict">What the group concluded.</param>
+        public static String NoTimeReason(TimeSyncVerdict Verdict)
+
+            => Verdict.Outcome switch {
+
+                   TimeSyncOutcome.NothingAnswered
+                       => "No time server answered.",
+
+                   TimeSyncOutcome.ServersDisagree
+                       => $"The time servers disagree: only {Verdict.Agreeing} of the {Verdict.Answered} that answered lie within the agreed deviation.",
+
+                   _   => $"Only {Verdict.Answered} of {Verdict.Required} time server(s) answered."
+
+               };
 
         #endregion
 

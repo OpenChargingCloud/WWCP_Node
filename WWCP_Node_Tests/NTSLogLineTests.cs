@@ -124,16 +124,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// says so, and that verdict keeps its point as well.
         /// </summary>
         /// <remarks>
-        /// Two servers 2.2 ms apart, in a group that agreed on a millisecond.
-        /// The verdict is Norn's; what is asked here is the line this node
-        /// writes with it.
+        /// Three servers, the furthest 2.2 ms apart, in a group that agreed on a
+        /// millisecond: two of them agree and outvote the third. The verdict is
+        /// Norn's; what is asked here is the line this node writes with it.
         /// </remarks>
         [Test]
         public void TheVerdictTheLineEndsWithHasAPointToo()
         {
 
             var verdict = TimeSyncVerdict.From(
-                              [ Answer("a.example", 1.0), Answer("b.example", 3.2) ],
+                              [ Answer("a.example", 1.0), Answer("b.example", 1.4), Answer("c.example", 3.2) ],
                               MinServers:    2,
                               MaxDeviation:  TimeSpan.FromMilliseconds(1)
                           );
@@ -141,10 +141,40 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
 
                 Assert.That(verdict.DeviationExceeded,  Is.True,  "the test's own premise");
+                Assert.That(verdict.IsUsable,           Is.True,  "the test's own premise");
 
                 Assert.That(WWCPNode.AnsweredLine("legal", 766, verdict),
                             Is.EqualTo("NTS: group 'legal' answered in 766 ms - " +
-                                       "+2.1 ms from 2 server(s), spread 2.2 ms - beyond the agreed deviation."));
+                                       "+1.2 ms from 3 server(s), spread 2.2 ms - beyond the agreed deviation, 2 agree."));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARoundWithoutATimeSaysWhy()
+
+        /// <summary>
+        /// Nobody answered, too few answered, or enough answered and they
+        /// contradict each other: three things to go and look at.
+        /// </summary>
+        [Test]
+        public void ARoundWithoutATimeSaysWhy()
+        {
+
+            var oneMinute = TimeSpan.FromSeconds(60);
+
+            Assert.Multiple(() => {
+
+                Assert.That(WWCPNode.NoTimeReason(TimeSyncVerdict.From([], 2, oneMinute)),
+                            Is.EqualTo("No time server answered."));
+
+                Assert.That(WWCPNode.NoTimeReason(TimeSyncVerdict.From([ Answer("a.example", 1.0) ], 2, oneMinute)),
+                            Is.EqualTo("Only 1 of 2 time server(s) answered."));
+
+                Assert.That(WWCPNode.NoTimeReason(TimeSyncVerdict.From([ Answer("a.example", 0), Answer("b.example", 90_000) ], 2, oneMinute)),
+                            Is.EqualTo("The time servers disagree: only 1 of the 2 that answered lie within the agreed deviation."));
 
             });
 
