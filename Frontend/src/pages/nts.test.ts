@@ -11,7 +11,7 @@ import { open, refused, said, until, type Asked } from '../../test/node.ts';
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import type { Clock, NTSConfiguration, NTSGroups, NTSGroupSummary, NTSUpdate } from '../api/client.ts';
+import type { Clock, NTSConfiguration, NTSGroups, NTSGroupSummary, NTSSyncResult, NTSUpdate } from '../api/client.ts';
 
 const { ntsPage } = await import('./nts.ts');
 
@@ -34,6 +34,9 @@ let clockSays: Partial<Clock> = {};
 const shownPrint = 'ab'.repeat(32);
 const rootPrint  = 'cd'.repeat(32);
 let synced = 0;
+
+/** What "Sync now" is answered with, where a test wants another round than the usual one. */
+let syncResult: NTSSyncResult | null = null;
 
 function aConfiguration(): NTSConfiguration {
     return {
@@ -127,8 +130,8 @@ function node({ method, path, body }: Asked): unknown {
 
     if (at[2] === '/sync') {
         synced++;
-        return { ...group, result: { ok: true, at: '2026-10-04T12:00:01Z', servers: [],
-                                     group: { answered: 2, required: 2, offset_ms: 0.4, spread_ms: 0.1 } } };
+        return { ...group, result: syncResult ?? { ok: true, at: '2026-10-04T12:00:01Z', servers: [],
+                                                   group: { answered: 2, agreeing: 2, required: 2, offset_ms: 0.4, spread_ms: 0.1 } } };
     }
 
     if (at[2] === '/test')
@@ -189,6 +192,7 @@ async function opened(clock:   Partial<Clock> = {},
     made.length   = 0;
     removed.length = 0;
     synced        = 0;
+    syncResult    = null;
 
     // The address the tab is remembered in, as a browser has it.
     history.replaceState(null, '', path);
@@ -563,6 +567,40 @@ describe('the NTS page', () => {
         assert.ok(document.activeElement === authority, 'the focus went');
         assert.deepEqual(told.map(update => Object.keys(update).includes('legalTimeAuthority')), [ false ],
                          'the policy carried what is typed into the other form');
+
+    });
+
+    it('says how many of the servers agree where they lie further apart than the agreed deviation', async () => {
+
+        const root = await opened();
+
+        syncResult = { server: 'ptbtime1.ptb.de', ok: true, at: '2026-10-04T12:00:01Z', servers: [],
+                       group: { name: 'ptb', answered: 3, agreeing: 2, required: 2, offset_ms: 0.4, spread_ms: 90000, deviationExceeded: true } };
+
+        root.querySelector<HTMLButtonElement>('#sync')!.click();
+        await until(() => root.querySelector('.sync-verdict') !== null, '"Sync now" was not answered');
+
+        const said = root.querySelector('.sync-agreement')?.textContent?.replace(/\s+/g, ' ').trim();
+
+        assert.equal(said, 'The servers disagree by more than the agreed deviation: 2 of the 3 that answered agree, and the time is theirs. The log says by how much.');
+
+    });
+
+    it('says how many of the servers agree where that was not enough for a time', async () => {
+
+        const root = await opened();
+
+        syncResult = { server: 'ptbtime1.ptb.de', ok: false, at: '2026-10-04T12:00:01Z', servers: [],
+                       error: 'The time servers disagree: only 1 of the 2 that answered lie within the agreed deviation.',
+                       group: { name: 'ptb', answered: 2, agreeing: 1, required: 2, offset_ms: null, spread_ms: 90000, deviationExceeded: true } };
+
+        root.querySelector<HTMLButtonElement>('#sync')!.click();
+        await until(() => root.querySelector('.sync-verdict') !== null, '"Sync now" was not answered');
+
+        const said = root.querySelector('.sync-agreement')?.textContent?.replace(/\s+/g, ' ').trim();
+
+        assert.ok(root.querySelector('.sync-verdict.bad') !== null, 'a round without a time is shown as one that succeeded');
+        assert.equal(said, 'The servers disagree by more than the agreed deviation: 1 of the 2 that answered agree. The log says by how much.');
 
     });
 

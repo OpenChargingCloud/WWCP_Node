@@ -838,10 +838,13 @@ export interface NTSSyncResult {
     runtime_ms?:  number;
     offset_ms?:   number | null;
 
-    /** What the group concluded: the median, how many answered, how far apart. */
+    /** What the group concluded: the median, how many answered, how many of them agree, how far apart. */
     group?:       {
         name:               string;
         answered:           number;
+
+        /** How many of those that answered lie within the agreed deviation of one another. All of them, as a rule. */
+        agreeing:           number;
         required:           number;
         offset_ms:          number | null;
         spread_ms:          number | null;

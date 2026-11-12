@@ -940,7 +940,11 @@ export const ntsPage: Page = {
                         - ${formatValue(sync.at)}${sync.runtime_ms ? `, ${sync.runtime_ms} ms` : ''}
                     </span>
                     ${group?.deviationExceeded
-                          ? html`<div class="small">The servers disagree by more than the agreed deviation - the log says by how much.</div>`
+                          ? html`<div class="small sync-agreement">
+                                     The servers disagree by more than the agreed deviation:
+                                     ${group.agreeing} of the ${group.answered} that answered agree${sync.ok ? ', and the time is theirs' : ''}.
+                                     The log says by how much.
+                                 </div>`
                           : nothing}
                 </div>
             `;
