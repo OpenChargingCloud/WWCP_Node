@@ -67,6 +67,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region Properties
 
         /// <summary>
+        /// The pin of the key of the certificate the server showed, as a pin of
+        /// a key is kept - see <see cref="ServerPins.KeyPinOf"/> - or null where
+        /// it showed none.
+        /// </summary>
+        public String?  CertificateKeyPin    { get; init; }
+
+        /// <summary>
+        /// The pin of the key of the root its chain ended at, or null where it
+        /// ended at none.
+        /// </summary>
+        public String?  RootKeyPin           { get; init; }
+
+        /// <summary>
         /// The first certificate the server is held to, or null.
         /// </summary>
         public String?  HeldToCertificate
@@ -102,6 +115,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    new JProperty("outcome",      Outcome),
                    new JProperty("certificate",  CertificateFingerprint),
                    new JProperty("root",         RootFingerprint),
+                   new JProperty("certificateKeyPin",  CertificateKeyPin),
+                   new JProperty("rootKeyPin",         RootKeyPin),
                    new JProperty("anchoredBy",   AnchoredBy),
                    new JProperty("heldTo",       HeldTo is { } pins && (pins.IsPinned || pins.RootGroup is not null)
                                                      ? new JObject(
@@ -335,6 +350,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             String?       certificateFingerprint  = null;
             String?       rootFingerprint         = null;
+            String?       certificateKeyPin       = null;
+            String?       rootKeyPin              = null;
             String?       anchoredBy              = null;
             String        outcome;
             Boolean       accepted;
@@ -353,6 +370,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 certificateFingerprint = CertificateEntry.ThumbprintOf(Certificate);
+                certificateKeyPin      = ServerPins.KeyPinOf(Certificate);
 
                 // The name first, and never forgiven: a certificate issued for
                 // another host is a certificate for another host, whatever it
@@ -380,12 +398,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         Chain is not null && Chain.ChainElements.Count > 0)
                     {
                         rootFingerprint  = CertificateEntry.ThumbprintOf(Chain.ChainElements[Chain.ChainElements.Count - 1].Certificate);
+                        rootKeyPin       = ServerPins.      KeyPinOf    (Chain.ChainElements[Chain.ChainElements.Count - 1].Certificate);
                         revocation       = AskWhetherRevoked(Certificate, Chain);
                     }
 
-                    else if (TryAnchor(Service, Certificate, Chain, pins, WithoutRoots, out var anchoredRoot, out var label, out revocation))
+                    else if (TryAnchor(Service, Certificate, Chain, pins, WithoutRoots, out var anchoredRoot, out var anchoredKeyPin, out var label, out revocation))
                     {
                         rootFingerprint  = anchoredRoot;
+                        rootKeyPin       = anchoredKeyPin;
                         anchoredBy       = label;
                         steps.Add(("notice", pins.RootGroup is null
                                                  ? $"Validated by this {Kind.Name}'s own root '{label}', which the machine does not know."
@@ -417,19 +437,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         if (revocation.Unknown)
                             steps.Add(("notice", "Whether its chain is revoked could not be asked, which is not held against it."));
 
-                        var certificateMatches  = pins.HoldsCertificate(certificateFingerprint);
-                        var rootMatches         = pins.HoldsRoot(rootFingerprint);
+                        var certificateMatches  = pins.HoldsCertificate(certificateFingerprint, certificateKeyPin);
+                        var rootMatches         = pins.HoldsRoot       (rootFingerprint,        rootKeyPin);
+
+                        // What it showed, written the way it is held: its key
+                        // too, where a pin of a key is among them.
+                        var certificateShown    = pins.Certificates.Any(ServerPins.IsKeyPin)
+                                                      ? $"{certificateFingerprint}, with the key {certificateKeyPin}"
+                                                      : certificateFingerprint;
+
+                        var rootShown           = pins.Roots.Any(ServerPins.IsKeyPin)
+                                                      ? $"{rootFingerprint}, with the key {rootKeyPin}"
+                                                      : rootFingerprint;
                         var mismatchLevel       = pins.OnMismatch == PinMismatch.Refuse ? "error" : "warning";
 
                         if (pins.Certificates.Count > 0)
                             steps.Add(certificateMatches
                                           ? ("notice",       $"Held to certificate {String.Join(" or ", pins.Certificates)}: it is {(pins.Certificates.Count == 1 ? "the one" : "one")} it showed.")
-                                          : (mismatchLevel,  $"Held to certificate {String.Join(" or ", pins.Certificates)}, and it showed {certificateFingerprint}."));
+                                          : (mismatchLevel,  $"Held to certificate {String.Join(" or ", pins.Certificates)}, and it showed {certificateShown}."));
 
                         if (pins.Roots.Count > 0)
                             steps.Add(rootMatches
                                           ? ("notice",       $"Held to root {String.Join(" or ", pins.Roots)}: its chain ends there.")
-                                          : (mismatchLevel,  $"Held to root {String.Join(" or ", pins.Roots)}, and its chain ends at {rootFingerprint}."));
+                                          : (mismatchLevel,  $"Held to root {String.Join(" or ", pins.Roots)}, and its chain ends at {rootShown}."));
 
                         if (certificateMatches && rootMatches)
                         {
@@ -539,7 +569,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                 previously,
                                 firstSeen,
                                 steps
-                            );
+                            ) {
+                                CertificateKeyPin  = certificateKeyPin,
+                                RootKeyPin         = rootKeyPin
+                            };
 
             if (Remember)
             {
@@ -594,13 +627,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 anchors.AddRange(Certificates.UsableFor(CertificateKind.TLSRoot, Service));
 
-                foreach (var pinned in Pins.Roots)
+                foreach (var pinned in Pins.Roots.Where(pinned => !ServerPins.IsKeyPin(pinned)))
                     if (!anchors.Any(anchor => String.Equals(anchor.Thumbprint, pinned, StringComparison.OrdinalIgnoreCase)) &&
                         Certificates.ByFingerprint(pinned) is CertificateEntry held &&
                         held.IsUsable)
                     {
                         anchors.Add(held);
                     }
+
+                // A root it is held to by its key: whichever certificates the
+                // store has of that key, as whatever kind.
+                var keys = Pins.Roots.Where(ServerPins.IsKeyPin).ToArray();
+
+                if (keys.Length > 0)
+                    foreach (var entry in Certificates.Entries)
+                        if (entry.IsUsable &&
+                            !anchors.Any(anchor => anchor.Thumbprint == entry.Thumbprint) &&
+                            Certificates.TryLoad(entry, out var ofThatKey, out _))
+                        {
+                            using (ofThatKey)
+                                if (keys.Contains(ServerPins.KeyPinOf(ofThatKey), StringComparer.OrdinalIgnoreCase))
+                                    anchors.Add(entry);
+                        }
 
             }
 
@@ -644,11 +692,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                   ServerPins                                  Pins,
                                   IReadOnlyCollection<String>?                WithoutRoots,
                                   [NotNullWhen(true)] out String?             RootFingerprint,
+                                  [NotNullWhen(true)] out String?             RootKeyPin,
                                   [NotNullWhen(true)] out String?             Label,
                                   out RevocationAnswer                        Revocation)
         {
 
             RootFingerprint  = null;
+            RootKeyPin       = null;
             Label            = null;
             Revocation       = RevocationAnswer.NotAsked;
 
@@ -703,6 +753,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var end          = CertificateEntry.ThumbprintOf(chain.ChainElements[chain.ChainElements.Count - 1].Certificate);
 
                 RootFingerprint  = end;
+                RootKeyPin       = ServerPins.KeyPinOf(chain.ChainElements[chain.ChainElements.Count - 1].Certificate);
                 Label            = anchors.FirstOrDefault(anchor => anchor.Fingerprint == end).Label ?? end;
 
                 return true;

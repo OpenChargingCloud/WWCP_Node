@@ -14,7 +14,7 @@ import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
 import type { Certificate, CertificateStore, NTSServerEntry, ServerPins } from '../api/client';
-import { asShown, draftOf, keysOf, noPins, normalisedFingerprint, offersOf, parseFingerprints, pinsIn, pinsText, readPins, withAsShown, withPins } from './pins.ts';
+import { asShown, draftOf, isKeyPin, keysOf, noPins, normalisedFingerprint, normalisedPin, offersOf, parseFingerprints, pinsIn, pinsText, readPins, shortFingerprint, withAsShown, withPins } from './pins.ts';
 
 
 const root         = 'a'.repeat(64);
@@ -58,6 +58,68 @@ describe('a fingerprint as somebody writes it', () => {
 
         assert.deepEqual(parseFingerprints(`${root}\n\n  ${root.toUpperCase()}  \r\n${certificate}\nnot one`),
                          { fingerprints: [ root, certificate ], wrong: [ 'not one' ] });
+
+    });
+
+});
+
+
+describe('the pin of a key as somebody writes it', () => {
+
+    // 32 bytes of 0xaa, as curl writes them.
+    const curl = 'sha256//qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=';
+    const key  = 'spki:' + root;
+
+    it('is read as spki: and its digits, with or without colons, in either case', () => {
+
+        assert.equal(normalisedPin('spki:' + root),                            key);
+        assert.equal(normalisedPin('SPKI:' + 'AA:'.repeat(31) + 'AA'),         key);
+        assert.equal(normalisedPin('  spki: ' + root.toUpperCase() + '  '),    key);
+
+    });
+
+    it('is read as curl writes it', () => {
+
+        assert.equal(normalisedPin(curl), key);
+
+    });
+
+    it('is not one when it is shorter, or written both ways at once', () => {
+
+        assert.equal(normalisedPin('spki:abcd'),                      null);
+        assert.equal(normalisedPin('spki:' + curl),                   null);
+        assert.equal(normalisedPin('sha256//AAAA'),                   null);
+        assert.equal(normalisedPin(curl.slice(0, -1)),                null);
+
+    });
+
+    it('leaves hexadecimal digits alone a fingerprint', () => {
+
+        assert.equal(normalisedPin(root),  root);
+        assert.equal(isKeyPin(root),       false);
+        assert.equal(isKeyPin(key),        true);
+
+    });
+
+    it('stands in a list beside fingerprints, each once however it is written', () => {
+
+        assert.deepEqual(parseFingerprints(`${curl}\n${root}\n${key.toUpperCase()}\nspki:not one`),
+                         { fingerprints: [ key, root ], wrong: [ 'spki:not one' ] });
+
+    });
+
+    it('keeps saying what it is when it is shortened', () => {
+
+        assert.equal(shortFingerprint(key),   'spki:' + root.slice(0, 16) + '…');
+        assert.equal(shortFingerprint(root),  root.slice(0, 16) + '…');
+
+    });
+
+    it('is refused, where it is none, with the sentence that names both', () => {
+
+        const read = readPins({ certificates: 'spki:1a2b', roots: '', onMismatch: 'refuse', trustOnFirstUse: '' });
+
+        assert.match(read.error ?? '', /^'spki:1a2b' is not a SHA-256 fingerprint - .* and not the pin of a key either/);
 
     });
 

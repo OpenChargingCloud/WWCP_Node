@@ -69,10 +69,68 @@ export function normalisedFingerprint(text: string): string | null {
 }
 
 
+/** What the pin of a key begins with, as the node keeps it. */
+export const keyPinPrefix = 'spki:';
+
+
 /**
- * The fingerprints somebody typed or pasted, one to a line, each once - and
- * what was not one, as it was written, so that it can be said which line is
- * wrong rather than that something is.
+ * Whether a pin, as the node keeps it, is the pin of a key rather than the
+ * fingerprint of a certificate.
+ */
+export function isKeyPin(pin: string): boolean {
+    return pin.toLowerCase().startsWith(keyPinPrefix);
+}
+
+
+/**
+ * A pin in the form the node keeps it, or null where it is none: the
+ * fingerprint of a certificate - see normalisedFingerprint - or the pin of a
+ * key, "spki:" and the 64 hexadecimal digits of the SHA-256 over its
+ * SubjectPublicKeyInfo.
+ *
+ * The pin of a key is written "spki:" and its digits, with or without colons,
+ * or the way curl and a browser's pin list write it: "sha256//" and the
+ * base64 of its 32 bytes. Hexadecimal digits alone are a fingerprint, as they
+ * always were - both are a SHA-256, and only the way it is written tells
+ * them apart.
+ */
+export function normalisedPin(text: string): string | null {
+
+    const written = text.trim();
+
+    if (isKeyPin(written)) {
+
+        const digits = written.slice(keyPinPrefix.length).trim().replace(/[:\s-]/g, '');
+
+        return /^[0-9a-fA-F]{64}$/.test(digits) ? keyPinPrefix + digits.toLowerCase() : null;
+
+    }
+
+    if (written.toLowerCase().startsWith('sha256//')) {
+
+        const base64 = written.slice('sha256//'.length);
+
+        // 32 bytes are 43 characters and one '='.
+        if (!/^[A-Za-z0-9+/]{43}=$/.test(base64))
+            return null;
+
+        const bytes = atob(base64);
+
+        return bytes.length === 32
+                   ? keyPinPrefix + Array.from(bytes, byte => byte.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+                   : null;
+
+    }
+
+    return normalisedFingerprint(written);
+
+}
+
+
+/**
+ * The pins somebody typed or pasted, one to a line, each once - fingerprints
+ * and pins of keys alike - and what was not one, as it was written, so that
+ * it can be said which line is wrong rather than that something is.
  */
 export function parseFingerprints(text: string): { fingerprints: string[]; wrong: string[] } {
 
@@ -86,7 +144,7 @@ export function parseFingerprints(text: string): { fingerprints: string[]; wrong
         if (written.length === 0)
             continue;
 
-        const fingerprint = normalisedFingerprint(written);
+        const fingerprint = normalisedPin(written);
 
         if (fingerprint === null)
             wrong.push(written);
@@ -265,7 +323,8 @@ export function readPins(fields: { certificates: string; roots: string; onMismat
     const wrong         = [ ...certificates.wrong, ...roots.wrong ];
 
     if (wrong.length > 0)
-        return { error: `'${wrong[0]}' is not a SHA-256 fingerprint: 64 hexadecimal digits, with or without colons between them.` };
+        return { error: `'${wrong[0]}' is not a SHA-256 fingerprint - 64 hexadecimal digits, with or without colons between them - ` +
+                        `and not the pin of a key either: 'spki:' and 64 hexadecimal digits, or 'sha256//' and the base64 of 32 bytes.` };
 
     if (certificates.fingerprints.length > maxPins || roots.fingerprints.length > maxPins)
         return { error: `A server is held to at most ${maxPins} certificates and ${maxPins} roots.` };
@@ -332,7 +391,12 @@ export function offersOf(store: CertificateStore, service: string): StoreOffers 
  * also the handle the certificate store calls a certificate by.
  */
 export function shortFingerprint(fingerprint: string): string {
-    return fingerprint.length > 16 ? `${fingerprint.slice(0, 16)}…` : fingerprint;
+
+    // The pin of a key keeps saying that it is one.
+    const length = isKeyPin(fingerprint) ? keyPinPrefix.length + 16 : 16;
+
+    return fingerprint.length > length ? `${fingerprint.slice(0, length)}…` : fingerprint;
+
 }
 
 

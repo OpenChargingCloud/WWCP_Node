@@ -1627,6 +1627,246 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+
+        #region (helper) KeyPin(Certificate)
+
+        /// <summary>
+        /// The pin of the key of a certificate, as it is kept.
+        /// </summary>
+        private static String KeyPin(X509Certificate2 Certificate)
+            => ServerPins.KeyPinOf(Certificate);
+
+        #endregion
+
+        #region AServerHeldToTheKeyOfItsCertificateIsBelievedWithARenewedOne()
+
+        /// <summary>
+        /// A server held to the key of its certificate is believed with another
+        /// certificate of that key - a renewal - which a fingerprint would
+        /// refuse; and refused with a certificate of another key, with the
+        /// sentence that names the key it showed.
+        /// </summary>
+        [Test]
+        public async Task AServerHeldToTheKeyOfItsCertificateIsBelievedWithARenewedOne()
+        {
+
+            using var key      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var first    = Leaf(Server.Trimmed, ca, key);
+            using var renewed  = Leaf(Server.Trimmed, ca, key);
+
+            Assert.That(Fingerprint(renewed),  Is.Not.EqualTo(Fingerprint(first)),  "the renewal is the same certificate");
+
+            await using var node = Node($$"""[ { "hostname": "time.example.org", "certificateFingerprint": "{{KeyPin(first)}}" } ]""");
+
+            var (chain, errors) = Trusted(renewed, ca);
+
+            using (chain)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, renewed, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Accepted,           Is.True,  String.Join(" | ", judgement.Steps.Select(step => step.Text)));
+                    Assert.That(judgement.Outcome,            Is.EqualTo("accepted"));
+                    Assert.That(judgement.CertificateKeyPin,  Is.EqualTo(KeyPin(first)));
+                    Assert.That(judgement.HeldToCertificate,  Is.EqualTo(KeyPin(first)));
+                });
+
+            }
+
+            var (other, errors2) = Trusted(leaf, ca);
+
+            using (other)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, leaf, other, errors2);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Outcome,  Is.EqualTo("pinMismatch"));
+                    Assert.That(judgement.Steps.Select(step => step.Text),  Has.Some.Contains($"it showed {Fingerprint(leaf)}, with the key {KeyPin(leaf)}"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region AServerHeldToTheFingerprintOfItsCertificateIsNotBelievedWithARenewedOne()
+
+        /// <summary>
+        /// What the pin of a key is for: held to the fingerprint of its
+        /// certificate, the server is refused with a renewal of the same key.
+        /// </summary>
+        [Test]
+        public async Task AServerHeldToTheFingerprintOfItsCertificateIsNotBelievedWithARenewedOne()
+        {
+
+            using var key      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var first    = Leaf(Server.Trimmed, ca, key);
+            using var renewed  = Leaf(Server.Trimmed, ca, key);
+
+            await using var node = Node($$"""[ { "hostname": "time.example.org", "certificateFingerprint": "{{Fingerprint(first)}}" } ]""");
+
+            var (chain, errors) = Trusted(renewed, ca);
+
+            using (chain)
+                Assert.That(node.JudgeTimeServer(Server, renewed, chain, errors).Outcome,  Is.EqualTo("pinMismatch"));
+
+        }
+
+        #endregion
+
+        #region AServerHeldToTheKeyOfItsRootIsBelievedThroughThatRootAlone()
+
+        /// <summary>
+        /// A server held to the key of a root - written as curl writes a pin -
+        /// is believed where its chain ends at a root of that key, and refused
+        /// where it ends at another.
+        /// </summary>
+        [Test]
+        public async Task AServerHeldToTheKeyOfItsRootIsBelievedThroughThatRootAlone()
+        {
+
+            static String Curl(X509Certificate2 certificate)
+                => org.GraphDefined.Vanaheimr.Hermod.KeyPin.FromCertificate(certificate).ToCurl();
+
+            await using var node   = Node($$"""[ { "hostname": "time.example.org", "rootFingerprint": "{{Curl(ca)}}" } ]""");
+
+            var (chain, errors) = Trusted(leaf, ca);
+
+            using (chain)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Accepted,    Is.True,  String.Join(" | ", judgement.Steps.Select(step => step.Text)));
+                    Assert.That(judgement.HeldToRoot,  Is.EqualTo(KeyPin(ca)),  "the pin was not kept as the pin of a key");
+                    Assert.That(judgement.RootKeyPin,  Is.EqualTo(KeyPin(ca)));
+                });
+
+            }
+
+            using var elsewhere  = Leaf(Server.Trimmed, otherCA);
+            var (other, errors2) = Trusted(elsewhere, otherCA);
+
+            using (other)
+            {
+
+                var judgement = node.JudgeTimeServer(Server, elsewhere, other, errors2);
+
+                Assert.Multiple(() => {
+                    Assert.That(judgement.Outcome,  Is.EqualTo("pinMismatch"));
+                    Assert.That(judgement.Steps.Select(step => step.Text),  Has.Some.Contains($"its chain ends at {Fingerprint(otherCA)}, with the key {KeyPin(otherCA)}"));
+                });
+
+            }
+
+        }
+
+        #endregion
+
+        #region TheRootAServerIsHeldToByItsKeyAnchorsItFromTheStore()
+
+        /// <summary>
+        /// The root a server is held to by its key is found in the store by
+        /// that key and anchors the server's chain, whatever kind of
+        /// certificate it was kept as - and anchors nobody else's.
+        /// </summary>
+        [Test]
+        public async Task TheRootAServerIsHeldToByItsKeyAnchorsItFromTheStore()
+        {
+
+            await using var node = Node($$"""
+                                          [ { "hostname": "time.example.org", "rootFingerprint": "{{KeyPin(ca)}}" },
+                                            "time.example.net" ]
+                                          """);
+
+            Assert.That(node.Certificates.Import(Pem(ca), CertificateKind.V2GRoot, null, "kept as a V2G root", out _, out var error),  Is.True,  error);
+
+            var (chain, errors) = Untrusted(leaf);
+
+            using (chain)
+            {
+
+                var held  = node.JudgeTimeServer(Server, leaf, chain, errors);
+
+                using var elsewhere  = Leaf("time.example.net", ca);
+                var (other, errors2) = Untrusted(elsewhere);
+
+                using (other)
+                {
+
+                    var unheld = node.JudgeTimeServer(DomainName.Parse("time.example.net"), elsewhere, other, errors2);
+
+                    Assert.Multiple(() => {
+                        Assert.That(held.Accepted,      Is.True,  String.Join(" | ", held.Steps.Select(step => step.Text)));
+                        Assert.That(held.AnchoredBy,    Is.EqualTo("kept as a V2G root"));
+                        Assert.That(unheld.Outcome,     Is.EqualTo("untrusted"),  "a V2G root anchored a time server that is not held to it");
+                    });
+
+                }
+
+            }
+
+        }
+
+        #endregion
+
+        #region ThePinOfAKeyIsReadHoweverItIsWrittenAndWrittenBackOneWay()
+
+        /// <summary>
+        /// The pin of a key is read as "spki:" and hexadecimal digits, with or
+        /// without colons, and as curl writes it, and written back in the one
+        /// way it is kept; hexadecimal digits alone stay a fingerprint; and what
+        /// is neither is refused with the sentence that names both.
+        /// </summary>
+        [Test]
+        public void ThePinOfAKeyIsReadHoweverItIsWrittenAndWrittenBackOneWay()
+        {
+
+            var pin     = KeyPin(leaf);
+            var digits  = pin[ServerPins.KeyPinPrefix.Length..];
+            var colons  = "SPKI:" + String.Join(":", Enumerable.Range(0, 32).Select(i => digits.Substring(2 * i, 2).ToUpperInvariant()));
+            var curl    = org.GraphDefined.Vanaheimr.Hermod.KeyPin.FromCertificate(leaf).ToCurl();
+
+            Assert.Multiple(() => {
+
+                Assert.That(ServerPins.TryParsePin(colons,  out var fromColons),  Is.True);
+                Assert.That(fromColons,                                           Is.EqualTo(pin));
+
+                Assert.That(ServerPins.TryParsePin(curl,    out var fromCurl),    Is.True);
+                Assert.That(fromCurl,                                             Is.EqualTo(pin));
+
+                Assert.That(ServerPins.TryParsePin(digits,  out var fingerprint), Is.True);
+                Assert.That(fingerprint,                                          Is.EqualTo(digits),  "hexadecimal digits alone became the pin of a key");
+
+                Assert.That(ServerPins.IsKeyPin(pin),     Is.True);
+                Assert.That(ServerPins.IsKeyPin(digits),  Is.False);
+
+                Assert.That(ServerPins.TryParsePin("spki:abcd",                    out _),  Is.False);
+                Assert.That(ServerPins.TryParsePin("spki:" + curl,                 out _),  Is.False);
+                Assert.That(ServerPins.TryParsePin("sha256//AAAA",                 out _),  Is.False);
+
+            });
+
+            Assert.That(NTSServerConfiguration.TryParse(JObject.Parse($$"""{ "hostname": "time.example.org", "certificateFingerprints": [ "{{curl}}", "{{colons}}", "{{digits}}" ] }"""),
+                                                        0, out var server, out var error),
+                        Is.True,
+                        error);
+
+            Assert.That(server!.ToJSON().ToString(Newtonsoft.Json.Formatting.None),
+                        Is.EqualTo($$"""{"hostname":"time.example.org.","certificateFingerprints":["{{pin}}","{{digits}}"]}"""),
+                        "the same key written twice was kept twice, or not as it is kept");
+
+            Assert.That(NTSServerConfiguration.TryParse(JObject.Parse("""{ "hostname": "time.example.org", "rootFingerprint": "spki:ab:cd" }"""), 1, out _, out error),  Is.False);
+            Assert.That(error,  Does.Contain("and not the pin of a key either: 'spki:' and 64 hexadecimal digits, or 'sha256//' and the base64 of 32 bytes"));
+
+        }
+
+        #endregion
+
     }
 
 }

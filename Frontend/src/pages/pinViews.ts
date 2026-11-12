@@ -4,7 +4,7 @@ import { config } from '../config';
 import { must } from '../html';
 import { formatValue } from '../ui';
 import { html, nothing, type TemplateResult } from '../view';
-import { maxRootGroupLength, offersOf, outcomeText, outcomeTone, pinsText, readPins, shortFingerprint, type PinsDraft, type StoreOffers } from './pins';
+import { isKeyPin, maxRootGroupLength, offersOf, outcomeText, outcomeTone, pinsText, readPins, shortFingerprint, type PinsDraft, type StoreOffers } from './pins';
 
 
 const api = nodeAPI();
@@ -87,7 +87,11 @@ function fingerprintView(fingerprint: string, nameOf?: (fingerprint: string) => 
 
     const name = nameOf?.(fingerprint);
 
-    return html`<code class="fingerprint-short" title="SHA-256: ${fingerprint}">${name ?? shortFingerprint(fingerprint)}</code>`;
+    const title = isKeyPin(fingerprint)
+                      ? `SHA-256 over the key (SubjectPublicKeyInfo): ${fingerprint}`
+                      : `SHA-256: ${fingerprint}`;
+
+    return html`<code class="fingerprint-short" title=${title}>${name ?? shortFingerprint(fingerprint)}</code>`;
 
 }
 
@@ -201,9 +205,13 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): TemplateRe
 
             <label>Certificates it may show
                 <textarea name="pinCertificates" rows="2" spellcheck="false" autocomplete="off"
-                          placeholder="SHA-256 fingerprints, one to a line"
+                          placeholder="SHA-256 fingerprints, or spki: and the SHA-256 over a key, one to a line"
                           .defaultValue=${draft.certificates.join('\n')}></textarea>
-                <span class="hint">Any one of them: a second one is a renewal written down before it happens.</span>
+                <span class="hint">
+                    Any one of them: a second one is a renewal written down before it happens. A fingerprint names
+                    one certificate; <code>spki:</code> and 64 hexadecimal digits, or <code>sha256//</code> and
+                    base64, name its key, and a certificate renewed with that key with it.
+                </span>
             </label>
 
             ${offerView('pinCertificates', shown?.certificate ?? null, draft.certificates,
@@ -212,7 +220,7 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): TemplateRe
 
             <label>Roots its chain may end at
                 <textarea name="pinRoots" rows="2" spellcheck="false" autocomplete="off"
-                          placeholder="SHA-256 fingerprints, one to a line"
+                          placeholder="SHA-256 fingerprints, or spki: and the SHA-256 over a key, one to a line"
                           .defaultValue=${draft.roots.join('\n')}></textarea>
                 <span class="hint">
                     Any one of them. A root outlives the certificates it issues, so it is the pin a renewal

@@ -18,8 +18,11 @@
 #region Usings
 
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
+
+using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 
@@ -54,6 +57,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// chain ends at a root this node trusts. A certificate that matches its
     /// pin and chains to nothing is refused.
     /// </para>
+    /// <para>
+    /// Either of them may be the pin of a key instead: the SHA-256 over the
+    /// DER encoded SubjectPublicKeyInfo of the certificate's key, written
+    /// "spki:" and 64 hexadecimal digits, or as curl writes it, "sha256//" and
+    /// base64 - see <see cref="KeyPinPrefix"/>. A certificate renewed with the
+    /// key it had is still the one such a pin names, and a root issued anew
+    /// for its key still the root; a fingerprint names the one certificate.
+    /// Both kinds may stand in one list, and the server is held to any one.
+    /// </para>
     /// </remarks>
     /// <param name="Certificates">The fingerprints of the certificates it may show, any of them; none to hold it to no certificate.</param>
     /// <param name="Roots">The fingerprints of the roots its chain may end at, any of them; none to hold it to no root.</param>
@@ -85,6 +97,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// node knows - "meterca-" - is before it.
         /// </summary>
         public const Int32  MaxRootGroupLength  = 24;
+
+        /// <summary>
+        /// What the pin of a key begins with, as it is kept: "spki:" and the
+        /// 64 hexadecimal digits of the SHA-256 over the SubjectPublicKeyInfo.
+        /// A pin without it is the fingerprint of a whole certificate.
+        /// </summary>
+        public const String  KeyPinPrefix        = "spki:";
 
         /// <summary>
         /// Held to nothing beyond the usual.
@@ -177,25 +196,109 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #endregion
 
 
-        #region HoldsCertificate(Fingerprint) / HoldsRoot(Fingerprint)
+        #region (static) KeyPinOf(Certificate) / IsKeyPin(Pin) / TryParsePin(Text, out Pin)
 
         /// <summary>
-        /// Whether a certificate of this fingerprint is one the server may show:
-        /// one of its pins, or any where it is held to none.
+        /// The pin of the key of a certificate, as it is kept: "spki:" and the
+        /// SHA-256 over its DER encoded SubjectPublicKeyInfo, in lower-case
+        /// hexadecimal - what DANE writes into a TLSA record "3 1 1".
         /// </summary>
-        public Boolean HoldsCertificate(String? Fingerprint)
+        public static String KeyPinOf(X509Certificate2 Certificate)
+
+            => KeyPinPrefix + KeyPin.FromCertificate(Certificate).ToHex().ToLowerInvariant();
+
+        /// <summary>
+        /// Whether a pin, as it is kept, is the pin of a key rather than the
+        /// fingerprint of a certificate.
+        /// </summary>
+        public static Boolean IsKeyPin(String? Pin)
+
+            => Pin is not null && Pin.StartsWith(KeyPinPrefix, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// A pin as somebody wrote it, in the form it is kept: the fingerprint
+        /// of a certificate as 64 hexadecimal digits in lower case, or the pin
+        /// of a key as "spki:" and 64 of them.
+        /// </summary>
+        /// <remarks>
+        /// The pin of a key is written "spki:" and its 64 hexadecimal digits,
+        /// with or without colons, or "sha256//" and the base64 of its 32
+        /// bytes, which is what curl and a browser's pin list write. Hexadecimal
+        /// digits alone are a fingerprint, as they always were: the two are both
+        /// a SHA-256, and nothing but the way it is written tells them apart.
+        /// </remarks>
+        /// <param name="Text">The pin as written.</param>
+        /// <param name="Pin">The same, as it is kept.</param>
+        public static Boolean TryParsePin(String?                          Text,
+                                          [NotNullWhen(true)] out String?  Pin)
+        {
+
+            Pin = null;
+
+            var text = Text?.Trim();
+
+            if (String.IsNullOrEmpty(text))
+                return false;
+
+            if (text.StartsWith(KeyPinPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+
+                // Hexadecimal only: "spki:sha256//..." is two ways of writing
+                // it at once, and neither of them.
+                if (!CertificateEntry.TryParseFingerprint(text[KeyPinPrefix.Length..], out var digits))
+                    return false;
+
+                Pin = KeyPinPrefix + digits;
+                return true;
+
+            }
+
+            if (text.StartsWith(KeyPin.CurlPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+
+                if (!KeyPin.TryParse(text, out var keyPin))
+                    return false;
+
+                Pin = KeyPinPrefix + keyPin.ToHex().ToLowerInvariant();
+                return true;
+
+            }
+
+            return CertificateEntry.TryParseFingerprint(text, out Pin);
+
+        }
+
+        #endregion
+
+        #region HoldsCertificate(Fingerprint, KeyPin = null) / HoldsRoot(Fingerprint, KeyPin = null)
+
+        /// <summary>
+        /// Whether a certificate of this fingerprint, with a key of this pin,
+        /// is one the server may show: one of its pins either way, or any where
+        /// it is held to none.
+        /// </summary>
+        /// <param name="Fingerprint">The fingerprint of the certificate.</param>
+        /// <param name="KeyPin">The pin of its key - see <see cref="KeyPinOf"/>.</param>
+        public Boolean HoldsCertificate(String?  Fingerprint,
+                                        String?  KeyPin   = null)
 
             => Certificates.Count == 0 ||
-               Fingerprint is not null && Certificates.Contains(Fingerprint, StringComparer.OrdinalIgnoreCase);
+               Fingerprint is not null && Certificates.Contains(Fingerprint, StringComparer.OrdinalIgnoreCase) ||
+               KeyPin      is not null && Certificates.Contains(KeyPin,      StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Whether a root of this fingerprint is one the server's chain may end
-        /// at: one of its pins, or any where it is held to none.
+        /// Whether a root of this fingerprint, with a key of this pin, is one
+        /// the server's chain may end at: one of its pins either way, or any
+        /// where it is held to none.
         /// </summary>
-        public Boolean HoldsRoot(String? Fingerprint)
+        /// <param name="Fingerprint">The fingerprint of the root.</param>
+        /// <param name="KeyPin">The pin of its key - see <see cref="KeyPinOf"/>.</param>
+        public Boolean HoldsRoot(String?  Fingerprint,
+                                 String?  KeyPin   = null)
 
             => Roots.Count == 0 ||
-               Fingerprint is not null && Roots.Contains(Fingerprint, StringComparer.OrdinalIgnoreCase);
+               Fingerprint is not null && Roots.Contains(Fingerprint, StringComparer.OrdinalIgnoreCase) ||
+               KeyPin      is not null && Roots.Contains(KeyPin,      StringComparer.OrdinalIgnoreCase);
 
         #endregion
 
@@ -571,9 +674,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             foreach (var text in written)
             {
 
-                if (!CertificateEntry.TryParseFingerprint(text, out var fingerprint))
+                if (!TryParsePin(text, out var fingerprint))
                 {
-                    Error = $"'{Where}' holds '{text}', which is not a SHA-256 fingerprint: 64 hexadecimal digits, with or without colons between them.";
+                    Error = $"'{Where}' holds '{text}', which is not a SHA-256 fingerprint - 64 hexadecimal digits, with or without colons between them - " +
+                            $"and not the pin of a key either: '{KeyPinPrefix}' and 64 hexadecimal digits, or '{KeyPin.CurlPrefix}' and the base64 of 32 bytes.";
                     return false;
                 }
 
