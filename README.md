@@ -484,17 +484,22 @@ across every group, as everything else; a change lets go of the key exchange.
 Each server in the answer shows what its own entry sets as `ssh`, the host key
 it showed last as `sshHostKey`, and what that came to as `hostKeyJudgement`.
 
-`"ssh": { "useOCPPConnection": true }` has the key exchange go over the SSH
-connection the node's OCPP goes over to the server's host, as one more channel
-of it (section 8.3 of the white paper; SSHUseOCPPConnection of the Device
-Model): a CSMS or a local controller that serves `ntske/1@open.charging.cloud`
-beside OCPP on its SSH listener. The node signs in as OCPP does, and the server
-is held to the host key OCPP holds it to, so `port`, `user`, `hostKeyPins`,
-`hostCAs` and `onMismatch` are refused beside it, and no key of the node's own
-is made. Where OCPP goes over no SSH connection to that host, or its connection
-is down, the server cannot be reached for its key exchange, and no other way is
-tried; the cookies it handed out before keep NTP going. Who dials OCPP says which
-connections there are: a charging station sets `OCPPOverSSH` of its node.
+`"ssh": { "connection": "shared" }` has the key exchange go over the SSH
+connection the node keeps to the SSH peer the server's host is, as one more
+channel of it (section 8.3 of the white paper; SSHConnection `Shared` of the
+Device Model): a CSMS or a local controller that serves
+`ntske/1@open.charging.cloud` beside OCPP on its SSH listener. The node signs
+in as that connection does, and the server is held to the host key the peer is
+held to, so `port`, `user`, `hostKeyPins`, `hostCAs` and `onMismatch` are
+refused beside it, and no key of the node's own is made. The connection is the
+node's, not OCPP's: where nothing made it yet, the key exchange has it made,
+and it goes on after the key exchange for whatever else shares it. Where the
+host is no SSH peer of the node, or its connection may not carry a key exchange
+now, the server cannot be reached for it, and no other way is tried; the
+cookies it handed out before keep NTP going. Whoever knows the hosts says which
+peers there are, with `AddSSHPeer` of the node: a charging station, for the
+hosts of its `ssh://` connections. A file written before says
+`"useOCPPConnection": true` for the same, and is read as it was.
 The test of a server makes its key exchange over SSH as well.
 
 A server may be held to more than every server is held to - certificates

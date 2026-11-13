@@ -1294,21 +1294,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                  CookiePoolPolicy:       new NTSCookiePoolPolicy { RenegotiateWhenExhausted = false }
                              );
 
-                    // OCPP's connection, where the entry says so, goes on after the
-                    // test; one of the test's own does not.
+                    // The shared connection, where the entry says so, goes on after
+                    // the test; one of the test's own does not.
                     SshClient? own = null;
 
                     try
                     {
 
-                        var ssh = overSSH.UseOCPPConnection
-                                      ? await OCPPConnectionTo(host, CancellationToken)
+                        var ssh = overSSH.IsShared
+                                      ? await SharedSSHConnectionTo(host, NTSKE_SSH.SubsystemName, CancellationToken)
                                       : own = await ConnectToTimeServerOverSSH(host, overSSH, CancellationToken);
 
                         stage = TimeServerTestStages.ServerAuthentication;
 
-                        if (overSSH.UseOCPPConnection)
-                            Step("info", $"It shows the SSH host key {SshFingerprint.Sha256(ssh.ServerHostKey)}, which OCPP holds it to.");
+                        if (overSSH.IsShared)
+                            Step("info", $"It shows the SSH host key {SshFingerprint.Sha256(ssh.ServerHostKey)}, which the shared connection is held to.");
 
                         else if (HostKeyJudgementOf(host) is TimeServerHostKeyJudgement shown && shown.At >= judgedFrom)
                             Step(shown.Matched ? "info" : "warning", $"It showed the SSH host key {shown.Shown}: {shown.Why}.");
@@ -1332,7 +1332,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         // A connection of its own to a name that has no address
                         // here never was one: the test ended at the name.
                         else if (unresolved &&
-                                 !overSSH.UseOCPPConnection &&
+                                 !overSSH.IsShared &&
                                  stage == TimeServerTestStages.Connection)
                         {
                             stage = TimeServerTestStages.NameResolution;

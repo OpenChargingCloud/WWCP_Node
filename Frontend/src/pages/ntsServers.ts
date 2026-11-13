@@ -97,11 +97,11 @@ export function refreshText(entry: Refresh, defaults: RefreshDefaults): string {
 
 /**
  * Where a key exchange over SSH goes, as a URL says it:
- * "ssh://ntske@time.lan:22" - or over the connection of OCPP to that host.
+ * "ssh://ntske@time.lan:22" - or over the connection the node shares with that host.
  */
 export function sshText(ssh: NTSServerSSH, hostname: string): string {
-    return ssh.useOCPPConnection
-               ? `the SSH connection of OCPP to ${readable(hostname)}`
+    return ssh.connection === 'shared'
+               ? `the shared SSH connection to ${readable(hostname)}`
                : `ssh://${ssh.user ?? 'ntske'}@${readable(hostname)}:${ssh.port ?? 22}`;
 }
 
@@ -112,8 +112,8 @@ export function sshText(ssh: NTSServerSSH, hostname: string): string {
  */
 export function sshHeldToText(ssh: NTSServerSSH): string {
 
-    if (ssh.useOCPPConnection)
-        return 'held to the host key OCPP holds it to';
+    if (ssh.connection === 'shared')
+        return 'held to the host key the shared connection is held to';
 
     const pins = ssh.hostKeyPins ?? [];
     const cas  = (ssh.hostCAs ?? []).map(ca => `the CA ${ca}`);

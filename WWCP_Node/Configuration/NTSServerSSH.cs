@@ -23,6 +23,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
 #endregion
 
@@ -39,17 +40,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <para>
     /// "ssh" in the entry of a server: { "port", "user", "hostKeyPins",
     /// "hostCAs", "onMismatch" }, every one of them optional - or {
-    /// "useOCPPConnection": true } alone. Its mode is NTSv4SSH in the OCPP
+    /// "connection": "shared" } alone. Its mode is NTSv4SSH in the OCPP
     /// Device Model (section 7 of the white paper).
     /// </para>
     /// <para>
-    /// With "useOCPPConnection" the key exchange is one more channel of the
-    /// SSH connection OCPP goes over to the server's host (section 8.3): with
-    /// the login, the key and the host key of that connection, which OCPP
-    /// judged, so neither port, user, host key nor CA of its own applies.
-    /// Where OCPP goes over no SSH connection to it, or that connection is
-    /// down, the server cannot be reached for its key exchange, and the
-    /// cookies it handed out before keep NTP going.
+    /// With "connection": "shared" - SSHConnection Shared of the Device Model -
+    /// the key exchange is one more channel of the SSH connection the node
+    /// keeps to the SSH peer the server's host is (section 8.3): with the
+    /// login, the key and the host key of that connection, so neither port,
+    /// user, host key nor CA of its own applies. The connection is the node's:
+    /// where nothing else made it yet, the key exchange has it made. Where the
+    /// host is no SSH peer of the node, the server cannot be reached for its
+    /// key exchange, and the cookies it handed out before keep NTP going.
+    /// </para>
+    /// <para>
+    /// A file written before says "useOCPPConnection": true for the same, and
+    /// is read as it was; what is written says "connection".
     /// </para>
     /// <para>
     /// There is no certificate, so a server is believed by its host key alone:
@@ -65,13 +71,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="HostKeyPins">The SHA-256 fingerprints of the host keys it may show.</param>
     /// <param name="HostCAs">The SHA-256 fingerprints of the SSH CA keys that may sign its host certificate.</param>
     /// <param name="OnMismatch">What a host key comes to that is none of them.</param>
-    /// <param name="UseOCPPConnection">Whether the key exchange goes over the SSH connection of OCPP to the server's host, instead of one of its own.</param>
+    /// <param name="Connection">Whether the key exchange has an SSH connection of its own, or shares the node's connection to the SSH peer the server's host is.</param>
     public sealed record NTSServerSSH(UInt16?                 Port               = null,
                                       String?                 User               = null,
                                       IReadOnlyList<String>?  HostKeyPins        = null,
                                       IReadOnlyList<String>?  HostCAs            = null,
                                       PinMismatch             OnMismatch         = PinMismatch.Refuse,
-                                      Boolean                 UseOCPPConnection  = false)
+                                      SSHConnection           Connection         = SSHConnection.Dedicated)
     {
 
         #region Data
@@ -108,6 +114,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// Whether the key exchange shares the node's SSH connection to the
+        /// server's host, instead of one of its own.
+        /// </summary>
+        public Boolean                IsShared
+            => Connection == SSHConnection.Shared;
 
         /// <summary>
         /// The SSH port it is asked on.
@@ -235,15 +248,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (JSON is not JObject json)
             {
-                Error = $"'{Path}' must be an object: {{ \"port\", \"user\", \"hostKeyPins\", \"hostCAs\", \"onMismatch\" }}, or {{ \"useOCPPConnection\": true }}.";
+                Error = $"'{Path}' must be an object: {{ \"port\", \"user\", \"hostKeyPins\", \"hostCAs\", \"onMismatch\" }}, or {{ \"connection\": \"shared\" }}.";
                 return false;
             }
 
-            if (!ConfigurationReader.TryReadBoolean(json, "useOCPPConnection", Path, out var useOCPPConnection, out Error))
+            // What a file written before calls it.
+            if (!ConfigurationReader.TryReadBoolean(json, "useOCPPConnection", Path,     out var useOCPPConnection, out Error) ||
+                !ConfigurationReader.TryReadString (json, "connection",        Path, 16, out var connectionText,    out Error))
+            {
                 return false;
+            }
 
-            // The connection of OCPP brings its own port, login, key and host key.
-            if (useOCPPConnection == true)
+            var connection = useOCPPConnection == true
+                                 ? SSHConnection.Shared
+                                 : SSHConnection.Dedicated;
+
+            if (connectionText is not null)
+            {
+
+                if (!SSHConnectionExtensions.TryParse(connectionText, out var said))
+                {
+                    Error = $"'{Path}.connection': '{connectionText}' is neither \"dedicated\" nor \"shared\".";
+                    return false;
+                }
+
+                if (useOCPPConnection.HasValue && (said == SSHConnection.Shared) != useOCPPConnection.Value)
+                {
+                    Error = $"'{Path}': \"connection\": \"{connectionText}\" and \"useOCPPConnection\": {(useOCPPConnection.Value ? "true" : "false")} say two things; \"connection\" alone says it.";
+                    return false;
+                }
+
+                connection = said;
+
+            }
+
+            // The shared connection brings its own port, login, key and host key.
+            if (connection == SSHConnection.Shared)
             {
 
                 var ofItsOwn = new[] { "port", "user", "hostKeyPins", "hostCAs", "onMismatch" }.
@@ -252,12 +292,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
                 if (ofItsOwn.Length > 0)
                 {
-                    Error = $"'{Path}': {String.Join(", ", ofItsOwn.Select(name => $"\"{name}\""))} do{(ofItsOwn.Length == 1 ? "es" : "")} not apply with \"useOCPPConnection\": " +
-                            "the key exchange goes over the SSH connection of OCPP, with its port, its login and the host key OCPP holds it to.";
+                    Error = $"'{Path}': {String.Join(", ", ofItsOwn.Select(name => $"\"{name}\""))} do{(ofItsOwn.Length == 1 ? "es" : "")} not apply with \"connection\": \"shared\": " +
+                            "the key exchange goes over the SSH connection the node shares with that host, with its port, its login and the host key it is held to.";
                     return false;
                 }
 
-                SSH = new NTSServerSSH(UseOCPPConnection: true);
+                SSH = new NTSServerSSH(Connection: SSHConnection.Shared);
                 return true;
 
             }
@@ -381,8 +421,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             var json = new JObject();
 
-            if (UseOCPPConnection)
-                return new JObject(new JProperty("useOCPPConnection", true));
+            if (IsShared)
+                return new JObject(new JProperty("connection", SSHConnection.Shared.AsText()));
 
             if (Port.HasValue)                      json.Add("port",        Port.Value);
             if (User is not null)                   json.Add("user",        User);
@@ -400,13 +440,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         /// <summary>
         /// What it is, as a sentence says it: "ssh://ntske@time.lan:22, held to
-        /// SHA256:...", or "the SSH connection of OCPP to time.lan" - for the
+        /// SHA256:...", or "the shared SSH connection to time.lan" - for the
         /// log.
         /// </summary>
         public String TextFor(String Hostname)
 
-            => UseOCPPConnection
-                   ? $"the SSH connection of OCPP to {Hostname}"
+            => IsShared
+                   ? $"the shared SSH connection to {Hostname}"
                    : $"ssh://{UserOrDefault}@{Hostname}:{PortOrDefault}" +
                      (IsPinned
                           ? $", held to {String.Join(", ", Pins.Concat(CAs.Select(ca => $"the CA {ca}")))}"

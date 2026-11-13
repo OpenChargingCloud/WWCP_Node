@@ -31,6 +31,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
 #endregion
 
@@ -101,31 +102,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region AnEntryOverTheConnectionOfOCPPIsWrittenAndReadBack()
+        #region AnEntryOverASharedConnectionIsWrittenAndReadBack()
 
         /// <summary>
-        /// "useOCPPConnection": the key exchange as one more channel of the SSH
-        /// connection of OCPP, written back as it was said; false is the same as
-        /// saying nothing.
+        /// "connection": "shared": the key exchange as one more channel of the
+        /// SSH connection the node shares with the server's host, written back
+        /// as it was said; "dedicated" is the same as saying nothing. What a
+        /// file written before calls it, "useOCPPConnection", is read as it was
+        /// and written as it is called now.
         /// </summary>
         [Test]
-        public void AnEntryOverTheConnectionOfOCPPIsWrittenAndReadBack()
+        public void AnEntryOverASharedConnectionIsWrittenAndReadBack()
         {
 
-            var shared  = Parsed("""{ "hostname": "csms.lan", "ssh": { "useOCPPConnection": true } }""");
-            var own     = Parsed("""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": false, "port": 2222 } }""");
+            var shared  = Parsed("""{ "hostname": "csms.lan", "ssh": { "connection": "shared" } }""");
+            var before  = Parsed("""{ "hostname": "csms.lan", "ssh": { "useOCPPConnection": true } }""");
+            var both    = Parsed("""{ "hostname": "csms.lan", "ssh": { "useOCPPConnection": true, "connection": "Shared" } }""");
+            var own     = Parsed("""{ "hostname": "time.lan", "ssh": { "connection": "dedicated", "port": 2222 } }""");
+            var ownOld  = Parsed("""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": false, "port": 2222 } }""");
 
             Assert.Multiple(() => {
 
                 Assert.That(shared.IsOverSSH,                      Is.True);
-                Assert.That(shared.SSH!.UseOCPPConnection,         Is.True);
-                Assert.That(shared.SSH.TextFor("csms.lan"),        Is.EqualTo("the SSH connection of OCPP to csms.lan"));
-                Assert.That(JToken.DeepEquals(shared.ToJSON(), JToken.Parse("""{ "hostname": "csms.lan.", "ssh": { "useOCPPConnection": true } }""")),
-                            Is.True, shared.ToJSON().ToString());
+                Assert.That(shared.SSH!.Connection,                Is.EqualTo(SSHConnection.Shared));
+                Assert.That(shared.SSH.IsShared,                   Is.True);
+                Assert.That(shared.SSH.TextFor("csms.lan"),        Is.EqualTo("the shared SSH connection to csms.lan"));
 
-                Assert.That(own.SSH!.UseOCPPConnection,            Is.False);
-                Assert.That(JToken.DeepEquals(own.ToJSON(), JToken.Parse("""{ "hostname": "time.lan.", "ssh": { "port": 2222 } }""")),
-                            Is.True, own.ToJSON().ToString());
+                foreach (var entry in new[] { shared, before, both })
+                    Assert.That(JToken.DeepEquals(entry.ToJSON(), JToken.Parse("""{ "hostname": "csms.lan.", "ssh": { "connection": "shared" } }""")),
+                                Is.True, entry.ToJSON().ToString());
+
+                foreach (var entry in new[] { own, ownOld })
+                {
+                    Assert.That(entry.SSH!.IsShared,               Is.False);
+                    Assert.That(JToken.DeepEquals(entry.ToJSON(), JToken.Parse("""{ "hostname": "time.lan.", "ssh": { "port": 2222 } }""")),
+                                Is.True, entry.ToJSON().ToString());
+                }
 
             });
 
@@ -156,10 +168,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "onMismatch": "maybe", "hostKeyPins": [ ] } }"""),   Does.Contain("is none of"));
                 Assert.That(Refused("""{ "hostname": "time.lan", "ssh": 22 }"""),                                              Does.Contain("must be an object"));
 
-                Assert.That(Refused($$"""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": true, "port": 2222, "hostKeyPins": [ "{{pinA}}" ] } }"""),
-                            Does.Contain("\"port\", \"hostKeyPins\" do not apply with \"useOCPPConnection\""));
+                Assert.That(Refused($$"""{ "hostname": "time.lan", "ssh": { "connection": "shared", "port": 2222, "hostKeyPins": [ "{{pinA}}" ] } }"""),
+                            Does.Contain("\"port\", \"hostKeyPins\" do not apply with \"connection\": \"shared\""));
                 Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": true, "onMismatch": "record" } }"""),
                             Does.Contain("\"onMismatch\" does not apply"));
+                Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "connection": "sometimes" } }"""),
+                            Does.Contain("ssh.connection").And.Contain("neither \"dedicated\" nor \"shared\""));
+                Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "connection": "dedicated", "useOCPPConnection": true } }"""),
+                            Does.Contain("say two things"));
                 Assert.That(Refused("""{ "hostname": "time.lan", "ssh": { "useOCPPConnection": "yes" } }"""),  Does.Contain("useOCPPConnection").And.Contain("must be true or false"));
 
                 Assert.That(Refused("""{ "hostname": "time.lan", "ntsKEPort": 4461, "ssh": { } }"""),                          Does.Contain("ntsKEPort").And.Contain("do not apply"));
@@ -470,56 +486,69 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region AKeyExchangeSharesTheConnectionOfOCPP()
+        #region AKeyExchangeSharesTheConnectionToAnSSHPeer()
 
         /// <summary>
-        /// "useOCPPConnection": the key exchange is one more channel of the SSH
-        /// connection OCPP goes over to the server's host - with OCPP's login,
-        /// and the host key OCPP holds it to, not judged again - and leaves that
-        /// connection open; so does the test of the server. No key of the
-        /// node's own is made for it.
+        /// "connection": "shared": the key exchange is one more channel of the
+        /// SSH connection the node keeps to the SSH peer the server's host is -
+        /// with the login of that connection, and the host key it is held to,
+        /// not judged again. Nothing made that connection before: the key
+        /// exchange is the first to need it, and has it made. It leaves it
+        /// open, and so does the test of the server, which goes over the same
+        /// one. No key of the node's own is made for it.
         /// </summary>
         [Test]
-        public async Task AKeyExchangeSharesTheConnectionOfOCPP()
+        public async Task AKeyExchangeSharesTheConnectionToAnSSHPeer()
         {
 
             var serversKey = server!.SSHHostKeys[0].PublicKeyBlob;
 
-            await using var ocpp = await SshClient.ConnectAsync("127.0.0.1",
-                                                                sshPort.ToUInt16(),
-                                                                new SshClientOptions {
-                                                                    Username       = "ntske",
-                                                                    Credentials    = [ nodeKey ],
-                                                                    VerifyHostKey  = blob => blob.AsSpan().SequenceEqual(serversKey)
-                                                                });
+            await using var connection = new SshSharedConnection("127.0.0.1",
+                                                                 sshPort.ToUInt16(),
+                                                                 new SshClientOptions {
+                                                                     Username       = "ntske",
+                                                                     Credentials    = [ nodeKey ],
+                                                                     VerifyHostKey  = blob => blob.AsSpan().SequenceEqual(serversKey)
+                                                                 });
 
-            await using var node = await Node("""{ "useOCPPConnection": true }""", WithItsKey: false);
+            await using var node = await Node("""{ "connection": "shared" }""", WithItsKey: false);
 
-            var askedFor = new List<DomainName>();
+            var askedFor = new List<String>();
+            var peer     = new SSHPeer(timeServer,
+                                       sshPort.ToUInt16(),
+                                       connection,
+                                       WhyNot: subsystem => { askedFor.Add(subsystem); return null; });
 
-            node.OCPPOverSSH = new OCPPConnectionsOverSSH(host => { askedFor.Add(host); return host.Equals(timeServer) ? ocpp : null; },
-                                                          () => "ssh-ed25519 AAAA ocpp");
+            var before  = node.AddSSHPeer(peer);
+            var unmade  = connection.Current;
 
             var synced  = await node.SyncTimeAsync();
+            var made    = connection.Current;
             var shown   = TheServer(node);
             var tested  = await node.TestTimeServerAsync(timeServer.Trimmed);
             var said    = String.Join(" | ", ((JArray) tested["steps"]!).Select(step => step["text"]!.Value<String>()));
 
             Assert.Multiple(() => {
 
+                Assert.That(before,                                     Is.Null);
+                Assert.That(node.SSHPeerTo(timeServer),                 Is.SameAs(peer));
+                Assert.That(unmade,                                     Is.Null,  "a connection before anything needed one");
+
                 Assert.That(synced.Value<Boolean>("ok"),                Is.True,  synced.ToString());
                 Assert.That(shown["cookies"]?.Value<Int32>(),           Is.GreaterThan(0), shown.ToString());
                 Assert.That(shown["sshHostKey"]?.Value<String>(),       Is.EqualTo(hostKey));
-                Assert.That(shown["hostKeyJudgement"]?.Type ?? JTokenType.Null, Is.EqualTo(JTokenType.Null), "OCPP's host key was judged again");
-                Assert.That(shown["ssh"]?["useOCPPConnection"]?.Value<Boolean>(), Is.True);
+                Assert.That(shown["hostKeyJudgement"]?.Type ?? JTokenType.Null, Is.EqualTo(JTokenType.Null), "the shared connection's host key was judged again");
+                Assert.That(shown["ssh"]?["connection"]?.Value<String>(), Is.EqualTo("shared"));
 
                 Assert.That(tested.Value<Boolean>("ok"),                Is.True,  said);
-                Assert.That(said,                                       Does.Contain("the SSH connection of OCPP to " + timeServer.Trimmed));
-                Assert.That(said,                                       Does.Contain($"It shows the SSH host key {hostKey}, which OCPP holds it to"));
+                Assert.That(said,                                       Does.Contain("the shared SSH connection to " + timeServer.Trimmed));
+                Assert.That(said,                                       Does.Contain($"It shows the SSH host key {hostKey}, which the shared connection is held to"));
 
                 Assert.That(askedFor,                                   Is.Not.Empty);
-                Assert.That(askedFor,                                   Has.All.EqualTo(timeServer));
-                Assert.That(ocpp.Closed.IsCompleted,                    Is.False, "OCPP's connection was closed");
+                Assert.That(askedFor,                                   Has.All.EqualTo(NTSKE_SSH.SubsystemName));
+                Assert.That(made,                                       Is.Not.Null, "the key exchange did not have the connection made");
+                Assert.That(connection.Current,                         Is.SameAs(made), "the shared connection was closed, or made again");
+                Assert.That(connection.Made,                            Is.EqualTo(1));
                 Assert.That(File.Exists(node.NTSKEClientKeyPath),       Is.False, "a key of the node's own was made");
 
             });
@@ -528,34 +557,50 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region WithoutAConnectionOfOCPPThereIsNoKeyExchange()
+        #region WithoutAnSSHPeerThereIsNoKeyExchange()
 
         /// <summary>
-        /// Where OCPP goes over no SSH connection to the server's host - or its
-        /// connection is down - there is no key exchange, and no other way is
-        /// tried: not a connection of the node's own, not TLS.
+        /// Where the server's host is no SSH peer of the node - or its
+        /// connection may not carry the key exchange now - there is no key
+        /// exchange, and no other way is tried: not a connection of the node's
+        /// own, not TLS. A peer that says no is not even dialled.
         /// </summary>
         [Test]
-        public async Task WithoutAConnectionOfOCPPThereIsNoKeyExchange()
+        public async Task WithoutAnSSHPeerThereIsNoKeyExchange()
         {
 
-            await using var node = await Node("""{ "useOCPPConnection": true }""");
+            await using var node = await Node("""{ "connection": "shared" }""");
 
-            var unset   = await node.SyncTimeAsync();
-
-            node.OCPPOverSSH = new OCPPConnectionsOverSSH(host => null, () => null);
-
-            var down    = await node.SyncTimeAsync();
+            var noPeer  = await node.SyncTimeAsync();
             var tested  = await node.TestTimeServerAsync(timeServer.Trimmed);
             var said    = String.Join(" | ", ((JArray) tested["steps"]!).Select(step => step["text"]!.Value<String>()));
 
+            var dials   = 0;
+
+            await using var connection = new SshSharedConnection(ct => { dials++; return ValueTask.FromException<SshClient>(new InvalidOperationException("dialled")); });
+
+            var peer    = new SSHPeer(timeServer, sshPort.ToUInt16(), connection, WhyNot: subsystem => "its host key is on probation.");
+
+            node.AddSSHPeer(peer);
+
+            var refused = await node.SyncTimeAsync();
+            var again   = await node.TestTimeServerAsync(timeServer.Trimmed);
+            var saidNow = String.Join(" | ", ((JArray) again["steps"]!).Select(step => step["text"]!.Value<String>()));
+
+            var removed = node.RemoveSSHPeer(peer);
+
             Assert.Multiple(() => {
-                Assert.That(unset.Value<Boolean>("ok"),                 Is.False, "a key exchange without a connection of OCPP");
-                Assert.That(down. Value<Boolean>("ok"),                 Is.False, "a key exchange without a connection of OCPP");
+                Assert.That(noPeer. Value<Boolean>("ok"),               Is.False, "a key exchange without an SSH peer");
+                Assert.That(refused.Value<Boolean>("ok"),               Is.False, "a key exchange over a connection that may not carry it");
                 Assert.That(TheServer(node)["cookies"]?.Type ?? JTokenType.Null, Is.EqualTo(JTokenType.Null));
                 Assert.That(tested.Value<Boolean>("ok"),                Is.False);
-                Assert.That(said,                                       Does.Contain($"OCPP goes over no SSH connection to {timeServer.Trimmed} now"));
+                Assert.That(said,                                       Does.Contain($"{timeServer.Trimmed} is no SSH peer of this"));
                 Assert.That(said,                                       Does.Not.Contain("over TLS"));
+                Assert.That(again.Value<Boolean>("ok"),                 Is.False);
+                Assert.That(saidNow,                                    Does.Contain("its host key is on probation."));
+                Assert.That(dials,                                      Is.Zero,  "a peer that may not carry the key exchange was dialled for it");
+                Assert.That(removed,                                    Is.True);
+                Assert.That(node.SSHPeerTo(timeServer),                 Is.Null);
             });
 
         }

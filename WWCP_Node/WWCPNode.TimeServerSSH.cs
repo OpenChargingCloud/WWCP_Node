@@ -25,9 +25,11 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
+using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
 #endregion
 
@@ -67,18 +69,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
 
     /// <summary>
-    /// The SSH connections a node's OCPP goes over, which the key exchange of a
-    /// time server shares where its entry says "useOCPPConnection" - section
-    /// 8.3 of the white paper "NTS Key Establishment over SSH" - set by whoever
-    /// makes them: a charging station, for the connections it dials.
-    /// </summary>
-    /// <param name="ConnectionTo">The SSH connection OCPP goes over to the given host, while it lasts; null where OCPP goes over no SSH connection to it, or that connection is down. It stays OCPP's: the key exchange opens a channel on it, and closes only that.</param>
-    /// <param name="PublicKey">The public key OCPP signs in with, as a line of an authorized_keys file; null where there is none.</param>
-    public sealed record OCPPConnectionsOverSSH(Func<DomainName, SshClient?>  ConnectionTo,
-                                                Func<String?>                 PublicKey);
-
-
-    /// <summary>
     /// Time servers whose key exchange goes over SSH - the subsystem
     /// "ntske/1@open.charging.cloud" of the white paper "NTS Key Establishment
     /// over SSH" - instead of TLS: NTSv4SSH in the OCPP Device Model.
@@ -97,9 +87,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// a CSMS reads it as SSHClientPublicKey.
     /// </para>
     /// <para>
-    /// Or it shares the SSH connection OCPP goes over to the time server's
-    /// host, where the server's entry says "useOCPPConnection": then it signs
-    /// in as OCPP does, and the host key is the one OCPP holds it to.
+    /// Or it shares the SSH connection the node keeps to the SSH peer the time
+    /// server's host is, where the server's entry says "connection": "shared":
+    /// then it signs in as that connection does, and the host key is the one
+    /// the peer is held to (see <see cref="SSHPeers"/>).
     /// </para>
     /// </remarks>
     public partial class WWCPNode
@@ -219,17 +210,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #endregion
 
 
-        #region OCPPOverSSH
-
-        /// <summary>
-        /// The SSH connections this node's OCPP goes over, for the time servers
-        /// whose entry says "useOCPPConnection"; null where nobody said which
-        /// they are, and such a server cannot be reached for its key exchange.
-        /// </summary>
-        public OCPPConnectionsOverSSH? OCPPOverSSH { get; set; }
-
-        #endregion
-
         #region TimeServersOverSSH() / SSHOf(Hostname)
 
         /// <summary>
@@ -302,13 +282,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var hostname = source.Hostname;
 
                 source.ConnectOverSSH         = overSSH.TryGetValue(hostname, out var ssh)
-                                                    ? ssh.UseOCPPConnection
-                                                          ? cancellationToken => OCPPConnectionTo(hostname, cancellationToken)
+                                                    ? ssh.IsShared
+                                                          ? cancellationToken => SharedSSHConnectionTo(hostname, NTSKE_SSH.SubsystemName, cancellationToken)
                                                           : cancellationToken => ConnectToTimeServerOverSSH(hostname, ssh, cancellationToken)
                                                     : null;
 
-                // OCPP's connection goes on after the key exchange; one of its own does not.
-                source.SSHConnectionIsShared  = ssh?.UseOCPPConnection == true;
+                // The shared connection goes on after the key exchange; one of its own does not.
+                source.SSHConnectionIsShared  = ssh?.IsShared == true;
 
             }
 
@@ -381,34 +361,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              },
                              CancellationToken
                          ).ConfigureAwait(false);
-
-        }
-
-        #endregion
-
-        #region (private) OCPPConnectionTo(Hostname, CancellationToken)
-
-        /// <summary>
-        /// The SSH connection OCPP goes over to the given time server's host, for
-        /// its key exchange to share: no connection of its own, no host key of its
-        /// own to judge - OCPP judged it.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Where OCPP goes over no SSH connection to it now.</exception>
-        private ValueTask<SshClient> OCPPConnectionTo(DomainName         Hostname,
-                                                      CancellationToken  CancellationToken)
-        {
-
-            CancellationToken.ThrowIfCancellationRequested();
-
-            return OCPPOverSSH?.ConnectionTo(Hostname) is SshClient ssh
-                       ? ValueTask.FromResult(ssh)
-                       : ValueTask.FromException<SshClient>(
-                             new InvalidOperationException(
-                                 OCPPOverSSH is null
-                                     ? $"This {Kind.Name} has no SSH connections of OCPP to share."
-                                     : $"OCPP goes over no SSH connection to {Hostname.Trimmed} now: the key exchange shares that connection, and waits for it."
-                             )
-                         );
 
         }
 
