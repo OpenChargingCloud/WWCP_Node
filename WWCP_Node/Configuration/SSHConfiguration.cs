@@ -55,13 +55,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="AccessRules">The SSH access rules, which can only restrict who signs in and what they use - see <see cref="SSHAccessRules"/>; none where absent.</param>
     /// <param name="MaxConnections">How many connections each kind that signs in may have open at once - "account" for the accounts, "station" for what a kind of node lets in besides; <see cref="DefaultMaxConnectionsOfAccounts"/> and <see cref="DefaultMaxConnectionsOfLogins"/> where absent.</param>
     /// <param name="StrictKex">Whether a client must signal strict KEX, the protection against Terrapin (CVE-2023-48795), or is turned away before it signs in; yes where absent.</param>
+    /// <param name="Peers">The SSH peers of the node: the hosts it keeps one SSH connection to each, as a client - see <see cref="SSHPeerConfiguration"/>; none where absent.</param>
     public sealed record SSHConfiguration(Boolean?                             Enabled         = null,
                                           IPPort?                              Port            = null,
                                           Boolean?                             Passwords       = null,
                                           Boolean?                             Sftp            = null,
                                           SSHAccessRules?                      AccessRules     = null,
                                           IReadOnlyDictionary<String, Int32>?  MaxConnections  = null,
-                                          Boolean?                             StrictKex       = null)
+                                          Boolean?                             StrictKex       = null,
+                                          IReadOnlyList<SSHPeerConfiguration>? Peers           = null)
     {
 
         #region Data
@@ -118,7 +120,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!TryReadMaxConnections(JSON, out var maxConnections, out Error))
                 return false;
 
-            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules, maxConnections, strictKex);
+            IReadOnlyList<SSHPeerConfiguration>? peers = null;
+
+            if (JSON.TryGetValue("peers", out var listed) && listed.Type != JTokenType.Null &&
+                !SSHPeerConfiguration.TryParseAll(listed, $"{SectionName}.peers", out peers, out Error))
+                return false;
+
+            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules, maxConnections, strictKex, peers);
 
             return true;
 
@@ -197,6 +205,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (MaxConnections is not null)
                 json.Add("maxConnections", new JObject(MaxConnections.Select(kind => new JProperty(kind.Key, kind.Value))));
+
+            if (Peers is not null)
+                json.Add("peers", new JArray(Peers.Select(peer => peer.ToJSON())));
 
             return json;
 

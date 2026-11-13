@@ -264,6 +264,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private static readonly IPPort       ntpPort     = FindFreeUDPPort();
 
         private static readonly ISshHostKey  nodeKey     = SshHostKey.GenerateEd25519();
+        private static readonly String       pinA        = "SHA256:" + new String('A', 43);
+        private static readonly String       pinB        = "SHA256:" + new String('B', 43);
 
         private NTSServer?  server;
         private String      hostKey    = "";
@@ -327,13 +329,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// one of its own.
         /// </summary>
         private async Task<WWCPNode> Node(String   SSH,
-                                          Boolean  WithItsKey = true)
+                                          Boolean  WithItsKey  = true,
+                                          String?  Peers       = null)
         {
 
             var configuration = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
 
             File.WriteAllText(configuration,
-                              $$"""{ "nts": { "groups": { "legal": { "servers": [ { "hostname": "{{timeServer.Trimmed}}", "ntpPort": {{ntpPort}}, "ssh": {{SSH}} } ], "minServers": 1 } } } }""");
+                              $$"""{ "nts": { "groups": { "legal": { "servers": [ { "hostname": "{{timeServer.Trimmed}}", "ntpPort": {{ntpPort}}, "ssh": {{SSH}} } ], "minServers": 1 } } }{{(Peers is null ? "" : $", \"ssh\": {{ \"peers\": {Peers} }}")}} }""");
+
+            // The key the node signs in with at the SSH peers of its configuration.
+            if (Peers is not null)
+            {
+                Directory.CreateDirectory(Path.Combine(directory, WWCPNode.DefaultSSHDirectory));
+                await SshKeyGenerator.WriteKeyPairAsync(nodeKey, Path.Combine(directory, WWCPNode.DefaultSSHDirectory, WWCPNode.SSHPeerClientKeyFileName));
+            }
 
             if (WithItsKey)
             {
@@ -601,6 +611,185 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(dials,                                      Is.Zero,  "a peer that may not carry the key exchange was dialled for it");
                 Assert.That(removed,                                    Is.True);
                 Assert.That(node.SSHPeerTo(timeServer),                 Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region AKeyExchangeGoesOverAPeerOfTheConfigurationWithoutOCPP()
+
+        /// <summary>
+        /// An SSH peer the configuration file names, under "ssh.peers": a host
+        /// the node keeps one SSH connection to with nothing of OCPP about it.
+        /// A time server there with "connection": "shared" makes its key
+        /// exchange as a channel of it - the node signed in with the key it has
+        /// for its peers, the host believed by the pin of the peer's entry, and
+        /// the one connection made by the key exchange and left to the next.
+        /// </summary>
+        [Test]
+        public async Task AKeyExchangeGoesOverAPeerOfTheConfigurationWithoutOCPP()
+        {
+
+            await using var node = await Node("""{ "connection": "shared" }""",
+                                              WithItsKey:  false,
+                                              Peers:       $$"""[ { "id": "time", "address": "{{timeServer.Trimmed}}", "port": {{sshPort}}, "user": "ntske", "hostKeyPins": [ "{{hostKey}}" ] } ]""");
+
+            var peer    = node.SSHPeerTo(timeServer);
+            var unmade  = peer?.Connection.Current;
+
+            var synced  = await node.SyncTimeAsync();
+            var again   = await node.SyncTimeAsync();
+            var shown   = (JObject) node.SSHPeersJSON().Single();
+
+            Assert.Multiple(() => {
+
+                Assert.That(node.ConfiguredSSHPeers.Select(configured => configured.Id), Is.EqualTo(new[] { "time" }));
+                Assert.That(peer,                                        Is.Not.Null, "the host of the configuration is no SSH peer");
+                Assert.That(peer?.Port,                                  Is.EqualTo(sshPort.ToUInt16()));
+                Assert.That(unmade,                                      Is.Null,  "a connection before anything needed one");
+
+                Assert.That(synced.Value<Boolean>("ok"),                 Is.True,  synced.ToString());
+                Assert.That(again. Value<Boolean>("ok"),                 Is.True,  again.ToString());
+                Assert.That(TheServer(node)["cookies"]?.Value<Int32>(),  Is.GreaterThan(0));
+                Assert.That(peer?.Connection.Made,                       Is.EqualTo(1), "more than the one connection was made");
+
+                Assert.That(node.SSHPeerHostKeyJudgementOf("time")?.Matched,  Is.True);
+                Assert.That(node.SSHPeerHostKeyJudgementOf("time")?.Shown,    Is.EqualTo(hostKey));
+                Assert.That(shown.Value<Boolean>("connected"),           Is.True,  shown.ToString());
+                Assert.That(shown.Value<String>("id"),                   Is.EqualTo("time"));
+                Assert.That(peer?.PublicKey?.Invoke(),                   Does.StartWith("ssh-ed25519 " + Convert.ToBase64String(SshPublicKey.FromHostKey(nodeKey).Blob)));
+
+                Assert.That(File.Exists(node.NTSKEClientKeyPath),        Is.False, "a key for time servers of their own was made");
+
+            });
+
+        }
+
+        #endregion
+
+        #region APeerOfTheConfigurationThatShowsAnotherKeyIsRefused()
+
+        /// <summary>
+        /// A configured peer is believed by what its entry holds it to, and by
+        /// nothing else: one that shows another host key is refused, and said
+        /// so, and the key exchange that wanted its connection fails.
+        /// </summary>
+        [Test]
+        public async Task APeerOfTheConfigurationThatShowsAnotherKeyIsRefused()
+        {
+
+            await using var node = await Node("""{ "connection": "shared" }""",
+                                              WithItsKey:  false,
+                                              Peers:       $$"""[ { "id": "time", "address": "{{timeServer.Trimmed}}", "port": {{sshPort}}, "user": "ntske", "hostKeyPins": [ "{{pinB}}" ] } ]""");
+
+            var synced = await node.SyncTimeAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(synced.Value<Boolean>("ok"),                          Is.False, "a key exchange over a peer that showed a key it is not held to");
+                Assert.That(node.SSHPeerHostKeyJudgementOf("time")?.Matched,      Is.False);
+                Assert.That(node.SSHPeerHostKeyJudgementOf("time")?.Accepted,     Is.False);
+                Assert.That(node.SSHPeerHostKeyJudgementOf("time")?.Shown,        Is.EqualTo(hostKey));
+                Assert.That(node.SSHPeerTo(timeServer)?.Connection.Current,       Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region APeerTakenOutOfTheConfigurationIsNoPeerAnyMore()
+
+        /// <summary>
+        /// The peers are what the configuration says now: one that is taken out
+        /// is no peer any more, its connection is closed for whatever shared
+        /// it, and the time server that shared it has no key exchange - the
+        /// cookies it has keep NTP going. Put back,
+        /// it is a peer again, with a connection made anew.
+        /// </summary>
+        [Test]
+        public async Task APeerTakenOutOfTheConfigurationIsNoPeerAnyMore()
+        {
+
+            var peers = $$"""[ { "id": "time", "address": "{{timeServer.Trimmed}}", "port": {{sshPort}}, "user": "ntske", "hostKeyPins": [ "{{hostKey}}" ] } ]""";
+
+            await using var node = await Node("""{ "connection": "shared" }""", WithItsKey: false, Peers: peers);
+
+            var with      = await node.SyncTimeAsync();
+            var first     = node.SSHPeerTo(timeServer);
+            var itsSsh    = first?.Connection.Current;
+
+            var takenOut  = await node.TryUpdateSSHConfiguration(new JObject { ["peers"] = new JArray() });
+
+            if (itsSsh is not null)
+                await itsSsh.Closed.WaitAsync(TimeSpan.FromSeconds(10));
+
+            // The cookies it has keep NTP going; a key exchange is what needs
+            // the connection, and the test of the server makes one.
+            var tested    = await node.TestTimeServerAsync(timeServer.Trimmed);
+            var said      = String.Join(" | ", ((JArray) tested["steps"]!).Select(step => step["text"]!.Value<String>()));
+
+            var putBack   = await node.TryUpdateSSHConfiguration(new JObject { ["peers"] = JArray.Parse(peers) });
+            var back      = await node.SyncTimeAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(with.Value<Boolean>("ok"),                   Is.True,  with.ToString());
+                Assert.That(takenOut.Error,                              Is.Null);
+                Assert.That(itsSsh?.Closed.IsCompleted,                  Is.True,  "the connection to a peer that is none any more stayed open");
+                Assert.That(tested.Value<Boolean>("ok"),                 Is.False, "a key exchange over a peer that was taken out");
+                Assert.That(said,                                        Does.Contain($"{timeServer.Trimmed} is no SSH peer of this"));
+                Assert.That(putBack.Error,                               Is.Null);
+                Assert.That(back.Value<Boolean>("ok"),                   Is.True,  back.ToString());
+                Assert.That(node.SSHPeerTo(timeServer),                  Is.Not.Null.And.Not.SameAs(first));
+                Assert.That(node.SSHConfigurationJSON()["configured"]?["peers"]?.Count(), Is.EqualTo(1));
+            });
+
+        }
+
+        #endregion
+
+        #region ThePeersOfTheConfigurationAreReadAndWrittenBack()
+
+        /// <summary>
+        /// "ssh.peers": a name and an address each, and a host key or a CA to
+        /// hold it to. What is none of that is refused, saying where.
+        /// </summary>
+        [Test]
+        public void ThePeersOfTheConfigurationAreReadAndWrittenBack()
+        {
+
+            static String Refusal(String Peers)
+                => SSHConfiguration.TryParse(JObject.Parse($$"""{ "peers": {{Peers}} }"""), out _, out var error) ? "" : error!;
+
+            var read = SSHConfiguration.TryParse(JObject.Parse($$"""{ "peers": [ { "id": "lc", "address": "LC.example", "hostKeyPins": [ "{{pinA}}=" ] }, { "id": "time", "address": "10.10.0.7", "port": 2222, "user": "cs001", "hostCAs": [ "{{pinB}}" ], "onMismatch": "record" } ] }"""),
+                                                 out var parsed, out var problem);
+
+            Assert.Multiple(() => {
+
+                Assert.That(read, Is.True, problem);
+
+                Assert.That(parsed!.Peers!.Select(peer => peer.Id),             Is.EqualTo(new[] { "lc", "time" }));
+                Assert.That(parsed.Peers![0].Port,                               Is.EqualTo(22));
+                Assert.That(parsed.Peers![0].User,                               Is.Null);
+                Assert.That(parsed.Peers![1].Port,                               Is.EqualTo(2222));
+                Assert.That(parsed.Peers![1].User,                               Is.EqualTo("cs001"));
+                Assert.That(parsed.Peers![1].Trust.OnMismatch,                   Is.EqualTo(PinMismatch.Record));
+
+                Assert.That(JToken.DeepEquals(parsed.ToJSON()["peers"],
+                                              JToken.Parse($$"""[ { "id": "lc", "address": "LC.example", "hostKeyPins": [ "{{pinA}}" ] }, { "id": "time", "address": "10.10.0.7", "user": "cs001", "port": 2222, "hostCAs": [ "{{pinB}}" ], "onMismatch": "record" } ]""")),
+                            Is.True, parsed.ToJSON().ToString());
+
+                Assert.That(Refusal($$"""[ { "id": "lc", "address": "lc.example" } ]"""),                                       Does.Contain("ssh.peers[0]").And.Contain("held to no host key and no CA"));
+                Assert.That(Refusal($$"""[ { "address": "lc.example", "hostKeyPins": [ "{{pinA}}" ] } ]"""),                    Does.Contain("ssh.peers[0].id"));
+                Assert.That(Refusal($$"""[ { "id": "l c", "address": "lc.example", "hostKeyPins": [ "{{pinA}}" ] } ]"""),       Does.Contain("is no name of a peer"));
+                Assert.That(Refusal($$"""[ { "id": "lc", "hostKeyPins": [ "{{pinA}}" ] } ]"""),                                 Does.Contain("ssh.peers[0].address"));
+                Assert.That(Refusal($$"""[ { "id": "lc", "address": "lc.example", "user": "no one", "hostKeyPins": [ "{{pinA}}" ] } ]"""), Does.Contain("is no user name"));
+                Assert.That(Refusal($$"""[ { "id": "lc", "address": "lc.example", "hostKeyPins": [ "ab:cd" ] } ]"""),           Does.Contain("no SHA-256 fingerprint"));
+                Assert.That(Refusal($$"""[ { "id": "a", "address": "lc.example", "hostKeyPins": [ "{{pinA}}" ] }, { "id": "A", "address": "other.example", "hostKeyPins": [ "{{pinA}}" ] } ]"""),
+                            Does.Contain("ssh.peers[1].id").And.Contain("already"));
+                Assert.That(Refusal($$"""[ { "id": "a", "address": "lc.example", "hostKeyPins": [ "{{pinA}}" ] }, { "id": "b", "address": "LC.example.", "hostKeyPins": [ "{{pinA}}" ] } ]"""),
+                            Does.Contain("ssh.peers[1].address").And.Contain("one connection to a host"));
+                Assert.That(Refusal("""{ "id": "lc" }"""),                                                                     Does.Contain("must be a list"));
+
             });
 
         }

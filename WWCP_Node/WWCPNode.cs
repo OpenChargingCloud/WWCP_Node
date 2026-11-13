@@ -3576,6 +3576,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
                 await Stop();
+                await CloseConfiguredSSHPeers();
             }
             finally
             {

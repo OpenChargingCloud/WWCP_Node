@@ -239,6 +239,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             sshFile              = File;
             sshWebInterfacePort  = WebInterfacePort;
 
+            // The hosts this node keeps an SSH connection to, as a client:
+            // nothing is dialled before something needs it.
+            ApplyConfiguredSSHPeers(File?.Peers);
+
             (SSHEnabled, SSHPort, SSHPasswords, SSHStrictKex) = EffectiveSSH(Settings, File, WebInterfacePort);
 
             if (SSHEnabled && SSHPort is null)

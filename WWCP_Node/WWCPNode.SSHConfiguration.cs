@@ -279,7 +279,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                   sent.Sftp            ?? sshFile?.Sftp,
                                                   sent.AccessRules     ?? sshFile?.AccessRules,
                                                   MergedMaxConnections(sshFile?.MaxConnections, sent.MaxConnections),
-                                                  sent.StrictKex       ?? sshFile?.StrictKex);
+                                                  sent.StrictKex       ?? sshFile?.StrictKex,
+                                                  sent.Peers           ?? sshFile?.Peers);
 
                 var sftpWas    = SFTPEnabled;
                 var rulesWas   = SSHAccessRules.ToJSON().ToString();
@@ -323,6 +324,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
 
                 sshFile = file;
+
+                // The peers as they are said now: one that changed or went has its
+                // connection closed, for everything that shared it.
+                ApplyConfiguredSSHPeers(file.Peers);
 
                 // In effect at once, for the next one to sign in: the connections
                 // open stay, even beyond what their kind may have now.
