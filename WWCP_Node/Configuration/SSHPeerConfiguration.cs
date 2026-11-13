@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.Configuration
@@ -54,10 +56,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Address">Its host name or address, as the entries that share its connection name it.</param>
     /// <param name="User">The user name to sign in under, or null for the node's own.</param>
     /// <param name="Trust">Its port, and the host keys and CAs it is held to, with what a host key that is none of them comes to.</param>
-    public sealed record SSHPeerConfiguration(String        Id,
-                                              DomainName    Address,
-                                              String?       User,
-                                              NTSServerSSH  Trust)
+    public sealed record SSHPeerConfiguration(String             Id,
+                                              DomainName         Address,
+                                              String?            User,
+                                              NTSServerSSH       Trust,
+                                              SSHFileTransfers?  FileTransfers   = null)
     {
 
         #region Data
@@ -105,7 +108,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (JSON is not JObject json)
             {
-                Error = $"'{Path}' must be an object: {{ \"id\", \"address\", \"port\", \"user\", \"hostKeyPins\", \"hostCAs\", \"onMismatch\" }}.";
+                Error = $"'{Path}' must be an object: {{ \"id\", \"address\", \"port\", \"user\", \"hostKeyPins\", \"hostCAs\", \"onMismatch\", \"fileTransfers\" }}.";
                 return false;
             }
 
@@ -151,7 +154,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
-            Peer = new SSHPeerConfiguration(name, host, user, held);
+            // What the peer may be used for as a file server; without it, it is none.
+            SSHFileTransfers? fileTransfers = null;
+
+            if (json["fileTransfers"] is JToken asFileServer && asFileServer.Type != JTokenType.Null &&
+                !SSHFileTransfers.TryParse(asFileServer, $"{Path}.fileTransfers", out fileTransfers, out Error))
+            {
+                return false;
+            }
+
+            Peer = new SSHPeerConfiguration(name, host, user, held, fileTransfers);
 
             return true;
 
@@ -235,6 +247,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             foreach (var property in Trust.ToJSON().Properties())
                 json.Add(property.Name, property.Value);
+
+            if (FileTransfers is not null)
+                json.Add("fileTransfers", FileTransfers.ToJSON());
 
             return json;
 

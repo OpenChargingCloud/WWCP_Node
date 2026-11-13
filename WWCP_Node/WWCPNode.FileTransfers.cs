@@ -229,8 +229,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public TimeSpan      FileTransferIdleTimeout       { get; set; }  = TimeSpan.FromSeconds(60);
 
-        private readonly Object                         fileServersLock  = new ();
-        private          IReadOnlyList<SSHFileServer>   fileServers      = [];
+        /// <summary>
+        /// The file in the directory of a file server's keys that says which
+        /// host and port they were made for.
+        /// </summary>
+        private const String  FileServerMarker  = ".server";
+
+        private readonly Object   fileServersLock   = new ();
+        private          String?  fileServersSeen;
+        private          Int32    fileServersFollowed;
 
         #endregion
 
@@ -255,73 +262,109 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region FileServers / FileTransferIdentity
 
         /// <summary>
-        /// The SSH peers of this node that are file servers.
+        /// The SSH peers of this node that are file servers: those of its
+        /// configuration whose entry says what they may be used for
+        /// ("fileTransfers"). They are changed as the peers are, by
+        /// <see cref="TryUpdateSSHPeers"/>, and by nothing else.
         /// </summary>
         public IReadOnlyList<SSHFileServer> FileServers
         {
             get
             {
-                lock (fileServersLock)
-                    return fileServers;
+
+                SSHFileServer[] servers = [.. ConfiguredSSHPeers.
+                                                  Where (peer => peer.FileTransfers is not null).
+                                                  Select(peer => new SSHFileServer(peer.Id, peer.Address.Trimmed, peer.User, peer.Trust, peer.FileTransfers!)).
+                                                  Where (server => server.Problem is null)];
+
+                // From the first time somebody asks - and before that no key was made - the keys
+                // follow every change of the peers, when it is made and not when somebody asks next.
+                if (Interlocked.Exchange(ref fileServersFollowed, 1) == 0)
+                    OnSSHPeersChanged += () => _ = FileServers;
+
+                KeepOnlyTheKeysOf(servers);
+
+                return servers;
+
             }
         }
 
         /// <summary>
         /// What "{id}" stands for in the paths of a file server, and the login
         /// where neither a request nor the peer names one: the identity of this
-        /// node.
+        /// node, which is the login it has at its SSH peers.
         /// </summary>
-        public virtual String FileTransferIdentity
-            => Kind.Tag;
+        public String FileTransferIdentity
+            => DefaultSSHPeerUser;
 
         #endregion
 
-        #region SetFileServers(FileServers)
+        #region (private) KeepOnlyTheKeysOf(Servers)
 
         /// <summary>
-        /// The file servers of this node from now on. The keys of a file server
-        /// and of a login that are no longer there are deleted: added again,
-        /// they get new ones.
+        /// Delete the keys of file servers and logins that are there no longer:
+        /// added again, they get new ones. So do the keys of a peer whose
+        /// address or port changed - under the same name it is another server,
+        /// and its keys were never shown there.
         /// </summary>
-        /// <returns>Why they are not taken - and then nothing changed - or null.</returns>
-        public String? SetFileServers(IEnumerable<SSHFileServer> FileServers)
+        /// <remarks>
+        /// Decided by what is on disk, not by what was seen before, so that a
+        /// node that was restarted between two changes forgets no deletion.
+        /// </remarks>
+        private void KeepOnlyTheKeysOf(IReadOnlyList<SSHFileServer> Servers)
         {
 
-            var servers = FileServers.ToArray();
-
-            foreach (var server in servers)
-                if (server.Problem is String problem)
-                    return problem;
-
-            if (servers.GroupBy(server => server.Id, StringComparer.OrdinalIgnoreCase).FirstOrDefault(group => group.Count() > 1) is { } twice)
-                return $"'{twice.Key}' names two file servers";
-
-            if (servers.GroupBy(server => (server.Host, server.Port)).FirstOrDefault(group => group.Count() > 1) is { } same)
-                return $"{same.Key.Host}:{same.Key.Port} is two file servers, '{same.First().Id}' and '{same.Last().Id}': a request could not say which";
+            var seen = String.Join("|", Servers.Select(server => $"{server.Id}={server.Host}:{server.Port}:{String.Join(",", LoginsOf(server))}"));
 
             lock (fileServersLock)
             {
 
-                var before  = fileServers;
-                fileServers = servers;
+                if (seen == fileServersSeen)
+                    return;
 
-                foreach (var was in before)
+                fileServersSeen = seen;
+
+                try
                 {
 
-                    var now = servers.FirstOrDefault(server => String.Equals(server.Id, was.Id, StringComparison.OrdinalIgnoreCase));
+                    var root = Path.GetDirectoryName(Path.GetDirectoryName(FileTransferKeyPath("x", "x"))!)!;
 
-                    // Another host under the same name is another server: its keys were never shown there.
-                    if (now is null || now.Host != was.Host || now.Port != was.Port)
-                        DeleteFileTransferKeys(was.Id, null);
-                    else
-                        foreach (var login in LoginsOf(was).Except(LoginsOf(now), StringComparer.Ordinal))
-                            DeleteFileTransferKeys(was.Id, login);
+                    if (!Directory.Exists(root))
+                        return;
 
+                    foreach (var directory in Directory.GetDirectories(root))
+                    {
+
+                        var id      = Path.GetFileName(directory);
+                        var server  = Servers.FirstOrDefault(candidate => String.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
+                        var marker  = Path.Combine(directory, FileServerMarker);
+                        var madeFor = File.Exists(marker) ? File.ReadAllText(marker).Trim() : null;
+
+                        if (server is null || madeFor != $"{server.Host}:{server.Port}")
+                        {
+                            DeleteFileTransferKeys(id, null);
+                            continue;
+                        }
+
+                        var logins = LoginsOf(server);
+
+                        foreach (var file in Directory.GetFiles(directory, "*_ed25519_key"))
+                        {
+                            var login = Path.GetFileName(file)[..^"_ed25519_key".Length];
+                            if (!logins.Contains(login, StringComparer.Ordinal))
+                                DeleteFileTransferKeys(id, login);
+                        }
+
+                    }
+
+                }
+                catch (Exception problem)
+                {
+                    Log.Warning($"The keys of file servers that are there no longer could not be looked for: {problem.Message}",
+                                Kind.Tag, "ssh", "sftp", "filetransfer", "security");
                 }
 
             }
-
-            return null;
 
         }
 
@@ -333,7 +376,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The login of a file server where a request names none.
         /// </summary>
         private String LoginOf(SSHFileServer Server)
-            => Server.User ?? FileTransferIdentity;
+            => Server.User ?? DefaultSSHPeerUser;
 
         /// <summary>
         /// The logins this node may sign in under at a file server.
@@ -360,6 +403,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return null;
             }
         }
+
+        /// <summary>
+        /// The logins this node may sign in under at the given file server; none
+        /// where that is no file server of this node.
+        /// </summary>
+        public IReadOnlyList<String> FileTransferLogins(String ServerId)
+            => FileServerOf(ServerId) is SSHFileServer server
+                   ? LoginsOf(server)
+                   : [];
 
         private SSHFileServer? FileServerOf(String Id)
             => FileServers.FirstOrDefault(server => String.Equals(server.Id, Id, StringComparison.OrdinalIgnoreCase));
@@ -493,6 +545,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     // A private key: whoever can read it can sign in as this node.
                     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                     OwnerOnly.Directory(Path.GetDirectoryName(path)!, problem => Log.Warning(problem, Kind.Tag, "ssh", "sftp", "filetransfer", "security"));
+
+                    // Which server the keys of this directory are for: another host or port
+                    // under the same name is another server.
+                    File.WriteAllText(Path.Combine(Path.GetDirectoryName(path)!, FileServerMarker), $"{Server.Host}:{Server.Port}{Environment.NewLine}");
 
                     var key = SshHostKey.GenerateEd25519();
                     SshKeyGenerator.WriteKeyPairAsync(key, path, Comment: $"{Login}@{Server.Id}").GetAwaiter().GetResult();

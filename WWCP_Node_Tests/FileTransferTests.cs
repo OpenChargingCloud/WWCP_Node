@@ -201,7 +201,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await TheServer();
             TheNode();
 
-            Assert.That(node!.SetFileServers([ FileServer?.Invoke() ?? this.FileServer() ]), Is.Null);
+            Assert.That(await Hold(FileServer?.Invoke() ?? this.FileServer()), Is.Null);
 
             var line = node.FileTransferPublicKey("files", Login);
             Assert.That(line, Does.StartWith("ssh-ed25519 "));
@@ -216,6 +216,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.ConfirmFileTransferKey("files", Login, line), Is.Null);
 
         }
+
+        /// <summary>
+        /// The SSH peers of the node from now on, each of them a file server:
+        /// written into its configuration, as the page and OCPP write them.
+        /// </summary>
+        /// <returns>Why they are not taken, or null.</returns>
+        private async Task<String?> Hold(params SSHFileServer[] FileServers)
+
+            => (await node!.TryUpdateSSHPeers(peers => new JArray(FileServers.Select(fileServer => new SSHPeerConfiguration(fileServer.Id,
+                                                                                                                                  DomainName.Parse(fileServer.Address),
+                                                                                                                                  fileServer.User,
+                                                                                                                                  fileServer.Trust,
+                                                                                                                                  fileServer.FileTransfers).ToJSON())))).Error;
+
+        /// <summary>
+        /// The same from the JSON of the configuration file.
+        /// </summary>
+        private async Task<String?> HoldJSON(String Peers)
+            => (await node!.TryUpdateSSHPeers(peers => JArray.Parse(Peers))).Error;
 
         private String URL(String Path, String? User = Login, UInt16? Port = null, String Host = "127.0.0.1")
             => $"sftp://{(User is null ? "" : User + "@")}{Host}:{Port ?? this.Port}{Path}";
@@ -394,35 +413,58 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region AFileServerNobodyCouldBelieveIsNone
 
         [Test]
-        public void AFileServerNobodyCouldBelieveIsNone()
+        public async Task AFileServerNobodyCouldBelieveIsNone()
         {
 
             TheNode();
 
-            var transfers = new SSHFileTransfers(FileTransferDirections.Upload, UploadPaths: [ "/upload/" ]);
-            var pinned    = new NTSServerSSH(HostKeyPins: [ "SHA256:hOEj1ea61PSArpO3/qj2Drlp024D2eiJ7DJQNNLl+hU" ]);
+            const String pin = "SHA256:hOEj1ea61PSArpO3/qj2Drlp024D2eiJ7DJQNNLl+hU";
 
-            // Held to no host key and no CA.
-            Assert.That(node!.SetFileServers([ new SSHFileServer("files", "logs.example.org", null, new NTSServerSSH(), transfers) ]),
-                        Does.Contain("no host key"));
+            String Peer(String Id, String Address, String Rest)
+                => $$"""{ "id": "{{Id}}", "address": "{{Address}}", {{Rest}} }""";
 
-            Assert.That(node.SetFileServers([ new SSHFileServer("fi/les", "logs.example.org", null, pinned, transfers) ]),
-                        Does.Contain("no name"));
+            const String uploads = """ "fileTransfers": { "directions": [ "upload" ], "uploadPaths": [ "/upload/" ] } """;
 
-            Assert.That(node.SetFileServers([ new SSHFileServer("files", "not a host", null, pinned, transfers) ]),
-                        Does.Contain("neither"));
+            // Held to no host key and no CA: a peer nobody could believe is never stored.
+            Assert.That(await HoldJSON($"[ {Peer("files", "logs.example.org", uploads)} ]"),
+                        Does.Contain("held to no host key"));
 
-            // Two of one host and port: a request could not say which.
-            Assert.That(node.SetFileServers([ new SSHFileServer("a", "logs.example.org",  null, pinned, transfers),
-                                              new SSHFileServer("b", "LOGS.example.org.", null, pinned, transfers) ]),
-                        Does.Contain("two file servers"));
+            // What it may be used for is read as strictly as the rest of its entry.
+            foreach (var (wrong, says) in new[] {
+                         (""" "fileTransfers": { "directions": [ "sideways" ] } """,                                 "neither \"upload\" nor \"download\""),
+                         (""" "fileTransfers": { "directions": [ "upload" ], "uploadPaths": [ "upload/" ] } """,     "is no directory"),
+                         (""" "fileTransfers": { "directions": [ "upload" ], "uploadPaths": [ "/a/../b/" ] } """,    "'..'"),
+                         (""" "fileTransfers": { "directions": [ "upload" ], "users": [ "-rf" ] } """,               "is no login"),
+                         (""" "fileTransfers": { "directions": [ "upload" ], "connection": "both" } """,             "neither \"dedicated\" nor \"shared\""),
+                         (""" "fileTransfers": "yes" """,                                                            "must be an object")
+                     })
+            {
+                var error = await HoldJSON($$"""[ {{Peer("files", "logs.example.org", $"\"hostKeyPins\": [ \"{pin}\" ], {wrong}")}} ]""");
+                Assert.That(error, Does.Contain(says).And.Contain("fileTransfers"), wrong);
+            }
 
-            Assert.That(node.FileServers, Is.Empty, "nothing of what was refused is held");
+            Assert.That(node!.FileServers, Is.Empty, "nothing of what was refused is held");
 
-            // The same host on another port is another server.
-            Assert.That(node.SetFileServers([ new SSHFileServer("a", "logs.example.org", null, pinned,                           transfers),
-                                              new SSHFileServer("b", "logs.example.org", null, pinned with { Port = 2222 },      transfers) ]),
-                        Is.Null);
+            // A peer without "fileTransfers" is a peer, and no file server.
+            Assert.That(await HoldJSON($$"""[ {{Peer("time", "time.example.org", $"\"hostKeyPins\": [ \"{pin}\" ]")}} ]"""), Is.Null);
+            Assert.That(node.ConfiguredSSHPeers,  Has.Count.EqualTo(1));
+            Assert.That(node.FileServers,         Is.Empty);
+            Assert.That(node.JudgeFileTransfer("sftp://time.example.org/upload/", FileTransferDirections.Upload).Why, Does.Contain("is no file server"));
+
+            // With it, it is one - and what it may be used for is written back as it was read.
+            Assert.That(await HoldJSON($$"""[ {{Peer("files", "LOGS.example.org", $"\"port\": 2222, \"hostKeyPins\": [ \"{pin}\" ], {uploads}")}} ]"""), Is.Null);
+
+            Assert.That(node.FileServers.Select(fileServer => (fileServer.Id, fileServer.Host, fileServer.Port)),
+                        Is.EqualTo(new[] { ("files", "logs.example.org", (UInt16) 2222) }));
+
+            Assert.That(node.ConfiguredSSHPeers[0].ToJSON()["fileTransfers"]!["uploadPaths"]!.Values<String>(), Is.EqualTo(new[] { "/upload/" }));
+
+            // One peer per address: an SFTP server on a second port of that host is no second peer.
+            Assert.That(await HoldJSON($$"""
+                                         [ {{Peer("a", "logs.example.org", $"\"hostKeyPins\": [ \"{pin}\" ], {uploads}")}},
+                                           {{Peer("b", "logs.example.org", $"\"port\": 2222, \"hostKeyPins\": [ \"{pin}\" ], {uploads}")}} ]
+                                         """),
+                        Does.Contain("one connection to a host"));
 
         }
 
@@ -627,7 +669,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             TheNode();
 
             var both = FileServer(Users: [ "cs001", "cs001-fw" ]);
-            Assert.That(node!.SetFileServers([ both, both with { Id = "other", Address = "127.0.0.2" } ]), Is.Null);
+            Assert.That(await Hold(both, both with { Id = "other", Address = "127.0.0.2" }), Is.Null);
 
             var logs       = node.FileTransferPublicKey("files", "cs001");
             var images     = node.FileTransferPublicKey("files", "cs001-fw");
@@ -642,16 +684,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(node.ConfirmFileTransferKey("files", "cs001"),      Is.Null);
             Assert.That(File.Exists(node.FileTransferKeyPath("files", "cs001")), Is.True);
+            Assert.That(File.Exists(node.FileTransferKeyPath("other", "cs001")), Is.True);
 
             // A login that is one no longer has its key deleted; added again, it gets a new one, unconfirmed.
-            Assert.That(node.SetFileServers([ FileServer(Users: [ "cs001-fw" ]) ]), Is.Null);
+            Assert.That(await Hold(FileServer(Users: [ "cs001-fw" ])), Is.Null);
 
             Assert.That(File.Exists(node.FileTransferKeyPath("files", "cs001")),     Is.False);
             Assert.That(File.Exists(node.FileTransferKeyPath("files", "cs001-fw")),  Is.True,  "the key of the login that stayed is untouched");
             Assert.That(File.Exists(node.FileTransferKeyPath("other", "cs001")),     Is.False, "and the keys of a file server that is none any more are gone");
             Assert.That(node.FileTransferPublicKey("files", "cs001-fw"),             Is.EqualTo(images));
 
-            Assert.That(node.SetFileServers([ both ]), Is.Null);
+            Assert.That(await Hold(both), Is.Null);
 
             Assert.That(node.FileTransferPublicKey("files", "cs001"),          Is.Not.EqualTo(logs));
             Assert.That(node.IsFileTransferKeyConfirmed("files", "cs001"),     Is.False);
@@ -700,7 +743,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // Nobody listens on the port of the file server.
             var closed = TestPorts.Free();
-            Assert.That(node.SetFileServers([ FileServer(Port: closed) ]), Is.Null);
+            Assert.That(await Hold(FileServer(Port: closed)), Is.Null);
             Assert.That(node.ConfirmFileTransferKey("files", Login), Does.Contain("no key"), "another port is another server: the key shown to the one before is gone");
             Assert.That(node.FileTransferPublicKey("files", Login),  Is.Not.Null);
             Assert.That(node.ConfirmFileTransferKey("files", Login), Is.Null);
@@ -741,12 +784,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var askedFor = new List<String>();
             String? notNow = null;
 
+            Assert.That(await Hold(FileServer(Connection: SSHConnection.Shared)), Is.Null);
+
+            // In the place of the connection the node would make to its peer by itself, one the
+            // test can ask about.
             node!.AddSSHPeer(new SSHPeer(DomainName.Parse("127.0.0.1"),
                                          Port,
                                          connection,
                                          WhyNot: subsystem => { askedFor.Add(subsystem); return notNow; }));
-
-            Assert.That(node.SetFileServers([ FileServer(Connection: SSHConnection.Shared) ]), Is.Null);
 
             var content = RandomNumberGenerator.GetBytes(40_000);
             var result  = await node.UploadFileAsync(URL("/upload/"), new MemoryStream(content), "a.log");
