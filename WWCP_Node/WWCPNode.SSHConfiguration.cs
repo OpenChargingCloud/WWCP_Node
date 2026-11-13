@@ -268,6 +268,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!SSHConfiguration.TryParse(JSON, out var sent, out var error))
                 return new SSHConfigurationChange(false, error);
 
+            var peersChanged = false;
+
             await reconfigureLock.WaitAsync();
 
             try
@@ -327,7 +329,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 // The peers as they are said now: one that changed or went has its
                 // connection closed, for everything that shared it.
-                ApplyConfiguredSSHPeers(file.Peers);
+                peersChanged = ApplyConfiguredSSHPeers(file.Peers);
 
                 // In effect at once, for the next one to sign in: the connections
                 // open stay, even beyond what their kind may have now.
@@ -409,7 +411,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
             finally
             {
+
                 reconfigureLock.Release();
+
+                // Told once the configuration is let go of.
+                if (peersChanged)
+                    OnSSHPeersChanged?.Invoke();
+
             }
 
         }

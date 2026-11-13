@@ -75,16 +75,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region Properties
 
         /// <summary>
-        /// The SSH peers the configuration file names, as it names them.
+        /// The SSH peers the configuration file names, as it names them and in
+        /// its order - also one that is not used, because its host is a peer
+        /// by a connection the node dials already.
         /// </summary>
         public IReadOnlyList<SSHPeerConfiguration> ConfiguredSSHPeers
-        {
-            get
-            {
-                lock (configuredSSHPeersLock)
-                    return [.. configuredSSHPeers.Values.Select(configured => configured.Entry)];
-            }
-        }
+            => sshFile?.Peers ?? [];
 
         /// <summary>
         /// Where the key this node signs in with at its SSH peers is kept: beside
@@ -179,6 +175,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #endregion
 
 
+        #region Events
+
+        /// <summary>
+        /// The SSH peers of the configuration changed: one was added, changed
+        /// or taken out. Told once the node let go of its configuration, so
+        /// that what is read then is what was saved.
+        /// </summary>
+        public event Action? OnSSHPeersChanged;
+
+        #endregion
+
         #region SSHPeerHostKeyJudgementOf(Id)
 
         /// <summary>
@@ -202,10 +209,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// peer no longer, and its connection is closed - for everything that
         /// shared it, which has the next one made by what the entry says now.
         /// </summary>
-        private void ApplyConfiguredSSHPeers(IReadOnlyList<SSHPeerConfiguration>? Peers)
+        /// <returns>Whether a peer was added, changed or taken out.</returns>
+        private Boolean ApplyConfiguredSSHPeers(IReadOnlyList<SSHPeerConfiguration>? Peers)
         {
 
-            var gone = new List<SSHPeer>();
+            var gone     = new List<SSHPeer>();
+            var changed  = false;
 
             lock (configuredSSHPeersLock)
             {
@@ -221,6 +230,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         continue;
                     }
 
+                    changed = true;
                     configuredSSHPeers.Remove(name);
                     sshPeerJudgements.TryRemove(name, out _);
                     RemoveSSHPeer(configured.Peer);
@@ -253,6 +263,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     AddSSHPeer(peer);
 
+                    changed = true;
                     configuredSSHPeers[entry.Id] = (entry, peer);
 
                 }
@@ -264,6 +275,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         try   { await peer.Connection.DisposeAsync(); }
                         catch { }
                     });
+
+            return changed;
 
         }
 
@@ -392,6 +405,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                var json = configured.Entry.ToJSON();
 
                                json["connected"]         = configured.Peer.Connection.Current is not null;
+                               json["port"]              = configured.Entry.Port;
                                json["hostKeyJudgement"]  = SSHPeerHostKeyJudgementOf(configured.Entry.Id)?.ToJSON();
 
                                return json;
