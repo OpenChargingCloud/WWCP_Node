@@ -308,7 +308,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                    [Server] = pins.Learning(What, Fingerprint)
                                };
 
-                var update   = new DNSConfiguration(Servers: configuredDNSServers, Pins: nowPins, ServerIds: dnsServerIdsGiven);
+                // With how those over SSH are asked: the list is written as a
+                // whole, and a server over SSH written without it is none.
+                var update   = new DNSConfiguration(Servers: configuredDNSServers, Pins: nowPins, ServerIds: dnsServerIdsGiven, SSH: dnsSSH);
 
                 if (!ConfigFile.TryMergeSection(DNSConfiguration.SectionName, update.ToJSON(), out var error))
                 {

@@ -1729,7 +1729,23 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        configuredDNSServers.Select((server, index) => {
 
                            var pins  = PinsOf(server);
-                           var json  = DNSConfiguration.ServerJSON(server, pins, DNSServerIds.ElementAtOrDefault(index));
+                           var ssh   = NameServerSSHOf(server);
+                           var json  = DNSConfiguration.ServerJSON(server, pins, ssh, DNSServerIds.ElementAtOrDefault(index));
+
+                           // Over SSH, what its last attempt came to, the host
+                           // key it showed then, and the key the node signs in
+                           // with there - which is made at this first need.
+                           if (ssh is not null)
+                           {
+
+                               var state = NameServerSSHStateOf(server);
+
+                               json.Add("sshStatus",           state?.Status.ToString());
+                               json.Add("sshHostKey",          state?.HostKey);
+                               json.Add("sshJudgement",        state?.ToJSON());
+                               json.Add("sshClientPublicKey",  NameServerSSHClientPublicKeyOf(server));
+
+                           }
 
                            json.Add("heldTo",     pins is { SaysAnything: true } ? pins.ToJSON() : null);
                            json.Add("judgement",  LastJudgementOf(server)?.ToJSON());
@@ -1750,6 +1766,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    // the operating system, for a client that looked for them -
                    // which a save of "servers": null goes back to.
                    new JProperty("serversFrom",       dnsServersFromTheFile ? "file" : "start"),
+
+                   // The hosts this node keeps an SSH connection to, which a
+                   // name server may share - and no other: what decides whether
+                   // one can be given "connection": "shared".
+                   new JProperty("sshPeers",          new JArray(NameServerSSHPeerHosts)),
 
                    new JProperty("settings",          new JObject(
                        new JProperty("queryTimeoutSeconds",  dnsClient.QueryTimeout.TotalSeconds),
@@ -2127,11 +2148,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
+            // How those over SSH are asked comes with the list, and only with
+            // it, as what a server is held to does - and before the client is
+            // given its servers, which it asks by it.
+            if (servers is not null)
+                changed.AddRange(ApplyNameServersOverSSH(Configuration.RemovesServers ? null : Configuration.SSH));
+
             // Always, not only when one of the three above changed: the client
             // must end up holding exactly the servers this node means it to
             // hold, and working that out from which halves changed is how the
             // two drift apart.
-            dnsClient.SetDNSServers(DNSEnabled ? AskedDNSServers : []);
+            dnsClient.SetDNSServers(DNSEnabled ? WithSSH(AskedDNSServers) : []);
 
             // What each server is held to comes with the list, and only with it.
             // A server whose pins changed lets go of its connection: the
@@ -3576,6 +3603,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
                 await Stop();
+                await CloseNameServerSSHConnections();
                 await CloseConfiguredSSHPeers();
             }
             finally

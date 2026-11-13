@@ -241,6 +241,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                        return json;
                                    }));
 
+            // And of the servers asked over SSH, by the same rule: what an
+            // attempt during this test came to.
+            JArray SSHAttempts()
+
+                => new (servers.Where  (server => NameServerSSHStateOf(server) is { } state && state.At >= judgedFrom).
+                                Select (server => {
+                                    var json = NameServerSSHStateOf(server)!.ToJSON();
+                                    json.AddFirst(new JProperty("server", NameOf(server)));
+                                    return json;
+                                }));
+
             try
             {
 
@@ -302,7 +313,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                            new JProperty("more",          Math.Max(0, answer.Answers.Count() - records.Length)),
 
-                           new JProperty("certificates",  CertificatesJudged())
+                           new JProperty("certificates",  CertificatesJudged()),
+
+                           new JProperty("ssh",           SSHAttempts())
 
                        );
 
@@ -319,6 +332,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var failed = Failed(serviceName.ToString(), e.Message);
                 failed.Add("runtime_ms",    stopwatch.ElapsedMilliseconds);
                 failed.Add("certificates",  CertificatesJudged());
+                failed.Add("ssh",           SSHAttempts());
 
                 return failed;
 
@@ -600,12 +614,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         ///
         /// One place, so that whatever else a node will want to say about a
         /// server it asks on its own - how to check the certificate of one
-        /// reached over TLS or HTTPS, say - is said here.
+        /// reached over TLS or HTTPS, say - is said here. One asked over SSH
+        /// is asked on the connection the node hands out for it, which is the
+        /// one its own client asks it on: one login, and one verdict.
         /// </remarks>
         /// <param name="Server">One of the configured name servers.</param>
         private DNSClient ClientFor(DNSServerConfig Server)
 
-            => new ([ Server ],
+            => new ([ WithSSH(Server) ],
                     QueryTimeout:   Server.QueryTimeout ?? dnsClient.QueryTimeout,
                     UseQueryCache:  false) {
 

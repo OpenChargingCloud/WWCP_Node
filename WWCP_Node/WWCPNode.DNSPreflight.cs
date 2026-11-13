@@ -88,6 +88,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// server's last judgement or as what it was believed with. A
         /// configuration that is not in effect has nothing to report.
         /// </para>
+        /// <para>
+        /// A server asked over SSH is asked by what the section holds it to,
+        /// on a connection of this dry run's own - or on the one the node
+        /// shares with an SSH peer, which stays. And such a server on a shared
+        /// connection is not asked for the name of the host that connection is
+        /// dialled by: after the next reconnect that name would have to be
+        /// resolved before there is a connection to ask it over (white paper
+        /// "DNS over SSH", section 7.2). So a name that only such a server
+        /// would resolve does not resolve here, although it does while the
+        /// connection lasts.
+        /// </para>
         /// </remarks>
         /// <param name="Section">A change of the "dns" section, in the shape of the configuration file.</param>
         /// <param name="Names">The names to resolve.</param>
@@ -127,14 +138,32 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      ? candidate.Pins ?? new Dictionary<DNSServerConfig, ServerPins>()
                                      : dnsPins;
 
+            // How those over SSH would be asked, by the same rule as the pins.
+            var overSSH  = candidate.RemovesServers
+                               ? new Dictionary<DNSServerConfig, NTSServerSSH>()
+                               : candidate.Servers is not null
+                                     ? candidate.SSH ?? new Dictionary<DNSServerConfig, NTSServerSSH>()
+                                     : dnsSSH;
+
             if (!enabled || servers.Count == 0)
                 return new DNSPreflight(names.ToDictionary(name => name, _ => false, StringComparer.OrdinalIgnoreCase), []);
 
             var judged   = new ConcurrentQueue<ServerJudgement>();
 
-            using var client = new DNSClient(servers,
-                                             QueryTimeout:   candidate.QueryTimeout ?? dnsClient.QueryTimeout,
-                                             UseQueryCache:  false) {
+            // The servers on the connection of an SSH peer, by the host that
+            // connection is dialled by: none of them is asked for that name.
+            Boolean CarriedBy(DNSServerConfig Server, String Name)
+
+                => overSSH.GetValueOrDefault(Server) is { IsShared: true } &&
+                   String.Equals(SSHHostOf(Server), Name, StringComparison.OrdinalIgnoreCase);
+
+            DNSClient ClientAsking(IEnumerable<DNSServerConfig> Asked)
+
+                => new (Asked.Select(server => server.Transport == DNSTransport.SSH && server.SSH is null && overSSH.GetValueOrDefault(server) is NTSServerSSH ssh
+                                                   ? ForADryRun(server, ssh)
+                                                   : server),
+                        QueryTimeout:   candidate.QueryTimeout ?? dnsClient.QueryTimeout,
+                        UseQueryCache:  false) {
 
                                    RecursionDesired            = candidate.RemovesRecursionDesired
                                                                      ? null
@@ -168,6 +197,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                                };
 
+            using var client = ClientAsking(servers);
+
             using var within = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
             within.CancelAfter(Within);
 
@@ -177,13 +208,24 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!DNSServiceName.TryParse(Name, out var serviceName, out _))
                     return (Name, false);
 
+                // Without the servers that name carries: with none left, it
+                // resolves nowhere.
+                var others  = servers.Where(server => !CarriedBy(server, Name)).ToArray();
+
+                if (others.Length == 0)
+                    return (Name, false);
+
+                using var without = others.Length < servers.Count
+                                        ? ClientAsking(others)
+                                        : null;
+
                 try
                 {
 
-                    var answer = await client.Query(serviceName,
-                                                    [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ],
-                                                    ForceUpdate:        true,
-                                                    CancellationToken:  within.Token).ConfigureAwait(false);
+                    var answer = await (without ?? client).Query(serviceName,
+                                                                 [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ],
+                                                                 ForceUpdate:        true,
+                                                                 CancellationToken:  within.Token).ConfigureAwait(false);
 
                     return (Name, answer.ResponseCode == DNSResponseCodes.NoError &&
                                   answer.Answers.Any(record => record.Type is DNSResourceRecordTypes.A or DNSResourceRecordTypes.AAAA));

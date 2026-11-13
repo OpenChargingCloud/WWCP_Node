@@ -31,6 +31,39 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 {
 
     /// <summary>
+    /// What a host key a server showed over SSH came to, by what its entry
+    /// holds it to - see <see cref="NTSServerSSH.Believes(Byte[], String, DateTimeOffset, out String, out String, out SSHHostKeyVerdict)"/>.
+    /// </summary>
+    public enum SSHHostKeyVerdict
+    {
+
+        /// <summary>
+        /// The key is one of the pinned ones.
+        /// </summary>
+        Pinned,
+
+        /// <summary>
+        /// It came as a host certificate for the server's name, valid now, of
+        /// one of its CAs.
+        /// </summary>
+        Certified,
+
+        /// <summary>
+        /// Neither a pin nor a CA vouches for it: PinMismatch, in the words of
+        /// the OCPP Device Model.
+        /// </summary>
+        NotVouchedFor,
+
+        /// <summary>
+        /// It came as a host certificate of one of its CAs that is not valid
+        /// now, or not for the name the server was asked under: Untrusted.
+        /// </summary>
+        InvalidCertificate
+
+    }
+
+
+    /// <summary>
     /// How the key exchange with a time server goes over SSH instead of TLS:
     /// the subsystem "ntske/1@open.charging.cloud" of the white paper "NTS Key
     /// Establishment over SSH", on the server's SSH port, signed in under a
@@ -64,6 +97,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// name it shows. Neither is the same as a certificate pin, which hashes a
     /// whole certificate. A server held to none of them is believed by nobody,
     /// unless its mismatches are recorded or accepted.
+    /// </para>
+    /// <para>
+    /// What a name server asked over SSH is held to is said in the same words -
+    /// "ssh" in its entry of "dns.servers" - and believed by the same rule: see
+    /// <see cref="DNSConfiguration"/>. Only its login differs: where its entry
+    /// names none, it is the name the node calls itself.
     /// </para>
     /// </remarks>
     /// <param name="Port">Its SSH port, or null for <see cref="DefaultPort"/>.</param>
@@ -172,6 +211,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 DateTimeOffset  Now,
                                 out String      Shown,
                                 out String      Why)
+
+            => Believes(HostKeyBlob, Hostname, Now, out Shown, out Why, out _);
+
+        /// <summary>
+        /// Whether the host key a server showed is one this entry holds it to,
+        /// and which of the ways to be believed, or not to be, it came to - for
+        /// whoever has to tell a key nothing vouches for from a host certificate
+        /// that is not valid for the name it was asked under.
+        /// </summary>
+        /// <param name="HostKeyBlob">The host key as the server sent it: a key, or a certificate.</param>
+        /// <param name="Hostname">The name it was asked under, which a host certificate has to name.</param>
+        /// <param name="Now">The time a certificate has to be valid at.</param>
+        /// <param name="Shown">The SHA-256 fingerprint of the key it showed - the certified key, where it showed a certificate.</param>
+        /// <param name="Why">Why it is none of them, or what it was believed by.</param>
+        /// <param name="Verdict">What it was believed by, or which way it was not.</param>
+        public Boolean Believes(Byte[]                 HostKeyBlob,
+                                String                 Hostname,
+                                DateTimeOffset         Now,
+                                out String             Shown,
+                                out String             Why,
+                                out SSHHostKeyVerdict  Verdict)
         {
 
             SshCertificate? certificate = null;
@@ -185,7 +245,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (Pins.Any(pin => String.Equals(pin, shown, StringComparison.Ordinal)))
             {
-                Why = $"its host key {shown} is pinned";
+                Why      = $"its host key {shown} is pinned";
+                Verdict  = SSHHostKeyVerdict.Pinned;
                 return true;
             }
 
@@ -196,7 +257,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
                 if (!CAs.Any(trusted => String.Equals(trusted, ca, StringComparison.Ordinal)))
                 {
-                    Why = $"its host key {shown} is pinned nowhere, and its host certificate was signed by {ca}, which is none of its CAs";
+                    Why      = $"its host key {shown} is pinned nowhere, and its host certificate was signed by {ca}, which is none of its CAs";
+                    Verdict  = SSHHostKeyVerdict.NotVouchedFor;
                     return false;
                 }
 
@@ -210,18 +272,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
                 if (!validation.IsValid)
                 {
-                    Why = $"its host certificate of {ca} is not valid for {Hostname} now: {validation.Reason}";
+                    Why      = $"its host certificate of {ca} is not valid for {Hostname} now: {validation.Reason}";
+                    Verdict  = SSHHostKeyVerdict.InvalidCertificate;
                     return false;
                 }
 
-                Why = $"its host certificate for {Hostname} was signed by its CA {ca}";
+                Why      = $"its host certificate for {Hostname} was signed by its CA {ca}";
+                Verdict  = SSHHostKeyVerdict.Certified;
                 return true;
 
             }
 
-            Why = IsPinned
-                      ? $"its host key {shown} is none it is held to"
-                      : $"it is held to no host key and no CA, and showed {shown}";
+            Why      = IsPinned
+                           ? $"its host key {shown} is none it is held to"
+                           : $"it is held to no host key and no CA, and showed {shown}";
+            Verdict  = SSHHostKeyVerdict.NotVouchedFor;
 
             return false;
 
@@ -237,10 +302,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// </summary>
         /// <param name="JSON">The value of "ssh".</param>
         /// <param name="Path">Where it is in the file: "nts.groups.local.servers[0].ssh".</param>
+        /// <param name="UsualUser">The user name that is written as nothing, and read the same: <see cref="DefaultUser"/> for a time server; null where every name is kept as it was said, because the usual one is no name of the file's - a name server signs in as the node calls itself.</param>
+        /// <param name="What">What goes over the connection, as a refusal says it: "the key exchange" for a time server.</param>
         public static Boolean TryParse(JToken                                 JSON,
                                        String                                 Path,
                                        [NotNullWhen(true)]  out NTSServerSSH? SSH,
-                                       [NotNullWhen(false)] out String?       Error)
+                                       [NotNullWhen(false)] out String?       Error,
+                                       String?                                UsualUser   = DefaultUser,
+                                       String                                 What        = "the key exchange")
         {
 
             SSH    = null;
@@ -293,7 +362,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 if (ofItsOwn.Length > 0)
                 {
                     Error = $"'{Path}': {String.Join(", ", ofItsOwn.Select(name => $"\"{name}\""))} do{(ofItsOwn.Length == 1 ? "es" : "")} not apply with \"connection\": \"shared\": " +
-                            "the key exchange goes over the SSH connection the node shares with that host, with its port, its login and the host key it is held to.";
+                            $"{What} goes over the SSH connection the node shares with that host, with its port, its login and the host key it is held to.";
                     return false;
                 }
 
@@ -345,7 +414,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             SSH = new NTSServerSSH(
                       port?.ToUInt16(),
                       // The usual name is written as nothing, and read the same.
-                      user is not null && user != DefaultUser ? user : null,
+                      user is not null && user != UsualUser ? user : null,
                       hostKeyPins.Count > 0 ? hostKeyPins : null,
                       hostCAs.    Count > 0 ? hostCAs     : null,
                       onMismatch

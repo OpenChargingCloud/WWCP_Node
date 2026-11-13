@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.Configuration
@@ -43,6 +45,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// are "recursionDesired": null, "leave it to the server" - see
     /// <see cref="RemovesRecursionDesired"/> - and "servers": null, "the ones
     /// the node was started with" - see <see cref="RemovesServers"/>.
+    /// <para>
+    /// A server with "transport": "SSH" is asked over the subsystem
+    /// "dns@open.charging.cloud" of the white paper "DNS over SSH", and says
+    /// how in "ssh": { "port", "user", "hostKeyPins", "hostCAs", "onMismatch" }
+    /// - or { "connection": "shared" } alone - in the words of a time server
+    /// whose key exchange goes over SSH, see <see cref="NTSServerSSH"/>. It
+    /// shows no certificate, so nothing of <see cref="ServerPins"/> applies to
+    /// it; and it is never stored without a way to believe it: a host key, a
+    /// CA, or the connection to an SSH peer, which is held to its own.
+    /// </para>
     /// </remarks>
     /// <param name="Enabled">Whether this node resolves names at all.</param>
     /// <param name="Servers">The name servers to ask; an empty list is not the same as none given.</param>
@@ -55,7 +67,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="MaxRetries">How often a server that did not answer, or answered SERVFAIL, is asked again.</param>
     /// <param name="Pins">What each of the servers reached over TLS or HTTPS is held to, beside what every one is held to - see <see cref="ServerPins"/>; only where the list of servers says so.</param>
     /// <param name="ServerIds">The id the file gives each of the servers, by its place in the list, or null where it gives none - see <see cref="Ids"/>.</param>
-    /// <param name="EncryptedOnly">Whether only the servers reached over TLS or HTTPS are asked - see <see cref="InClearText"/>.</param>
+    /// <param name="EncryptedOnly">Whether only the servers reached over TLS, HTTPS or SSH are asked - see <see cref="InClearText"/>.</param>
+    /// <param name="SSH">How each of the servers asked over SSH is reached and what its host key is held to - see <see cref="NTSServerSSH"/>; only where the list of servers says so.</param>
     public sealed record DNSConfiguration(Boolean?                        Enabled               = null,
                                           IReadOnlyList<DNSServerConfig>? Servers               = null,
                                           TimeSpan?                       QueryTimeout          = null,
@@ -67,7 +80,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           Byte?                           MaxRetries            = null,
                                           IReadOnlyDictionary<DNSServerConfig, ServerPins>?  Pins  = null,
                                           IReadOnlyList<String?>?         ServerIds             = null,
-                                          Boolean?                        EncryptedOnly         = null)
+                                          Boolean?                        EncryptedOnly         = null,
+                                          IReadOnlyDictionary<DNSServerConfig, NTSServerSSH>?  SSH  = null)
     {
 
         #region Data
@@ -88,6 +102,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// The longest a query may be allowed to take, in seconds.
         /// </summary>
         public const Double  MaxQueryTimeoutSeconds = 120;
+
+        /// <summary>
+        /// What a refusal of an "ssh" object says goes over the connection.
+        /// </summary>
+        private const String WhatGoesOverSSH      = "name resolution";
 
         #endregion
 
@@ -175,6 +194,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             IReadOnlyList<DNSServerConfig>?                    servers  = null;
             Dictionary<DNSServerConfig, ServerPins>?          pins     = null;
+            Dictionary<DNSServerConfig, NTSServerSSH>?        overSSH  = null;
             List<String?>?                                     ids      = null;
 
             if (JSON["servers"] is JToken serversToken && serversToken.Type != JTokenType.Null)
@@ -195,12 +215,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 var parsed = new List<DNSServerConfig>();
 
                 pins       = [];
+                overSSH    = [];
                 ids        = [];
 
                 for (var index = 0; index < serverArray.Count; index++)
                 {
 
-                    if (!TryParseServer(serverArray[index], index, out var server, out var held, out Error) ||
+                    if (!TryParseServer(serverArray[index], index, out var server, out var held, out var ssh, out Error) ||
                         !TryReadId     (serverArray[index], index, ids, out var id, out Error))
                     {
                         return false;
@@ -211,6 +232,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
                     if (held is not null)
                         pins[server] = held;
+
+                    if (ssh is not null)
+                        overSSH[server] = ssh;
 
                 }
 
@@ -245,7 +269,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 maxRetries,
                                 pins,
                                 ids,
-                                encryptedOnly
+                                encryptedOnly,
+                                overSSH
                             ) {
                                 // Named, and null: "leave it to the server".
                                 // See RemovesRecursionDesired.
@@ -335,6 +360,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
+            // Over SSH the port is the SSH port, which "ssh" may name as the
+            // entry of a time server names it: one port, wherever it is said.
+            if (transport == DNSTransport.SSH && json?["ssh"] is JObject ssh)
+            {
+
+                if (!ConfigurationReader.TryReadPort(ssh, "port", "dns.servers[].ssh", out var sshPort, out Error))
+                    return false;
+
+                if (sshPort.HasValue && port.HasValue && sshPort.Value != port.Value)
+                {
+                    Error = $"'dns.servers[].port' says {port.Value} and 'dns.servers[].ssh.port' says {sshPort.Value}: a name server asked over SSH has one port, its SSH port.";
+                    return false;
+                }
+
+                port ??= sshPort;
+
+            }
+
             #endregion
 
             // An address first, because a name server named by a name is a name
@@ -358,17 +401,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
-        #region (static) TryParseServer(JSON, Index, out Server, out Pins, out Error)
+
+        #region (static) TryParseServer(JSON, Index, out Server, out Pins, out SSH, out Error)
 
         /// <summary>
-        /// One name server, and what it is held to beside what every one is held
-        /// to - see <see cref="ServerPins"/>.
+        /// One name server, what its certificate is held to beside what every
+        /// one is held to - see <see cref="ServerPins"/> - and, for one asked
+        /// over SSH, how it is reached and what its host key is held to - see
+        /// <see cref="NTSServerSSH"/>.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Only a server reached over TLS or HTTPS shows a certificate, so only
         /// such a server can be held to one: a pin on a server asked over UDP
         /// would be a pin nobody ever compares, on a server its author believes
-        /// to be held to something. That is refused, with the entry named.
+        /// to be held to something. That is refused, with the entry named - and
+        /// so is "ssh" on a server that is not asked over SSH, by the same
+        /// reasoning.
+        /// </para>
+        /// <para>
+        /// A server asked over SSH has nothing but its host key to be believed
+        /// by. One with neither a host key, nor a CA, nor the connection to an
+        /// SSH peer to share is refused: it would be asked the names this node
+        /// reaches everything else by, and anybody at that address could
+        /// answer (white paper "DNS over SSH", section 7.2).
+        /// </para>
         /// </remarks>
         /// <param name="JSON">The entry of the server.</param>
         /// <param name="Index">Its place in the list, to say which one is wrong.</param>
@@ -376,26 +433,73 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                              Int32                                    Index,
                                              [NotNullWhen(true)]  out DNSServerConfig? Server,
                                              out ServerPins?                           Pins,
+                                             out NTSServerSSH?                         SSH,
                                              [NotNullWhen(false)] out String?           Error)
         {
 
-            Pins = null;
+            Pins  = null;
+            SSH   = null;
 
             if (!TryParseServer(JSON, out Server, out Error))
                 return false;
 
-            if (JSON is not JObject json)
-                return true;
+            var json = JSON as JObject;
 
-            if (!ServerPins.TryParse(json, $"dns.servers[{Index}]", out Pins, out Error))
+            if (json is not null && !ServerPins.TryParse(json, $"dns.servers[{Index}]", out Pins, out Error))
                 return false;
 
-            if (Pins is not null && !IsEncrypted(Server.Transport))
+            var said = json?["ssh"] is JToken token && token.Type != JTokenType.Null
+                           ? token
+                           : null;
+
+            if (Server.Transport != DNSTransport.SSH)
             {
-                Error  = $"'dns.servers[{Index}]' is held to a certificate and asked over {Server.Transport}, which shows none: only a name server reached over TLS or HTTPS can be held to one.";
+
+                if (said is not null)
+                {
+                    Error  = $"'dns.servers[{Index}].ssh' says how a name server is asked over SSH, and this one is asked over {Server.Transport}: say \"transport\": \"SSH\" as well, or leave it out.";
+                    Pins   = null;
+                    return false;
+                }
+
+                if (Pins is not null && !ShowsCertificate(Server.Transport))
+                {
+                    Error  = $"'dns.servers[{Index}]' is held to a certificate and asked over {Server.Transport}, which shows none: only a name server reached over TLS or HTTPS can be held to one.";
+                    Pins   = null;
+                    return false;
+                }
+
+                return true;
+
+            }
+
+            if (Pins is not null)
+            {
+                Error  = $"'dns.servers[{Index}]' is held to a certificate and asked over SSH, which shows none: a name server asked over SSH is held to its host key, in \"ssh\": {{ \"hostKeyPins\" }} or {{ \"hostCAs\" }}.";
                 Pins   = null;
                 return false;
             }
+
+            if (!NTSServerSSH.TryParse(said ?? new JObject(), $"dns.servers[{Index}].ssh", out var ssh, out Error, UsualUser: null, What: WhatGoesOverSSH))
+                return false;
+
+            // The connection of an SSH peer has the port of that peer.
+            if (ssh.IsShared && json?["port"] is JToken ownPort && ownPort.Type != JTokenType.Null && Server.Port != IPPort.SSH)
+            {
+                Error = $"'dns.servers[{Index}].port' does not apply with \"connection\": \"shared\": {WhatGoesOverSSH} goes over the SSH connection the node shares with that host, with its port, its login and the host key it is held to.";
+                return false;
+            }
+
+            if (!ssh.IsShared && !ssh.IsPinned)
+            {
+                Error = $"'dns.servers[{Index}]' is asked over SSH and held to no host key and no CA: say which in \"ssh\": {{ \"hostKeyPins\" }} or {{ \"hostCAs\" }}, or have it share the connection to an SSH peer with {{ \"connection\": \"shared\" }}. A name server nobody could believe is never stored.";
+                return false;
+            }
+
+            // Its port is the server's, said once.
+            SSH = ssh.Port.HasValue
+                      ? ssh with { Port = null }
+                      : ssh;
 
             return true;
 
@@ -481,12 +585,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         #endregion
 
-        #region (static) IsEncrypted(Transport)
+        #region (static) ShowsCertificate(Transport) / IsEncrypted(Transport)
 
         /// <summary>
-        /// Whether a name server asked over this transport shows a certificate.
+        /// Whether a name server asked over this transport shows a certificate,
+        /// and can be held to one: TLS and HTTPS.
         /// </summary>
-        public static Boolean IsEncrypted(DNSTransport Transport)
+        public static Boolean ShowsCertificate(DNSTransport Transport)
 
             => Transport is DNSTransport.TLS
                          or DNSTransport.HTTPS
@@ -494,14 +599,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                          or DNSTransport.HTTPS_JSON
                          or DNSTransport.HTTPS_GET;
 
+        /// <summary>
+        /// Whether a name server asked over this transport is asked where
+        /// nobody on the path reads or answers in its place: TLS and HTTPS,
+        /// which show a certificate, and SSH, which shows a host key (white
+        /// paper "DNS over SSH", section 7.1).
+        /// </summary>
+        public static Boolean IsEncrypted(DNSTransport Transport)
+
+            => ShowsCertificate(Transport) ||
+               Transport == DNSTransport.SSH;
+
         #endregion
 
         #region (static) InClearText(Servers)
 
         /// <summary>
         /// The servers of the given ones that are asked in clear text - over
-        /// UDP, TCP or plain HTTP - and that a node asking only encrypted
-        /// servers does not ask.
+        /// UDP, TCP or plain HTTP, and neither over TLS, HTTPS nor SSH - and
+        /// that a node asking only encrypted servers does not ask.
         /// </summary>
         /// <remarks>
         /// All servers are asked at once and the first answer wins, so name
@@ -544,6 +660,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public static JObject ServerJSON(DNSServerConfig  Server,
                                          ServerPins?      Pins,
                                          String?          Id   = null)
+
+            => ServerJSON(Server, Pins, null, Id);
+
+        /// <summary>
+        /// One name server as the file keeps it, with what it is held to, how
+        /// it is asked over SSH where it is, and its id, where it has one.
+        /// </summary>
+        /// <remarks>
+        /// A server on the connection of an SSH peer has no port of its own:
+        /// the connection is dialled as the peer says, and a "port" written
+        /// here would be read as one this entry decides.
+        /// </remarks>
+        public static JObject ServerJSON(DNSServerConfig  Server,
+                                         ServerPins?      Pins,
+                                         NTSServerSSH?    SSH,
+                                         String?          Id   = null)
         {
 
             var json = ServerJSON(Server);
@@ -552,6 +684,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 json.AddFirst(new JProperty("id", Id));
 
             Pins?.WriteInto(json);
+
+            if (SSH is not null)
+            {
+
+                if (SSH.IsShared)
+                    json.Remove("port");
+
+                json.Add("ssh", SSH.ToJSON());
+
+            }
 
             return json;
 
@@ -572,7 +714,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             var json = new JObject();
 
             if (Enabled.            HasValue)  json.Add("enabled",              Enabled.            Value);
-            if (Servers is not null)           json.Add("servers",              new JArray(Servers.Select((server, index) => ServerJSON(server, Pins?.GetValueOrDefault(server), ServerIds?.ElementAtOrDefault(index)))));
+            if (Servers is not null)           json.Add("servers",              new JArray(Servers.Select((server, index) => ServerJSON(server, Pins?.GetValueOrDefault(server), SSH?.GetValueOrDefault(server), ServerIds?.ElementAtOrDefault(index)))));
             if (QueryTimeout.       HasValue)  json.Add("queryTimeoutSeconds",  QueryTimeout.       Value.TotalSeconds);
             if (RecursionDesired.   HasValue)  json.Add("recursionDesired",     RecursionDesired.   Value);
             if (UseCache.           HasValue)  json.Add("useCache",             UseCache.           Value);
