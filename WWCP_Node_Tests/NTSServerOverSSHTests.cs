@@ -747,6 +747,78 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region PeersChangedAtTheSameTimeAreAllKept()
+
+        /// <summary>
+        /// The peers are read, changed and written while the node holds its
+        /// configuration: of eight changes made at once, each adding a peer
+        /// to the peers as they are, none takes back what another added -
+        /// which whoever reads the list, adds to it and sends all of it would
+        /// do. And an edit that answers nothing changes nothing.
+        /// </summary>
+        [Test]
+        public async Task PeersChangedAtTheSameTimeAreAllKept()
+        {
+
+            var peers = $$"""[ { "id": "time", "address": "{{timeServer.Trimmed}}", "port": {{sshPort}}, "user": "ntske", "hostKeyPins": [ "{{hostKey}}" ] } ]""";
+
+            await using var node = await Node("""{ "connection": "shared" }""", WithItsKey: false, Peers: peers);
+
+            var seen     = new System.Collections.Concurrent.ConcurrentBag<Int32>();
+
+            JArray With(IReadOnlyList<SSHPeerConfiguration> Now, Int32 Number)
+            {
+
+                seen.Add(Now.Count);
+
+                var all = new JArray(Now.Select(peer => peer.ToJSON()));
+                all.Add(JObject.Parse($$"""{ "id": "p{{Number}}", "address": "peer-{{Number}}.example.org", "hostKeyPins": [ "{{hostKey}}" ] }"""));
+
+                return all;
+
+            }
+
+            // The first holds the configuration until the others wait for it:
+            // whatever they read of the peers before they have it is stale.
+            using var entered  = new ManualResetEventSlim();
+            using var goOn     = new ManualResetEventSlim();
+
+            var first    = Task.Run(() => node.TryUpdateSSHPeers(now => {
+                                                   entered.Set();
+                                                   goOn.Wait(TimeSpan.FromSeconds(20));
+                                                   return With(now, 1);
+                                               }));
+
+            Assert.That(entered.Wait(TimeSpan.FromSeconds(20)), Is.True, "the first change was never made");
+
+            var others   = Enumerable.Range(2, 7).Select(i => Task.Run(() => node.TryUpdateSSHPeers(now => With(now, i)))).ToArray();
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            goOn.Set();
+
+            var changes  = await Task.WhenAll(others.Prepend(first)).WaitAsync(TimeSpan.FromSeconds(30));
+
+            var withdrawn  = await node.TryUpdateSSHPeers(now => null);
+            var unbelieved = await node.TryUpdateSSHPeers(now => new JArray(JObject.Parse("""{ "id": "nobody", "address": "nobody.example.org" }""")));
+
+            Assert.Multiple(() => {
+                Assert.That(changes.Select(change => change.Error),          Is.All.Null);
+                Assert.That(changes.Select(change => change.IsChanged),      Is.All.True);
+                Assert.That(seen.Order(),                                    Is.EqualTo(Enumerable.Range(1, 8)), "an edit was not handed the peers as the edit before it left them");
+                Assert.That(node.ConfiguredSSHPeers.Select(peer => peer.Id), Is.EquivalentTo(new[] { "time", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8" }));
+                Assert.That(withdrawn.IsChanged,                             Is.False);
+                Assert.That(withdrawn.Withdrawn,                             Is.True);
+                Assert.That(unbelieved.IsChanged,                            Is.False, "a peer nobody could believe was stored");
+                Assert.That(unbelieved.Withdrawn,                            Is.False);
+                Assert.That(node.ConfiguredSSHPeers.Count,                   Is.EqualTo(9));
+                Assert.That(node.SSHConfigurationJSON()["configured"]?["peers"]?.Count(), Is.EqualTo(9));
+            });
+
+        }
+
+        #endregion
+
         #region ThePeersOfTheConfigurationAreReadAndWrittenBack()
 
         /// <summary>

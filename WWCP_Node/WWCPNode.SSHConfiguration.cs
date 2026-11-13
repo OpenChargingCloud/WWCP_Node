@@ -41,11 +41,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <param name="NotSaved">Whether the configuration file could not be read or written: nothing about the change was wrong.</param>
     /// <param name="PortTaken">Whether the port asked for is taken: the server goes on where it was.</param>
     /// <param name="Notice">What is worth saying of a change made: a switch on the command line that wins over what was saved.</param>
+    /// <param name="Withdrawn">Whether whoever asked took the change back on seeing what the configuration is now: nothing was changed.</param>
     public sealed record SSHConfigurationChange(Boolean  IsChanged,
                                                 String?  Error      = null,
                                                 Boolean  NotSaved   = false,
                                                 Boolean  PortTaken  = false,
-                                                String?  Notice     = null);
+                                                String?  Notice     = null,
+                                                Boolean  Withdrawn  = false);
 
 
     /// <summary>
@@ -262,11 +264,46 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </para>
         /// </remarks>
         /// <param name="JSON">What the page sent, in the shape of the "ssh" section.</param>
-        public async Task<SSHConfigurationChange> TryUpdateSSHConfiguration(JObject JSON)
-        {
+        public Task<SSHConfigurationChange> TryUpdateSSHConfiguration(JObject JSON)
 
-            if (!SSHConfiguration.TryParse(JSON, out var sent, out var error))
-                return new SSHConfigurationChange(false, error);
+            => UpdateSSHConfiguration(() => JSON);
+
+        #endregion
+
+        #region TryUpdateSSHPeers(Edit)
+
+        /// <summary>
+        /// Change the SSH peers of the configuration from what they are: the
+        /// given edit is handed the peers as the file has them and answers
+        /// the peers as they shall be, in the shape of "ssh.peers" - while
+        /// the node holds its configuration, so that nothing changes them in
+        /// between and no change of somebody else is written over.
+        /// </summary>
+        /// <remarks>
+        /// Whoever reads <see cref="ConfiguredSSHPeers"/>, changes one of
+        /// them and sends all of them to
+        /// <see cref="TryUpdateSSHConfiguration"/> takes back what another
+        /// changed in between. A Device Model, which sets one variable of
+        /// one peer, changes them here.
+        /// </remarks>
+        /// <param name="Edit">The peers as they shall be, of the peers as they are; or null, and nothing is changed: <see cref="SSHConfigurationChange.Withdrawn"/>. It runs while the node holds its configuration, and must neither wait nor ask the node for a change.</param>
+        public Task<SSHConfigurationChange> TryUpdateSSHPeers(Func<IReadOnlyList<SSHPeerConfiguration>, JArray?> Edit)
+
+            => UpdateSSHConfiguration(() => Edit(ConfiguredSSHPeers) is JArray peers
+                                                ? new JObject(new JProperty("peers", peers))
+                                                : null);
+
+        #endregion
+
+        #region (private) UpdateSSHConfiguration(Asked)
+
+        /// <summary>
+        /// Make the change the given function asks for, which it says once
+        /// the node holds its configuration: of what the configuration is
+        /// then.
+        /// </summary>
+        private async Task<SSHConfigurationChange> UpdateSSHConfiguration(Func<JObject?> Asked)
+        {
 
             var peersChanged = false;
 
@@ -274,6 +311,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             try
             {
+
+                if (Asked() is not JObject JSON)
+                    return new SSHConfigurationChange(false, "The change was withdrawn.", Withdrawn: true);
+
+                if (!SSHConfiguration.TryParse(JSON, out var sent, out var error))
+                    return new SSHConfigurationChange(false, error);
 
                 var file   = new SSHConfiguration(sent.Enabled         ?? sshFile?.Enabled,
                                                   sent.Port            ?? sshFile?.Port,
