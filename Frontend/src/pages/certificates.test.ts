@@ -315,7 +315,7 @@ describe('the certificates page, drawn', () => {
         refuse     = false;
         inspected  = 0;
 
-        return open(made(options), path, [ 'certificates:read', 'certificates:edit' ], node,
+        return open(made(options), path, [ 'certificates:read', 'certificates:edit', 'certificates:run' ], node,
                     root => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null);
 
     }
@@ -881,7 +881,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         loads            = 0;
         refuseTheSection = false;
 
-        return open(made(options), path, [ 'certificates:read', 'certificates:edit' ], node,
+        return open(made(options), path, [ 'certificates:read', 'certificates:edit', 'certificates:run' ], node,
                     root => root.querySelector('#import-form') !== null || root.querySelector('.error-box') !== null);
 
     }

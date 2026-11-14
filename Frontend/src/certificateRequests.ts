@@ -34,8 +34,8 @@ export const requestTabId = 'request';
 export interface RequestsHost<S extends CertificateStore = CertificateStore> {
     /** The element the page draws into: where the panel finds its own fields, and what is held still while something is saved. */
     page:       HTMLElement;
-    /** Whether whoever is signed in may make, send and remove keys. */
-    mayChange:  boolean;
+    /** Whether whoever is signed in may make, send and remove keys: "certificates:run", which is less than changing the store. */
+    mayRequest: boolean;
     /** The store as the node last said it. */
     store():    S;
     /** The store as the node says it now, after something of the panel's changed it. */
@@ -71,7 +71,7 @@ export interface RequestsPanel {
 export function requestsPanel<S extends CertificateStore = CertificateStore>(Host: RequestsHost<S>): RequestsPanel {
 
     const content   = Host.page;
-    const mayChange = Host.mayChange;
+    const mayChange = Host.mayRequest;
 
     /** The request that was just made, put in front of somebody straight away. */
     let justMade: { id: string; csr: string } | null = null;

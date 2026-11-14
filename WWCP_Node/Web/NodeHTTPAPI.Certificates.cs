@@ -105,15 +105,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// request to be handed to a certificate authority.
         /// </summary>
         /// <remarks>
-        /// At the permission to change the store: a key made here is who the
-        /// node will be once its certificate has come. Everything but the
+        /// At "certificates:run", and not at the permission to change the
+        /// store: a key made here is nobody yet, and whom the node trusts is
+        /// not touched by it - so whoever runs a node may ask for a
+        /// certificate without being let at its roots. Everything but the
         /// subject may be left out; the kind where the node makes keys for
         /// one kind alone.
         /// </remarks>
         private Task<HTTPResponse> PostCertificateRequest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.Certificates), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -231,10 +233,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// DELETE /api/v1/certificates/requests/{id}: take a key that waits
         /// for its certificate away, for good.
         /// </summary>
+        /// <remarks>
+        /// At "certificates:run", as making it is: whoever may make a key may
+        /// take one back that was made in error. An identity is another
+        /// matter, and is removed at the permission to change the store.
+        /// </remarks>
         private Task<HTTPResponse> DeleteCertificateRequest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.Certificates), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             var id = Request.ParsedURLParameters.Length > 0 ? Request.ParsedURLParameters[0] : "";

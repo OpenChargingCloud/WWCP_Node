@@ -443,6 +443,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
             const mayChange = auth.can('certificates', 'edit');
 
+            /** Making a key, sending its request and taking it back: less than changing the store, and what whoever runs the node may do. */
+            const mayRequest = auth.can('certificates', 'run');
+
             let cancelled = false;
             let current: S | null = null;
 
@@ -476,7 +479,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** The keys the node makes for itself, for the kinds of this page it makes them for - see certificateRequests.ts. */
             const requests = requestsPanel<S>({
                 page:       content,
-                mayChange,
+                mayRequest,
                 store:      () => current!,
                 took:       store => { current = store; },
                 kinds:      () => current === null ? [] : (current.requests?.kinds ?? []).filter(kind => pageOf(current!, kind) === Page),
@@ -503,7 +506,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 return [
                     ...allTabs.filter(tab => tab.id !== 'upload'),
                     ...extraTabs.map(extra => extra.tab),
-                    ...(mayChange && current !== null && requests.offered() ? [ { id: requestTabId, label: 'New key', icon: 'fa-key' } ] : []),
+                    ...(mayRequest && current !== null && requests.offered() ? [ { id: requestTabId, label: 'New key', icon: 'fa-key' } ] : []),
                     ...(mayChange ? allTabs.filter(tab => tab.id === 'upload') : [])
                 ];
             }
@@ -616,7 +619,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                     ${mayChange ? nothing : html`
                         <div class="notice">
-                            ${mayButNot('look at the store', 'change it')}
+                            ${mayRequest && requests.offered()
+                                  ? mayButNot('look at the store and make keys for it', 'change what is in it')
+                                  : mayButNot('look at the store', 'change it')}
                         </div>
                     `}
 

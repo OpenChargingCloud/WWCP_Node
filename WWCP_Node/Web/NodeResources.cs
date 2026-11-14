@@ -63,7 +63,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// <remarks>
         /// Both halves of the store behind one resource, because both are
         /// decisions about trust: somebody who can add a root can make the node
-        /// believe a server nobody else would.
+        /// believe a server nobody else would. Running it is the one thing
+        /// that is no such decision: making a key with its signing request,
+        /// sending that off where a kind of node can, and taking a key back
+        /// that still waits for its certificate. The certificate that comes
+        /// back by hand is put in at the permission to change the store.
         /// </remarks>
         public const String  Certificates   = "certificates";
 

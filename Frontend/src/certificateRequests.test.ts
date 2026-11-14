@@ -149,7 +149,7 @@ function node({ method, path, body }: Asked): unknown {
 
 async function opened(made:         CertificateRequests | null       = requests(),
                       path          = '/configuration/identities',
-                      permissions   = [ 'certificates:read', 'certificates:edit' ],
+                      permissions   = [ 'certificates:read', 'certificates:edit', 'certificates:run' ],
                       page          = identitiesPage): Promise<HTMLElement> {
 
     held         = aStore(made ?? undefined);
@@ -194,6 +194,29 @@ describe('the keys a node makes for itself, on its identities page', () => {
         assert.equal(panel(reader, 'usage').hidden, false, 'a tab this person does not have is shown');
         assert.deepEqual(waiting(reader), [ 'aaaa', 'bbbb' ], 'somebody who may read the store is not shown the keys that wait');
         assert.equal(reader.querySelector<HTMLButtonElement>('[data-remove-request="aaaa"]')!.disabled, true);
+
+    });
+
+    it('lets whoever may run the store make, send and remove a key, and nothing else: no upload, and no identity changed', async () => {
+
+        const root = await opened(requests({ canBeSentToCSMS: true }), '/configuration/identities?tab=request', [ 'certificates:read', 'certificates:run' ]);
+
+        assert.deepEqual(tabs(root), [ 'tab-usage', 'tab-all', 'tab-request' ], 'whoever may make keys is not offered to, or is offered the upload');
+        assert.equal(panel(root, 'request').hidden, false, 'the tab a key is made on is not shown');
+        assert.equal(root.querySelector('#panel-upload'), null);
+
+        assert.equal(root.querySelector<HTMLButtonElement>(`#panel-${'request'} button[type="submit"]`)!.disabled, false, 'the key cannot be made');
+        assert.equal(root.querySelector<HTMLButtonElement>('[data-send-csr="aaaa"]')!.disabled,       false, 'the request cannot be sent');
+        assert.equal(root.querySelector<HTMLButtonElement>('[data-remove-request="aaaa"]')!.disabled, false, 'the key cannot be taken back');
+        assert.ok(root.querySelector('#make-a-key') !== null);
+
+        assert.match(root.textContent!, /may look at the store and make keys for it but not change what is in it/);
+
+        // And the other way around: changing the store is not making keys.
+        const editor = await opened(requests({ canBeSentToCSMS: true }), '/configuration/identities', [ 'certificates:read', 'certificates:edit' ]);
+
+        assert.deepEqual(tabs(editor), [ 'tab-usage', 'tab-all', 'tab-upload' ]);
+        assert.equal(editor.querySelector<HTMLButtonElement>('[data-send-csr="aaaa"]')!.disabled, true);
 
     });
 
