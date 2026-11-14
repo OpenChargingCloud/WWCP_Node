@@ -480,6 +480,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             const requests = requestsPanel<S>({
                 page:       content,
                 mayRequest,
+                mayUpload:  mayChange,
                 store:      () => current!,
                 took:       store => { current = store; },
                 kinds:      () => current === null ? [] : (current.requests?.kinds ?? []).filter(kind => pageOf(current!, kind) === Page),
@@ -620,7 +621,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                     ${mayChange ? nothing : html`
                         <div class="notice">
                             ${mayRequest && requests.offered()
-                                  ? mayButNot('look at the store and make keys for it', 'change what is in it')
+                                  ? mayButNot('look at the store, make keys for it and bring their certificates', 'change what else is in it')
                                   : mayButNot('look at the store', 'change it')}
                         </div>
                     `}

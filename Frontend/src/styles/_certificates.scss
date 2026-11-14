@@ -261,6 +261,21 @@ fieldset.upload-kinds {
     flex-wrap: wrap;
 }
 
+// The certificate that came back, pasted beside its key by whoever has no upload.
+details.request-answer {
+
+    margin: 0.6rem 0;
+
+    summary {
+        cursor: pointer;
+    }
+
+    textarea {
+        width: 100%;
+    }
+
+}
+
 // What a signing request asks for beside the usual, folded away: most
 // requests ask for the plain certificate of their kind and for nothing else.
 details#request-asks {

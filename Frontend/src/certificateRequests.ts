@@ -36,6 +36,8 @@ export interface RequestsHost<S extends CertificateStore = CertificateStore> {
     page:       HTMLElement;
     /** Whether whoever is signed in may make, send and remove keys: "certificates:run", which is less than changing the store. */
     mayRequest: boolean;
+    /** Whether the page has an upload for this person: where it has none, a certificate that came back is brought beside its key. */
+    mayUpload:  boolean;
     /** The store as the node last said it. */
     store():    S;
     /** The store as the node says it now, after something of the panel's changed it. */
@@ -72,6 +74,9 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
 
     const content   = Host.page;
     const mayChange = Host.mayRequest;
+
+    /** Whether a certificate is brought beside the key it is for: for whoever may make keys and has no upload. */
+    const bringsHere = mayChange && !Host.mayUpload;
 
     /** The request that was just made, put in front of somebody straight away. */
     let justMade: { id: string; csr: string } | null = null;
@@ -379,6 +384,21 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
                     <textarea class="mono" rows="8" readonly data-csr="${entry.id}" .defaultValue=${entry.csr}></textarea>
                 </details>
 
+                ${bringsHere && entry.certificate === undefined ? html`
+                    <details class="request-answer">
+                        <summary>The certificate that came back</summary>
+                        <label for="request-answer-${entry.id}">Certificate, as PEM</label>
+                        <textarea class="mono" rows="8" id="request-answer-${entry.id}" data-answer="${entry.id}"
+                                  autocomplete="off" spellcheck="false"
+                                  placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+                        <p class="hint">With the certificates above it where they came with it. No key: the key is here.</p>
+                        <button type="button" class="btn small primary" data-bring-answer="${entry.id}"
+                                @click=${() => void bring(entry)}>
+                            Bring in
+                        </button>
+                    </details>
+                ` : nothing}
+
                 <div class="form-actions request-actions" data-request="${entry.id}">
                     <button type="button" class="btn small" data-copy-csr="${entry.id}" @click=${() => copyRequest(entry)}>
                         Copy CSR
@@ -428,8 +448,9 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
 
                 <p class="hint">
                     Made on this ${config.nodeName}, each with a private key that never leaves it, and shown to
-                    nobody yet: a key becomes an identity when the certificate for it comes back - on the Upload
-                    tab, without a key, where it is matched to the key whose request it answers.
+                    nobody yet: a key becomes an identity when the certificate for it comes back - ${bringsHere
+                        ? 'pasted beside the key it is for, without a key.'
+                        : 'on the Upload tab, without a key, where it is matched to the key whose request it answers.'}
                     ${keys.length === 0 ? 'None waits.' : html`
                         Copy its signing request for whoever issues certificates${made.canBeSentToCSMS
                             ? ', or send it to the CSMS, which answers with the certificate by itself'
@@ -439,6 +460,8 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
                         <button type="button" class="btn small" id="make-a-key" @click=${() => Host.show(requestTabId)}>Make a key</button>
                     ` : nothing}
                 </p>
+
+                <span class="form-notice" role="status" id="waiting-note"></span>
 
                 ${keys.length === 0 ? nothing : html`
                     <div class="cards">${repeat(keys, entry => entry.id, entry => card(entry))}</div>
@@ -581,6 +604,57 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
         {
             if (Host.alive())
                 sayOf(id, 'error', errorMessage(problem));
+        }
+
+    }
+
+    /**
+     * The certificate that came back for a key, pasted beside it: what the
+     * upload does for whoever has one. The node matches it by its public
+     * key, so one pasted beside the wrong key is taken in for the right one.
+     */
+    async function bring(entry: SigningRequest): Promise<void> {
+
+        sayOf(entry.id, 'note',  '');
+        sayOf(entry.id, 'error', '');
+
+        const box  = content.querySelector<HTMLTextAreaElement>(`[data-answer="${entry.id}"]`);
+        const text = box?.value.trim() ?? '';
+
+        if (text === '') {
+            sayOf(entry.id, 'error', 'Paste the certificate that came back for this key.');
+            return;
+        }
+
+        const note = content.querySelector<HTMLElement>(`[data-request="${entry.id}"] [data-request-note]`);
+
+        try
+        {
+            const answer = await whileSaving(content, note, () => api.certificates.requests.answer(text));
+
+            if (!Host.alive())
+                return;
+
+            if (justMade !== null && justMade.id === answer.requestId)
+                justMade = null;
+
+            if (box !== null)
+                box.value = '';
+
+            Host.took(answer.store as S);
+            Host.draw();
+
+            // Kept beside its key where this runtime cannot hold it up:
+            // taken in, and no identity - the warnings say which.
+            say('#waiting-note', [ answer.entry !== null
+                                       ? `Taken in: ${answer.entry.label} is an identity of this ${config.nodeName} now.`
+                                       : 'Taken in, and kept beside its key.',
+                                   ...answer.warnings ].join(' '));
+        }
+        catch (problem)
+        {
+            if (Host.alive())
+                sayOf(entry.id, 'error', errorMessage(problem));
         }
 
     }

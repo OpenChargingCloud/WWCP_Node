@@ -210,13 +210,38 @@ describe('the keys a node makes for itself, on its identities page', () => {
         assert.equal(root.querySelector<HTMLButtonElement>('[data-remove-request="aaaa"]')!.disabled, false, 'the key cannot be taken back');
         assert.ok(root.querySelector('#make-a-key') !== null);
 
-        assert.match(root.textContent!, /may look at the store and make keys for it but not change what is in it/);
+        assert.match(root.textContent!, /may look at the store, make keys for it and bring their certificates but not change what else is in it/);
+
+        // The certificate that came back is brought beside its key, where there is no upload to bring it on.
+        const error = () => root.querySelector('[data-request="aaaa"] [data-request-error]')!.textContent;
+        const box   = root.querySelector<HTMLTextAreaElement>('[data-answer="aaaa"]')!;
+
+        root.querySelector<HTMLButtonElement>('[data-bring-answer="aaaa"]')!.click();
+        await until(() => error() !== '', 'nothing is said of a box that is empty');
+
+        assert.equal(asked.some(one => one.path === '/certificates/requests/answer'), false, 'an empty box was sent');
+
+        box.value = 'REFUSE';
+        root.querySelector<HTMLButtonElement>('[data-bring-answer="aaaa"]')!.click();
+        await until(() => /belongs to a key/.test(error()!), 'what the node refused it with is not said beside the key');
+
+        assert.equal(box.value, 'REFUSE', 'what was pasted is gone after a refusal');
+
+        box.value = '-----BEGIN CERTIFICATE-----';
+        root.querySelector<HTMLButtonElement>('[data-bring-answer="aaaa"]')!.click();
+        await until(() => waiting(root).length === 1, 'the key still waits after its certificate came');
+
+        assert.match(root.querySelector('#waiting-note')!.textContent!, /Taken in: .* is an identity .* It runs out in 20 day\(s\)\./);
 
         // And the other way around: changing the store is not making keys.
         const editor = await opened(requests({ canBeSentToCSMS: true }), '/configuration/identities', [ 'certificates:read', 'certificates:edit' ]);
 
         assert.deepEqual(tabs(editor), [ 'tab-usage', 'tab-all', 'tab-upload' ]);
         assert.equal(editor.querySelector<HTMLButtonElement>('[data-send-csr="aaaa"]')!.disabled, true);
+        assert.equal(editor.querySelector('[data-bring-answer]'), null, 'somebody who may not make keys is offered to bring a certificate beside one');
+
+        // Whoever has the upload brings it there, and is offered no second place for it.
+        assert.equal((await opened(requests())).querySelector('[data-bring-answer]'), null);
 
     });
 

@@ -65,9 +65,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// decisions about trust: somebody who can add a root can make the node
         /// believe a server nobody else would. Running it is the one thing
         /// that is no such decision: making a key with its signing request,
-        /// sending that off where a kind of node can, and taking a key back
-        /// that still waits for its certificate. The certificate that comes
-        /// back by hand is put in at the permission to change the store.
+        /// sending that off where a kind of node can, bringing the
+        /// certificate that comes back for it, and taking a key back that
+        /// still waits for one. A certificate that comes with its key, and
+        /// every root, is put in at the permission to change the store.
         /// </remarks>
         public const String  Certificates   = "certificates";
 
