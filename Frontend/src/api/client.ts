@@ -613,6 +613,131 @@ export interface CertificateStore<K extends string = string> {
      * certificate.
      */
     chosen?:       Record<string, ChosenCertificate | null>;
+    /** The keys the node makes for itself, where it makes any: the ones that wait for their certificate, and what a request may be made to. */
+    requests?:     CertificateRequests<K>;
+}
+
+/** One kind of key a node will make for itself. */
+export interface KeyAlgorithm {
+    /** How it is written in the API, e.g. "ed448". */
+    id:            string;
+    /** How it is written on a page, e.g. "Ed448". */
+    name:          string;
+    /** What somebody choosing it should know. */
+    remark:        string;
+    /** Whether the platform is known to be able to present one; left out while nobody has tried. */
+    presentable?:  boolean;
+}
+
+/** One key usage a signing request may ask for beside the ones the kind of key brings by itself. */
+export interface RequestKeyUsage {
+    /** How it is written in the API and in X.509, e.g. "keyAgreement". */
+    id:          string;
+    name:        string;
+    remark:      string;
+    /** The kinds of key that can be used that way, by their id. */
+    algorithms:  string[];
+}
+
+/** One extended key usage a signing request may ask for beside the one its template is for. */
+export interface RequestPurpose {
+    /** How it is written in the API and in X.509, e.g. "serverAuth". */
+    id:      string;
+    name:    string;
+    remark:  string;
+    oid:     string;
+}
+
+/** A profile a signing request is made to: "tls-client", "modbus-tls", "tls-server". */
+export interface RequestTemplate {
+    id:                 string;
+    name:               string;
+    remark:             string;
+    /** What it is for, which a request made to it asks for whatever else it does: "clientAuth", or "serverAuth". */
+    purpose:            string;
+    /** Whether it asks what its holder is reachable as: a server's does. */
+    asksForNames:       boolean;
+    /** The page its certificates are looked after on. */
+    page:               CertificatePageName;
+    /** What it asks for by itself, beside what every request asks for. */
+    keyUsages:          string[];
+    extendedKeyUsages:  string[];
+    /** The role it asks for, where it asks for one: what the profile names, though any may be typed. */
+    role?: {
+        label:      string;
+        roles:      string[];
+        maxLength:  number;
+    };
+}
+
+/** A key the node made for itself, and the signing request that waits to be answered with its certificate. */
+export interface SigningRequest<K extends string = string> {
+    /** Where its public key hashes to. */
+    id:                 string;
+    /** The kind of certificate it is made for, and is kept as once it has come. */
+    kind:               K;
+    algorithm:          string;
+    algorithmName:      string;
+    createdAt:          string;
+    subject:            string;
+    /** What its certificate is to be called; its common name where this is null. */
+    label:              string | null;
+    /** What its certificate is to be for; null for every use. */
+    usages:             string[] | null;
+    template:           string;
+    templateName:       string;
+    role:               string | null;
+    /** All of them, what its kind of key brings by itself included; empty where that was not written down. */
+    keyUsages:          string[];
+    extendedKeyUsages:  string[];
+    reachableAs:        string[];
+    /** The request itself, as PEM: no secret, and meant to be handed to somebody. */
+    csr:                string;
+    /** A certificate that came back and is kept beside the key, because this runtime cannot hold it up. */
+    certificate?: {
+        subject:         string;
+        issuer:          string;
+        notAfter:        string;
+        cannotBeHeldUp:  string;
+    };
+    /** When it was sent to the CSMS, while its certificate has not come: a charging station's. */
+    sentToCSMSAt?:      string;
+}
+
+/** The keys a node makes for itself, and what a request may be made to and ask for. */
+export interface CertificateRequests<K extends string = string> {
+    directory:          string;
+    /** The kinds of certificate the node makes keys for. */
+    kinds:              K[];
+    /** The keys that wait for their certificate, newest first. */
+    entries:            SigningRequest<K>[];
+    algorithms:         KeyAlgorithm[];
+    defaultAlgorithm:   string;
+    maxSubjectLength:   number;
+    templates:          RequestTemplate[];
+    keyUsages:          RequestKeyUsage[];
+    extendedKeyUsages:  RequestPurpose[];
+    /** Whether a request can be sent to the CSMS from here, in SignCertificate: a charging station's. */
+    canBeSentToCSMS?:   boolean;
+}
+
+/** What a new key is made with; everything but the subject may be left out. */
+export interface SigningRequestToMake {
+    /** The kind of certificate it is for; left out where the node makes keys for one kind alone. */
+    kind?:               string;
+    subject:             string;
+    algorithm?:          string;
+    template?:           string;
+    role?:               string;
+    /** Beside a signature, and enciphering a key where the key can. */
+    keyUsages?:          string[];
+    /** Beside what its template is for; a name, or an object identifier in dots. */
+    extendedKeyUsages?:  string[];
+    /** The names and addresses it is reachable as, for a server's. */
+    reachableAs?:        string[];
+    /** What its certificate is to be for; left out for every use. */
+    usages?:             string[];
+    label?:              string;
 }
 
 /** What an import sends: the file, base64-encoded, and what to make of it. */
@@ -1808,6 +1933,44 @@ export function nodeAPI<T extends NodeTypes = NodeTypes>() {
             remove:  (id: string, kind?: string) =>
                          request<T['store']>('DELETE', `/certificates/${encodeURIComponent(id)}` +
                                                        (kind === undefined ? '' : `?kind=${encodeURIComponent(kind)}`)),
+
+            /** The keys a node makes for itself - where it makes any, see the store's "requests". */
+            requests: {
+
+                /**
+                 * A new key, and the signing request to be handed to whoever
+                 * issues certificates. Slower than the other writes by a wide
+                 * margin - an RSA 4096 or an SLH-DSA key takes seconds to
+                 * generate, and the deadline for a write covers it.
+                 */
+                create:  (asks: SigningRequestToMake) =>
+                             request<{ request: SigningRequest<T['kind']>; store: T['store'] }>('POST', '/certificates/requests', asks),
+
+                /**
+                 * The certificate that came back, and whatever intermediates
+                 * came with it: matched to the key whose request it answers.
+                 * "entry" is null where it is kept beside its key because
+                 * this runtime cannot hold it up - the warnings say so.
+                 */
+                answer:  (pem: string) =>
+                             request<{ entry: Certificate<T['kind']> | null; requestId: string | null; warnings: string[]; store: T['store'] }>(
+                                 'POST', '/certificates/requests/answer', { pem }),
+
+                /** Take a key that waits for its certificate away, for good. */
+                remove:  (id: string) =>
+                             request<T['store']>('DELETE', `/certificates/requests/${encodeURIComponent(id)}`),
+
+                /**
+                 * Send the request of a key to the CSMS, in SignCertificate -
+                 * where the node says it can, see canBeSentToCSMS. Answered
+                 * once the CSMS has, which is why the deadline covers the
+                 * time a node waits for an answer over OCPP.
+                 */
+                sendToCSMS:  (id: string) =>
+                                 request<{ said: string; store: T['store'] }>(
+                                     'POST', `/certificates/requests/${encodeURIComponent(id)}/sign`, {}, afterAsking([ 30 ]))
+
+            },
 
             /**
              * Read the store directory again.

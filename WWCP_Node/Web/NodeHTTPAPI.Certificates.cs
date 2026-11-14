@@ -57,6 +57,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             AddHandler(root,               PostStoreCertificate,        HTTPMethod.POST);
             AddHandler(root + "/reload",   PostStoreCertificateReload,  HTTPMethod.POST);
             AddHandler(root + "/inspect",  PostStoreCertificateInspect, HTTPMethod.POST);
+            AddHandler(root + "/requests",         PostCertificateRequest,        HTTPMethod.POST);
+            AddHandler(root + "/requests/answer",  PostCertificateRequestAnswer,  HTTPMethod.POST);
+            AddHandler(root + "/requests/{id}",    DeleteCertificateRequest,      HTTPMethod.DELETE);
             AddHandler(root + "/{id}",     GetStoreCertificate,         HTTPMethod.GET);
             AddHandler(root + "/{id}",     PatchStoreCertificate,       HTTPMethod.PATCH);
             AddHandler(root + "/{id}",     DeleteStoreCertificate,      HTTPMethod.DELETE);
@@ -65,6 +68,193 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
+
+        #region (private) PostCertificateRequest(Request) / PostCertificateRequestAnswer(Request) / DeleteCertificateRequest(Request)
+
+        /// <summary>
+        /// The names of a list in a request, or null where it has none - and
+        /// a refusal where it is something else: a name where a list is
+        /// wanted is a request somebody wrote by hand, and is refused rather
+        /// than read as nothing asked for.
+        /// </summary>
+        private static Boolean TryNames(JObject JSON, String Name, out IEnumerable<String>? Names, [NotNullWhen(false)] out String? Error)
+        {
+
+            Names  = null;
+            Error  = null;
+
+            if (JSON[Name] is not JToken given || given.Type == JTokenType.Null)
+                return true;
+
+            if (given is not JArray names || names.Any(name => name.Type != JTokenType.String))
+            {
+                Error = $"\"{Name}\" is a list of names.";
+                return false;
+            }
+
+            Names = [.. names.Values<String>().OfType<String>()];
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/certificates/requests with {"kind", "subject",
+        /// "algorithm", "template", "role", "keyUsages", "extendedKeyUsages",
+        /// "reachableAs", "usages", "label"}: a new key, and the signing
+        /// request to be handed to a certificate authority.
+        /// </summary>
+        /// <remarks>
+        /// At the permission to change the store: a key made here is who the
+        /// node will be once its certificate has come. Everything but the
+        /// subject may be left out; the kind where the node makes keys for
+        /// one kind alone.
+        /// </remarks>
+        private Task<HTTPResponse> PostCertificateRequest(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var kinds = Node.Certificates.RequestKinds;
+
+            if (kinds.Count == 0)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                                 $"This {Node.Kind.Name} makes no keys: its identities are brought to it, each with its key."));
+
+            CertificateKind kind;
+
+            if (json.Value<String>("kind") is { Length: > 0 } named)
+            {
+                if (!CertificateKindExtensions.TryParseKind(named, out kind) || !kinds.Contains(kind))
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                                     $"'{named}' is no kind this {Node.Kind.Name} makes a key for ({String.Join(", ", kinds.Select(one => one.AsText()))})."));
+            }
+
+            else if (kinds.Count == 1)
+                kind = kinds[0];
+
+            else
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                                 $"Say which \"kind\" the key is for ({String.Join(", ", kinds.Select(one => one.AsText()))})."));
+
+            if (!TryNames(json, "keyUsages",         out var keyUsages,  out var wrong) ||
+                !TryNames(json, "extendedKeyUsages", out var purposes,   out     wrong) ||
+                !TryNames(json, "reachableAs",       out var names,      out     wrong) ||
+                !TryNames(json, "usages",            out var usages,     out     wrong))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, wrong));
+            }
+
+            if (!Node.Certificates.TryCreateRequest(kind,
+                                                    json.Value<String>("subject") ?? "",
+                                                    json.Value<String>("algorithm"),
+                                                    new CertificateRequestAsks(
+                                                        json.Value<String>("template"),
+                                                        json.Value<String>("role"),
+                                                        keyUsages,
+                                                        purposes,
+                                                        names
+                                                    ),
+                                                    usages,
+                                                    json.Value<String>("label"),
+                                                    out var made,
+                                                    out var error,
+                                                    out var notSaved))
+            {
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+            }
+
+            Log.Info($"'{user.Id}' made the key '{made.Id}' and a signing request for {made.Subject}.", "certificates", "web");
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.Created,
+                                    new JObject(
+                                        new JProperty("request",  made.ToJSON()),
+                                        new JProperty("store",    Node.CertificatesJSON())
+                                    ))
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/certificates/requests/answer with {"pem"}: the
+        /// certificate a certificate authority sent back, and whatever
+        /// intermediates came with it. It is matched to the key whose request
+        /// it answers, and kept as the kind that request was made for.
+        /// </summary>
+        /// <remarks>
+        /// What could not be used is refused here, while somebody is looking
+        /// at the screen, rather than at the next handshake. What may
+        /// legitimately look wrong comes back as a warning beside a
+        /// certificate that was taken in - and "entry" is null where it is
+        /// kept beside its key because this runtime cannot hold it up.
+        /// </remarks>
+        private Task<HTTPResponse> PostCertificateRequestAnswer(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Node.Certificates.TryAnswerRequest(json.Value<String>("pem") ?? "",
+                                                    out var entry,
+                                                    out var requestId,
+                                                    out var warnings,
+                                                    out var error,
+                                                    out var notSaved))
+            {
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+            }
+
+            Log.Info($"'{user.Id}' brought the certificate {(requestId is not null ? $"of the key '{requestId}'" : "that renews an identity")}" +
+                     $"{(entry is not null ? $": '{entry.Id}'" : "")}.", "certificates", "web");
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK,
+                                    new JObject(
+                                        new JProperty("entry",      entry?.ToJSON(WithDiagnostics: true)),
+                                        new JProperty("requestId",  requestId),
+                                        new JProperty("warnings",   new JArray(warnings)),
+                                        new JProperty("store",      Node.CertificatesJSON())
+                                    ))
+                   );
+
+        }
+
+        /// <summary>
+        /// DELETE /api/v1/certificates/requests/{id}: take a key that waits
+        /// for its certificate away, for good.
+        /// </summary>
+        private Task<HTTPResponse> DeleteCertificateRequest(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            var id = Request.ParsedURLParameters.Length > 0 ? Request.ParsedURLParameters[0] : "";
+
+            if (Node.Certificates.Request(id) is null)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound,
+                                                 $"This {Node.Kind.Name} has no key '{id}' that waits for its certificate."));
+
+            if (!Node.Certificates.TryRemoveRequest(id, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+
+            Log.Info($"'{user.Id}' removed the key '{id}', which waited for its certificate.", "certificates", "web");
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Node.CertificatesJSON())
+                   );
+
+        }
+
+        #endregion
 
         #region (private) GetStoreCertificates(Request) / PostStoreCertificate(Request)
 

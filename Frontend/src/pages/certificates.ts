@@ -7,10 +7,11 @@ import { must } from '../html';
 import { appendText, pemBox } from '../pemBox';
 import type { Page } from '../router';
 import { mayButNot, reloadButton, shell } from '../shell';
-import { rememberTab, tabFromURL, tabsView, type Tab } from '../tabs';
+import { rememberTab, tabsView, type Tab } from '../tabs';
 import { errorMessage, humanizeKey, whileSaving } from '../ui';
 import { anyFormTypedSinceDrawn, unsaved } from '../unsaved';
 import { html, nothing, render, repeat, type TemplateResult } from '../view';
+import { requestsPanel, requestTabId } from '../certificateRequests';
 import { usageName, usagesOf } from './certificateUsages';
 
 const api = nodeAPI();
@@ -99,8 +100,7 @@ export interface CertificatesSection<S extends CertificateStore = CertificateSto
 
 /**
  * A tab a kind of node adds to one of the pages: between everything by name
- * and the upload - the keys a node makes for itself, say, which are who it is
- * before their certificate has come.
+ * and what puts something into the store.
  */
 export interface CertificatesTab<S extends CertificateStore = CertificateStore> {
     /** On which page: the identities, unless it says otherwise. */
@@ -113,19 +113,6 @@ export interface CertificatesTab<S extends CertificateStore = CertificateStore> 
     draw(store: S):  TemplateResult;
     /** Forget what it was told on the page, as the page is loaded anew. Its forms are emptied by the page. */
     reset?():  void;
-}
-
-/**
- * Where a certificate that comes without its key goes, on the identities: an
- * identity brings its key - unless the key was made here and waits for it.
- */
-export interface CertificateAnswers {
-    /** Said under the upload's box. */
-    hint:   Said;
-    /** Said where the box holds certificates and no key. */
-    found:  Said;
-    /** Take what the box holds, and say what there is to say about it. Rejects where it is refused. */
-    take(pem: string):  Promise<string>;
 }
 
 /** What a kind of node says on its certificates page beyond what every node says. */
@@ -175,9 +162,6 @@ export interface CertificatesOptions<S extends CertificateStore = CertificateSto
 
     /** The tabs a kind of node adds, made anew whenever the page is opened - with the context its sections were made with. */
     tabs?(context: SectionContext<S>):  CertificatesTab<S>[];
-
-    /** Where a certificate uploaded on the identities without its key goes: to the key that was made here and waits for it. */
-    answers?:       CertificateAnswers;
 
 }
 
@@ -423,9 +407,16 @@ export function serverIdentitiesPage<S extends CertificateStore = CertificateSto
  * beside a certificate's name (rowChips), and what sections it adds of its
  * own (sections) - the energy meter its signing requests and its clients'
  * roles, which had kept a page of 1258 lines of its own for them. It may add
- * tabs as well (tabs), between everything by name and the upload - a node
- * that makes its own keys shows them there, on its identities - and say
- * where a certificate uploaded without its key goes (answers).
+ * tabs as well (tabs), between everything by name and the upload.
+ *
+ * Where the node makes keys for itself - "requests" of its store - a page
+ * with a kind it makes them for has a fourth tab, **New key**: a key and its
+ * signing request are made there, see certificateRequests.ts. The keys that
+ * still wait for their certificate stand on the first tab, among what the
+ * node presents, each with its request to copy - or to send to the CSMS, by
+ * a charging station. And the upload takes a certificate that comes without
+ * its key as the answer to such a request: it is matched to the key that
+ * waits for it, and the two are an identity from then on.
  */
 export function certificatesPage<S extends CertificateStore = CertificateStore>(Options:  CertificatesOptions<S> = {},
                                                                               Page:     CertificatePageName = 'certificates'): Page {
@@ -479,8 +470,21 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 page:       content,
                 draw:       () => draw(),
                 reload:     () => reloadKinds(),
-                show:       (tab: string) => { if (tabs.some(one => one.id === tab)) show(tab); }
+                show:       (tab: string) => { if (tabsNow().some(one => one.id === tab)) show(tab); }
             };
+
+            /** The keys the node makes for itself, for the kinds of this page it makes them for - see certificateRequests.ts. */
+            const requests = requestsPanel<S>({
+                page:       content,
+                mayChange,
+                store:      () => current!,
+                took:       store => { current = store; },
+                kinds:      () => current === null ? [] : (current.requests?.kinds ?? []).filter(kind => pageOf(current!, kind) === Page),
+                kindName:   kind => kindName(kind),
+                draw:       () => draw(),
+                alive:      () => !cancelled,
+                show:       tab => context.show(tab)
+            });
 
             /** What the kind of node adds to this page, for as long as the page is open. */
             const sections  = (Options.sections?.(context) ?? []).filter(section => sectionPage(section) === Page);
@@ -488,19 +492,24 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** The tabs it adds to this page. */
             const extraTabs = (Options.tabs?.(context) ?? []).filter(extra => (extra.page ?? 'identities') === Page);
 
-            /** Where a certificate without its key goes, which is a question of the identities alone. */
-            const answers   = Page === 'identities' ? Options.answers : undefined;
+            /**
+             * The page's own tabs, with the kind of node's before what puts
+             * something into the store - a new key, where the node makes keys
+             * for a kind of this page, and the upload - which is for whoever
+             * may change it. Asked whenever the page is drawn: whether keys
+             * are made here is the store's to say, and the store comes later.
+             */
+            function tabsNow(): readonly Tab[] {
+                return [
+                    ...allTabs.filter(tab => tab.id !== 'upload'),
+                    ...extraTabs.map(extra => extra.tab),
+                    ...(mayChange && current !== null && requests.offered() ? [ { id: requestTabId, label: 'New key', icon: 'fa-key' } ] : []),
+                    ...(mayChange ? allTabs.filter(tab => tab.id === 'upload') : [])
+                ];
+            }
 
-            // The page's own tabs, with the kind of node's before the upload -
-            // which is for whoever may change the store.
-            const tabs: readonly Tab[] = [
-                ...allTabs.filter(tab => tab.id !== 'upload'),
-                ...extraTabs.map(extra => extra.tab),
-                ...(mayChange ? allTabs.filter(tab => tab.id === 'upload') : [])
-            ];
-
-            /** The tab shown. */
-            let shown = tabFromURL(tabs, url);
+            /** The tab shown: the one the address names, where the page has it once it is drawn - and its first one otherwise. */
+            let shown = url.searchParams.get('tab') ?? allTabs[0]!.id;
 
             /** What a kind of node says in a place of the page, from the store where it says it from the store. */
             function hint(name: keyof NonNullable<CertificatesOptions<S>['hints']>, store: S): Said | undefined {
@@ -576,7 +585,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** Show another tab, and keep it in the address. */
             function show(id: string): void {
                 shown = id;
-                rememberTab(tabs, id);
+                rememberTab(tabsNow(), id);
                 draw();
             }
 
@@ -588,6 +597,13 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                     return;
 
                 const store = current;
+                const tabs  = tabsNow();
+
+                // A tab the page does not have - one the address names of
+                // another page, or of what this person may not do - is its
+                // first one.
+                if (!tabs.some(tab => tab.id === shown))
+                    shown = tabs[0]!.id;
 
                 render(content, html`
 
@@ -629,6 +645,11 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         </section>
                     `)}
 
+                    ${tabs.some(tab => tab.id === requestTabId) ? html`
+                        <section class="tab-panel" role="tabpanel" id="panel-${requestTabId}" aria-labelledby="tab-${requestTabId}" ?hidden=${shown !== requestTabId}>
+                            ${requests.form()}
+                        </section>` : nothing}
+
                     ${mayChange ? html`
                         <section class="tab-panel" role="tabpanel" id="panel-upload" aria-labelledby="tab-upload" ?hidden=${shown !== 'upload'}>
                             ${uploadView(store)}
@@ -665,7 +686,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         ${below('believes')}
                     `}
 
-                    ${presented.length === 0 && below('presents').length === 0 ? nothing : html`
+                    ${presented.length === 0 && below('presents').length === 0 && !requests.offered() ? nothing : html`
                         <h2>${Page === 'certificates'       ? `What this ${config.nodeName} checks with`
                             : Page === 'serverIdentities' ? `Who the servers of this ${config.nodeName} are`
                             :                                 `Who this ${config.nodeName} is`}</h2>
@@ -680,6 +701,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                   What it shows a server that asks who it is, with its private key.`}
                         </p>
                         ${repeat(presented, kind => kind, kind => kindCard(kind))}
+                        ${requests.waiting()}
                         ${below('presents')}
                     `}
 
@@ -1031,7 +1053,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                                     has to bring. A file dropped on the box or chosen - PEM, DER or PKCS#12 - is read by the
                                     ${config.nodeName} and put into the box as PEM, its key included. A leaf, the sub-CAs
                                     above it and its key are one certificate.`}
-                                ${answers?.hint ?? nothing}
+                                ${requests.answers() ? html`
+                                    A certificate that answers a signing request made here comes without a key: it is
+                                    matched to the key whose request it answers.` : nothing}
                                 ${hint('importing', store) ?? nothing}
                             </p>
                             <span id="upload-files-note" class="form-error" role="alert"></span>
@@ -1149,7 +1173,11 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 return html`
                     <p class="hint">The box holds ${found.length} certificate(s):</p>
                     ${keyLeftOut}
-                    ${isAnAnswer() ? html`<p class="notice an-answer">${answers!.found}</p>` : nothing}
+                    ${isAnAnswer() ? html`
+                        <p class="notice an-answer">
+                            No private key in the box: this is taken as the answer to a signing request made here, and
+                            goes to the key that waits for it - whatever is ticked below.
+                        </p>` : nothing}
                     <ul class="found-certificates">
                         ${repeat(found, certificate => certificate.id, certificate => html`
                             <li data-found="${certificate.id}">
@@ -1171,10 +1199,10 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /**
              * Whether what the box holds is the answer to a signing request
              * rather than an identity: certificates, and none of them with
-             * its key - on the identities of a kind of node that makes keys.
+             * its key - on a page with a kind the node makes keys for.
              */
             function isAnAnswer(): boolean {
-                return answers !== undefined && found.length > 0 && found.every(certificate => !certificate.hasPrivateKey);
+                return requests.answers() && found.length > 0 && found.every(certificate => !certificate.hasPrivateKey);
             }
 
 
@@ -1383,7 +1411,17 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                     try
                     {
-                        said = await whileSaving(content, note, () => answers!.take(text));
+
+                        const answer = await whileSaving(content, note, () => api.certificates.requests.answer(text));
+
+                        // Kept beside its key where this runtime cannot hold
+                        // it up: taken in, and no identity - the warnings say
+                        // which.
+                        said = [ answer.entry !== null
+                                     ? `Taken in: ${answer.entry.label} is ${oneOf(answer.entry.kind)} of this ${config.nodeName} now.`
+                                     : 'Taken in, and kept beside its key.',
+                                 ...answer.warnings ].join(' ');
+
                     }
                     catch (problem)
                     {
@@ -1766,6 +1804,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         uploaded      = null;
                         sections. forEach(section => section.reset?.());
                         extraTabs.forEach(extra   => extra.  reset?.());
+                        requests.reset();
                         draw();
                         // Loaded anew - Reload - is what the node has: every
                         // form empty, the upload and a section's alike.

@@ -830,63 +830,6 @@ describe('the certificates page, drawn', () => {
 
     });
 
-    it('hands certificates uploaded on the identities without a key to whoever made the key, where a kind of node says so', async () => {
-
-        const taken: string[] = [];
-
-        const answers = {
-            hint:   html`<span id="answers-hint">goes to its key</span>`,
-            found:  html`<span id="is-an-answer">an answer</span>`,
-            take:   async (pem: string) => {
-                        taken.push(pem);
-                        if (/REFUSE/.test(pem))
-                            throw new Error('No key of this node waits for it.');
-                        return 'Taken in, for the key aaaa.';
-                    }
-        };
-
-        const root = await opened({ answers }, '/configuration/identities?tab=upload', identitiesPage);
-
-        // An upload would be refused: what follows is not one.
-        refuse = true;
-
-        assert.ok(root.querySelector('#answers-hint') !== null, 'the upload does not say where a certificate without its key goes');
-
-        type(box(root), twoRoots);
-        await until(() => root.querySelector('#is-an-answer') !== null, 'the page does not say that the box holds an answer');
-
-        submit(root);
-        await until(() => root.querySelector('#import-note')?.textContent === 'Taken in, for the key aaaa.', 'the answer was not taken');
-
-        assert.equal(taken.length, 1);
-        assert.match(taken[0]!, /BEGIN CERTIFICATE/);
-        assert.equal(box(root).value, '', 'the answer taken is still pasted');
-        assert.equal(root.querySelector('#import-error')!.textContent, '');
-
-        // With its key it is an identity, as ever.
-        type(box(root), '-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nK\n-----END PRIVATE KEY-----\n');
-        await until(() => root.querySelectorAll('#upload-found [data-found]').length === 1 && root.querySelector('#is-an-answer') === null,
-                    'a certificate with its key is taken for an answer');
-
-        // Refused, it stays pasted, with why.
-        type(box(root), '-----BEGIN CERTIFICATE-----\nREFUSE\n-----END CERTIFICATE-----\n');
-        await until(() => root.querySelector('#is-an-answer') !== null, 'the page does not say that the box holds an answer');
-
-        submit(root);
-        await until(() => root.querySelector('#import-error')?.textContent === 'No key of this node waits for it.', 'the refusal was not said');
-
-        assert.match(box(root).value, /REFUSE/, 'what was pasted went');
-
-        // The certificates page keeps certificates alone, and asks nobody.
-        const certificates = await opened({ answers }, '/configuration/certificates?tab=upload');
-
-        type(box(certificates), twoRoots);
-        await until(() => certificates.querySelectorAll('#upload-found [data-found]').length === 2, 'what the box holds is not said');
-
-        assert.equal(certificates.querySelector('#is-an-answer'), null, 'a root is taken for an answer');
-
-    });
-
 });
 
 

@@ -19,6 +19,8 @@
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod.PKI;
+
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 
 #endregion
@@ -136,6 +138,38 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("keysAreUnencrypted", Certificates.Entries.Any(entry => entry.HasPrivateKey))
 
                        );
+
+            // The keys this node makes for itself, where it makes any: the
+            // ones that wait for their certificate, and what a request may
+            // be made out to and may ask for.
+            if (Certificates.RequestKinds.Count > 0)
+                json.Add("requests", new JObject(
+
+                    new JProperty("directory",          Path.Combine(Certificates.Directory, CertificateStore.RequestsDirectoryName)),
+                    new JProperty("kinds",              new JArray(Certificates.RequestKinds.Select(kind => kind.AsText()))),
+                    new JProperty("entries",            new JArray(Certificates.Requests.    Select(request => request.ToJSON()))),
+
+                    new JProperty("algorithms",         new JArray(KeyAlgorithm.All.Select(algorithm => algorithm.ToJSON()))),
+                    new JProperty("defaultAlgorithm",   CertificateStore.DefaultAlgorithm),
+                    new JProperty("maxSubjectLength",   CertificateStore.MaxSubjectLength),
+
+                    // Each with the page its certificates are looked after
+                    // on: a client's request is made on the identities, a
+                    // server's on the server identities.
+                    new JProperty("templates",          new JArray(
+                        CSRTemplate.All.
+                            Where (template => Certificates.RequestKinds.Any(kind => kind.Page == template.Page)).
+                            Select(template => {
+                                var said = template.ToJSON();
+                                said.Add("page", CertificateKind.AsText(template.Page));
+                                return said;
+                            })
+                    )),
+
+                    new JProperty("keyUsages",          new JArray(CSRKeyUsage.All.Select(usage   => usage.  ToJSON()))),
+                    new JProperty("extendedKeyUsages",  new JArray(CSRPurpose. All.Select(purpose => purpose.ToJSON())))
+
+                ));
 
             CompleteCertificatesJSON(json);
 

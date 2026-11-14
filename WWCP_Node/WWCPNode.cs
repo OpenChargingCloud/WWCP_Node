@@ -618,6 +618,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="CertificateKinds">The kinds of certificate the store of this kind of node keeps; all of them by default. None, and there is no store directory at all.</param>
         /// <param name="CertificateUsages">What a TLS root or a server certificate of the store may be told it is for, beside the node's own "dns" and "nts": a backend this kind of node dials, say.</param>
         /// <param name="CertificateListeners">The listeners of this kind of node a TLS server identity of the store may be told it is shown on - a meter's "modbus" and "web"; none by default, which leaves every identity for every listener.</param>
+        /// <param name="CertificateRequestKinds">The kinds of certificate this kind of node makes keys and signing requests for - who it is to a server it dials, say; none by default.</param>
         /// <param name="Log">Where everything that happens is written, or null to make a log.</param>
         /// <param name="LogToConsole">Whether the log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">How much of it reaches the console.</param>
@@ -661,7 +662,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         TimeProvider?                              TimeProvider       = null,
                         SSHSettings?                               SSH                = null,
                         SecurityHeaderOptions?                     FrontendSecurityHeaders  = null,
-                        WebConfiguration?                          Web                = null)
+                        WebConfiguration?                          Web                = null,
+                        IEnumerable<CertificateKind>?              CertificateRequestKinds  = null)
 
         {
 
@@ -981,7 +983,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                     storeKinds,
                                     this.Kind.Name,
                                     CertificateUsages,
-                                    CertificateListeners
+                                    CertificateListeners,
+                                    CertificateRequestKinds
                                 );
 
             this.Certificates.Reload();

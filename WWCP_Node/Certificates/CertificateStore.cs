@@ -73,7 +73,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// half of it.
     /// </para>
     /// </remarks>
-    public sealed class CertificateStore
+    public sealed partial class CertificateStore
     {
 
         #region Data
@@ -232,12 +232,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="NodeName">What the node the store belongs to is called in a sentence; "node" by default.</param>
         /// <param name="Usages">The usages the kind of node adds to the node's own, <see cref="CertificateUsages.All"/>.</param>
         /// <param name="Listeners">The listeners of the kind of node a TLS server identity may be told it is shown on; none by default.</param>
+        /// <param name="RequestKinds">The kinds of certificate the node makes keys and signing requests for; none by default.</param>
         public CertificateStore(String                         Directory,
                                 EventLog                       Log,
-                                IEnumerable<CertificateKind>?  Kinds      = null,
-                                String?                        NodeName   = null,
-                                IEnumerable<String>?           Usages     = null,
-                                IEnumerable<String>?           Listeners  = null)
+                                IEnumerable<CertificateKind>?  Kinds          = null,
+                                String?                        NodeName       = null,
+                                IEnumerable<String>?           Usages         = null,
+                                IEnumerable<String>?           Listeners      = null,
+                                IEnumerable<CertificateKind>?  RequestKinds   = null)
         {
 
             this.Directory  = Path.GetFullPath(Directory);
@@ -253,6 +255,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             this.Usages     = usages;
             this.Listeners  = NamesOf(Listeners, nameof(Listeners));
+
+            this.RequestKinds  = RequestKindsOf(this.Kinds, RequestKinds);
 
             CreateDirectories();
 
@@ -558,6 +562,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                          $"{(adopted > 0 ? $", {adopted} of them newly adopted" : "")}" +
                          $" ({Summarise()}).",
                          "certificates");
+
+                // And the keys made here that wait for theirs.
+                ReadRequests();
 
                 reloaded = true;
 
@@ -2441,6 +2448,75 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                [NotNullWhen(false)] out String?            Error)
 
             => TryRead(FullPath(Entry), out Certificate, out _, out Error);
+
+        /// <summary>
+        /// The certificate of an identity with its private key, as a TLS
+        /// handshake of this node wants it, and the certificates above it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Not what <see cref="TryLoad"/> hands out. That one keeps the key in
+        /// memory alone, which is right for reading it and for handing it to
+        /// Bouncy Castle - and which Windows will not show anybody: SChannel
+        /// presents no certificate whose key is in no key store, and a
+        /// handshake with one fails without saying so. So on Windows the key
+        /// goes into a key store of the user's for as long as what comes back
+        /// is held; everywhere else it stays in memory.
+        /// </para>
+        /// <para>
+        /// Whoever asks owns what comes back, and disposes of it.
+        /// </para>
+        /// </remarks>
+        /// <param name="Entry">An identity of the store.</param>
+        /// <param name="Certificate">Its certificate, with its key.</param>
+        /// <param name="Chain">The certificates that travel with it, as its file has them.</param>
+        /// <param name="Error">Why it cannot be shown, when it cannot.</param>
+        public Boolean TryLoadForHandshake(CertificateEntry                              Entry,
+                                           [NotNullWhen(true)]  out X509Certificate2?  Certificate,
+                                           out IReadOnlyList<X509Certificate2>          Chain,
+                                           [NotNullWhen(false)] out String?            Error)
+        {
+
+            Certificate  = null;
+            Chain        = [];
+            Error        = null;
+
+            X509Certificate2Collection collection;
+
+            try
+            {
+                collection = X509CertificateLoader.LoadPkcs12CollectionFromFile(
+                                 FullPath(Entry),
+                                 null,
+                                 OperatingSystem.IsWindows()
+                                     ? X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable
+                                     : X509KeyStorageFlags.EphemeralKeySet
+                             );
+            }
+            catch (Exception exception)
+            {
+                Error = exception.Message;
+                return false;
+            }
+
+            var leaf = collection.FirstOrDefault(certificate => certificate.HasPrivateKey);
+
+            if (leaf is null)
+            {
+
+                Dispose(collection);
+
+                Error = "its file holds no private key";
+                return false;
+
+            }
+
+            Certificate  = leaf;
+            Chain        = [.. collection.Where(certificate => !ReferenceEquals(certificate, leaf))];
+
+            return true;
+
+        }
 
         /// <summary>
         /// The certificates of every entry of one kind this node would use right

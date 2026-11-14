@@ -238,3 +238,46 @@ fieldset.upload-kinds {
 .also-as .chip {
     font-style: italic;
 }
+
+// A key the node made for itself, waiting for its certificate: what it is
+// called, and the chip that says where it stands.
+.request-head {
+
+    display:        flex;
+    align-items:    center;
+    flex-wrap:      wrap;
+    gap:            0.5rem;
+    margin-bottom:  0.6rem;
+
+    strong {
+        font-size:   0.95rem;
+        word-break:  break-word;
+    }
+
+}
+
+// What there is to do with it, in a row under it, with what came of it.
+.request-actions {
+    flex-wrap: wrap;
+}
+
+// What a signing request asks for beside the usual, folded away: most
+// requests ask for the plain certificate of their kind and for nothing else.
+details#request-asks {
+
+    summary {
+        cursor:     pointer;
+        font-size:  0.9rem;
+        color:      $color-muted;
+    }
+
+    &[open] summary {
+        margin-bottom: 0.7rem;
+    }
+
+    fieldset,
+    label {
+        margin-bottom: 0.7rem;
+    }
+
+}

@@ -127,14 +127,25 @@ Beyond the names, a kind of node adds to the node in eight places:
   certificate its store keeps - all twelve by default, a vehicle's seven and
   the four of TLS in general, and `tlsServerIdentity` for a kind with
   listeners of its own. A kind that hands in none has no store
-  directory at all: a charging station, a local controller or a gateway keeps
-  the keys it dials with in stores of its own, and a store beside every one
-  of them holding a vehicle's seven empty directories was a promise nobody
-  was keeping. And `CertificateUsages`, what a TLS root or a server
+  directory at all: a store holding a vehicle's seven empty directories
+  beside a node that keeps none of them was a promise nobody was keeping. And `CertificateUsages`, what a TLS root or a server
   certificate is offered beside the node's `dns` and `nts` - a backend it
   dials, say - and `CertificateListeners`, which of its listeners a TLS
   server identity is offered. A kind of its own is a `CertificateKind.Define` of its
   own.
+* **Which keys it makes for itself:** `CertificateRequestKinds`, the kinds of
+  identity whose key is made on the node rather than brought to it - none by
+  default. A key made here waits below `<store>/requests/` with its signing
+  request (`CertificateStore.TryCreateRequest`), made to a template -
+  `tls-client`, `modbus-tls` with the role its holder may play, `tls-server`
+  for the names it is reachable as - and asking for the key usages somebody
+  ticked. The certificate that comes back is matched to its key
+  (`TryAnswerRequest`) and the two are an identity of the store from then on,
+  like one that was brought with its key. The pages of the store show it:
+  a **New key** tab where a kind of the page is made keys for, the keys that
+  wait among what the node presents, and an upload that takes a certificate
+  without its key as the answer to a request - under
+  `/api/v1/certificates/requests`.
 * **Who may do what:** `Resources`, the names of what it adds for a role to
   read, edit or run, and `RoleDefinitions`, its roles and what each of them
   may do - see below.
