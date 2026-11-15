@@ -91,6 +91,14 @@ export interface CertificatesSection<S extends CertificateStore = CertificateSto
     /** The section, drawn with the page - by comparing, so that what is typed into it outlives the rest being drawn. */
     draw(store: S):  TemplateResult;
     /**
+     * Whether it makes keys of its own for the person signed in - an SSH key
+     * a node signs in with, say: asked whenever the page is drawn, and the
+     * page has its "New key" tab for it, whether or not the store makes any.
+     */
+    makesKeys?():  boolean;
+    /** How one of its keys is made: drawn on the "New key" tab, below what the store makes there - where it makesKeys(). */
+    newKey?(store: S):  TemplateResult;
+    /**
      * Forget what it was told on the page - a choice that picks a hint, say -
      * as the page is loaded anew: Reload empties every form, and a section's
      * own choices go with them. Its forms are emptied by the page.
@@ -476,7 +484,8 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /**
              * The page's tabs: what is in the store before what puts something
              * into it - a new key, where the node makes keys for a kind of
-             * this page, for whoever may make one, and the upload, for
+             * this page or a section of the kind of node makes its own, for
+             * whoever may make one, and the upload, for
              * whoever may change the store. Asked whenever the page is drawn:
              * whether keys are made here is the store's to say, and the store
              * comes later.
@@ -484,9 +493,16 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             function tabsNow(): readonly Tab[] {
                 return [
                     ...allTabs.filter(tab => tab.id !== 'upload'),
-                    ...(mayRequest && current !== null && requests.offered() ? [ { id: requestTabId, label: 'New key', icon: 'fa-key' } ] : []),
+                    ...(current !== null && (storeMakesKeys() || sections.some(section => section.makesKeys?.() === true))
+                            ? [ { id: requestTabId, label: 'New key', icon: 'fa-key' } ]
+                            : []),
                     ...(mayChange ? allTabs.filter(tab => tab.id === 'upload') : [])
                 ];
+            }
+
+            /** Whether the store makes keys for a kind of this page, for the person signed in. */
+            function storeMakesKeys(): boolean {
+                return mayRequest && current !== null && requests.offered();
             }
 
             /** The tab shown: the one the address names, where the page has it once it is drawn - and its first one otherwise. */
@@ -623,7 +639,8 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
                     ${tabs.some(tab => tab.id === requestTabId) ? html`
                         <section class="tab-panel" role="tabpanel" id="panel-${requestTabId}" aria-labelledby="tab-${requestTabId}" ?hidden=${shown !== requestTabId}>
-                            ${requests.form()}
+                            ${storeMakesKeys() ? requests.form() : nothing}
+                            ${sections.filter(section => section.makesKeys?.() === true).map(section => section.newKey?.(store) ?? nothing)}
                         </section>` : nothing}
 
                     ${mayChange ? html`
