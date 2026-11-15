@@ -91,7 +91,7 @@ export const nodeMenu: {
     // Who the node is as a client, with its keys - for a kind of node whose
     // store keeps one of them: a TLS identity, a vehicle's credentials.
     identities: {
-        path:        '/configuration/identities',
+        path:        '/configuration/client-identities',
         label:       'Client identities',
         icon:        'fa-id-card',
         permission:  keepsCertificatesFor('identities')
@@ -213,8 +213,10 @@ export function routesOf(Frontend: NodeFrontend): Route[] {
         { path: '/configuration/dns',  page: dnsPage,                    guard: auth.requireSignIn },
         { path: '/configuration/nts',  page: ntsPage,                    guard: auth.requireSignIn },
         { path: '/configuration/certificates',         page: certificatesPage(Frontend.certificates),        guard: auth.requireSignIn },
-        { path: '/configuration/identities',           page: identitiesPage(Frontend.certificates),          guard: auth.requireSignIn },
+        { path: '/configuration/client-identities',           page: identitiesPage(Frontend.certificates),          guard: auth.requireSignIn },
         { path: '/configuration/server-identities',    page: serverIdentitiesPage(Frontend.certificates),    guard: auth.requireSignIn },
+        // Its address while it was "Identities", before the page said whose.
+        { path: '/configuration/identities',           page: movedTo('/configuration/client-identities', 'Client identities'), guard: auth.requireSignIn },
         // Its address for the few hours it was called "Server certificates".
         { path: '/configuration/server-certificates',  page: movedTo('/configuration/server-identities', 'Server identities'), guard: auth.requireSignIn },
         { path: '/configuration/ssh',                  page: sshPage,                                        guard: auth.requireSignIn },

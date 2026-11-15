@@ -148,7 +148,7 @@ function node({ method, path, body }: Asked): unknown {
 }
 
 async function opened(made:         CertificateRequests | null       = requests(),
-                      path          = '/configuration/identities',
+                      path          = '/configuration/client-identities',
                       permissions   = [ 'certificates:read', 'certificates:edit', 'certificates:run' ],
                       page          = identitiesPage): Promise<HTMLElement> {
 
@@ -188,7 +188,7 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
         assert.equal(roots.querySelector('#tab-request'), null, 'a key is offered on the page of the roots');
 
-        const reader = await opened(requests(), '/configuration/identities?tab=request', [ 'certificates:read' ]);
+        const reader = await opened(requests(), '/configuration/client-identities?tab=request', [ 'certificates:read' ]);
 
         assert.deepEqual(tabs(reader), [ 'tab-usage', 'tab-all' ], 'somebody who may not change the store is offered to make a key');
         assert.equal(panel(reader, 'usage').hidden, false, 'a tab this person does not have is shown');
@@ -199,7 +199,7 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
     it('lets whoever may run the store make, send and remove a key, and nothing else: no upload, and no identity changed', async () => {
 
-        const root = await opened(requests({ canBeSentToCSMS: true }), '/configuration/identities?tab=request', [ 'certificates:read', 'certificates:run' ]);
+        const root = await opened(requests({ canBeSentToCSMS: true }), '/configuration/client-identities?tab=request', [ 'certificates:read', 'certificates:run' ]);
 
         assert.deepEqual(tabs(root), [ 'tab-usage', 'tab-all', 'tab-request' ], 'whoever may make keys is not offered to, or is offered the upload');
         assert.equal(panel(root, 'request').hidden, false, 'the tab a key is made on is not shown');
@@ -234,7 +234,7 @@ describe('the keys a node makes for itself, on its identities page', () => {
         assert.match(root.querySelector('#waiting-note')!.textContent!, /Taken in: .* is an identity .* It runs out in 20 day\(s\)\./);
 
         // Whoever may change the store may make keys for it as well, said or not: a role of before, which was never given the one.
-        const editor = await opened(requests({ canBeSentToCSMS: true }), '/configuration/identities', [ 'certificates:read', 'certificates:edit' ]);
+        const editor = await opened(requests({ canBeSentToCSMS: true }), '/configuration/client-identities', [ 'certificates:read', 'certificates:edit' ]);
 
         assert.deepEqual(tabs(editor), [ 'tab-usage', 'tab-all', 'tab-request', 'tab-upload' ]);
         assert.equal(editor.querySelector<HTMLButtonElement>('[data-send-csr="aaaa"]')!.disabled, false);
@@ -247,7 +247,7 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
     it('opens on the tab a key is made on by the address, and makes one with a subject alone', async () => {
 
-        const root = await opened(requests(), '/configuration/identities?tab=request');
+        const root = await opened(requests(), '/configuration/client-identities?tab=request');
 
         assert.equal(panel(root, 'request').hidden, false, 'the tab the address names is not shown');
         assert.equal(root.querySelector('#request-role'), null);
@@ -267,7 +267,7 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
     it('asks for a role where the template has one, and sends the template, the role, what it is for and what was ticked - but no usage the kind of key cannot have', async () => {
 
-        const root     = await opened(requests(), '/configuration/identities?tab=request');
+        const root     = await opened(requests(), '/configuration/client-identities?tab=request');
         const template = () => field<HTMLSelectElement>(root, '#request-form', 'template');
 
         assert.deepEqual([ ...template().options ].map(option => option.value), [ 'tls-client', 'modbus-tls' ], 'a server\'s template is offered for a client');
@@ -431,7 +431,7 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
     it('takes a certificate uploaded without its key as the answer to a request, which is an identity then and no key that waits', async () => {
 
-        const root = await opened(requests(), '/configuration/identities?tab=upload');
+        const root = await opened(requests(), '/configuration/client-identities?tab=upload');
         const box  = root.querySelector<HTMLTextAreaElement>('#upload-pem')!;
 
         // With its key it is an identity, as ever.
@@ -465,7 +465,7 @@ describe('the keys a node makes for itself, on its identities page', () => {
                   'the identity it became is not among the identities');
 
         // A node that makes no keys takes no answers: a certificate without its key is no identity.
-        const none = await opened(null, '/configuration/identities?tab=upload');
+        const none = await opened(null, '/configuration/client-identities?tab=upload');
 
         type(none.querySelector<HTMLTextAreaElement>('#upload-pem')!, '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----');
         await until(() => none.querySelectorAll('#upload-found [data-found]').length === 1, 'what the box holds is not said');

@@ -89,11 +89,11 @@ describe('the routes of a kind of node', () => {
         assert.equal(routeFor('/configuration/certificates', routes)?.page.title, 'Certificates');
         assert.equal(routeFor('/configuration/certificates', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
                      'Certificate store');
-        assert.equal(routeFor('/configuration/identities',          routes)?.page.title, 'Client identities', 'who the node is as a client has no page');
+        assert.equal(routeFor('/configuration/client-identities',          routes)?.page.title, 'Client identities', 'who the node is as a client has no page');
         assert.equal(routeFor('/configuration/server-identities', routes)?.page.title, 'Server identities', 'who its servers are has no page');
-        assert.equal(routeFor('/configuration/identities', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
+        assert.equal(routeFor('/configuration/client-identities', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
                      'Client identities', 'the title a kind gives its certificates is not the identities\' too');
-        assert.deepEqual([ nodeMenu.identities.path, nodeMenu.serverIdentities.path ], [ '/configuration/identities', '/configuration/server-identities' ]);
+        assert.deepEqual([ nodeMenu.identities.path, nodeMenu.serverIdentities.path ], [ '/configuration/client-identities', '/configuration/server-identities' ]);
         assert.equal(typeof nodeMenu.identities.permission,        'function', 'the identities are offered whatever the store keeps');
         assert.equal(typeof nodeMenu.serverIdentities.permission,  'function', 'the server identities are offered whatever the store keeps');
         assert.equal(routeFor('/configuration/ssh', routes)?.page.title, 'SSH server', 'the SSH server has no page');
@@ -105,6 +105,13 @@ describe('the routes of a kind of node', () => {
             { root: document.createElement('div'), url: new URL('http://here/configuration/server-certificates'),
               navigate: (Path: string, Replace?: boolean) => { sentTo.push([ Path, Replace ]); } } as unknown as Parameters<Page['render']>[0]);
         assert.deepEqual(sentTo, [ [ '/configuration/server-identities', true ] ], 'the old address of the server identities leads nowhere');
+
+        // And the client identities' was "/configuration/identities".
+        sentTo.length = 0;
+        routeFor('/configuration/identities', routes)!.page.render(
+            { root: document.createElement('div'), url: new URL('http://here/configuration/identities'),
+              navigate: (Path: string, Replace?: boolean) => { sentTo.push([ Path, Replace ]); } } as unknown as Parameters<Page['render']>[0]);
+        assert.deepEqual(sentTo, [ [ '/configuration/client-identities', true ] ], 'the old address of the client identities leads nowhere');
         assert.deepEqual([ nodeMenu.ssh.path, nodeMenu.ssh.permission ], [ '/configuration/ssh', [ 'ssh:read' ] ], 'the SSH server is not read with a permission of its own');
         assert.equal(routeFor('/',                   routes)?.page,       firstPageOfTheMenu);
 
@@ -171,11 +178,11 @@ describe('the pages of certificates in the menu', () => {
         // A local controller over plain HTTP: no server identity - and the
         // page that would have said so was in the menu all the same.
         auth.set(keeping([ 'certificates', 'identities' ], 'configuration:read', 'certificates:read'));
-        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/identities' ]);
+        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/client-identities' ]);
 
         // The same with --https: the store keeps who its web interface is.
         auth.set(keeping([ 'certificates', 'identities', 'serverIdentities' ], 'configuration:read', 'certificates:read'));
-        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/identities', '/configuration/server-identities' ]);
+        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/client-identities', '/configuration/server-identities' ]);
 
         // A meter: servers, and nobody it is as a client.
         auth.set(keeping([ 'certificates', 'serverIdentities' ], 'configuration:read', 'certificates:read'));
@@ -190,7 +197,7 @@ describe('the pages of certificates in the menu', () => {
 
     it('are offered by a node too old to say what its store keeps to whoever may read certificates', () => {
         auth.set(signedIn(false, 'configuration:read', 'certificates:read'));
-        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/identities', '/configuration/server-identities' ]);
+        assert.deepEqual(offered(), [ '/configuration', '/configuration/certificates', '/configuration/client-identities', '/configuration/server-identities' ]);
         auth.set(null);
     });
 

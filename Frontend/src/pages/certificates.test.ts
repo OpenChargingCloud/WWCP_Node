@@ -417,7 +417,7 @@ describe('the certificates page, drawn', () => {
 
     it('says what the box holds, certificate by certificate, once the typing has stopped - and offers no kind none of them can be', async () => {
 
-        const root = await opened({}, '/configuration/identities', identitiesPage);
+        const root = await opened({}, '/configuration/client-identities', identitiesPage);
 
         type(box(root), twoRoots);
         await until(() => root.querySelectorAll('#upload-found [data-found]').length === 2, 'what the box holds is not said');
@@ -650,7 +650,7 @@ describe('the certificates page, drawn', () => {
         try
         {
 
-            const root = await opened({}, '/configuration/identities?tab=all', identitiesPage);
+            const root = await opened({}, '/configuration/client-identities?tab=all', identitiesPage);
             const card = root.querySelector<HTMLElement>('#panel-all [data-certificate="eeeeeeeeeeeeeeee"]');
 
             assert.ok(card !== null, 'the identity is not listed');
@@ -707,7 +707,7 @@ describe('the certificates page, drawn', () => {
             assert.ok(!/not encrypted/.test(certificates.textContent!), 'the certificates say their keys are not encrypted, and keep none');
             assert.deepEqual([ ...certificates.querySelectorAll<HTMLOptionElement>('#make-up-group option') ].map(option => option.value), [ 'trustAnchor', 'recognised' ]);
 
-            const identities = await opened({}, '/configuration/identities', identitiesPage);
+            const identities = await opened({}, '/configuration/client-identities', identitiesPage);
 
             assert.equal(identities.querySelector('h1')!.textContent, 'Client identities');
             assert.equal(identities.querySelector('#tab-all')!.textContent!.trim(), 'All client identities');
@@ -744,7 +744,7 @@ describe('the certificates page, drawn', () => {
         const looked  = asked.filter(one => one.path.endsWith('/certificates/inspect')).map(one => (one.body as { pem: string }).pem);
 
         assert.equal(goesTo.length, 1, 'a page this node keeps nothing on is named');
-        assert.ok(goesTo[0]!.endsWith('/configuration/identities'), 'where a key goes is not said');
+        assert.ok(goesTo[0]!.endsWith('/configuration/client-identities'), 'where a key goes is not said');
         assert.ok(looked.length > 0 && looked.every(pem => !/PRIVATE KEY/.test(pem)), 'the key went to the node to be looked at');
         assert.equal(kindOf(root, 'tlsRoot').disabled, false, 'a root is refused for a key that is left out');
 
@@ -1025,7 +1025,7 @@ describe('the certificates page, as a kind of node adds to it', () => {
         };
 
         assert.deepEqual(await on(certificatesPage,       '/configuration/certificates'),        [ 'by-believes' ]);
-        assert.deepEqual(await on(identitiesPage,         '/configuration/identities'),          [ 'by-presents' ]);
+        assert.deepEqual(await on(identitiesPage,         '/configuration/client-identities'),          [ 'by-presents' ]);
         assert.deepEqual(await on(serverIdentitiesPage, '/configuration/server-identities'), [ 'on-servers'  ]);
 
     });

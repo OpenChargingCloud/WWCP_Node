@@ -307,7 +307,7 @@ const pageWords: Record<CertificatePageName, { path: string; title: string; all:
     },
 
     identities: {
-        path:      '/configuration/identities',
+        path:      '/configuration/client-identities',
         title:     'Client identities',
         all:       'All client identities',
         upload:    'Upload client identities',
