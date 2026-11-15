@@ -233,12 +233,12 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
         assert.match(root.querySelector('#waiting-note')!.textContent!, /Taken in: .* is an identity .* It runs out in 20 day\(s\)\./);
 
-        // And the other way around: changing the store is not making keys.
+        // Whoever may change the store may make keys for it as well, said or not: a role of before, which was never given the one.
         const editor = await opened(requests({ canBeSentToCSMS: true }), '/configuration/identities', [ 'certificates:read', 'certificates:edit' ]);
 
-        assert.deepEqual(tabs(editor), [ 'tab-usage', 'tab-all', 'tab-upload' ]);
-        assert.equal(editor.querySelector<HTMLButtonElement>('[data-send-csr="aaaa"]')!.disabled, true);
-        assert.equal(editor.querySelector('[data-bring-answer]'), null, 'somebody who may not make keys is offered to bring a certificate beside one');
+        assert.deepEqual(tabs(editor), [ 'tab-usage', 'tab-all', 'tab-request', 'tab-upload' ]);
+        assert.equal(editor.querySelector<HTMLButtonElement>('[data-send-csr="aaaa"]')!.disabled, false);
+        assert.equal(editor.querySelector('[data-bring-answer]'), null, 'whoever has the upload is offered a second place to bring a certificate');
 
         // Whoever has the upload brings it there, and is offered no second place for it.
         assert.equal((await opened(requests())).querySelector('[data-bring-answer]'), null);
@@ -391,6 +391,28 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
         root.querySelector<HTMLButtonElement>('#make-a-key')!.click();
         await until(() => !panel(root, 'request').hidden, 'the tab a key is made on is not shown');
+
+    });
+
+    it('offers the CSMS the request of a kind the node says it answers, and of no other: not the key of a server of its own', async () => {
+
+        const both = requests({ kinds:            [ 'tlsIdentity', 'tlsServerIdentity' ],
+                                canBeSentToCSMS:  true,
+                                csmsKinds:        [ 'tlsIdentity' ],
+                                entries:          [ aKey('aaaa'), aKey('ssss', { kind: 'tlsServerIdentity', template: 'tls-server', templateName: 'TLS server' }) ] });
+
+        const clients = await opened(both);
+
+        assert.deepEqual(waiting(clients), [ 'aaaa' ], 'a key of a server waits among the clients\'');
+        assert.ok(clients.querySelector('[data-send-csr="aaaa"]') !== null, 'the request of who the node is to its CSMS cannot be sent');
+        assert.match(clients.querySelector('#waiting-keys .hint')!.textContent!, /send it to the CSMS/);
+
+        const servers = await opened(both, '/configuration/server-identities', undefined, serverIdentitiesPage);
+
+        assert.deepEqual(tabs(servers), [ 'tab-usage', 'tab-all', 'tab-request', 'tab-upload' ], 'a server\'s key is not made on the page of the servers');
+        assert.deepEqual(waiting(servers), [ 'ssss' ]);
+        assert.equal(servers.querySelector('[data-send-csr="ssss"]'), null, 'the CSMS is asked for the certificate of a server of the node');
+        assert.doesNotMatch(servers.querySelector('#waiting-keys .hint')!.textContent!, /CSMS/);
 
     });
 

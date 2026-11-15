@@ -563,6 +563,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         #endregion
 
+        #region (protected) TryAuthorizeKeys(Request, User, Refused)
+
+        /// <summary>
+        /// Who is behind a request that makes a key in the certificate store,
+        /// sends its signing request, brings its certificate or takes it
+        /// back, when they may - or the response that says why not.
+        /// </summary>
+        /// <remarks>
+        /// At what the node asks of this account for it - see
+        /// <see cref="WWCPNode.WhatTheKeysAskOf"/>: "certificates:run", or
+        /// "certificates:edit" of somebody who has that alone.
+        /// </remarks>
+        protected Boolean TryAuthorizeKeys(HTTPRequest                             Request,
+                                           [NotNullWhen(true)]  out IUser?         User,
+                                           [NotNullWhen(false)] out HTTPResponse?  Refused)
+        {
+
+            // Nobody signed in is asked for the smaller one too, and is told
+            // to sign in before it is looked at.
+            TryGetUser(Request, out var who, out _);
+
+            return TryAuthorize(Request, Node.WhatTheKeysAskOf(who), true, out User, out Refused);
+
+        }
+
+        #endregion
+
         #region (protected) RefusePermission(Request, User, Required, Because)
 
         /// <summary>

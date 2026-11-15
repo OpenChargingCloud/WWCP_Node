@@ -709,8 +709,8 @@ describe('the certificates page, drawn', () => {
 
             const identities = await opened({}, '/configuration/identities', identitiesPage);
 
-            assert.equal(identities.querySelector('h1')!.textContent, 'Identities');
-            assert.equal(identities.querySelector('#tab-all')!.textContent!.trim(), 'All identities');
+            assert.equal(identities.querySelector('h1')!.textContent, 'Client identities');
+            assert.equal(identities.querySelector('#tab-all')!.textContent!.trim(), 'All client identities');
             assert.ok(identities.querySelector('section[data-kind="tlsIdentity"]') !== null, 'the identity is not on the identities');
             assert.ok(identities.querySelector('section[data-kind="tlsRoot"]') === null, 'a root is on the identities');
             assert.deepEqual([ ...identities.querySelectorAll<HTMLInputElement>('#upload-kinds input[name="kind"]') ].map(input => input.value), [ 'tlsIdentity' ]);
@@ -790,45 +790,6 @@ describe('the certificates page, drawn', () => {
 
     });
 
-
-    it('shows a tab a kind of node adds between everything by name and the upload, drawn whether it is shown or not, and opens on it by the address', async () => {
-
-        let loaded = 0;
-
-        const keys: NonNullable<Parameters<typeof certificatesPage>[0]>['tabs'] = context => [ {
-            tab:   { id: 'keys', label: 'Keys', icon: 'fa-key' },
-            load:  async () => { loaded++; },
-            draw:  () => html`
-                <form id="key-form"><input name="subject" /></form>
-                <button type="button" id="to-upload" @click=${() => context.show('upload')}>upload</button>`
-        } ];
-
-        const root  = await opened({ tabs: keys }, '/configuration/identities?tab=keys', identitiesPage);
-        const panel = (id: string) => root.querySelector<HTMLElement>(`#panel-${id}`)!;
-
-        assert.deepEqual([ ...root.querySelectorAll('[role="tab"]') ].map(tab => tab.id),
-                         [ 'tab-usage', 'tab-all', 'tab-keys', 'tab-upload' ]);
-        assert.equal(panel('keys').hidden,   false, 'the tab the address names is not shown');
-        assert.equal(panel('usage').hidden,  true);
-        assert.equal(loaded, 1, 'what the tab needs was not asked for with the store');
-
-        const subject = root.querySelector<HTMLInputElement>('#key-form [name="subject"]')!;
-        type(subject, 'cs001.exam');
-
-        root.querySelector<HTMLButtonElement>('#to-upload')!.click();
-        await until(() => !panel('upload').hidden, 'the tab could not show another one');
-
-        assert.equal(panel('keys').hidden, true);
-        assert.ok(root.querySelector('#key-form [name="subject"]') === subject, 'the tab\'s field was made anew');
-        assert.equal(subject.value, 'cs001.exam', 'what was typed into a tab not shown went');
-        assert.equal(unsaved.any(), true, 'what is typed into a tab\'s form is no draft');
-
-        // The identities' tab, and not the certificates'.
-        const certificates = await opened({ tabs: keys }, '/configuration/certificates');
-
-        assert.equal(certificates.querySelector('#tab-keys'), null, 'the tab is on a page it was not added to');
-
-    });
 
 });
 

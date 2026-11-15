@@ -724,6 +724,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region WhoeverMayChangeTheCertificateStore_MayMakeKeysForIt()
+
+        /// <summary>
+        /// Making a key is "certificates:run" - and a role of the file that
+        /// may change the store, written before there was anything to run,
+        /// makes keys all the same: it is asked for what it has. Somebody who
+        /// may only look is asked for the smaller one, and refused it.
+        /// </summary>
+        [Test]
+        public async Task WhoeverMayChangeTheCertificateStore_MayMakeKeysForIt()
+        {
+
+            await using var node = await StartedNode("""
+                                                     {
+                                                       "nts":   { "groups": { "legal": { "enabled": false } } },
+                                                       "roles": { "trust": [ "certificates:read", "certificates:edit" ],
+                                                                  "keys":  [ "certificates:read", "certificates:run"  ] }
+                                                     }
+                                                     """);
+
+            Assert.That(node.ExtAPI.TryGetUser(User_Id.Parse(WWCPNode.DefaultAdminUser), out var root), Is.True);
+
+            var tom    = await AccountIn(node, "thomas", "trust");
+            var kate   = await AccountIn(node, "katie",  "keys");
+            var alice  = await AccountIn(node, "alice",  "viewer");
+
+            var run    = Permission.Run (NodeResources.Certificates);
+            var edit   = Permission.Edit(NodeResources.Certificates);
+
+            Assert.Multiple(() => {
+
+                Assert.That(node.WhatTheKeysAskOf(tom),                         Is.EqualTo(edit), "a role that may change the store is asked for what it was never given");
+                Assert.That(node.IsAllowed(tom,   [ node.WhatTheKeysAskOf(tom)   ]),  Is.True);
+
+                Assert.That(node.WhatTheKeysAskOf(kate),                        Is.EqualTo(run));
+                Assert.That(node.IsAllowed(kate,  [ node.WhatTheKeysAskOf(kate)  ]),  Is.True);
+                Assert.That(node.IsAllowed(kate,  [ edit ]),                    Is.False, "making keys lets somebody at the roots");
+
+                Assert.That(node.WhatTheKeysAskOf(alice),                       Is.EqualTo(run),  "somebody who may do neither is asked for the greater one");
+                Assert.That(node.IsAllowed(alice, [ node.WhatTheKeysAskOf(alice) ]),  Is.False);
+
+                Assert.That(node.WhatTheKeysAskOf(root),                        Is.EqualTo(run));
+                Assert.That(node.WhatTheKeysAskOf(null),                        Is.EqualTo(run));
+
+            });
+
+        }
+
+        #endregion
+
         #region ANodeWhoseFileNamesAResourceItDoesNotHaveDoesNotStart()
 
         [Test]

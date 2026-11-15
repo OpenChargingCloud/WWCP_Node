@@ -89,10 +89,10 @@ describe('the routes of a kind of node', () => {
         assert.equal(routeFor('/configuration/certificates', routes)?.page.title, 'Certificates');
         assert.equal(routeFor('/configuration/certificates', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
                      'Certificate store');
-        assert.equal(routeFor('/configuration/identities',          routes)?.page.title, 'Identities', 'who the node is as a client has no page');
+        assert.equal(routeFor('/configuration/identities',          routes)?.page.title, 'Client identities', 'who the node is as a client has no page');
         assert.equal(routeFor('/configuration/server-identities', routes)?.page.title, 'Server identities', 'who its servers are has no page');
         assert.equal(routeFor('/configuration/identities', routesOf({ ...theKinds, pages: {}, certificates: { title: 'Certificate store' } }))?.page.title,
-                     'Identities', 'the title a kind gives its certificates is not the identities\' too');
+                     'Client identities', 'the title a kind gives its certificates is not the identities\' too');
         assert.deepEqual([ nodeMenu.identities.path, nodeMenu.serverIdentities.path ], [ '/configuration/identities', '/configuration/server-identities' ]);
         assert.equal(typeof nodeMenu.identities.permission,        'function', 'the identities are offered whatever the store keeps');
         assert.equal(typeof nodeMenu.serverIdentities.permission,  'function', 'the server identities are offered whatever the store keeps');

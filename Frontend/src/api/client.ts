@@ -719,6 +719,8 @@ export interface CertificateRequests<K extends string = string> {
     extendedKeyUsages:  RequestPurpose[];
     /** Whether a request can be sent to the CSMS from here, in SignCertificate: a charging station's. */
     canBeSentToCSMS?:   boolean;
+    /** The kinds whose requests can be: every kind the node makes keys for, where it does not say. */
+    csmsKinds?:         K[];
 }
 
 /** What a new key is made with; everything but the subject may be left out. */

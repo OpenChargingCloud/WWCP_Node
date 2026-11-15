@@ -101,6 +101,17 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
         return offered();
     }
 
+    /** Whether a request for a kind can be sent to the CSMS from here: a charging station's, for who it is to its CSMS - not for a server of its own. */
+    function sentToCSMS(kind: string): boolean {
+        const made = requests();
+        return made?.canBeSentToCSMS === true && (made.csmsKinds === undefined || made.csmsKinds.includes(kind));
+    }
+
+    /** The same for the page: whether any kind of it can. */
+    function pageSendsToCSMS(): boolean {
+        return Host.kinds().some(kind => sentToCSMS(kind));
+    }
+
     /** Say something in a place of the page - if the place is still there. */
     function say(selector: string, text: string): void {
         const place = content.querySelector<HTMLElement>(selector);
@@ -320,7 +331,7 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
                     <section class="card">
                         <h2><i class="fa-solid fa-file-export"></i> The request, waiting to be collected</h2>
                         <p class="hint">
-                            Hand this to whoever issues certificates for this ${config.nodeName}${made.canBeSentToCSMS
+                            Hand this to whoever issues certificates for this ${config.nodeName}${pageSendsToCSMS()
                                 ? ', or send it to the CSMS from the key on the first tab'
                                 : ''}. It is not a secret - it holds the public half of the key and nothing else -
                             and it stays here until the answer comes back: on the Upload tab, without a key.
@@ -403,7 +414,7 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
                     <button type="button" class="btn small" data-copy-csr="${entry.id}" @click=${() => copyRequest(entry)}>
                         Copy CSR
                     </button>
-                    ${made.canBeSentToCSMS ? html`
+                    ${sentToCSMS(entry.kind) ? html`
                         <button type="button" class="btn small" data-send-csr="${entry.id}"
                                 title="Send the signing request to the CSMS, in SignCertificate"
                                 ?disabled=${!mayChange}
@@ -452,7 +463,7 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
                         ? 'pasted beside the key it is for, without a key.'
                         : 'on the Upload tab, without a key, where it is matched to the key whose request it answers.'}
                     ${keys.length === 0 ? 'None waits.' : html`
-                        Copy its signing request for whoever issues certificates${made.canBeSentToCSMS
+                        Copy its signing request for whoever issues certificates${pageSendsToCSMS()
                             ? ', or send it to the CSMS, which answers with the certificate by itself'
                             : ''}.
                     `}

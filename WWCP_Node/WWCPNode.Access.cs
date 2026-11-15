@@ -115,6 +115,37 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region WhatTheKeysAskOf(User)
+
+        /// <summary>
+        /// The permission the given account is asked for where it makes a key
+        /// in the certificate store, sends its signing request, brings its
+        /// certificate or takes it back.
+        /// </summary>
+        /// <remarks>
+        /// "certificates:run" - or "certificates:edit", which is more, for
+        /// somebody who has that and not the other: whoever may put a root
+        /// into the store may make a key for it, whether a role says so or
+        /// not. A role written into a configuration file before there was
+        /// anything to run would have lost what it could do otherwise.
+        /// Somebody who may do neither is asked for the smaller one, and its
+        /// refusal names every role that would have done.
+        /// </remarks>
+        public Permission WhatTheKeysAskOf(IUser? User)
+        {
+
+            var run   = Permission.Run (NodeResources.Certificates);
+            var edit  = Permission.Edit(NodeResources.Certificates);
+
+            return !IsAllowed(User, [ run  ]) &&
+                    IsAllowed(User, [ edit ])
+                       ? edit
+                       : run;
+
+        }
+
+        #endregion
+
     }
 
 }

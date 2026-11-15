@@ -31,6 +31,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.CommandLine;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
@@ -197,6 +198,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(banner, Has.Some.StartsWith("  time server"));
                 Assert.That(banner, Has.Some.EqualTo( "  │  user      root"));
                 Assert.That(banner, Has.Some.EqualTo($"  │  password  {node.GeneratedPassword}"));
+            });
+
+        }
+
+        #endregion
+
+        #region TheBannerSaysWhereTheHTTPExtAPIAnswers_AndNotWhereOneMadeHereWould()
+
+        /// <summary>
+        /// Below a base path the HTTPExt API is below it too, and so is the
+        /// sign-in - and one that was handed in is where whoever made it
+        /// mounted it, which is not below the base path of the node it was
+        /// handed to.
+        /// </summary>
+        [Test]
+        public async Task TheBannerSaysWhereTheHTTPExtAPIAnswers_AndNotWhereOneMadeHereWould()
+        {
+
+            await using var owner = await TestPorts.StartedOnFreshPorts(() => Node());
+
+            var home       = Directory.CreateDirectory(Path.Combine(directory, "second")).FullName;
+            var configFile = Path.Combine(home, WWCPConfigFile.DefaultFileName);
+
+            File.WriteAllText(configFile, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
+
+            await using var second = new WWCPNode(
+                                         HTTPServer:        owner.HTTPServer,
+                                         HTTPPort:          owner.HTTPPort,
+                                         ExtAPI:            owner.ExtAPI,
+                                         BasePath:          HTTPPath.Parse("/second"),
+                                         AccountsPath:      Path.Combine(home, "accounts"),
+                                         ConfigFile:        new WWCPConfigFile(configFile),
+                                         CertificatesPath:  Path.Combine(home, "certificates"),
+                                         LogToConsole:      false,
+                                         BridgeDebugLog:    false,
+                                         SSH:               new SSHSettings(OnByDefault: false)
+                                     );
+
+            var banner = second.Banner();
+
+            Assert.Multiple(() => {
+
+                Assert.That(second.WebInterfaceURL.ToString(),  Does.EndWith("/second/"));
+                Assert.That(second.ExtAPIURL.      ToString(),  Is.EqualTo(owner.ExtAPIURL.ToString()),            "an API that was handed in is said to be below the base path of the node it was handed to");
+                Assert.That(owner. ExtAPIURL.      ToString(),  Is.EqualTo($"{owner.WebInterfaceURL}ext/"));
+
+                Assert.That(banner, Has.Some.EqualTo($"  HTTPExt API    {owner.WebInterfaceURL}ext/"));
+                Assert.That(banner, Has.Some.EqualTo($"  sign in at     {owner.WebInterfaceURL}ext/login"));
+                Assert.That(banner, Has.None.Contains("/second/ext"));
+
             });
 
         }

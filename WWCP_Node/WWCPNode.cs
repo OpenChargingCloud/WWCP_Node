@@ -467,6 +467,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public URL                    APIURL                       { get; }
 
+        /// <summary>
+        /// The HTTPExt API as a browser would type it: the server and the root
+        /// path that API was mounted at, with a slash at the end.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the API rather than put together from the base path and
+        /// "/ext": one that was handed in was mounted by whoever made it, and
+        /// below their base path rather than below this node's. The sign-in is
+        /// "login" below it.
+        /// </remarks>
+        public URL                    ExtAPIURL
+
+            => URL.Parse($"{(HTTPS ? "https" : "http")}://{listenAddress}:{HTTPPort}/{ExtAPI.RootPath.ToString().Trim('/')}/");
+
 
         /// <summary>
         /// How this node resolves names.

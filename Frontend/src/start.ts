@@ -92,7 +92,7 @@ export const nodeMenu: {
     // store keeps one of them: a TLS identity, a vehicle's credentials.
     identities: {
         path:        '/configuration/identities',
-        label:       'Identities',
+        label:       'Client identities',
         icon:        'fa-id-card',
         permission:  keepsCertificatesFor('identities')
     },

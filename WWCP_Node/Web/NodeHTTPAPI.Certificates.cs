@@ -115,7 +115,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private Task<HTTPResponse> PostCertificateRequest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Run(NodeResources.Certificates), true, out var user, out var refused))
+            if (!TryAuthorizeKeys(Request, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -201,7 +201,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private Task<HTTPResponse> PostCertificateRequestAnswer(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Run(NodeResources.Certificates), true, out var user, out var refused))
+            if (!TryAuthorizeKeys(Request, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -244,7 +244,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         private Task<HTTPResponse> DeleteCertificateRequest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Run(NodeResources.Certificates), true, out var user, out var refused))
+            if (!TryAuthorizeKeys(Request, out var user, out var refused))
                 return Task.FromResult(refused);
 
             var id = Request.ParsedURLParameters.Length > 0 ? Request.ParsedURLParameters[0] : "";

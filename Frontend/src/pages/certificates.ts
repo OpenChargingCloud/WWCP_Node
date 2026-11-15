@@ -98,23 +98,6 @@ export interface CertificatesSection<S extends CertificateStore = CertificateSto
     reset?():  void;
 }
 
-/**
- * A tab a kind of node adds to one of the pages: between everything by name
- * and what puts something into the store.
- */
-export interface CertificatesTab<S extends CertificateStore = CertificateStore> {
-    /** On which page: the identities, unless it says otherwise. */
-    page?:  CertificatePageName;
-    /** What it is called in the row of tabs and in the address; not "usage", "all" or "upload". */
-    tab:    Tab;
-    /** What it needs beside the store, asked whenever the store is - as a section's. */
-    load?():  Promise<unknown>;
-    /** The tab, drawn with the page whether it is shown or not, so that what is typed into it stays. */
-    draw(store: S):  TemplateResult;
-    /** Forget what it was told on the page, as the page is loaded anew. Its forms are emptied by the page. */
-    reset?():  void;
-}
-
 /** What a kind of node says on its certificates page beyond what every node says. */
 export interface CertificatesOptions<S extends CertificateStore = CertificateStore> {
 
@@ -159,9 +142,6 @@ export interface CertificatesOptions<S extends CertificateStore = CertificateSto
 
     /** The sections a kind of node adds, made anew whenever the page is opened, so that what they keep is the page's. */
     sections?(context: SectionContext<S>):  CertificatesSection<S>[];
-
-    /** The tabs a kind of node adds, made anew whenever the page is opened - with the context its sections were made with. */
-    tabs?(context: SectionContext<S>):  CertificatesTab<S>[];
 
 }
 
@@ -320,9 +300,9 @@ const pageWords: Record<CertificatePageName, { path: string; title: string; all:
 
     identities: {
         path:      '/configuration/identities',
-        title:     'Identities',
-        all:       'All identities',
-        upload:    'Upload identities',
+        title:     'Client identities',
+        all:       'All client identities',
+        upload:    'Upload client identities',
         subtitle:  () => `Who this ${config.nodeName} is as a client, each with its private key: what it shows a server that asks who it is.`
     },
 
@@ -443,8 +423,8 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
 
             const mayChange = auth.can('certificates', 'edit');
 
-            /** Making a key, sending its request and taking it back: less than changing the store, and what whoever runs the node may do. */
-            const mayRequest = auth.can('certificates', 'run');
+            /** Making a key, sending its request, bringing its certificate and taking it back: less than changing the store, what whoever runs the node may do - and whoever may change the store. */
+            const mayRequest = auth.can('certificates', 'run') || mayChange;
 
             let cancelled = false;
             let current: S | null = null;
@@ -466,7 +446,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             let inspection                              = 0;
             let inspectTimer:    ReturnType<typeof setTimeout> | undefined;
 
-            /** What the sections and the tabs of the kind of node get to work with: one for both, so that they may share what they keep. */
+            /** What the sections of the kind of node get to work with: one for all of them, so that they may share what they keep. */
             const context: SectionContext<S> = {
                 store:      () => current!,
                 mayChange,
@@ -493,20 +473,17 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** What the kind of node adds to this page, for as long as the page is open. */
             const sections  = (Options.sections?.(context) ?? []).filter(section => sectionPage(section) === Page);
 
-            /** The tabs it adds to this page. */
-            const extraTabs = (Options.tabs?.(context) ?? []).filter(extra => (extra.page ?? 'identities') === Page);
-
             /**
-             * The page's own tabs, with the kind of node's before what puts
-             * something into the store - a new key, where the node makes keys
-             * for a kind of this page, and the upload - which is for whoever
-             * may change it. Asked whenever the page is drawn: whether keys
-             * are made here is the store's to say, and the store comes later.
+             * The page's tabs: what is in the store before what puts something
+             * into it - a new key, where the node makes keys for a kind of
+             * this page, for whoever may make one, and the upload, for
+             * whoever may change the store. Asked whenever the page is drawn:
+             * whether keys are made here is the store's to say, and the store
+             * comes later.
              */
             function tabsNow(): readonly Tab[] {
                 return [
                     ...allTabs.filter(tab => tab.id !== 'upload'),
-                    ...extraTabs.map(extra => extra.tab),
                     ...(mayRequest && current !== null && requests.offered() ? [ { id: requestTabId, label: 'New key', icon: 'fa-key' } ] : []),
                     ...(mayChange ? allTabs.filter(tab => tab.id === 'upload') : [])
                 ];
@@ -524,8 +501,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** The store, and what every section needs beside it - asked together. */
             async function fetched(): Promise<S> {
                 const [ store ] = await Promise.all([ api.certificates.get() as Promise<S>,
-                                                      ...sections. map(section => section.load?.()),
-                                                      ...extraTabs.map(extra   => extra.  load?.()) ]);
+                                                      ...sections.map(section => section.load?.()) ]);
                 return store;
             }
 
@@ -561,7 +537,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 const kept     = new Set([ ...store.trustAnchors, ...store.credentials, ...store.recognised ].map(kind => pageOf(store, kind)));
                 const clients  = kept.has('identities');
                 const servers  = kept.has('serverIdentities');
-                const toClients = html`<a href="${toURL(pageWords.identities.path)}">Identities</a>`;
+                const toClients = html`<a href="${toURL(pageWords.identities.path)}">Client identities</a>`;
                 const toServers = html`<a href="${toURL(pageWords.serverIdentities.path)}">Server identities</a>`;
 
                 return clients && servers ? html`Who this ${config.nodeName} is goes in with its key on ${toClients}, a server of it on ${toServers}.`
@@ -644,12 +620,6 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                     <section class="tab-panel" role="tabpanel" id="panel-all" aria-labelledby="tab-all" ?hidden=${shown !== 'all'}>
                         ${allView(store)}
                     </section>
-
-                    ${repeat(extraTabs, extra => extra.tab.id, extra => html`
-                        <section class="tab-panel" role="tabpanel" id="panel-${extra.tab.id}" aria-labelledby="tab-${extra.tab.id}" ?hidden=${shown !== extra.tab.id}>
-                            ${extra.draw(store)}
-                        </section>
-                    `)}
 
                     ${tabs.some(tab => tab.id === requestTabId) ? html`
                         <section class="tab-panel" role="tabpanel" id="panel-${requestTabId}" aria-labelledby="tab-${requestTabId}" ?hidden=${shown !== requestTabId}>
@@ -1808,8 +1778,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         usagesTicked  = {};
                         usagesMadeUp  = {};
                         uploaded      = null;
-                        sections. forEach(section => section.reset?.());
-                        extraTabs.forEach(extra   => extra.  reset?.());
+                        sections.forEach(section => section.reset?.());
                         requests.reset();
                         draw();
                         // Loaded anew - Reload - is what the node has: every

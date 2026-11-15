@@ -68,7 +68,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// sending that off where a kind of node can, bringing the
         /// certificate that comes back for it, and taking a key back that
         /// still waits for one. A certificate that comes with its key, and
-        /// every root, is put in at the permission to change the store.
+        /// every root, is put in at the permission to change the store -
+        /// which is the greater, and lets somebody do all of this as well.
         /// </remarks>
         public const String  Certificates   = "certificates";
 

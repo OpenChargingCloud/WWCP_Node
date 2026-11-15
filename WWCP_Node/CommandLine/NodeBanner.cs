@@ -85,15 +85,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             var ofKind  = OfTheKind?.          ToArray() ?? [];
             var after   = AfterTheTimeServers?.ToArray() ?? [];
 
-            var extPath = WWCPNode.ExtAPIPath.ToString().Trim('/');
-
             #region The node's lines, in their places
 
             var interfaces = new List<(String Label, String Value)> {
                 ("web interface",  Node.WebInterfaceURL.ToString()),
                 ("JSON API",       $"{Node.APIURL}v1/status"),
                 ("event stream",   $"{Node.APIURL}v1/events"),
-                ("HTTPExt API",    $"{Node.WebInterfaceURL}{extPath}/")
+                ("HTTPExt API",    Node.ExtAPIURL.ToString())
             };
 
             // How it is reached safely: the certificate it shows and where from,
@@ -140,7 +138,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             var files = new List<(String Label, String Value)> {
                 ("configuration",  Node.ConfigFile.Path),
                 ("accounts",       $"{Node.ExtAPI.Users.Count()} user(s) in {Path.TrimEndingDirectorySeparator(Path.GetFullPath(Node.AccountsPath))}"),
-                ("sign in at",     $"{Node.WebInterfaceURL}{extPath}/login"),
+                ("sign in at",     $"{Node.ExtAPIURL}login"),
                 ("log files",      Node.LogPath ?? "none (--no-log-file)")
             };
 
