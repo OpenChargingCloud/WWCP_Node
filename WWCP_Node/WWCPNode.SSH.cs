@@ -109,6 +109,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         private readonly ConcurrentDictionary<String, Func<String?>>  sshSessionRechecks  = new ();
 
         private readonly IIPAddress         listenAddress;
+
+        /// <summary>
+        /// The address this node listens on - its web interface, its SSH
+        /// server - for a server a kind of node starts beside them.
+        /// </summary>
+        protected IIPAddress ListenAddress
+            => listenAddress;
         private readonly SSHSettings?       sshSettings;
 
         /// <summary>
