@@ -79,7 +79,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private sealed class Stations : ISSHSignIns
         {
 
-            public sealed record Login(Byte[] Key, String[] Subsystems, String Group, Boolean Enabled = true);
+            public sealed record Login(Byte[] Key, String[] Subsystems, String Group, Boolean Enabled = true, TOTPConfig? Secret = null);
 
             public ConcurrentDictionary<String, Login> Logins { get; } = new (StringComparer.Ordinal);
 
@@ -92,6 +92,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest Request, CancellationToken CancellationToken = default)
                 => ValueTask.FromResult(Logins.TryGetValue(Request.Username, out var login) && login.Enabled && login.Key.AsSpan().SequenceEqual(Request.PublicKeyBlob));
 
+            public Boolean TakesSessionBoundTotp
+                => Logins.Values.Any(login => login.Secret is not null);
+
+            public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(String Username, String Totp, ReadOnlyMemory<Byte> SessionId, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
+                => ValueTask.FromResult(Logins.TryGetValue(Username, out var login) && login.Enabled && login.Secret is not null &&
+                                        SshSessionBoundTotp.Verify(login.Secret, Totp, SessionId.Span));
+
             public IReadOnlySet<String> SubsystemsFor(String Username)
                 => Logins.TryGetValue(Username, out var login)
                        ? new HashSet<String>(login.Subsystems, StringComparer.Ordinal)
@@ -103,6 +110,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             public String? WhyNoLongerIn(SshSessionInfo Session)
                 => !Logins.TryGetValue(Session.Username, out var login)                                    ? $"there is no station '{Session.Username}' any more"
                  : !login.Enabled                                                                          ? $"the station '{Session.Username}' was switched off"
+                 : Session.Method == SshSessionBoundTotp.MethodName                                        ? (login.Secret is null ? "the station signs in with no one-time password any more" : null)
                  : Session.PublicKeyBlob is not Byte[] key || !key.AsSpan().SequenceEqual(login.Key)        ? $"the key is no longer the station's"
                  : null;
 
@@ -499,6 +507,102 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(exec,      Is.False, "the station ran a command");
                 Assert.That(sftp,      Is.Not.Null, "the station got SFTP");
                 Assert.That(Said("the station 'cs001' opened Echo over SSH from 127.0.0.1"), Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region AStation_SignsInWithAOneTimePasswordOfItsSession_AndIsConfinedAsWithAKey
+
+        /// <summary>
+        /// The method totp@open.charging.cloud at the node's door: offered where a kind takes it, good
+        /// for the kind's logins alone, and what it lets in is a station as a key lets one in.
+        /// </summary>
+        [Test]
+        [CancelAfter(60000)]
+        public async Task AStation_SignsInWithAOneTimePasswordOfItsSession_AndIsConfinedAsWithAKey(CancellationToken CancellationToken)
+        {
+
+            var secret   = new TOTPConfig("the-secret-cs001-shares-with-the-node", TimeSpan.FromSeconds(30), 12);
+            var another  = new TOTPConfig("a-secret-nobody-here-has-heard-about",  TimeSpan.FromSeconds(30), 12);
+
+            var stations = StationsWith(("cs001", cs001Key, [ Echo, "sftp" ], "north"),
+                                        ("cs002", cs002Key, [ Echo ],         "north"));
+
+            var node     = await Started(Prepare: made => {
+                               made.AddSSHSubsystem(new SSHSubsystem(Echo,  "Echo",  Echoing(), UseEcho));
+                               made.AddSSHSubsystem(new SSHSubsystem(Other, "Other", Echoing(), UseEcho));
+                               made.AddSSHSignIns(stations);
+                           });
+
+            var door     = new NodeSSHAuthenticator(node, Passwords: false);
+            var before   = door.OfferedMethods.ToArray();
+
+            // From now on cs001 has a secret, and cs002 still has none.
+            stations.Logins["cs001"] = stations.Logins["cs001"] with { Secret = secret };
+
+            var after    = door.OfferedMethods.ToArray();
+
+            ValueTask<SshClient> WithTotp(String Username, TOTPConfig Config)
+                => SshClient.ConnectAsync("127.0.0.1",
+                                          node.SSHPort!.Value.ToUInt16(),
+                                          new SshClientOptions {
+                                              Username          = Username,
+                                              VerifyHostKey     = blob => node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
+                                              Credentials       = [],
+                                              SessionBoundTotp  = sessionId => SshSessionBoundTotp.Generate(Config, sessionId)
+                                          });
+
+            async Task<Boolean> GetsInWithTotp(String Username, TOTPConfig Config)
+            {
+                try
+                {
+                    await using var client = await WithTotp(Username, Config).AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+                    return true;
+                }
+                catch (Exception exception) when (exception is not TimeoutException)
+                {
+                    return false;
+                }
+            }
+
+            var wrongSecret = await GetsInWithTotp("cs001", another);
+            var noSecret    = await GetsInWithTotp("cs002", secret);
+            var account     = await GetsInWithTotp(WWCPNode.DefaultAdminUser, secret);
+
+            await using var station = await WithTotp("cs001", secret);
+
+            var echo        = await station.OpenSubsystemAsync(Echo, CancellationToken);
+            var echoed      = await EchoOf(echo, "BootNotification");
+
+            var other       = await Refused(station, Other);
+            var shell       = await Asks(station, "shell", []);
+            var exec        = await Asks(station, "exec",  SshSessionChannel.EncodeString("who"));
+
+            var confined    = await door.GetRestrictionsAsync("cs001", SshSessionBoundTotp.MethodName, CancellationToken);
+            var unconfined  = await door.GetRestrictionsAsync(WWCPNode.DefaultAdminUser, "password", CancellationToken);
+
+            // The secret taken away again: the session it let in ends.
+            stations.Logins["cs001"] = stations.Logins["cs001"] with { Secret = null };
+            var ended       = node.RecheckSSHSessions();
+
+            Assert.Multiple(() => {
+                Assert.That(before,       Is.EqualTo(new[] { "publickey" }), "the method was offered before a login took it");
+                Assert.That(after,        Is.EqualTo(new[] { "publickey", "totp@open.charging.cloud" }));
+                Assert.That(wrongSecret,  Is.False, "another secret let the station in");
+                Assert.That(noSecret,     Is.False, "a station without a secret was let in");
+                Assert.That(account,      Is.False, "an account was let in with a one-time password");
+                Assert.That(echoed,       Is.EqualTo("BootNotification"), "the station's subsystem was not served");
+                Assert.That(other,        Is.True,  "a subsystem the station may not use was served");
+                Assert.That(shell,        Is.False, "the station got the command line");
+                Assert.That(exec,         Is.False, "the station ran a command");
+                Assert.That(confined.AllowPty,             Is.False);
+                Assert.That(confined.AllowPortForwarding,  Is.False);
+                Assert.That(confined.PermittedSubsystems,  Is.EquivalentTo(new[] { Echo }));
+                Assert.That(unconfined.AllowPty,           Is.True,  "an account was confined as a station");
+                Assert.That(ended,        Is.EqualTo(1), "the session did not end with its secret");
+                Assert.That(door.OfferedMethods, Is.EqualTo(new[] { "publickey" }), "the method is offered with nobody left to take it");
             });
 
         }

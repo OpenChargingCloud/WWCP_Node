@@ -54,6 +54,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// account that signs in to the web interface with a second factor: SSH
     /// would be the way around it.
     /// </para>
+    /// <para>
+    /// A one-time password bound to the session (totp@open.charging.cloud)
+    /// opens the logins of a kind that says it takes one, and nothing else:
+    /// no account, and no login of a kind that does not. Unbound, a one-time
+    /// password is a password, and a password opens no login of a kind.
+    /// </para>
     /// </remarks>
     public sealed class NodeSSHAuthenticator : ISshUserAuthenticator
     {
@@ -68,9 +74,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         #region Properties
 
         /// <summary>
-        /// "publickey", and "password" where the node says so.
+        /// "publickey"; "totp@open.charging.cloud" where a kind lets logins in that sign in with a
+        /// one-time password bound to the session; and "password" where the node says so. Asked at
+        /// every attempt: a kind may add its logins while the server runs.
         /// </summary>
-        public IReadOnlyList<String> OfferedMethods { get; }
+        public IReadOnlyList<String> OfferedMethods
+        {
+            get
+            {
+
+                var boundTotp = false;
+
+                try
+                {
+                    boundTotp = node.SSHSignIns.Any(signIns => signIns.TakesSessionBoundTotp);
+                }
+                catch (Exception)
+                {
+                    // What can not be told is not offered.
+                }
+
+                return (boundTotp, passwords) switch {
+                           (true,  true)  => [ "publickey", UserAuthentication.SessionBoundTotpMethod, "password" ],
+                           (true,  false) => [ "publickey", UserAuthentication.SessionBoundTotpMethod ],
+                           (false, true)  => [ "publickey", "password" ],
+                           _              => [ "publickey" ]
+                       };
+
+            }
+        }
 
         #endregion
 
@@ -87,10 +119,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             this.node       = Node;
             this.passwords  = Passwords;
-
-            this.OfferedMethods = Passwords
-                                      ? [ "publickey", "password" ]
-                                      : [ "publickey" ];
 
         }
 
@@ -221,6 +249,62 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                              Password,
                              CancellationToken
                          );
+
+        }
+
+        #endregion
+
+        #region AuthorizeSessionBoundTotpAsync(Username, Totp, SessionId, Client, CancellationToken)
+
+        /// <summary>
+        /// Whether the given one-time password, bound to the session with the given identifier, lets
+        /// the given name in: a login of a kind that takes one, as the kind says. No account - an
+        /// account signs in with its keys, or its password where the node says so - and no name that
+        /// is both.
+        /// </summary>
+        public async ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(String                 Username,
+                                                                       String                 Totp,
+                                                                       ReadOnlyMemory<Byte>   SessionId,
+                                                                       System.Net.IPAddress?  Client,
+                                                                       CancellationToken      CancellationToken = default)
+        {
+
+            var (signIns, clash) = node.SSHLoginOf(Username);
+
+            if (clash is not null)
+            {
+                node.WarnOfSSHClash(Username, clash);
+                return false;
+            }
+
+            if (signIns is null || !signIns.TakesSessionBoundTotp)
+                return false;
+
+            return await signIns.AuthorizeSessionBoundTotpAsync(Username, Totp, SessionId, Client, CancellationToken);
+
+        }
+
+        #endregion
+
+        #region GetRestrictionsAsync(Username, Method, CancellationToken)
+
+        /// <summary>
+        /// What a session is confined to that no key let in: a login of a kind to the subsystems it may
+        /// use - no terminal, no forwarding, no command line, no SFTP - as one a key let in; an account
+        /// to nothing here, what it may do is what its roles say.
+        /// </summary>
+        public ValueTask<SshSessionRestrictions> GetRestrictionsAsync(String             Username,
+                                                                      String             Method,
+                                                                      CancellationToken  CancellationToken = default)
+        {
+
+            var (signIns, clash) = node.SSHLoginOf(Username);
+
+            return ValueTask.FromResult(
+                       clash   is not null ? WWCPNode.SSHConfinementOf(null,    Username)
+                     : signIns is not null ? WWCPNode.SSHConfinementOf(signIns, Username)
+                     :                       SshSessionRestrictions.None
+                   );
 
         }
 

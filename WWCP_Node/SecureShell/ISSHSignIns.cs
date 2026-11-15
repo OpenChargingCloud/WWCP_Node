@@ -73,6 +73,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             => ValueTask.FromResult(SshSessionRestrictions.None);
 
         /// <summary>
+        /// Whether these logins can sign in with a one-time password bound to the SSH session
+        /// (<c>totp@open.charging.cloud</c>, white paper "SSH Authentication Extensions for OCPP"): the
+        /// node offers the method where a kind says so, and not otherwise. Default: no.
+        /// </summary>
+        Boolean                TakesSessionBoundTotp
+
+            => false;
+
+        /// <summary>
+        /// Whether the given one-time password lets the given login in, in the session with the given
+        /// identifier - checked with <see cref="SshSessionBoundTotp.Verify"/> against the secret the
+        /// kind keeps for the login. A login let in so is confined as one a key let in. Default: no.
+        /// </summary>
+        /// <remarks>
+        /// A one-time password that is not bound to the session is a password, and a password opens no
+        /// login of a kind: the node never asks a kind about one.
+        /// </remarks>
+        /// <param name="Username">The login name, as the client sent it.</param>
+        /// <param name="Totp">The one-time password as it was sent.</param>
+        /// <param name="SessionId">The session identifier it has to be bound to.</param>
+        /// <param name="Client">The address of the client, or null where it can not be told.</param>
+        /// <param name="CancellationToken">An optional token to cancel this request.</param>
+        ValueTask<Boolean>     AuthorizeSessionBoundTotpAsync(String                 Username,
+                                                              String                 Totp,
+                                                              ReadOnlyMemory<Byte>   SessionId,
+                                                              System.Net.IPAddress?  Client,
+                                                              CancellationToken      CancellationToken = default)
+
+            => ValueTask.FromResult(false);
+
+        /// <summary>
         /// The subsystems the given login may use, by name - and nothing else is served to it. Empty
         /// where it may use none, which leaves it nothing to do once in.
         /// </summary>
@@ -88,7 +119,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         /// <summary>
         /// Why the given session may not go on - the login gone or switched off, the key it came with
-        /// taken out - or null where it may. Asked before every subsystem and every few seconds while a
+        /// taken out, the secret of the one-time password it came with (no key, and the method
+        /// <c>totp@open.charging.cloud</c>) changed - or null where it may. Asked before every subsystem and every few seconds while a
         /// session lasts.
         /// </summary>
         /// <param name="Session">The session, as it signed in.</param>
