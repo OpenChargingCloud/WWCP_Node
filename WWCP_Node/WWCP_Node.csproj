@@ -13,6 +13,15 @@
     <ProjectReference Include="..\..\Norn\Norn\Norn.csproj" />
     <ProjectReference Include="..\..\Styx\Styx\Styx.csproj" />
     <ProjectReference Include="..\..\Urdr\Urdr\Urdr.csproj" />
+    <ProjectReference Include="..\..\WWCP_Core\WWCP_CoreData\WWCP_CoreData.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WWCP_Node_TestKit" />
+    <InternalsVisibleTo Include="WWCP_Node_Tests" />
+    <InternalsVisibleTo Include="WWCP_OCPP_Node" />
+    <InternalsVisibleTo Include="WWCP_OCPP_Node_TestKit" />
+    <InternalsVisibleTo Include="WWCP_OCPP_Node_Tests" />
   </ItemGroup>
 
 </Project>

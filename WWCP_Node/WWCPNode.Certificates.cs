@@ -204,14 +204,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// the node configured to use something that is not there, which is
         /// found out the next time it is used rather than here - and switching
         /// it off is mostly what somebody taking a certificate out of service
-        /// meant. Nothing by default; a kind of node that chooses certificates
-        /// for something says what.
+        /// meant. By default the connections that show it when this node dials;
+        /// a kind of node that chooses certificates for something else says what.
         /// </remarks>
         /// <param name="Handle">The handle the certificate is asked for by, as the store spells it: the first 16 digits of its fingerprint, in lower case.</param>
         /// <param name="Kind">The kind it would be taken out as - a vehicle's certificate chosen as its contract certificate goes as its vehicle certificate all the same; null where it would go as every kind it is kept as.</param>
         public virtual String? WhatUses(String            Handle,
                                         CertificateKind?  Kind)
-            => null;
+
+            => ConnectionsThatShow(Handle, Kind);
 
         #endregion
 
