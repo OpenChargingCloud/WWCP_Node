@@ -3173,6 +3173,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 return false;
             }
 
+            if (Kind == CertificateKind.TLSIntermediate)
+            {
+
+                if (Leaf.HasPrivateKey)
+                {
+                    Error = "That file carries a private key, and the certificate of somebody else's CA kept here must not: " +
+                            "it is that CA's key, in the wrong place. Import the certificate on its own.";
+                    return false;
+                }
+
+                if (!IsCA(Leaf))
+                {
+                    Error = $"'{CertificateEntry.CommonNameOf(Leaf)}' is not a CA certificate, and an issuing CA has to be one: " +
+                             "the CA between a root and the certificates it signs.";
+                    return false;
+                }
+
+                if (String.Equals(Leaf.Subject, Leaf.Issuer, StringComparison.Ordinal))
+                {
+                    Error = $"'{CertificateEntry.CommonNameOf(Leaf)}' is signed by itself and is therefore a root rather than " +
+                             "an issuing CA below one. A root is believed, and is kept as a root; what is kept here only " +
+                             "helps to build a chain and is believed nothing.";
+                    return false;
+                }
+
+            }
+
             if (Kind.Group == CertificateGroup.Recognised && Leaf.HasPrivateKey)
             {
                 Error = "That file carries a private key, and a server's certificate kept here must not: " +

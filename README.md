@@ -124,9 +124,10 @@ Beyond the names, a kind of node adds to the node in eight places:
   station; a kind that hands in none gets `TraceBridge.DefaultTags`, what a
   vehicle and a charging station overhear.
 * **What it keeps certificates of:** `CertificateKinds`, the kinds of
-  certificate its store keeps - all twelve by default, a vehicle's seven and
-  the four of TLS in general, and `tlsServerIdentity` for a kind with
-  listeners of its own. A kind that hands in none has no store
+  certificate its store keeps - all thirteen by default, a vehicle's seven and
+  the four of TLS in general, `tlsServerIdentity` for a kind with
+  listeners of its own, and `tlsIntermediate` for a kind that lets clients
+  in by their certificates. A kind that hands in none has no store
   directory at all: a store holding a vehicle's seven empty directories
   beside a node that keeps none of them was a promise nobody was keeping. And `CertificateUsages`, what a TLS root or a server
   certificate is offered beside the node's `dns` and `nts` - a backend it
@@ -689,7 +690,13 @@ or a backend. The twelfth, `tlsServerIdentity`, is who a server of the node
 is, with its key: what a listener of a kind with listeners of its own shows
 whoever connects - a meter's Modbus/TLS port and its web interface. One kind
 for both had a controller's sign-in to its CSMS and a meter's web interface
-on one page, each offered the other's uses. A kind of node keeps those it has
+on one page, each offered the other's uses. The thirteenth, `tlsIntermediate`,
+is an issuing CA: a CA between a root and a certificate shown to the node,
+kept so that the chain of that certificate can be built where whoever shows
+it does not send the CAs above it along. It is somebody else's, never with
+its key, and never a root; and it is believed nothing by itself, which is
+what tells it from a `clientRoot`: a chain built through it still has to end
+at a root the certificate is held to. A kind of node keeps those it has
 a use for, and `CertificateKindExtensions.ISO15118` and `.TLS` name the two
 groups. `MoveKind(from, to)` keeps every certificate of one kind as another
 from then on - its file moved, its name, switch and usages kept - which a
@@ -748,7 +755,7 @@ kind, and the anchor is kept without it.
 
 **Kinds of one's own.** `CertificateKind` is a name and a group - believed
 (`TrustAnchor`), presented (`Credential`) or recognised (`Recognised`) - and
-the twelve above are its static definitions, with what each of them does. A
+the thirteen above are its static definitions, with what each of them does. A
 kind of node may define more with `CertificateKind.Define`, and whoever looks
 after a node may make one up where they import a certificate,
 `CertificateKind.Custom(name, group)`: a mark in its group, as a made-up usage

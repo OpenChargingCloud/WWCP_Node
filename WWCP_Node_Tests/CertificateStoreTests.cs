@@ -456,6 +456,71 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AnIssuingCAIsKeptToBuildChainsWith_AndIsNeitherARootNorALeaf()
+
+        /// <summary>
+        /// The CA between a root and what it signs is kept as an issuing CA:
+        /// recognised, not believed - so not among the trust anchors -, read
+        /// back, and never with its key. A root is not one, as it is believed
+        /// and kept as a root; and a certificate that is no CA is not one.
+        /// </summary>
+        [Test]
+        public void AnIssuingCAIsKeptToBuildChainsWith_AndIsNeitherARootNorALeaf()
+        {
+
+            var store = new CertificateStore(directory, log);
+
+            using var root     = Root("An operator's root");
+            using var rootKey  = ECDsa.Create(ECCurve.NamedCurves.nistP521);
+
+            // A CA below the root: issued by one made with a key that is at hand.
+            var above    = new CertificateRequest("CN=A root with its key", rootKey, HashAlgorithmName.SHA512);
+            above.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+
+            using var signer   = above.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(3650));
+            using var subKey   = ECDsa.Create(ECCurve.NamedCurves.nistP521);
+
+            var below    = new CertificateRequest("CN=An issuing CA", subKey, HashAlgorithmName.SHA512);
+            below.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+
+            using var issuing  = below.Create(signer, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365), Guid.NewGuid().ToByteArray());
+            using var withKey  = issuing.CopyWithPrivateKey(subKey);
+            using var leaf     = Leaf("Somebody's client", signer);
+
+            Assert.Multiple(() => {
+
+                Assert.That(CertificateKind.TLSIntermediate.Group,           Is.EqualTo(CertificateGroup.Recognised));
+                Assert.That(CertificateKind.TLSIntermediate.IsTrustAnchor(), Is.False, "an issuing CA kept to build chains with is believed");
+
+                Assert.That(store.Import(Pem(issuing), CertificateKind.TLSIntermediate, null, null, out var entry, out var error), Is.True, error);
+                Assert.That(entry?.Kind,                                     Is.EqualTo(CertificateKind.TLSIntermediate));
+                Assert.That(store.UsableByKind(CertificateKind.TLSIntermediate).Select(one => one.Thumbprint),
+                            Is.EqualTo(new[] { CertificateEntry.ThumbprintOf(issuing) }));
+                Assert.That(store.UsableByKind(CertificateKind.TLSRoot),     Is.Empty);
+                Assert.That(store.UsableByKind(CertificateKind.ClientRoot),  Is.Empty, "kept as what clients have to chain to as well");
+
+                Assert.That(store.Import(Pem(root), CertificateKind.TLSIntermediate, null, null, out _, out error), Is.False);
+                Assert.That(error, Does.Contain("a root rather than"));
+
+                Assert.That(store.Import(Pem(leaf), CertificateKind.TLSIntermediate, null, null, out _, out error), Is.False);
+                Assert.That(error, Does.Contain("is not a CA certificate"));
+
+                Assert.That(store.Import(Pkcs12(withKey), CertificateKind.TLSIntermediate, null, null, out _, out error), Is.False);
+                Assert.That(error, Does.Contain("private key"));
+
+            });
+
+            // Read back as it was kept.
+            var again = new CertificateStore(directory, log);
+            again.Reload();
+
+            Assert.That(again.ByKind(CertificateKind.TLSIntermediate).Select(one => one.Thumbprint),
+                        Is.EqualTo(new[] { CertificateEntry.ThumbprintOf(issuing) }));
+
+        }
+
+        #endregion
+
         #region ATrustAnchorMayNotCarryAPrivateKey()
 
         [Test]

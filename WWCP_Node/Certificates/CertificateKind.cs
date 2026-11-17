@@ -89,7 +89,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Twelve kinds come with every node, in groups that behave differently in
+    /// Thirteen kinds come with every node, in groups that behave differently in
     /// every respect that matters. A <b>trust anchor</b> is a public certificate
     /// that says which chains the node believes; there may be any number of
     /// them active at once, and none of them is ever chosen for a session. A
@@ -106,7 +106,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// to presents, kept so that it can be recognised by its fingerprint; and
     /// who the node is as a client, with its private key. The twelfth is who a
     /// server of the node is, with its private key - kept by a kind of node
-    /// with listeners of its own, such as a meter's Modbus/TLS port.
+    /// with listeners of its own, such as a meter's Modbus/TLS port. The
+    /// thirteenth is an issuing CA, a CA between a root and a certificate shown
+    /// to the node: kept to build the chain of that certificate with, by a kind
+    /// of node that lets clients in by their certificates, and believed nothing
+    /// by itself.
     /// </para>
     /// <para>
     /// Each kind is looked after on one of three pages - see
@@ -700,6 +704,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                      "a server certificate", "tls/servers", 14);
 
         /// <summary>
+        /// An <b>issuing CA</b>: a CA between a root and a certificate shown to
+        /// this node, kept so that the chain of that certificate can be built
+        /// where whoever shows it does not send the CAs above it along.
+        /// </summary>
+        /// <remarks>
+        /// Believed nothing by itself, which is why it is no trust anchor: a
+        /// chain built through it still has to end at a root the certificate
+        /// is held to. A client root, which may be an issuing CA as well, says
+        /// who may connect; this says nothing but how a chain goes on. Somebody
+        /// else's certificate, and so never with a private key; and never a
+        /// root, which is kept as one.
+        /// </remarks>
+        public static CertificateKind TLSIntermediate { get; }
+            = Define("tlsIntermediate", CertificateGroup.Recognised,
+                     "issuing CA - a CA between a root and a certificate shown to this node, kept to build its chain with; believed nothing by itself",
+                     "an issuing CA", "tls/intermediates", 19);
+
+        /// <summary>
         /// A <b>TLS identity</b>: who this node is as a client, with its private
         /// key - what it shows a server that asks who it is: a CSMS, a backend.
         /// </summary>
@@ -1082,7 +1104,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             CertificateKind.TariffVerification,
             CertificateKind.TLSServer,
             CertificateKind.TLSIdentity,
-            CertificateKind.TLSServerIdentity
+            CertificateKind.TLSServerIdentity,
+            CertificateKind.TLSIntermediate
         ];
 
         /// <summary>
