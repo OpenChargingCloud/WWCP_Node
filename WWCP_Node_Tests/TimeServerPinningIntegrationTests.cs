@@ -35,6 +35,9 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 
+// Not WWCP's KeyPair, which the enclosing namespace would find first.
+using NTSKeyPair = org.GraphDefined.Vanaheimr.Norn.NTS.KeyPair;
+
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
@@ -101,7 +104,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                            MasterKeysFilePath:  null,
                            TLSCertificate:      new X509CertificateParser().ReadCertificate(served.RawData),
                            TLSPrivateKey:       new ECPrivateKeyParameters("ECDSA", new BCBigInteger(1, parameters.D), SecObjectIdentifiers.SecP256r1),
-                           KeyPair:             new KeyPair(
+                           KeyPair:             new NTSKeyPair(
                                                     Id:                  1,
                                                     PrivateKey:          "2bs8BuOqUr5I9b8ksVdW3xTu8KmDr1fHLvusDxI34J4=".FromBASE64(),
                                                     PublicKey:           "BNJ9BLZTcAeuPMHDDDXA0RiVNse8WH4b+/r/bA9HhDsDtTSBsrvmjbnA3w3JlC7ipvhHEkdGbFEIH+ZT0ZEekTA=".FromBASE64(),
