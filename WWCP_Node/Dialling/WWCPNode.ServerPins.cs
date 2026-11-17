@@ -49,7 +49,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <see cref="WWCPNode.JudgeServer"/> and <see cref="ServerPins"/>.
     ///
     /// The other way a wss:// connection knows its server - by the key pin of
-    /// its key and nothing else - is in OCPPDiallingNode.KeyPins.cs, and a
+    /// its key and nothing else - is in WWCPNode.KeyPins.cs, and a
     /// connection goes one way or the other, never both.
     /// </remarks>
     public partial class WWCPNode

@@ -94,7 +94,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// names none.
         /// </summary>
         protected virtual String DefaultSSHPeerUser
-            => Kind.Tag;
+            => Dialling.DefaultSSHPeerUser ?? Kind.Tag;
 
         /// <summary>
         /// The key this node signs in with at its SSH peers: its own, read from
@@ -106,6 +106,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         {
             get
             {
+
+                // A node that dials signs in at its peers with the key of its
+                // connections, as a peer it dialled over ssh:// shares it.
+                if (Dialling.SignsInAtSSHPeersWithItsKey)
+                {
+                    try
+                    {
+                        return SshKey.MakeIfNeeded().GetAwaiter().GetResult();
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Error($"The SSH key of this {cloud.charging.open.protocols.WWCP.Node.Connections.NodeWording.Noun} could not be had for its SSH peers: {e.Message}", "ocpp", "connections", "ssh", "security");
+                        return null;
+                    }
+                }
 
                 lock (sshPeerClientKeyLock)
                 {
@@ -168,7 +183,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public virtual String? SSHPeerClientPublicKey
 
-            => SSHPeerClientKey is ISshHostKey key
+            => Dialling.SignsInAtSSHPeersWithItsKey
+                   ? SSHPeerClientKey is not null
+                         ? SshKey.PublicKeyLine
+                         : null
+                   : SSHPeerClientKey is ISshHostKey key
                    ? SshPublicKey.FromHostKey(key, $"{Kind.Tag}@{Environment.MachineName}").ToAuthorizedKeyLine()
                    : null;
 

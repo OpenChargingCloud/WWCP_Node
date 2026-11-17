@@ -62,7 +62,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         // The key pins of the wss:// connections: what their servers showed,
         // what each WebSocket client asks at every handshake, and the probations.
-        protected ServerKeyPinning  keyPinning = default!;
+        protected internal ServerKeyPinning  keyPinning = default!;
 
         #endregion
 
@@ -90,7 +90,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The connection the core speaks of: the store's own copies are
         /// connection entries already.
         /// </summary>
-        protected ConnectionEntry EntryOf(IPinnedTLSEndpoint Endpoint)
+        protected internal ConnectionEntry EntryOf(IPinnedTLSEndpoint Endpoint)
 
             => Endpoint as ConnectionEntry
                    ?? Connections.CopyOf(Endpoint.Id)

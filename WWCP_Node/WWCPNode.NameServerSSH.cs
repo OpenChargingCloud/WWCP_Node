@@ -363,7 +363,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// server can be given such a connection to share before it was made.
         /// </summary>
         protected virtual IEnumerable<String> SSHPeerHostsToBe
-            => [];
+
+            // Asked while the node is still being made, by what configures
+            // its name servers: a node that has no connections yet has none
+            // over SSH.
+            => Dialling.SignsInAtSSHPeersWithItsKey && Connections is not null
+                   ? [.. Connections.Connections.Where (entry => entry.IsSSH).
+                                                 Select(entry => entry.URL.Host.ToString())]
+                   : [];
 
         /// <summary>
         /// The hosts a name server may share an SSH connection with: the SSH

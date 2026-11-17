@@ -149,7 +149,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         // whose server is not believed any more, and the clock of each probation:
         // what the gate of the OCPP nodes asks, one registry for both kinds
         // (WWCP_OCPP_Node's Probations).
-        protected readonly Probations  probations  = new ();
+        protected internal readonly Probations  probations  = new ();
 
         /// <summary>
         /// The connections on probation and those not believed any more, for a
@@ -239,7 +239,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Peer by peer, each on its own, in the order they were written down,
         /// and none of them affected by how another went: one endpoint of each,
         /// and the next one where that cannot be reached (see
-        /// OCPPDiallingNode.Peers.cs). The oldest of each OCPP version is the
+        /// WWCPNode.Peers.cs). The oldest of each OCPP version is the
         /// primary, the back end in charge, which is told what the station says
         /// by itself; every other one is registered with and answered, and told
         /// nothing by itself (see IsPrimary).
@@ -694,7 +694,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// end: that is no back end of this node, and nothing this node
         /// says by itself is for it.
         /// </remarks>
-        protected virtual NetworkingNode_Id[] CSMSNamesOf(ConnectionEntry Connection)
+        protected internal virtual NetworkingNode_Id[] CSMSNamesOf(ConnectionEntry Connection)
 
             => !Connection.Inbound && Connection.RemoteNodeId is not null
                    ? []
@@ -738,18 +738,6 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                    ? ConnectionEntry.AsText(over)
                    : null;
-
-        #endregion
-
-        #region (internal) SignatureFormatsOf(Connection)
-
-        /// <summary>
-        /// Which signatures the OCPP node of this station writes for the given
-        /// connection now - or null, where its signature policy decides.
-        /// </summary>
-        public virtual cloud.charging.open.protocols.WWCP.SignatureFormats? SignatureFormatsOf(ConnectionEntry Connection)
-
-            => null;
 
         #endregion
 
@@ -1140,7 +1128,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             // The host becomes an SSH peer of this station, and OCPP one more
             // channel of the connection the station keeps to it - which whatever
-            // else shares it may have had made before (OCPPDiallingNode.SSHPeers.cs).
+            // else shares it may have had made before (WWCPNode.SSHPeerChannels.cs).
             var peer    = SshPeerFor(Connection, login, trust);
 
             // Named as over a WebSocket - see Dial.
@@ -3134,7 +3122,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         /// <param name="OldNodes">The networking nodes replaced.</param>
         /// <param name="Because">Why, as a sentence without its full stop: "The EVSEs of this charging station changed".</param>
-        protected async Task DialAgain(IEnumerable<AWWCPNetworkingNode?>  OldNodes,
+        protected internal async Task DialAgain(IEnumerable<AWWCPNetworkingNode?>  OldNodes,
                                      String                             Because)
         {
 

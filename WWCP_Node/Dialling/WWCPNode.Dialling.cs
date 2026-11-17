@@ -40,7 +40,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         // The trust each connection over SSH was dialled with last: what its
         // server showed, and where a signed pin set puts its pins at once.
-        protected readonly ConcurrentDictionary<String, SshHostKeyTrust>  sshTrusts  = new ();
+        protected internal readonly ConcurrentDictionary<String, SshHostKeyTrust>  sshTrusts  = new ();
 
         #endregion
 
