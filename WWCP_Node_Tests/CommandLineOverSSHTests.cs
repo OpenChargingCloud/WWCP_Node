@@ -17,8 +17,6 @@
 
 #region Usings
 
-using System.Text;
-
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.CLI;
@@ -54,66 +52,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         private static readonly SshPty Terminal = new ("xterm", new SshWindowSize(120, 40), new Dictionary<Byte, UInt32>());
 
+        private const           String Prompt   = "WWCP node> ";
+
         private String               directory  = "";
         private WWCPNode?            node;
         // A test's own, made new in each Setup: a node of the test before may
         // still log while it goes, and that is the test before's to hold.
         private List<String>         said       = [];
         private List<LogEntry>       entries    = [];
-
-        #endregion
-
-        #region (class) Screen
-
-        /// <summary>
-        /// What the shell writes, as it arrives.
-        /// </summary>
-        private sealed class Screen
-        {
-
-            private readonly StringBuilder  received = new ();
-            private readonly Lock           padlock  = new ();
-
-            public Screen(SshClientShell Shell)
-                => _ = Task.Run(async () => {
-                       var buffer = new Byte[4096];
-                       try
-                       {
-                           Int32 read;
-                           while ((read = await Shell.Output.ReadAsync(buffer)) > 0)
-                               lock (padlock) { received.Append(Encoding.UTF8.GetString(buffer, 0, read)); }
-                       }
-                       catch { }
-                   });
-
-            public String Text
-            {
-                get { lock (padlock) { return received.ToString(); } }
-            }
-
-            /// <summary>
-            /// Wait until the given text has been written after what was there
-            /// when Since was taken.
-            /// </summary>
-            public async Task<String> WaitFor(String What, Int32 Since = 0, Int32 Seconds = 10)
-            {
-
-                var until = DateTime.UtcNow.AddSeconds(Seconds);
-
-                while (DateTime.UtcNow < until)
-                {
-                    var text = Text;
-                    if (text.IndexOf(What, Math.Min(Since, text.Length), StringComparison.Ordinal) >= 0)
-                        return text[Math.Min(Since, text.Length)..];
-                    await Task.Delay(20);
-                }
-
-                Assert.Fail($"Waited in vain for '{What}'. The session said:\n{Text}");
-                return "";
-
-            }
-
-        }
 
         #endregion
 
@@ -229,10 +175,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         }
 
-        private static async Task<(SshClientShell Shell, Screen Screen)> Open(SshClient Client, SshPty? Pty = null)
+        private static async Task<(SshClientShell Shell, SSHScreen Screen)> Open(SshClient Client, SshPty? Pty = null)
         {
             var shell  = await Client.OpenShellAsync(Pty ?? Terminal);
-            var screen = new Screen(shell);
+            var screen = new SSHScreen(shell, Prompt);
             return (shell, screen);
         }
 
@@ -286,8 +232,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var (shell, screen)     = await Open(client);
 
             await screen.WaitFor("WWCP node> ");
-            await shell.WriteAsync("syncNTS\r");
-            await screen.WaitFor("WWCP node> ", screen.Text.Length);
+            await screen.Run("syncNTS");
 
             LogEntry[] asked;
             lock (said)
@@ -381,9 +326,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             {
                 var (shell, screen) = await Open(client);
                 await screen.WaitFor("WWCP node> ");
-                var mark = screen.Text.Length;
-                await shell.WriteAsync("help\r");
-                await screen.WaitFor("WWCP node> ", mark);
+                await screen.Run("help");
             }
 
             var history = Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory);
@@ -427,9 +370,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             {
                 var (shell, screen) = await Open(client);
                 await screen.WaitFor("WWCP node> ");
-                var mark = screen.Text.Length;
-                await shell.WriteAsync("help\r");
-                await screen.WaitFor("WWCP node> ", mark);
+                await screen.Run("help");
             }
 
             var file = Path.Combine(directory, "accounts", NodeCLI.HistoryDirectory, "aviewer");
@@ -501,8 +442,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(deleted.Result, Is.EqualTo(CommandResult.Success), deleted.Description?.FirstText());
 
             var mark = screen.Text.Length;
-            await shell.WriteAsync("help\r");
-            await screen.WaitFor("WWCP node> ", mark);
+            await screen.Run("help");
 
             Assert.That(new HistoryFile(file).Read(), Is.EqualTo(new[] { "help" }), "the line typed after the deletion");
 
@@ -562,17 +502,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(node.ExtAPI.FindSSHKey(kimberly, other.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Null, "still let in");
 
-            mark = screen.Text.Length;
-            await shell.WriteAsync("apiKeys add for a script\r");
-            await screen.WaitFor("has a new API key, ReadOnly:", mark);
-            await screen.WaitFor("WWCP node> ", mark);
+            var made = await screen.Run("apiKeys add for a script");
+
+            Assert.That(made, Does.Contain("has a new API key, ReadOnly:"));
 
             var apiKeys = node.ExtAPI.GetAPIKeysForUser(node.ExtAPI.GetUser(kimberly)!).ToArray();
 
             Assert.Multiple(() => {
                 Assert.That(apiKeys,                                      Has.Length.EqualTo(1));
                 // Shown once, as it is made, and kept as its SHA-256 alone.
-                Assert.That(System.Text.RegularExpressions.Regex.Matches(screen.Text[mark..], $"[A-Za-z0-9]{{{APIKeysCommand.KeyLength}}}").
+                Assert.That(System.Text.RegularExpressions.Regex.Matches(made, $"[A-Za-z0-9]{{{APIKeysCommand.KeyLength}}}").
                                                                           Select(shown => APIKey_Id.Of(shown.Value)),
                                                                           Has.Member(apiKeys[0].Id), "the key made is not the key shown");
                 Assert.That(apiKeys[0].Description.FirstText(),           Is.EqualTo("for a script"));
@@ -884,7 +823,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var client  = await SignIn();
             var shell               = await client.OpenShellAsync(null);
-            var screen              = new Screen(shell);
+            var screen              = new SSHScreen(shell, Prompt);
 
             await screen.WaitFor("wants a terminal");
 

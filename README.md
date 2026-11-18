@@ -1865,6 +1865,18 @@ public class LocalControllerConformance : NodeConformanceTests
   another socket holds for itself. The stub is `IAsyncDisposable`, and one
   given up on is let go of (proposed by the hub, whose stub OCPI peers had a
   loop of their own for this).
+- **A command line over SSH is read through `SSHScreen`**: made on the
+  shell with the prompt the node draws, `AtPrompt()` waits for the first
+  one and `Run(line)` types a line and returns what it answered - nothing
+  of the keys typed, nothing of the next prompt. Waiting for the prompt
+  after typing is not enough: the command line draws its row anew with
+  every key, so the prompt is on the screen again before Enter is read, and
+  a test that waited for it took the echo of its own keys for the answer
+  (NTSServer CI, Windows). `Run` waits for the prompt, the line and a line
+  feed right after it - which only Enter writes; a redraw has none, and a
+  log line above the row has no prompt and line before its own - and then
+  for the next prompt. `WaitFor(text)` is left for what is not a whole line
+  typed: Tab, an arrow key, a line that ends the session.
 - **What a kind's code says is held to `SourceRules`**, as its pages are to
   `test/pages.ts`: `ArticlesBeforeANameIn(...)` finds "a" or "an" put in
   front of a name that is interpolated. Which article a name takes goes by
