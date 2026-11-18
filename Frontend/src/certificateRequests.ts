@@ -46,6 +46,8 @@ export interface RequestsHost<S extends CertificateStore = CertificateStore> {
     kinds():    string[];
     /** What a kind is called on the page. */
     kindName(kind: string):  string;
+    /** What a usage is called on the page: the service, as the page of the store says it - see usageName. */
+    usageName(usage: string):  string;
     /** Draw the page again. */
     draw():     void;
     /** Whether the page is still open: nothing is said to a page that was left. */
@@ -234,7 +236,7 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
                                 ${usages.map(usage => html`
                                     <label class="checkbox">
                                         <input type="checkbox" name="usage" value="${usage}" ?disabled=${!mayChange} />
-                                        ${usage}
+                                        ${Host.usageName(usage)}
                                     </label>
                                 `)}
                                 <span class="hint">None ticked: for every use. It can be told otherwise once it is an identity.</span>
@@ -376,7 +378,7 @@ export function requestsPanel<S extends CertificateStore = CertificateStore>(Hos
                         ${[ ...entry.keyUsages, ...entry.extendedKeyUsages ].join(', ')}
                     </dd>
                     ${entry.reachableAs.length > 0 ? html`<dt>Reachable as</dt> <dd>${entry.reachableAs.join(', ')}</dd>` : nothing}
-                    <dt>For</dt>            <dd>${entry.usages === null ? 'every use' : entry.usages.join(', ')}</dd>
+                    <dt>For</dt>            <dd>${entry.usages === null ? 'every use' : entry.usages.map(usage => Host.usageName(usage)).join(', ')}</dd>
                     ${entry.sentToCSMSAt !== undefined ? html`
                         <dt>Sent to the CSMS</dt> <dd>${formatTimestamp(entry.sentToCSMSAt)}</dd>
                     ` : nothing}

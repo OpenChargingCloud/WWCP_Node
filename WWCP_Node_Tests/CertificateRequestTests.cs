@@ -442,12 +442,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         }
 
-        private (CertificateStore, SigningRequest) AStoreOf(String Name)
+        private (CertificateStore, SigningRequest) AStoreOf(String   Name,
+                                                            String?  Algorithm   = null)
         {
 
             var another = new CertificateStore(Path.Combine(directory, Name), log, [ CertificateKind.TLSIdentity ], RequestKinds: [ CertificateKind.TLSIdentity ]);
 
-            Assert.That(another.TryCreateRequest(CertificateKind.TLSIdentity, "cs999.example.org", null, null, null, null, out var request, out var error, out _),
+            Assert.That(another.TryCreateRequest(CertificateKind.TLSIdentity, "cs999.example.org", Algorithm, null, null, null, out var request, out var error, out _),
                         Is.True, error);
 
             return (another, request!);
@@ -789,6 +790,68 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(store.TryAnswerRequest(ACertificateFor(made.CSR), out var entry, out _, out _, out error, out _), Is.True, error);
             Assert.That(entry?.HasPrivateKey, Is.True);
+
+        }
+
+        #endregion
+
+        #region AKeyOfEveryKind_IsTakenOverWithItsRequest(Algorithm)
+
+        /// <summary>
+        /// Every kind of key this store makes is read when it is taken over,
+        /// and found to be the key of its request.
+        /// </summary>
+        [TestCase("ecdsa-p256")]
+        [TestCase("ecdsa-p384")]
+        [TestCase("rsa-2048")]
+        [TestCase("ed25519")]
+        [TestCase("ed448")]
+        [TestCase("ml-dsa-44")]
+        [TestCase("slh-dsa-sha2-128s")]
+        public void AKeyOfEveryKind_IsTakenOverWithItsRequest(String Algorithm)
+        {
+
+            var (theirs, made) = AStoreOf("old-" + Algorithm, Algorithm);
+            var key            = File.ReadAllText(Path.Combine(theirs.Directory, CertificateStore.RequestsDirectoryName, $"{made.Id}.key.pem"));
+
+            Assert.That(store.TryAdoptRequest(CertificateKind.TLSIdentity, key, made.CSR, made.AlgorithmId, DateTimeOffset.UtcNow, null, null, null, out var adopted, out var error, out _),
+                        Is.True, error);
+
+            Assert.That(adopted!.Id, Is.EqualTo(made.Id));
+
+        }
+
+        #endregion
+
+        #region AKeyThatIsNotTheKeyOfItsRequest_IsNotTakenOver()
+
+        /// <summary>
+        /// A key that is not the key of its request, and one that cannot be
+        /// read, are refused when they are taken over - not weeks later, when
+        /// the certificate comes - and nothing of them is kept.
+        /// </summary>
+        [Test]
+        public void AKeyThatIsNotTheKeyOfItsRequest_IsNotTakenOver()
+        {
+
+            var (theirs, made)       = AStoreOf("old");
+            var (others, otherMade)  = AStoreOf("other");
+            var otherKey             = File.ReadAllText(Path.Combine(others.Directory, CertificateStore.RequestsDirectoryName, $"{otherMade.Id}.key.pem"));
+            const String unreadable  = "-----BEGIN PRIVATE KEY-----\nAAAAAAAA\n-----END PRIVATE KEY-----\n";
+
+            var another  = store.TryAdoptRequest(CertificateKind.TLSIdentity, otherKey,   made.CSR, made.AlgorithmId, DateTimeOffset.UtcNow, null, null, null, out _, out var notItsKey,  out var notSaved1);
+            var garbled  = store.TryAdoptRequest(CertificateKind.TLSIdentity, unreadable, made.CSR, made.AlgorithmId, DateTimeOffset.UtcNow, null, null, null, out _, out var cannotRead, out var notSaved2);
+
+            Assert.Multiple(() => {
+                Assert.That(another,         Is.False, "the key of another request was taken over");
+                Assert.That(notItsKey,       Does.Contain("is not the key of its signing request"));
+                Assert.That(garbled,         Is.False, "a key that cannot be read was taken over");
+                Assert.That(cannotRead,      Does.Contain("could not be read"));
+                Assert.That(notSaved1,       Is.False);
+                Assert.That(notSaved2,       Is.False);
+                Assert.That(store.Requests,  Is.Empty, "A key was kept for a request it is not the key of.");
+                Assert.That(RequestFiles,    Is.Empty);
+            });
 
         }
 

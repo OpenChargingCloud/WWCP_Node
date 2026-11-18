@@ -27,8 +27,10 @@ using Newtonsoft.Json.Linq;
 using Org.BouncyCastle.Asn1;
 using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Pkcs;
+using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
 
 using org.GraphDefined.Vanaheimr.Hermod.PKI;
@@ -586,10 +588,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// certificate as if it had been made here.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// For a node that kept such keys somewhere of its own and moves them
         /// over, once. Not a way to bring a key in from anywhere else, and
         /// not offered to anybody: a key that arrived from somewhere else is
         /// one somebody else has a copy of.
+        /// </para>
+        /// <para>
+        /// The key has to be the key of its request: read, and its public key
+        /// the one the request names. Taken in otherwise, it would wait for a
+        /// certificate it can never be put together with, and say so only
+        /// when the certificate comes - weeks later, and to somebody else.
+        /// </para>
         /// </remarks>
         /// <param name="Kind">The kind of certificate the key is for.</param>
         /// <param name="KeyPEM">The private key, as PKCS#8 in PEM.</param>
@@ -627,9 +637,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             if (!TryReadRequest(CSR, out var subject, out var publicKey, out Error))
                 return false;
 
-            if (KeyBlockOf(KeyPEM) is null)
+            if (KeyBlockOf(KeyPEM) is not String keyBlock)
             {
                 Error = "There is no private key in what was given.";
+                return false;
+            }
+
+            if (!TryPublicKeyOf(keyBlock, out var keysPublicKey, out Error))
+            {
+                Error = $"The private key could not be read: {Error}";
+                return false;
+            }
+
+            if (!SamePublicKey(keysPublicKey, publicKey))
+            {
+                Error = $"The private key is not the key of its signing request for {subject}: " +
+                         "its public key is another than the one the request names.";
                 return false;
             }
 
@@ -1339,6 +1362,85 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             catch (Exception e)
             {
                 Error = e.Message;
+                return false;
+            }
+
+        }
+
+        /// <summary>
+        /// The public key of the given private key, as a SubjectPublicKeyInfo -
+        /// of every kind of key this store makes, whichever of the PEM
+        /// spellings it comes in; or why it cannot be had.
+        /// </summary>
+        /// <remarks>
+        /// An encrypted key is none this store can take: it would have to be
+        /// put together with its certificate without its password.
+        /// </remarks>
+        private static Boolean TryPublicKeyOf(String                            KeyPEM,
+                                              out Byte[]                        PublicKey,
+                                              [NotNullWhen(false)] out String?  Error)
+        {
+
+            PublicKey  = [];
+            Error      = null;
+
+            try
+            {
+
+                AsymmetricKeyParameter? key = new PemReader(new StringReader(KeyPEM)).ReadObject() switch {
+
+                    // SEC 1 ("EC PRIVATE KEY") and PKCS#1 ("RSA PRIVATE KEY")
+                    // come as a pair already.
+                    AsymmetricCipherKeyPair     pair       => pair.Public,
+
+                    ECPrivateKeyParameters      ec         => new ECPublicKeyParameters(ec.AlgorithmName,
+                                                                                        ec.Parameters.G.Multiply(ec.D).Normalize(),
+                                                                                        ec.PublicKeyParamSet ?? throw new ArgumentException("an EC key without a named curve")),
+                    RsaPrivateCrtKeyParameters  rsa        => new RsaKeyParameters(false, rsa.Modulus, rsa.PublicExponent),
+                    Ed25519PrivateKeyParameters ed25519    => ed25519.GeneratePublicKey(),
+                    Ed448PrivateKeyParameters   ed448      => ed448.GeneratePublicKey(),
+                    MLDsaPrivateKeyParameters   mldsa      => mldsa.GetPublicKey(),
+                    SlhDsaPrivateKeyParameters  slhdsa     => slhdsa.GetPublicKey(),
+
+                    _                                      => null
+
+                };
+
+                if (key is null)
+                {
+                    Error = "it is no unencrypted private key of a kind this store makes.";
+                    return false;
+                }
+
+                PublicKey = SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(key).GetDerEncoded();
+
+                return true;
+
+            }
+            catch (Exception e)
+            {
+                Error = e.Message;
+                return false;
+            }
+
+        }
+
+        /// <summary>
+        /// Whether the two SubjectPublicKeyInfos are the same key: byte for
+        /// byte, or read as keys where they are spelt differently.
+        /// </summary>
+        private static Boolean SamePublicKey(Byte[] One, Byte[] Other)
+        {
+
+            if (One.AsSpan().SequenceEqual(Other))
+                return true;
+
+            try
+            {
+                return PublicKeyFactory.CreateKey(One).Equals(PublicKeyFactory.CreateKey(Other));
+            }
+            catch
+            {
                 return false;
             }
 

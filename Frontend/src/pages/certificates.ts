@@ -473,6 +473,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 took:       store => { current = store; },
                 kinds:      () => current === null ? [] : (current.requests?.kinds ?? []).filter(kind => pageOf(current!, kind) === Page),
                 kindName:   kind => kindName(kind),
+                usageName:  usage => usageName(usage, Options.usageNames),
                 draw:       () => draw(),
                 alive:      () => !cancelled,
                 show:       tab => context.show(tab)

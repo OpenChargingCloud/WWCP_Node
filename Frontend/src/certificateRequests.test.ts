@@ -197,6 +197,21 @@ describe('the keys a node makes for itself, on its identities page', () => {
 
     });
 
+    it('names what a key is for as the page of the store names it, in the form and beside a key that waits', async () => {
+
+        const root = await opened(requests({ entries: [ aKey('aaaa', { usages: [ 'meters', 'csms' ] }) ] }),
+                                  '/configuration/client-identities?tab=request', undefined,
+                                  () => identitiesPage({ usageNames: { meters: 'Modbus/TLS meters' } }));
+
+        const offered = [ ...root.querySelectorAll<HTMLLabelElement>('#request-usages label') ].map(label => label.textContent!.trim());
+
+        assert.deepEqual(offered, [ 'csms', 'Modbus/TLS meters' ], 'the form offers a usage by what the node calls it inside');
+        assert.equal(ticked(root, 'usage', 'meters') !== null, true, 'what is sent is no longer the usage itself');
+        assert.match(root.querySelector('[data-request-card="aaaa"]')!.textContent!, /For\s*Modbus\/TLS meters, csms/,
+                     'a key that waits says what it is for by what the node calls it inside');
+
+    });
+
     it('lets whoever may run the store make, send and remove a key, and nothing else: no upload, and no identity changed', async () => {
 
         const root = await opened(requests({ canBeSentToCSMS: true }), '/configuration/client-identities?tab=request', [ 'certificates:read', 'certificates:run' ]);
