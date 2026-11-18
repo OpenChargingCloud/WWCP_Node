@@ -60,10 +60,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         Refused,
 
         /// <summary>
-        /// It was not dialled, because something it needs is missing here -
-        /// the credentials it names, or a certificate it could show.
+        /// It was not connected - nothing was tried - because something it
+        /// needs is missing here, the credentials it names or a certificate it
+        /// could show, or because this node will not connect it.
         /// </summary>
-        NotDialled,
+        NotConnected,
 
         /// <summary>
         /// Dialling it went wrong in a way that says nothing about what
@@ -128,7 +129,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    ConnectionStatus.Lost        => "lost",
                    ConnectionStatus.Trying      => "trying",
                    ConnectionStatus.Refused     => "refused",
-                   ConnectionStatus.NotDialled  => "notDialled",
+                   ConnectionStatus.NotConnected  => "notConnected",
                    ConnectionStatus.Standby     => "standby",
                    ConnectionStatus.Waiting     => "waiting",
                    _                            => "failed"

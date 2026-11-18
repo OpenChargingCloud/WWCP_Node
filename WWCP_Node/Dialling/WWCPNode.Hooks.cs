@@ -269,9 +269,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         /// <remarks>
         /// A node that dials downwards says it by what is at the other end:
-        /// a local controller is spoken to in the overlay network, so that
-        /// the stations behind it are reached through it; a charging station
-        /// in the plain frame.
+        /// a local controller and a gateway are spoken to in the overlay
+        /// network, so that the charging stations behind them are reached
+        /// through them; a charging station in the plain frame.
         /// </remarks>
         protected internal virtual NetworkingMode? NetworkingModeOf(ConnectionEntry Connection)
 
@@ -296,6 +296,27 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// connections when a login changes.
         /// </remarks>
         protected internal virtual String? WhatItIsDialledOn(ConnectionEntry Connection)
+
+            => null;
+
+        #endregion
+
+        #region (protected internal virtual) WhyItIsNotConnected(Connection)
+
+        /// <summary>
+        /// Why the given connection is not connected, for something beyond
+        /// what is written of it - or null, where nothing stands in its way.
+        /// </summary>
+        /// <remarks>
+        /// Asked before anything of the connection is tried. A reason given
+        /// leaves it not connected, with the reason beside it - a refusal of
+        /// this node's own, not an end that could not be reached. A node that
+        /// dials downwards says here what the login of the node at the other
+        /// end says against it - switched off, or marked as another kind of
+        /// node than the connection says; WhatItIsDialledOn has it dialled
+        /// again once that changes.
+        /// </remarks>
+        protected internal virtual String? WhyItIsNotConnected(ConnectionEntry Connection)
 
             => null;
 

@@ -454,6 +454,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return;
                 }
 
+                // Not connected on purpose, for something the kind of node
+                // knows of it: said as that, and not as an end that could not
+                // be reached - nothing was tried.
+                if (WhyItIsNotConnected(Connection) is String why)
+                {
+                    Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {where}: {why.TrimEnd('.')}.");
+                    return;
+                }
+
                 if (Connection.IsSSH)
                 {
                     await DialOverSSH(Connection, where, CancellationToken);
@@ -462,7 +471,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (!WhatItProvesItselfWith(Connection, out var basic, out var totp, out var totpLogin, out var certificates, out _, out var wrong))
                 {
-                    Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {where} {wrong}.");
+                    Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {where} {wrong}.");
                     return;
                 }
 
@@ -477,7 +486,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (notByKeyPin is not null)
                 {
-                    Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {where} {notByKeyPin}.");
+                    Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {where} {notByKeyPin}.");
                     return;
                 }
 
@@ -1106,7 +1115,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!SshLoginOf(Connection, key, out var login, out var trust, out var says, out var wrong))
             {
-                Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {Where} {wrong}.");
+                Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {Where} {wrong}.");
                 return;
             }
 

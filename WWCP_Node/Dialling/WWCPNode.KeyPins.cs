@@ -111,18 +111,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) KeyPinTrustFor(Connection, out NotDialled)
+        #region (private) KeyPinTrustFor(Connection, out NotConnected)
 
         /// <summary>
         /// The trust a wss:// connection is dialled with, where it is key-pinned;
         /// null where it is checked by its CA, as it always was.
         /// </summary>
         /// <param name="Connection">The connection.</param>
-        /// <param name="NotDialled">Why it is not dialled at all: it requires raw public keys, which this station's TLS stack cannot offer yet.</param>
+        /// <param name="NotConnected">Why it is not connected at all: it requires raw public keys, which this station's TLS stack cannot offer yet.</param>
         protected ServerKeyPinTrust? KeyPinTrustFor(ConnectionEntry  Connection,
-                                                  out String?      NotDialled)
+                                                  out String?      NotConnected)
 
-            => keyPinning.TrustFor(Connection.Copy(), out NotDialled);
+            => keyPinning.TrustFor(Connection.Copy(), out NotConnected);
 
         #endregion
 

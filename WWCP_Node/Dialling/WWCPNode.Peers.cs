@@ -269,7 +269,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 case ConnectionStatus.Refused:
                 case ConnectionStatus.Failed:
-                case ConnectionStatus.NotDialled:
+                case ConnectionStatus.NotConnected:
                     FailOver(live, "it cannot be tried again");
                     break;
 

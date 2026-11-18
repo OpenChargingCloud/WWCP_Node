@@ -3576,13 +3576,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     if (Entry.IsSSH &&
                         Entry.URL.Login is String login && login != credentials.Login)
                         warnings.Add($"The URL signs in as '{login}' and '{credentials.Description}' as '{credentials.Login}'. " +
-                                      "It is one login, so it is not dialled until the two agree.");
+                                      "It is one login, so it is not connected until the two agree.");
 
                     if (credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding && !Entry.IsSSH && !Entry.Inbound &&
                         !Entry.BindsItsPassword)
                         warnings.Add($"'{credentials.Description}' binds its password to the TLS session, and one is bound only on a " +
                                       $"connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this {NodeWording.Noun}'s TLS exports " +
-                                      "no keying material to bind one with, so it is not dialled. Name HTTP/3 for it, or switch the " +
+                                      "no keying material to bind one with, so it is not connected. Name HTTP/3 for it, or switch the " +
                                       "binding off to have the password sent unbound - and know that an unbound password can be replayed " +
                                       "within its validity.");
 
@@ -3615,7 +3615,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             // comes this connection has nothing to show.
             if (Entry.Identities.Count > 0 && !Entry.IdentitiesAt(TimeProvider.GetUtcNow()).Any())
                 warnings.Add($"None of the identities this connection names is shown yet: the first from " +
-                             $"{Entry.Identities.Min(identity => identity.From)!.Value.UtcDateTime:yyyy-MM-dd HH:mm} UTC. Until then it is not dialled.");
+                             $"{Entry.Identities.Min(identity => identity.From)!.Value.UtcDateTime:yyyy-MM-dd HH:mm} UTC. Until then it is not connected.");
 
             // Over SSH this station always shows its own key.
             if (Entry.AuthenticationId is null && Entry.CertificateId is null && !Entry.IsSSH && !Entry.SignsInWithACertificate)
@@ -3630,7 +3630,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             {
 
                 if (Entry.PinsMD5)
-                    warnings.Add("An MD5 fingerprint is pinned, and MD5 fingerprints are no longer taken: this connection is not dialled " +
+                    warnings.Add("An MD5 fingerprint is pinned, and MD5 fingerprints are no longer taken: this connection is not connected " +
                                  "until it is replaced by the SHA-256 one - the connection test shows it.");
 
                 if (Entry.SshHostKey is null && Entry.SshLearnedHostKey is not null)
@@ -3643,7 +3643,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                   "Pin it now to decide yourself - the connection test shows the key.");
 
                 else if (Entry.SshHostKey is null)
-                    warnings.Add("No host key is pinned and trust on first use is off, so this connection is not dialled: " +
+                    warnings.Add("No host key is pinned and trust on first use is off, so this connection is not connected: " +
                                  "pin its server's host key - the connection test shows it - or let it learn the first one, on probation.");
 
                 if (Entry.SshOnPinMismatch != SshOnPinMismatch.Refuse)

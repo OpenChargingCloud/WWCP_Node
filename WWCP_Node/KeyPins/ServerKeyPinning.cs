@@ -159,19 +159,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 
         #endregion
 
-        #region TrustFor(Endpoint, out NotDialled)
+        #region TrustFor(Endpoint, out NotConnected)
 
         /// <summary>
         /// The trust a wss:// connection is dialled with, where it is key-pinned; null where it is checked
         /// by its CA.
         /// </summary>
         /// <param name="Endpoint">The connection, as it is dialled.</param>
-        /// <param name="NotDialled">Why it is not dialled at all. Nothing any more: a connection that requires raw public keys (RFC 7250) is dialled, and offers them.</param>
+        /// <param name="NotConnected">Why it is not connected at all. Nothing any more: a connection that requires raw public keys (RFC 7250) is dialled, and offers them.</param>
         public ServerKeyPinTrust? TrustFor(IPinnedTLSEndpoint  Endpoint,
-                                           out String?         NotDialled)
+                                           out String?         NotConnected)
         {
 
-            NotDialled = null;
+            NotConnected = null;
 
             if (!Endpoint.IsKeyPinned)
                 return null;

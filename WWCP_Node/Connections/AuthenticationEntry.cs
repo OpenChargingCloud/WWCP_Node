@@ -197,7 +197,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// nothing else binds its password; .NET's SslStream, which is the
         /// station's TLS over HTTP/1.1 and HTTP/2, exports none. A connection
         /// of those whose credentials ask for the binding - one left the
-        /// choice of the version among them - is not dialled at all, and says
+        /// choice of the version among them - is not connected at all, and says
         /// why: sending the password unbound instead would be less than what
         /// was configured, quietly.
         ///

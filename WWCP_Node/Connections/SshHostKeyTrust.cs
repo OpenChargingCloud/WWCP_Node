@@ -34,7 +34,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     {
 
         /// <summary>
-        /// Never: a connection without a pin is not dialled.
+        /// Never: a connection without a pin is not connected.
         /// </summary>
         None,
 
