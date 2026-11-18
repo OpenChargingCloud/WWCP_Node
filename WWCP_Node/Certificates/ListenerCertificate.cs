@@ -17,7 +17,10 @@
 
 #region Usings
 
+using System.Security.Cryptography.X509Certificates;
+
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.PKI;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 
@@ -70,12 +73,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// <para>
     /// <b>Asked at every handshake, loaded once.</b> Which one is a look into a
     /// list of a handful, by the store's clock. Its file is read once and the
-    /// certificate kept until the store changes - on Windows a certificate is
-    /// read into a key store of the user's, and doing that at every handshake
-    /// would leave one more there at each. The certificates read before a
-    /// change are let go of at the change after it rather than at once, so
-    /// that a handshake that took one just before the change is not left
-    /// holding a certificate whose key is gone.
+    /// certificate kept for as long as it is in the store - on Windows a
+    /// certificate is read into a key store of the user's, and doing that at
+    /// every handshake would leave one more there at each. A server may keep
+    /// what it was handed, as one that builds a TLS context per certificate
+    /// does, and is not left holding a certificate whose key is gone: a change
+    /// of the store - another certificate taken in, a usage told, a server key
+    /// switched - lets go of nothing that is still in it. A certificate taken
+    /// out of the store is let go of at the change after the one that took it
+    /// out rather than at once, so that a handshake that took it just before
+    /// is not cut off; everything is let go of when this is disposed of.
     /// </para>
     /// <para>
     /// <b>Keeping on serving the last</b> is for a listener whose clients are
@@ -86,6 +93,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// longest, and is never left with nothing while the store holds anything
     /// it could show. A web interface is not such a listener: a browser that is
     /// refused says why, and somebody can do something about it.
+    /// </para>
+    /// <para>
+    /// <b>Only what this machine can present.</b> A certificate that can be
+    /// read is not yet one a handshake can be made with: Windows' TLS stack,
+    /// for one, has the curve P-521 switched off unless somebody switched it
+    /// on, and reads such an identity without a word. Every certificate is
+    /// asked <see cref="KeyAlgorithm.CanBePresented"/> once, as it is first
+    /// read; one that cannot be presented is said once in the log and passed
+    /// over as one that cannot be read is - also by a listener that keeps
+    /// serving the last, which would otherwise keep on showing what no client
+    /// gets through.
     /// </para>
     /// </remarks>
     public sealed class ListenerCertificate : IDisposable
@@ -99,6 +117,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         private readonly Lock                                          cacheLock  = new ();
         private readonly Dictionary<String, ServerCertificateChain?>   loaded     = [];
+        private readonly Dictionary<String, Boolean>                   presentable = [];
         private          List<ServerCertificateChain>                  retired    = [];
         private          String?                                       lastShown;
         private          Boolean                                       disposed;
@@ -120,8 +139,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public Boolean           KeepsServingLast    { get; internal set; }
 
         /// <summary>
+        /// Whether this machine can present a certificate with its key over
+        /// TLS, by the identification of its key algorithm - Hermod's
+        /// <see cref="KeyAlgorithm.CanBePresented"/>, which finds out by trying;
+        /// a test's own answer in its place.
+        /// </summary>
+        internal Func<String, X509Certificate2, Boolean> CanBePresented { get; set; } = KeyAlgorithm.CanBePresented;
+
+        /// <summary>
         /// The identities of the store the listener could show now, the one it
-        /// shows first - without the one kept on where none of them can be.
+        /// shows first - without the one kept on where none of them can be, and
+        /// without those found to be ones this machine cannot present.
         /// </summary>
         public IReadOnlyList<CertificateEntry> Candidates
         {
@@ -136,15 +164,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     var carrier = store.CarrierOf(key);
 
                     return [.. store.IssuedFor(key).
-                                     Where            (entry => entry.IsUsableAt(now)).
+                                     Where            (entry => entry.IsUsableAt(now) && !IsKnownUnpresentable(entry)).
                                      OrderByDescending(entry => entry.NotBefore).
                                      ThenByDescending (entry => entry.NotAfter).
                                      ThenByDescending (entry => entry.Id, StringComparer.Ordinal),
-                            .. carrier is null ? Array.Empty<CertificateEntry>() : new[] { carrier }];
+                            .. carrier is null || IsKnownUnpresentable(carrier) ? Array.Empty<CertificateEntry>() : new[] { carrier }];
 
                 }
 
                 return [.. store.UsableFor(CertificateKind.TLSServerIdentity, Listener).
+                                 Where            (entry => !IsKnownUnpresentable(entry)).
                                  OrderByDescending(entry => entry.NotBefore).
                                  ThenByDescending (entry => entry.NotAfter).
                                  ThenByDescending (entry => entry.Id, StringComparer.Ordinal)];
@@ -154,7 +183,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// What the listener shows now, with its intermediates, or null while
-        /// there is nothing to show.
+        /// there is nothing to show. A caller may hold on to it for as long as
+        /// its certificate is in the store - see the remarks on this class.
         /// </summary>
         public ServerCertificateChain? Current
             => Choose()?.Chain;
@@ -201,7 +231,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// What the listener shows now, and why that one - or null where there
-        /// is nothing it could show.
+        /// is nothing it could show. The chain in it is this listener's to let
+        /// go of: a caller may hold on to it for as long as its certificate is
+        /// in the store, and until this is disposed of.
         /// </summary>
         public ShownCertificate? Choose()
         {
@@ -284,18 +316,78 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #endregion
 
 
-        #region (private) Load(Entry) / Remember(Entry) / Forget()
+        #region (static) AlgorithmIdOf(Leaf, Key = null)
+
+        /// <summary>
+        /// What Hermod calls the kind of key a certificate carries - see
+        /// <see cref="KeyAlgorithm.All"/> - for asking whether it can be
+        /// presented: the server key's own where it is one's, else read off
+        /// the certificate; the identification of the key's algorithm where
+        /// Hermod has no name for it, and "unknown" where there is none.
+        /// </summary>
+        /// <param name="Leaf">The certificate.</param>
+        /// <param name="Key">The server key it shows, if any.</param>
+        internal static String AlgorithmIdOf(X509Certificate2  Leaf,
+                                             ServerKey?        Key   = null)
+        {
+
+            if (KeyAlgorithm.Find(Key?.Algorithm) is KeyAlgorithm known)
+                return known.Id;
+
+            using (var ecdsa = Leaf.GetECDsaPublicKey())
+            {
+                if (ecdsa is not null)
+                {
+
+                    var curve = ecdsa.ExportParameters(false).Curve.Oid;
+
+                    return curve?.Value switch {
+                               "1.2.840.10045.3.1.7"  => "ecdsa-p256",
+                               "1.3.132.0.34"         => "ecdsa-p384",
+                               "1.3.132.0.35"         => "ecdsa-p521",
+                               _                      => $"ecdsa-{curve?.Value ?? curve?.FriendlyName ?? ecdsa.KeySize.ToString()}"
+                           };
+
+                }
+            }
+
+            using (var rsa = Leaf.GetRSAPublicKey())
+            {
+                if (rsa is not null)
+                    return $"rsa-{rsa.KeySize}";
+            }
+
+            return Leaf.PublicKey.Oid.Value switch {
+                       "1.3.101.112"  => "ed25519",
+                       "1.3.101.113"  => "ed448",
+                       String oid     => oid,
+                       null           => "unknown"
+                   };
+
+        }
+
+        #endregion
+
+        #region (private) Load(Entry) / IsKnownUnpresentable(Entry) / Remember(Entry) / Forget()
 
         /// <summary>
         /// The identity of an entry as a TLS server takes it, or null where it
-        /// cannot be read - read once until the store changes.
+        /// cannot be read or this machine cannot present it - read once until
+        /// the store changes, and asked whether it can be presented once.
         /// </summary>
         private ServerCertificateChain? Load(CertificateEntry Entry)
         {
 
             lock (cacheLock)
+            {
+
                 if (loaded.TryGetValue(Entry.Thumbprint, out var known))
                     return known;
+
+                if (presentable.TryGetValue(Entry.Thumbprint, out var canBe) && !canBe)
+                    return null;
+
+            }
 
             ServerCertificateChain? chain = null;
 
@@ -307,6 +399,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             catch (Exception e)
             {
                 log.Warning($"The TLS server identity '{Entry.Label}' cannot be shown on {shownOn}: {e.Message}", "tls", "security");
+            }
+
+            if (chain is not null && !IsPresentable(Entry, chain))
+            {
+                Release(chain);
+                chain = null;
             }
 
             lock (cacheLock)
@@ -335,6 +433,66 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         }
 
+        /// <summary>
+        /// Whether this machine can present a certificate it read - asked once
+        /// per certificate, and said once in the log where it cannot.
+        /// </summary>
+        private Boolean IsPresentable(CertificateEntry        Entry,
+                                      ServerCertificateChain  Chain)
+        {
+
+            lock (cacheLock)
+                if (presentable.TryGetValue(Entry.Thumbprint, out var before))
+                    return before;
+
+            String algorithm;
+
+            try
+            {
+                algorithm = AlgorithmIdOf(Chain.Certificate, store.ServerKeyOf(Entry));
+            }
+            catch (Exception)
+            {
+                algorithm = Chain.Certificate.PublicKey.Oid.Value ?? "unknown";
+            }
+
+            Boolean canBe;
+
+            try
+            {
+                canBe = CanBePresented(algorithm, Chain.Certificate);
+            }
+            catch (Exception)
+            {
+                canBe = false;
+            }
+
+            lock (cacheLock)
+            {
+
+                // Asked twice at once: the first answer is the one kept, and said.
+                if (presentable.TryAdd(Entry.Thumbprint, canBe) && !canBe)
+                    log.Warning($"The TLS server identity '{Entry.Label}' cannot be shown on {shownOn}: its {Entry.KeyAlgorithm} key cannot be " +
+                                $"presented over TLS by this machine ('{algorithm}'), every handshake would fail - it is passed over.",
+                                "tls", "security");
+
+                return presentable[Entry.Thumbprint];
+
+            }
+
+        }
+
+        /// <summary>
+        /// Whether an entry was found to be one this machine cannot present -
+        /// kept when the store changes, since the answer is the machine's and
+        /// not the store's.
+        /// </summary>
+        private Boolean IsKnownUnpresentable(CertificateEntry Entry)
+        {
+            lock (cacheLock)
+                return presentable.TryGetValue(Entry.Thumbprint, out var canBe) && !canBe;
+        }
+
         private void Remember(CertificateEntry Entry)
         {
             lock (cacheLock)
@@ -342,21 +500,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         }
 
         /// <summary>
-        /// The store changed: what was read is read again when it is asked for,
-        /// and what was read before the change before is let go of now.
+        /// The store changed: what was read and is still in the store is kept,
+        /// whatever else changed about it; what was taken out is let go of at
+        /// the next change, and what could not be read is tried again.
         /// </summary>
         private void Forget()
         {
+
+            // Called with the store's lock released, so the store may be asked.
+            var inTheStore = store.Entries.Select(entry => entry.Thumbprint).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             lock (cacheLock)
             {
+
+                if (disposed)
+                    return;
 
                 foreach (var chain in retired)
                     Release(chain);
 
-                retired = [.. loaded.Values.OfType<ServerCertificateChain>()];
-                loaded.Clear();
+                retired = [];
+
+                foreach (var (thumbprint, chain) in loaded.ToArray())
+                {
+                    if (chain is null)
+                        loaded.Remove(thumbprint);
+
+                    else if (!inTheStore.Contains(thumbprint))
+                    {
+                        retired.Add(chain);
+                        loaded.Remove(thumbprint);
+                    }
+                }
 
             }
+
         }
 
         private static void Release(ServerCertificateChain Chain)

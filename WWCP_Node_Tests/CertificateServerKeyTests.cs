@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -25,6 +26,7 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.PKI;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
@@ -165,10 +167,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private CertificateEntry AnIdentity(String     Name,
                                             Int32      Days,
                                             String[]?  Listeners  = null,
-                                            Int32      Since      = -1)
+                                            Int32      Since      = -1,
+                                            ECCurve?   Curve      = null)
         {
 
-            using var key      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var key      = ECDsa.Create(Curve ?? ECCurve.NamedCurves.nistP256);
             var request        = new CertificateRequest($"CN={Name}", key, HashAlgorithmName.SHA256);
             using var identity = request.CreateSelfSigned(clock.Now.AddDays(Since), clock.Now.AddDays(Days));
 
@@ -693,16 +696,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region TheChooser_ReadsACertificateOnce_UntilTheStoreChanges()
+        #region TheChooser_ReadsACertificateOnce_AndKeepsItWhileItIsInTheStore()
 
         /// <summary>
         /// The certificate a listener shows is read once and handed out at every
         /// handshake - a new key in the user's key store at each would be one
-        /// more left there on Windows - until the store changes, when it is read
-        /// again.
+        /// more left there on Windows - and kept as it is while it is in the
+        /// store, also when something else in the store changes.
         /// </summary>
         [Test]
-        public void TheChooser_ReadsACertificateOnce_UntilTheStoreChanges()
+        public void TheChooser_ReadsACertificateOnce_AndKeepsItWhileItIsInTheStore()
         {
 
             AServerKey();
@@ -717,10 +720,228 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             AnIdentity("unrelated.example.org", 30, [ "web" ]);
 
-            var after   = chooser.Current;
+            Assert.That(chooser.Current, Is.SameAs(first), "the store changed elsewhere and the certificate was read again");
 
-            Assert.That(after,  Is.Not.SameAs(first), "the store changed and the certificate was not read again");
-            Assert.That(CertificateEntry.ThumbprintOf(after!.Certificate), Is.EqualTo(CertificateEntry.ThumbprintOf(first!.Certificate)));
+        }
+
+        #endregion
+
+        #region AChainTakenBeforeTwoQuickChanges_IsStillUsable()
+
+        /// <summary>
+        /// A server that keeps what it was handed - one that builds a TLS
+        /// context per certificate when it starts - still has a certificate it
+        /// can use after two quick changes of the store that leave it in there:
+        /// the usages of another identity told, and told back.
+        /// </summary>
+        [Test]
+        public void AChainTakenBeforeTwoQuickChanges_IsStillUsable()
+        {
+
+            var shown   = AnIdentity("shown.example.org", 30, [ Listener ]);
+            var other   = AnIdentity("other.example.org", 30, [ "web" ], Since: -5);
+
+            using var chooser = new ListenerCertificate(store, Listener, log);
+
+            var taken   = chooser.Current;
+
+            Assert.That(chooser.Entry?.Id, Is.EqualTo(shown.Id));
+
+            Assert.That(store.SetUsages(other.Id, [ Listener ], out _, out var error), Is.True, error);
+            Assert.That(store.SetUsages(other.Id, [ "web"    ], out _, out error),     Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(() => taken!.Certificate.Subject, Is.EqualTo("CN=shown.example.org"), "the certificate was let go of underneath its holder");
+                Assert.That(() => SslStreamCertificateContext.Create(taken!.Certificate, null), Throws.Nothing);
+                Assert.That(chooser.Current, Is.SameAs(taken));
+            });
+
+        }
+
+        #endregion
+
+        #region ACertificateTakenOut_IsNoLongerOffered_AndLetGoOfAfterTheNextChange()
+
+        /// <summary>
+        /// A certificate taken out of the store is not shown any more, and what
+        /// was read of it is let go of at the change after - a handshake that
+        /// took it just before it was taken out is not cut off.
+        /// </summary>
+        [Test]
+        public void ACertificateTakenOut_IsNoLongerOffered_AndLetGoOfAfterTheNextChange()
+        {
+
+            var newer   = AnIdentity("newer.example.org", 30, [ Listener ], Since: -1);
+            var older   = AnIdentity("older.example.org", 30, [ Listener ], Since: -5);
+            var other   = AnIdentity("other.example.org", 30, [ "web" ],    Since: -5);
+
+            using var chooser = new ListenerCertificate(store, Listener, log);
+
+            var taken   = chooser.Current;
+
+            Assert.That(chooser.Entry?.Id, Is.EqualTo(newer.Id));
+
+            Assert.That(store.Remove(newer.Id, out var error), Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(chooser.Entry?.Id,                   Is.EqualTo(older.Id), "what was taken out is still shown");
+                Assert.That(() => taken!.Certificate.Subject,    Is.EqualTo("CN=newer.example.org"), "let go of at the change that took it out");
+            });
+
+            Assert.That(store.SetUsages(other.Id, [ Listener ], out _, out error), Is.True, error);
+
+            Assert.That(() => taken!.Certificate.Subject, Throws.InstanceOf<CryptographicException>(), "what was taken out is never let go of");
+
+        }
+
+        #endregion
+
+        #region Disposing_LetsGoOfEverythingRead()
+
+        /// <summary>
+        /// A listener's certificates are let go of when it is disposed of.
+        /// </summary>
+        [Test]
+        public void Disposing_LetsGoOfEverythingRead()
+        {
+
+            AnIdentity("shown.example.org", 30, [ Listener ]);
+
+            var chooser = new ListenerCertificate(store, Listener, log);
+            var taken   = chooser.Current;
+
+            Assert.That(taken, Is.Not.Null);
+
+            chooser.Dispose();
+
+            Assert.That(() => taken!.Certificate.Subject, Throws.InstanceOf<CryptographicException>());
+
+        }
+
+        #endregion
+
+        #region AnIdentityThisMachineCannotPresent_IsPassedOver_AndSaidOnce()
+
+        /// <summary>
+        /// An identity this machine can read and cannot present over TLS - a
+        /// P-521 one where the TLS stack has that curve switched off - is not
+        /// shown and not offered: the listener shows the next one, says why
+        /// once, and asks about that certificate once, also after the store
+        /// changed.
+        /// </summary>
+        [Test]
+        public void AnIdentityThisMachineCannotPresent_IsPassedOver_AndSaidOnce()
+        {
+
+            var older   = AnIdentity("older.example.org", 30, [ Listener ], Since: -5);
+            var newer   = AnIdentity("newer.example.org", 30, [ Listener ], Since: -1);
+
+            var asked   = new List<String>();
+
+            using var chooser = new ListenerCertificate(store, Listener, log) {
+                                    CanBePresented = (algorithm, certificate) => {
+                                        asked.Add(CertificateEntry.ThumbprintOf(certificate));
+                                        return CertificateEntry.ThumbprintOf(certificate) != newer.Thumbprint;
+                                    }
+                                };
+
+            Assert.That(chooser.Choose()?.Entry.Id, Is.EqualTo(older.Id));
+
+            AnIdentity("unrelated.example.org", 30, [ "web" ]);
+
+            Assert.Multiple(() => {
+                Assert.That(chooser.Choose()?.Entry.Id,                  Is.EqualTo(older.Id));
+                Assert.That(chooser.Candidates.Select(entry => entry.Id), Is.EqualTo(new[] { older.Id }), "offered all the same");
+                Assert.That(asked.Count(thumbprint => thumbprint == newer.Thumbprint), Is.EqualTo(1),     "asked more than once");
+                Assert.That(log.Recent(200).Count(entry => entry.Level == LogLevel.Warning &&
+                                                           entry.Message.Contains("newer.example.org") &&
+                                                           entry.Message.Contains("cannot be presented over TLS by this machine")),
+                            Is.EqualTo(1), "not said once");
+            });
+
+        }
+
+        #endregion
+
+        #region KeepingOnServingTheLast_NeverFallsBackToWhatCannotBePresented()
+
+        /// <summary>
+        /// With nothing valid, a listener that keeps serving the last does not
+        /// keep on showing a certificate this machine cannot present - not the
+        /// one that lasted longest on a fresh start, and nothing at all where
+        /// nothing else is left.
+        /// </summary>
+        [Test]
+        public void KeepingOnServingTheLast_NeverFallsBackToWhatCannotBePresented()
+        {
+
+            var lasting = AnIdentity("lasting.example.org", 20, [ Listener ]);
+            var shorter = AnIdentity("shorter.example.org", 10, [ Listener ]);
+
+            Boolean NotTheLasting(String Algorithm, X509Certificate2 Certificate)
+                => CertificateEntry.ThumbprintOf(Certificate) != lasting.Thumbprint;
+
+            clock.Advance(TimeSpan.FromDays(30));
+
+            using (var station = new ListenerCertificate(store, Listener, log, KeepServingLast: true) { CanBePresented = NotTheLasting })
+            {
+
+                var kept = station.Choose();
+
+                Assert.That(kept?.Entry.Id,  Is.EqualTo(shorter.Id), "fell back to what cannot be presented");
+                Assert.That(kept?.IsKeptOn,  Is.True);
+
+            }
+
+            Assert.That(store.Remove(shorter.Id, out var error), Is.True, error);
+
+            using var alone = new ListenerCertificate(store, Listener, log, KeepServingLast: true) { CanBePresented = NotTheLasting };
+
+            Assert.That(alone.Choose(), Is.Null, "fell back to what cannot be presented where nothing else was left");
+
+        }
+
+        #endregion
+
+        #region AP521Identity_IsShownExactlyWhereThisMachineCanPresentIt()
+
+        /// <summary>
+        /// Asked of the machine itself rather than of a stand-in: a P-521
+        /// identity is shown where this machine's TLS stack can present it,
+        /// and passed over for a P-256 one where it cannot. On Windows, whose
+        /// SChannel has NistP521 switched off unless somebody switched it on,
+        /// it is passed over.
+        /// </summary>
+        [Test]
+        public void AP521Identity_IsShownExactlyWhereThisMachineCanPresentIt()
+        {
+
+            var p256    = AnIdentity("p256.example.org", 30, [ Listener ], Since: -5);
+            var p521    = AnIdentity("p521.example.org", 30, [ Listener ], Since: -1, Curve: ECCurve.NamedCurves.nistP521);
+
+            // As a handshake reads it: on Windows a key held in memory alone
+            // is presented by no algorithm at all.
+            Assert.That(store.TryLoadForHandshake(p521, out var loaded, out var chain, out var error), Is.True, error);
+
+            Boolean canBe;
+
+            using (loaded)
+            {
+
+                foreach (var certificate in chain)
+                    certificate.Dispose();
+
+                Assert.That(ListenerCertificate.AlgorithmIdOf(loaded!), Is.EqualTo("ecdsa-p521"));
+                canBe = KeyAlgorithm.CanBePresented("ecdsa-p521", loaded!);
+
+            }
+
+            if (OperatingSystem.IsWindows())
+                Assert.That(canBe, Is.False, "this Windows presents P-521 - somebody switched NistP521 on in SChannel");
+
+            using var chooser = new ListenerCertificate(store, Listener, log);
+
+            Assert.That(chooser.Choose()?.Entry.Id, Is.EqualTo(canBe ? p521.Id : p256.Id));
 
         }
 
