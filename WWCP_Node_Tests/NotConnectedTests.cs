@@ -68,6 +68,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 => Dial(Connection, CancellationToken.None);
 
+            public void Keeps(ConnectionStore Store)
+
+                => Connections = Store;
+
         }
 
         #endregion
@@ -145,6 +149,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(state.Status, Is.EqualTo(ConnectionStatus.NotConnected));
                 Assert.That(state.Said,   Is.EqualTo($"Not connected: 'The gateway below' ({url}): the login gw007 is marked as a local controller, not as a gateway."));
                 Assert.That(state.Said,   Does.Not.Contain("could not be reached"));
+            });
+
+        }
+
+        #endregion
+
+        #region AConnectionMissingSomethingHere_SaysWhyTheSameWay()
+
+        /// <summary>
+        /// A connection that is not connected because something it needs is
+        /// missing here says it as one the kind of node refuses does: which
+        /// one, and after a colon why.
+        /// </summary>
+        [Test]
+        public async Task AConnectionMissingSomethingHere_SaysWhyTheSameWay()
+        {
+
+            await using var node   = new ANodeThatMayNotDial(directory, null);
+            var             store  = new ConnectionStore(Path.Combine(directory, "conn"));
+            var             url    = $"ws://127.0.0.1:{TestPorts.Free()}/cs001";
+
+            node.Keeps(store);
+
+            Assert.That(store.TryAddConnection("The back end", url, "CSMS", true, null, null, out var id, out var error),
+                        Is.True, error);
+
+            var connection = store.Connections.Single(one => one.Id == id);
+            connection.AuthenticationId = "nobody";
+
+            var dialling = node.DialIt(connection);
+            Assert.That(await Task.WhenAny(dialling, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(dialling), "Dialling did not end.");
+            await dialling;
+
+            var state = node.ConnectionStates[connection.Id];
+
+            Assert.Multiple(() => {
+                Assert.That(state.Status, Is.EqualTo(ConnectionStatus.NotConnected));
+                Assert.That(state.Said,   Is.EqualTo($"Not connected: 'The back end' ({url}): it names credentials that are not configured here."));
             });
 
         }

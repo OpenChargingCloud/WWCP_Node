@@ -431,6 +431,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (private static) NotConnectedSaid(Where, Why)
+
+        /// <summary>
+        /// What a connection that is not connected says: which one, and after
+        /// a colon why - one way for every reason, whether it is something
+        /// missing here or a refusal of the kind of node.
+        /// </summary>
+        /// <param name="Where">The connection, as its description and its URL.</param>
+        /// <param name="Why">Why it is not connected.</param>
+        private static String NotConnectedSaid(String   Where,
+                                               String?  Why)
+
+            => $"Not connected: {Where}: {(Why ?? "it cannot be").TrimEnd('.')}.";
+
+        #endregion
+
         #region (private) Dial(Connection, CancellationToken)
 
         /// <summary>
@@ -459,7 +475,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // be reached - nothing was tried.
                 if (WhyItIsNotConnected(Connection) is String why)
                 {
-                    Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {where}: {why.TrimEnd('.')}.");
+                    Fail(Connection, ConnectionStatus.NotConnected, NotConnectedSaid(where, why));
                     return;
                 }
 
@@ -471,7 +487,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (!WhatItProvesItselfWith(Connection, out var basic, out var totp, out var totpLogin, out var certificates, out _, out var wrong))
                 {
-                    Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {where} {wrong}.");
+                    Fail(Connection, ConnectionStatus.NotConnected, NotConnectedSaid(where, wrong));
                     return;
                 }
 
@@ -486,7 +502,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (notByKeyPin is not null)
                 {
-                    Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {where} {notByKeyPin}.");
+                    Fail(Connection, ConnectionStatus.NotConnected, NotConnectedSaid(where, notByKeyPin));
                     return;
                 }
 
@@ -1115,7 +1131,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!SshLoginOf(Connection, key, out var login, out var trust, out var says, out var wrong))
             {
-                Fail(Connection, ConnectionStatus.NotConnected, $"Not connected: {Where} {wrong}.");
+                Fail(Connection, ConnectionStatus.NotConnected, NotConnectedSaid(Where, wrong));
                 return;
             }
 
