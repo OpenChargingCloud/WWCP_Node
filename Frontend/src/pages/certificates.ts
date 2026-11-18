@@ -12,6 +12,7 @@ import { errorMessage, humanizeKey, whileSaving } from '../ui';
 import { anyFormTypedSinceDrawn, unsaved } from '../unsaved';
 import { html, nothing, render, repeat, type TemplateResult } from '../view';
 import { requestsPanel, requestTabId } from '../certificateRequests';
+import { serverKeysSection } from '../serverKeys';
 import { usageName, usagesOf } from './certificateUsages';
 
 const api = nodeAPI();
@@ -132,6 +133,13 @@ export interface CertificatesOptions<S extends CertificateStore = CertificateSto
 
     /** What a usage is called where the node's word is not the one to show: a meter's "modbus" and "web". */
     usageNames?:    Record<string, string>;
+
+    /**
+     * The listeners the "Server identities" page offers a server key for
+     * although none has one yet - a gateway's "ocpp". A listener that has one
+     * is shown there whether or not it is named here - see serverKeys.ts.
+     */
+    serverKeyListeners?:  readonly string[];
 
     /**
      * What the node's "chosen" names mean, in the words of the row of the
@@ -482,6 +490,14 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** What the kind of node adds to this page, for as long as the page is open. */
             const sections  = (Options.sections?.(context) ?? []).filter(section => sectionPage(section) === Page);
 
+            /** The server keys of the node's listeners, which every node's "Server identities" page shows - see serverKeys.ts. */
+            const serverKeys = Page === 'serverIdentities'
+                                   ? serverKeysSection<S>(context, {
+                                         listeners:  Options.serverKeyListeners,
+                                         name:       listener => usageName(listener, Options.usageNames)
+                                     })
+                                   : null;
+
             /**
              * The page's tabs: what is in the store before what puts something
              * into it - a new key, where the node makes keys for a kind of
@@ -518,6 +534,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
             /** The store, and what every section needs beside it - asked together. */
             async function fetched(): Promise<S> {
                 const [ store ] = await Promise.all([ api.certificates.get() as Promise<S>,
+                                                      serverKeys?.load?.(),
                                                       ...sections.map(section => section.load?.()) ]);
                 return store;
             }
@@ -665,8 +682,9 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                 const presented   = store.credentials. filter(here);
                 const recognised  = store.recognised.  filter(here);
                 const below       = (group: CertificatesSection['below']) => sectionsBelow(group, store);
+                const keys        = serverKeys !== null && serverKeys.shows() ? serverKeys.draw(store) : null;
 
-                if (believed.length + presented.length + recognised.length + sections.length === 0)
+                if (believed.length + presented.length + recognised.length + sections.length === 0 && keys === null)
                     return html`<p class="hint">This ${config.nodeName} keeps nothing of what this page looks after.</p>`;
 
                 return html`
@@ -680,7 +698,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         ${below('believes')}
                     `}
 
-                    ${presented.length === 0 && below('presents').length === 0 && !requests.offered() ? nothing : html`
+                    ${presented.length === 0 && below('presents').length === 0 && !requests.offered() && keys === null ? nothing : html`
                         <h2>${Page === 'certificates'       ? `What this ${config.nodeName} checks with`
                             : Page === 'serverIdentities' ? `Who the servers of this ${config.nodeName} are`
                             :                                 `Who this ${config.nodeName} is`}</h2>
@@ -696,6 +714,7 @@ export function certificatesPage<S extends CertificateStore = CertificateStore>(
                         </p>
                         ${repeat(presented, kind => kind, kind => kindCard(kind))}
                         ${requests.waiting()}
+                        ${keys ?? nothing}
                         ${below('presents')}
                     `}
 

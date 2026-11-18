@@ -723,6 +723,44 @@ export interface CertificateRequests<K extends string = string> {
     csmsKinds?:         K[];
 }
 
+/**
+ * One server key of a listener: a key the node made that the listener's
+ * clients may pin, shown in a self-signed carrier certificate made from it
+ * where no certificate an authority issued for it is valid.
+ */
+export interface ServerKey<K extends string = string> {
+    /** The first sixteen hexadecimal digits of its key pin. */
+    id:             string;
+    /** SHA-256 over its SubjectPublicKeyInfo, in 64 hexadecimal digits: what is handed to the clients. */
+    keyPin:         string;
+    /** The same, as curl writes it: "sha256//" and base64. */
+    keyPinCurl:     string;
+    algorithm:      string;
+    createdAt:      string;
+    /** The one shown, the one announced to be shown once somebody switches to it, or one that was current once. */
+    state:          'current' | 'next' | 'former';
+    currentSince:   string | null;
+    /** The carrier, as the store says it - null where it is gone. */
+    carrier:        Certificate<K> | null;
+    /** Every certificate issued for the key, the one that lasts longest first. */
+    issued:         Certificate<K>[];
+}
+
+/** The server keys of one listener, and what it shows now. */
+export interface ListenerServerKeys<K extends string = string> {
+    listener:          string;
+    /** Whether the listener goes on showing the last certificate it showed where nothing is valid. */
+    keepsServingLast:  boolean;
+    /** The key pin of the current key, or null. */
+    current:           string | null;
+    /** The key pin of the announced next key, or null. */
+    next:              string | null;
+    /** What the listener shows now: an identity of the store, and whether it is a key's carrier or kept on although nothing is valid. */
+    shown:             { id: string; label: string; presentedAs: 'certificate' | 'carrier'; keptOn: boolean } | null;
+    /** Its keys, the newest first. */
+    keys:              ServerKey<K>[];
+}
+
 /** What a new key is made with; everything but the subject may be left out. */
 export interface SigningRequestToMake {
     /** The kind of certificate it is for; left out where the node makes keys for one kind alone. */
@@ -1935,6 +1973,34 @@ export function nodeAPI<T extends NodeTypes = NodeTypes>() {
             remove:  (id: string, kind?: string) =>
                          request<T['store']>('DELETE', `/certificates/${encodeURIComponent(id)}` +
                                                        (kind === undefined ? '' : `?kind=${encodeURIComponent(kind)}`)),
+
+            /** The server keys of the node's listeners, which their clients may pin - see ServerKey. */
+            serverKeys: {
+
+                /** Every listener that has a server key, or keeps serving the last. */
+                all:       () =>
+                               request<{ listeners: ListenerServerKeys<T['kind']>[] }>('GET', '/certificates/serverKeys'),
+
+                /** The server keys of one listener. */
+                get:       (listener: string) =>
+                               request<ListenerServerKeys<T['kind']>>('GET', `/certificates/serverKeys/${encodeURIComponent(listener)}`),
+
+                /**
+                 * A new server key: the current one where the listener shows
+                 * nothing yet, or the announced next one - never one that
+                 * takes the place of what is shown by itself.
+                 */
+                create:    (listener: string, make: { algorithm?: string; asNext?: boolean }) =>
+                               request<{ key: ServerKey<T['kind']>; serverKeys: ListenerServerKeys<T['kind']> }>(
+                                   'POST', `/certificates/serverKeys/${encodeURIComponent(listener)}`, make),
+
+                /** Show the announced next key from now on - where it is still the key with the given key pin. */
+                switchTo:  (listener: string, ifNextKeyPinIs?: string) =>
+                               request<{ key: ServerKey<T['kind']>; before: string | null; serverKeys: ListenerServerKeys<T['kind']> }>(
+                                   'POST', `/certificates/serverKeys/${encodeURIComponent(listener)}/switch`,
+                                   ifNextKeyPinIs === undefined ? {} : { ifNextKeyPinIs })
+
+            },
 
             /** The keys a node makes for itself - where it makes any, see the store's "requests". */
             requests: {

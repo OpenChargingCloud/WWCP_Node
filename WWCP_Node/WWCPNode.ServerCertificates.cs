@@ -630,7 +630,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 foreach (var pinned in Pins.Roots.Where(pinned => !ServerPins.IsKeyPin(pinned)))
                     if (!anchors.Any(anchor => String.Equals(anchor.Thumbprint, pinned, StringComparison.OrdinalIgnoreCase)) &&
                         Certificates.ByFingerprint(pinned) is CertificateEntry held &&
-                        held.IsUsable)
+                        held.IsUsableAt(TimeProvider.GetUtcNow()))
                     {
                         anchors.Add(held);
                     }
@@ -641,7 +641,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (keys.Length > 0)
                     foreach (var entry in Certificates.Entries)
-                        if (entry.IsUsable &&
+                        if (entry.IsUsableAt(TimeProvider.GetUtcNow()) &&
                             !anchors.Any(anchor => anchor.Thumbprint == entry.Thumbprint) &&
                             Certificates.TryLoad(entry, out var ofThatKey, out _))
                         {

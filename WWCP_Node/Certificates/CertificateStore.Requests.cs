@@ -877,7 +877,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 #endregion
 
-                var now       = DateTimeOffset.UtcNow;
+                var now       = Clock.GetUtcNow();
                 var notAfter  = new DateTimeOffset(leaf.NotAfter. ToUniversalTime());
                 var notBefore = new DateTimeOffset(leaf.NotBefore.ToUniversalTime());
 

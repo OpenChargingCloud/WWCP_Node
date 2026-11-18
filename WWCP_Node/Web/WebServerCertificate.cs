@@ -42,13 +42,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Out of the store</b>: the TLS server identities for the listener
-    /// <see cref="Listener"/>, or told no listener, which are switched on and
-    /// valid now - the one whose validity began last, so that a certificate
-    /// put in before the old one runs out takes over on the day it becomes
-    /// valid, without anybody being there. Each certificate is read from its
-    /// file once and kept; the store is asked which of them at every
-    /// handshake, which is a look into a list of a handful.
+    /// <b>Out of the store</b>: what <see cref="ListenerCertificate"/> chooses
+    /// for the listener <see cref="Listener"/>, as every listener of the node
+    /// chooses - the TLS server identities for it, or told no listener, which
+    /// are switched on and valid now, the one whose validity began last, so
+    /// that a certificate put in before the old one runs out takes over on the
+    /// day it becomes valid, without anybody being there; or, where somebody
+    /// made the web interface a server key, that key's. Each certificate is
+    /// read from its file once and kept until the store changes; the store is
+    /// asked which of them at every handshake, which is a look into a list of
+    /// a handful.
     /// </para>
     /// <para>
     /// <b>Out of files</b>: Hermod's <see cref="ServerCertificateFile"/>, which
@@ -78,13 +81,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// </summary>
         public const String  Listener  = "web";
 
-        private readonly CertificateStore                         store;
+        private readonly ListenerCertificate                      chooser;
         private readonly ServerCertificateFile?                   files;
         private readonly EventLog                                 log;
         private readonly String                                   nodeName;
 
         private readonly Lock                                     cacheLock  = new ();
-        private readonly Dictionary<String, ServerCertificateChain?>  loaded     = [];
 
         private          String?                                  shown;
         private          Boolean                                  saidNone;
@@ -124,7 +126,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// </summary>
         public CertificateEntry? StoreEntry
             => Source.IsStore
-                   ? Candidates.FirstOrDefault(entry => Load(entry) is not null)
+                   ? chooser.Entry
                    : null;
 
         /// <summary>
@@ -141,10 +143,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         public IReadOnlyList<CertificateEntry> Candidates
 
             => Source.IsStore
-                   ? [.. store.UsableFor(CertificateKind.TLSServerIdentity, Listener).
-                               OrderByDescending(entry => entry.NotBefore).
-                               ThenByDescending (entry => entry.NotAfter).
-                               ThenByDescending (entry => entry.Id, StringComparer.Ordinal)]
+                   ? chooser.Candidates
                    : [];
 
         #endregion
@@ -158,14 +157,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// <param name="Store">The node's certificate store.</param>
         /// <param name="Log">Where a certificate taken, or one that would not be, is said.</param>
         /// <param name="NodeName">What the node is called in a sentence.</param>
-        public WebServerCertificate(WebCertificateSource  Source,
-                                    CertificateStore      Store,
-                                    EventLog              Log,
-                                    String                NodeName)
+        /// <param name="Chooser">What the listener "web" shows out of the store, as the node's listeners choose; one of its own where none is given.</param>
+        public WebServerCertificate(WebCertificateSource   Source,
+                                    CertificateStore       Store,
+                                    EventLog               Log,
+                                    String                 NodeName,
+                                    ListenerCertificate?   Chooser   = null)
         {
 
             this.Source    = Source;
-            this.store     = Store;
+            this.chooser   = Chooser ?? new ListenerCertificate(Store, Listener, Log, "the web interface");
             this.log       = Log;
             this.nodeName  = NodeName;
 
@@ -262,52 +263,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
         /// <summary>
         /// The newest identity for the web interface that this machine can
-        /// present, or null.
+        /// present, or null - as <see cref="ListenerCertificate"/> chooses it.
         /// </summary>
         private ServerCertificateChain? FromTheStore()
-        {
 
-            foreach (var entry in Candidates)
-                if (Load(entry) is ServerCertificateChain chain)
-                    return chain;
-
-            return null;
-
-        }
-
-        #endregion
-
-        #region (private) Load(Entry)
-
-        /// <summary>
-        /// The identity of an entry as a TLS server takes it, or null where it
-        /// cannot be read - read once per certificate.
-        /// </summary>
-        private ServerCertificateChain? Load(CertificateEntry Entry)
-        {
-
-            lock (cacheLock)
-                if (loaded.TryGetValue(Entry.Thumbprint, out var known))
-                    return known;
-
-            ServerCertificateChain? chain = null;
-
-            try
-            {
-                var path  = store.FullPath(Entry);
-                chain     = ServerCertificateChain.FromPkcs12(File.ReadAllBytes(path), null, path);
-            }
-            catch (Exception e)
-            {
-                log.Warning($"The TLS server identity '{Entry.Label}' cannot be shown on the web interface: {e.Message}", "web", "tls", "security");
-            }
-
-            lock (cacheLock)
-                loaded[Entry.Thumbprint] = chain;
-
-            return chain;
-
-        }
+            => chooser.Current;
 
         #endregion
 

@@ -60,6 +60,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             AddHandler(root + "/requests",         PostCertificateRequest,        HTTPMethod.POST);
             AddHandler(root + "/requests/answer",  PostCertificateRequestAnswer,  HTTPMethod.POST);
             AddHandler(root + "/requests/{id}",    DeleteCertificateRequest,      HTTPMethod.DELETE);
+
+            // Before "{id}", which would take "serverKeys" for a handle.
+            RegisterServerKeyRoutes();
+
             AddHandler(root + "/{id}",     GetStoreCertificate,         HTTPMethod.GET);
             AddHandler(root + "/{id}",     PatchStoreCertificate,       HTTPMethod.PATCH);
             AddHandler(root + "/{id}",     DeleteStoreCertificate,      HTTPMethod.DELETE);

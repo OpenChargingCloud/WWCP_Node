@@ -18,10 +18,13 @@
 #region Usings
 
 using System.Diagnostics.CodeAnalysis;
+using System.Formats.Asn1;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
+
+using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
@@ -111,20 +114,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         #region Properties
 
         /// <summary>
-        /// Whether this certificate's validity has not started yet.
+        /// The key pin of the key in this certificate: SHA-256 over its
+        /// SubjectPublicKeyInfo - the same for every certificate ever issued
+        /// for the same key, and the one thing a server key's carrier and the
+        /// certificate an authority issued for that key have in common.
         /// </summary>
-        public Boolean IsNotYetValid
-            => NotBefore > DateTimeOffset.UtcNow;
+        /// <remarks>
+        /// Read out of the certificate like everything else here but the
+        /// three fields the index is the authority on, and written into the
+        /// index only so that whoever reads it can see which entries are one
+        /// key. Null only for an entry read from an index that did not say
+        /// it, of a kind this node does not keep: every entry of the store is
+        /// read again from its file, and has one.
+        /// </remarks>
+        public KeyPin?  KeyPin    { get; init; }
 
         /// <summary>
-        /// Whether this certificate has expired.
+        /// Whether this certificate's validity has not started yet, by the
+        /// system's clock.
+        /// </summary>
+        /// <remarks>
+        /// By the system's clock, because an entry has no other: whoever has a
+        /// clock of their own - the store has its node's - asks
+        /// <see cref="IsNotYetValidAt"/>.
+        /// </remarks>
+        public Boolean IsNotYetValid
+            => IsNotYetValidAt(DateTimeOffset.UtcNow);
+
+        /// <summary>
+        /// Whether this certificate has expired, by the system's clock - see
+        /// <see cref="IsExpiredAt"/>.
         /// </summary>
         public Boolean IsExpired
-            => NotAfter < DateTimeOffset.UtcNow;
+            => IsExpiredAt(DateTimeOffset.UtcNow);
 
         /// <summary>
-        /// Whether this certificate could be used right now: active, and within
-        /// its own validity.
+        /// Whether this certificate could be used right now, by the system's
+        /// clock: active, and within its own validity - see
+        /// <see cref="IsUsableAt"/>.
         /// </summary>
         /// <remarks>
         /// Active and usable are kept apart on purpose. Somebody switches a
@@ -132,7 +159,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// one would have to explain why an active certificate did nothing.
         /// </remarks>
         public Boolean IsUsable
-            => IsActive && !IsExpired && !IsNotYetValid;
+            => IsUsableAt(DateTimeOffset.UtcNow);
+
+        #endregion
+
+
+        #region IsNotYetValidAt(Now) / IsExpiredAt(Now) / IsUsableAt(Now)
+
+        /// <summary>
+        /// Whether this certificate's validity has not started yet at the
+        /// given moment.
+        /// </summary>
+        /// <remarks>
+        /// The moment is handed in rather than read, so that whoever judges a
+        /// certificate judges it by the clock it keeps everything else by: a
+        /// node whose clock is not the system's - a test's that is a year
+        /// ahead, or one somebody set - would otherwise call a certificate
+        /// usable that its own log calls expired.
+        /// </remarks>
+        /// <param name="Now">What time it is, by the clock of whoever asks.</param>
+        public Boolean IsNotYetValidAt(DateTimeOffset Now)
+            => NotBefore > Now;
+
+        /// <summary>
+        /// Whether this certificate has expired at the given moment.
+        /// </summary>
+        /// <param name="Now">What time it is, by the clock of whoever asks.</param>
+        public Boolean IsExpiredAt(DateTimeOffset Now)
+            => NotAfter < Now;
+
+        /// <summary>
+        /// Whether this certificate could be used at the given moment: active,
+        /// and within its own validity.
+        /// </summary>
+        /// <param name="Now">What time it is, by the clock of whoever asks.</param>
+        public Boolean IsUsableAt(DateTimeOffset Now)
+            => IsActive && !IsExpiredAt(Now) && !IsNotYetValidAt(Now);
 
         #endregion
 
@@ -172,7 +234,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                             IEnumerable<CertificateUsage>?  Usages  = null)
         {
 
-            var thumbprint = ThumbprintOf(Certificate);
+            var thumbprint             = ThumbprintOf(Certificate);
+            var (notBefore, notAfter)  = ValidityOf(Certificate);
 
             return new CertificateEntry(
                        thumbprint[..IdLength],
@@ -185,8 +248,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                        Certificate.Issuer,
                        Certificate.SerialNumber,
                        thumbprint,
-                       Certificate.NotBefore.ToUniversalTime(),
-                       Certificate.NotAfter. ToUniversalTime(),
+                       notBefore,
+                       notAfter,
                        KeyAlgorithmOf(Certificate),
                        Certificate.HasPrivateKey,
                        ChainLength,
@@ -195,7 +258,91 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                        Kind.HasUsages() && Usages is not null
                            ? [.. Usages]
                            : null
-                   );
+                   ) {
+                       KeyPin = KeyPinOf(Certificate)
+                   };
+
+        }
+
+        #endregion
+
+        #region (static) KeyPinOf(Certificate)
+
+        /// <summary>
+        /// The key pin of the key in a certificate, or null where this runtime
+        /// cannot write its public key out - which it can for every kind of key
+        /// it reads at all, so null is a key nobody here could use anyway.
+        /// </summary>
+        public static KeyPin? KeyPinOf(X509Certificate2 Certificate)
+        {
+            try
+            {
+                return KeyPin.FromCertificate(Certificate);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        #endregion
+
+        #region (static) ValidityOf(Certificate)
+
+        /// <summary>
+        /// When a certificate starts and stops being valid, in UTC, as it is
+        /// written in the certificate.
+        /// </summary>
+        /// <remarks>
+        /// Read from the certificate's own bytes rather than from
+        /// <see cref="X509Certificate2.NotAfter"/>, which hands a moment back
+        /// in the local time of the machine and cannot hold the last second of
+        /// 9999 east of Greenwich: it is cut off at the end of the year in local
+        /// time, and turned back to UTC an hour short or more. That is the end
+        /// RFC 5280 4.1.2.5 gives a certificate without a well-defined one -
+        /// a server key's carrier, see <see cref="CertificateStore.CarrierNotAfter"/> -
+        /// and a store that wrote it down an hour short would write a different
+        /// index in Berlin than in London. Where the bytes cannot be read this
+        /// way, what the runtime says is taken after all.
+        /// </remarks>
+        public static (DateTimeOffset NotBefore, DateTimeOffset NotAfter) ValidityOf(X509Certificate2 Certificate)
+        {
+
+            try
+            {
+
+                // Certificate ::= SEQUENCE { tbsCertificate SEQUENCE {
+                //     [0] version OPTIONAL, serialNumber, signature, issuer,
+                //     validity SEQUENCE { notBefore, notAfter }, ... } ... }
+                var certificate  = new AsnReader(Certificate.RawData, AsnEncodingRules.DER).ReadSequence();
+                var tbs          = certificate.ReadSequence();
+
+                if (tbs.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                    tbs.ReadEncodedValue();
+
+                tbs.ReadEncodedValue();   // serialNumber
+                tbs.ReadEncodedValue();   // signature
+                tbs.ReadEncodedValue();   // issuer
+
+                var validity     = tbs.ReadSequence();
+
+                static DateTimeOffset Time(AsnReader Reader)
+
+                    => Reader.PeekTag().HasSameClassAndValue(Asn1Tag.UtcTime)
+                           ? Reader.ReadUtcTime().ToUniversalTime()
+                           : Reader.ReadGeneralizedTime().ToUniversalTime();
+
+                var notBefore    = Time(validity);
+                var notAfter     = Time(validity);
+
+                return (notBefore, notAfter);
+
+            }
+            catch (Exception)
+            {
+                return (Certificate.NotBefore.ToUniversalTime(),
+                        Certificate.NotAfter. ToUniversalTime());
+            }
 
         }
 
@@ -432,7 +579,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                         JSON.Value<Boolean?>("active")        ?? true,
                         Moment(JSON, "importedAt") ?? DateTimeOffset.UtcNow,
                         kind.HasUsages() ? usages : null
-                    );
+                    ) {
+                        KeyPin = KeyPin.TryParse(JSON.Value<String>("keyPin"), out var keyPin) ? keyPin : null
+                    };
 
             return true;
 
@@ -483,7 +632,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         #endregion
 
-        #region ToJSON(WithDiagnostics = false)
+        #region ToJSON(WithDiagnostics = false, Now = null)
 
         /// <summary>
         /// This entry as the index file holds it, and as the JSON API hands it
@@ -494,7 +643,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// usable. Written for a page and not for the file, because a stored
         /// document that says "valid" is wrong the day after it is written.
         /// </param>
-        public JObject ToJSON(Boolean WithDiagnostics = false)
+        /// <param name="Now">What time it is by the clock of whoever asks, for the diagnostics; the system's where it is not given.</param>
+        public JObject ToJSON(Boolean          WithDiagnostics   = false,
+                              DateTimeOffset?  Now               = null)
         {
 
             var json = new JObject(
@@ -519,6 +670,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                            new JProperty("importedAt",    ImportedAt.UtcDateTime)
                        );
 
+            if (KeyPin is not null)
+                json.Add("keyPin", KeyPin.ToHex());
+
             // Only where the kind has usages at all, and null there for every
             // use: a V2G root that said "usages" would be asked which, and has
             // no answer.
@@ -529,9 +683,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             if (WithDiagnostics)
             {
-                json.Add("expired",      IsExpired);
-                json.Add("notYetValid",  IsNotYetValid);
-                json.Add("usable",       IsUsable);
+                var now = Now ?? DateTimeOffset.UtcNow;
+
+                json.Add("expired",      IsExpiredAt    (now));
+                json.Add("notYetValid",  IsNotYetValidAt(now));
+                json.Add("usable",       IsUsableAt     (now));
                 json.Add("description",  Kind.Describe());
                 json.Add("custom",       Kind.IsCustom);
             }

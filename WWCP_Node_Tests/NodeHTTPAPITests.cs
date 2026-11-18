@@ -405,6 +405,80 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ServerKeys_AreListedByAReader_AndMadeAndSwitchedByAWriter()
+
+        /// <summary>
+        /// The server keys of a listener under /api/v1/certificates/serverKeys:
+        /// a reader lists them, with their key pins and which is current and
+        /// next; only a writer makes one or switches. A key that would take the
+        /// place of what is shown is refused, and a switch that names another
+        /// key pin than the announced next key's is a conflict.
+        /// </summary>
+        [Test]
+        public async Task ServerKeys_AreListedByAReader_AndMadeAndSwitchedByAWriter()
+        {
+
+            await using var node      = await Started();
+
+            var password       = "A-Viewer-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
+
+            await AccountIn(node, "viewer1", "viewer", password);
+
+            using var viewer   = Client(node, "viewer1", password);
+            using var root     = Root(node);
+
+            var (notByAReader, _)       = await Send(viewer, HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp",        new JObject());
+            var (made,         first)   = await Send(root,   HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp",        new JObject());
+            var (notTwice,     why)     = await Send(root,   HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp",        new JObject());
+            var (announced,    second)  = await Send(root,   HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp",        new JObject(new JProperty("asNext", true)));
+            var (listed,       keys)    = await Send(viewer, HttpMethod.Get,  "api/v1/certificates/serverKeys/ocpp");
+            var (all,          every)   = await Send(viewer, HttpMethod.Get,  "api/v1/certificates/serverKeys");
+            var (noName,       _)       = await Send(viewer, HttpMethod.Get,  "api/v1/certificates/serverKeys/1-not-a-name");
+
+            var firstPin   = first ["key"]!.Value<String>("keyPin")!;
+            var secondPin  = second["key"]!.Value<String>("keyPin")!;
+
+            var (wrongPin,     conflict) = await Send(root,   HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp/switch", new JObject(new JProperty("ifNextKeyPinIs", firstPin)));
+            var (notAPin,      _)        = await Send(root,   HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp/switch", new JObject(new JProperty("ifNextKeyPinIs", "nope")));
+            var (viewerSwitch, _)        = await Send(viewer, HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp/switch", new JObject());
+            var (switched,     after)    = await Send(root,   HttpMethod.Post, "api/v1/certificates/serverKeys/ocpp/switch", new JObject(new JProperty("ifNextKeyPinIs", secondPin)));
+
+            Assert.Multiple(() => {
+
+                Assert.That(notByAReader,                                 Is.EqualTo(HttpStatusCode.Forbidden));
+                Assert.That(made,                                         Is.EqualTo(HttpStatusCode.Created), first.ToString());
+                Assert.That(first["key"]!.Value<String>("state"),         Is.EqualTo("current"));
+                Assert.That(firstPin,                                     Does.Match("^[0-9a-f]{64}$"));
+                Assert.That(first["key"]!["carrier"]!.Value<String>("keyPin"), Is.EqualTo(firstPin));
+                Assert.That(notTwice,                                     Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(why.Value<String>("error"),                   Does.Contain("does not take its place"));
+                Assert.That(announced,                                    Is.EqualTo(HttpStatusCode.Created), second.ToString());
+
+                Assert.That(listed,                                       Is.EqualTo(HttpStatusCode.OK), keys.ToString());
+                Assert.That(keys.Value<String>("listener"),               Is.EqualTo("ocpp"));
+                Assert.That(keys.Value<String>("current"),                Is.EqualTo(firstPin));
+                Assert.That(keys.Value<String>("next"),                   Is.EqualTo(secondPin));
+                Assert.That(keys["shown"]!.Value<String>("presentedAs"),  Is.EqualTo("carrier"));
+                Assert.That(keys["keys"]!.Select(key => key.Value<String>("state")), Is.EquivalentTo(new[] { "current", "next" }));
+                Assert.That(all,                                          Is.EqualTo(HttpStatusCode.OK), every.ToString());
+                Assert.That(every["listeners"]!.Select(one => one.Value<String>("listener")), Is.EqualTo(new[] { "ocpp" }));
+                Assert.That(noName,                                       Is.EqualTo(HttpStatusCode.BadRequest));
+
+                Assert.That(wrongPin,                                     Is.EqualTo(HttpStatusCode.Conflict), conflict.ToString());
+                Assert.That(conflict.Value<String>("error"),              Does.Contain(secondPin));
+                Assert.That(notAPin,                                      Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(viewerSwitch,                                 Is.EqualTo(HttpStatusCode.Forbidden));
+                Assert.That(switched,                                     Is.EqualTo(HttpStatusCode.OK), after.ToString());
+                Assert.That(after.Value<String>("before"),                Is.EqualTo(firstPin));
+                Assert.That(after["serverKeys"]!.Value<String>("current"), Is.EqualTo(secondPin));
+                Assert.That(after["serverKeys"]!["keys"]!.Single(key => key.Value<String>("keyPin") == firstPin).Value<String>("state"), Is.EqualTo("former"));
+
+            });
+
+        }
+
+        #endregion
+
         #region ACertificateTheKindUsesIsNotDeletedAndItsChoiceIsInTheAnswer()
 
         /// <summary>

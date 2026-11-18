@@ -166,6 +166,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         public IReadOnlyList<CertificateUsage> Listeners { get; }
 
         /// <summary>
+        /// The clock this store judges by: whether a certificate has started
+        /// or stopped being valid, and when something was put in or switched.
+        /// </summary>
+        /// <remarks>
+        /// Its node's, handed in rather than reached for, so that the store and
+        /// the node it belongs to never disagree about a certificate - a page
+        /// that called one usable while the log called it expired would have to
+        /// be explained - and so that a test can let a certificate run out
+        /// without waiting for it. The system's where nothing is handed in.
+        /// </remarks>
+        public TimeProvider Clock { get; }
+
+        /// <summary>
         /// Everything in the store, roots before credentials and each group by
         /// label.
         /// </summary>
@@ -233,17 +246,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="Usages">The usages the kind of node adds to the node's own, <see cref="CertificateUsages.All"/>.</param>
         /// <param name="Listeners">The listeners of the kind of node a TLS server identity may be told it is shown on; none by default.</param>
         /// <param name="RequestKinds">The kinds of certificate the node makes keys and signing requests for; none by default.</param>
+        /// <param name="Clock">The clock the store judges by - its node's; the system's by default.</param>
         public CertificateStore(String                         Directory,
                                 EventLog                       Log,
                                 IEnumerable<CertificateKind>?  Kinds          = null,
                                 String?                        NodeName       = null,
                                 IEnumerable<String>?           Usages         = null,
                                 IEnumerable<String>?           Listeners      = null,
-                                IEnumerable<CertificateKind>?  RequestKinds   = null)
+                                IEnumerable<CertificateKind>?  RequestKinds   = null,
+                                TimeProvider?                  Clock          = null)
         {
 
             this.Directory  = Path.GetFullPath(Directory);
             this.log        = Log;
+            this.Clock      = Clock ?? TimeProvider.System;
             this.Kinds      = [.. (Kinds ?? CertificateKindExtensions.All).Distinct().OrderBy(kind => kind.SortOrder())];
             this.NodeName   = NodeName ?? "node";
 
@@ -489,7 +505,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                             known?.Label,
                                             chainLength,
                                             known?.IsActive ?? true,
-                                            known?.ImportedAt,
+                                            known?.ImportedAt ?? Clock.GetUtcNow(),
                                             known?.Usages
                                         );
 
@@ -553,6 +569,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                 foreach (var entry in found)
                     entries.Add(entry.Key, entry.Value);
+
+                // The server keys, against what was found of their carriers -
+                // before the index is written, which carries them.
+                ReconcileServerKeys();
 
                 // What was read is what the directory holds, whether or not
                 // the index can say so: that it could not is logged.
@@ -728,6 +748,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                     if (File.Exists(target))
                     {
                         log.Warning($"Certificates: '{relative}' was left where it is - '{RelativeName(To, name)}' is there already.",
+                                    "certificates");
+                        continue;
+                    }
+
+                    // Moved to another kind, it is no TLS server identity any
+                    // more, which is what taking it out would do - see MayRemove.
+                    if (!MayRemove(entries.Values.Where(entry => entry.FileName == relative), "moved", out var staying))
+                    {
+                        log.Warning($"Certificates: '{relative}' was left where it is - {staying}",
                                     "certificates");
                         continue;
                     }
@@ -1676,8 +1705,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                        fileName,
                                        label,
                                        collection.Count - 1,
-                                       IsActive:  true,
-                                       Usages:    usages
+                                       IsActive:    true,
+                                       ImportedAt:  Clock.GetUtcNow(),
+                                       Usages:      usages
                                    );
 
                     label ??= imported.Label;
@@ -1869,6 +1899,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             {
 
                 if (!TryRegistrations(Id, Kind, out var targets, out Error))
+                    return false;
+
+                // Switched off, it is shown no more, which is what taking it
+                // out would do - see MayRemove.
+                if (!Active && !MayRemove(targets.Where(entry => entry.IsActive), "switched off", out Error))
                     return false;
 
                 var switched = targets.Where(entry => entry.IsActive != Active).ToList();
@@ -2101,6 +2136,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 if (!TrySettleUsages(entry.Kind, Usages, out var usages, out Error))
                     return false;
 
+                if (!SameUsages(entry.Usages, usages) && !MayRetell(entry, usages, out Error))
+                    return false;
+
                 if (SameUsages(entry.Usages, usages))
                 {
                     Entry = entry;
@@ -2212,6 +2250,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 if (!TryRegistrations(Id, Kind, out var targets, out Error))
                     return false;
 
+                // The carrier of a listener's current server key, and whatever
+                // a listener is showing right now, stay - see MayRemove.
+                if (!MayRemove(targets, "removed", out Error))
+                    return false;
+
                 foreach (var entry in targets)
                 {
 
@@ -2230,7 +2273,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
                         // What was deleted before is gone, and is said so.
                         if (storeChanged)
+                        {
+                            ForgetServerKeysWithoutCarrier();
                             TryWriteIndex(PutBack: false, out _);
+                        }
 
                         return false;
 
@@ -2253,7 +2299,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 // The files are gone, and the entries with them, whether or not
                 // the index can say so: an entry whose file is not there is
                 // dropped at the next reading. That it could not be written is
-                // logged.
+                // logged. A server key whose carrier went is a server key no
+                // more, and goes from the index with it.
+                ForgetServerKeysWithoutCarrier();
                 TryWriteIndex(PutBack: false, out _);
 
                 return true;
@@ -2390,8 +2438,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             try
             {
+                var now = Clock.GetUtcNow();
+
                 return entries.Values.Where  (entry => String.Equals(entry.Thumbprint, fingerprint, StringComparison.OrdinalIgnoreCase)).
-                                      OrderBy(entry => entry.IsUsable ? 0 : 1).
+                                      OrderBy(entry => entry.IsUsableAt(now) ? 0 : 1).
                                       ThenBy (entry => entry.Kind.SortOrder()).
                                       FirstOrDefault();
             }
@@ -2411,11 +2461,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
         /// <summary>
         /// Everything of one kind this node would use right now: switched
-        /// on, and inside its own validity.
+        /// on, inside its own validity by the store's clock, and no
+        /// certificate of a server key that is not its listener's current one.
         /// </summary>
         public IReadOnlyList<CertificateEntry> UsableByKind(CertificateKind Kind)
+        {
 
-            => [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsable)];
+            var now     = Clock.GetUtcNow();
+            var hidden  = PinsNotShown();
+
+            return [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsableAt(now) && !NotShown(entry, hidden))];
+
+        }
 
         /// <summary>
         /// Everything of one kind this node would use right now for the given
@@ -2426,8 +2483,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// <param name="Usage">The usage.</param>
         public IReadOnlyList<CertificateEntry> UsableFor(CertificateKind   Kind,
                                                         CertificateUsage  Usage)
+        {
 
-            => [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsable && entry.IsFor(Usage))];
+            var now     = Clock.GetUtcNow();
+            var hidden  = PinsNotShown();
+
+            return [.. Entries.Where(entry => entry.Kind == Kind && entry.IsUsableAt(now) && entry.IsFor(Usage) && !NotShown(entry, hidden))];
+
+        }
 
         #endregion
 
@@ -2573,6 +2636,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         {
 
             var parts = new List<String>();
+            var now   = Clock.GetUtcNow();
 
             foreach (var kind in entries.Values.Select(entry => entry.Kind).Concat(Kinds).Distinct().OrderBy(kind => kind.SortOrder()))
             {
@@ -2582,7 +2646,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                 if (all.Length == 0)
                     continue;
 
-                var usable = all.Count(entry => entry.IsUsable);
+                var usable = all.Count(entry => entry.IsUsableAt(now));
 
                 parts.Add(usable == all.Length
                               ? $"{all.Length} {kind.AsText()}"
@@ -3392,6 +3456,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             var remembered  = new Dictionary<(String Id, CertificateKind Kind), CertificateEntry>();
             var path        = Path.Combine(Directory, IndexFileName);
 
+            serverKeys.Clear();
+
             if (!File.Exists(path))
                 return remembered;
 
@@ -3399,6 +3465,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
             {
 
                 var json = JObject.Parse(File.ReadAllText(path));
+
+                ReadServerKeys(json);
 
                 if (json["certificates"] is not JArray array)
                     return remembered;
@@ -3463,6 +3531,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                                            Select (entry => entry.ToJSON())
                                    ))
                            );
+
+                // Only where there are any, so that the index of a node that
+                // never made a server key reads as it did before there were.
+                if (serverKeys.Count > 0)
+                    json.Add(ServerKeysProperty, ServerKeysToJSON());
 
                 // Written beside and moved over, so that a node killed mid-write
                 // comes back to the index it had rather than to half of a new one.
