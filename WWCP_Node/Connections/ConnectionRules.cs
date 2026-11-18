@@ -37,8 +37,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// say nothing here: what they are told nothing of is as it always was.
     /// </para>
     /// <para>
-    /// A node that dials downwards - a CSMS dialling a charging station or a
-    /// local controller that cannot dial it - says what is different for it:
+    /// A node that dials downwards - a CSMS dialling a charging station, a
+    /// local controller or a gateway that cannot dial it - says what is
+    /// different for it:
     /// what is at the other end of its connections, that each of them names
     /// the node it leads to, and what it does not have - no OCPP server of
     /// its own for what dials back, since what dials it are its charging
@@ -71,7 +72,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public static readonly IReadOnlyList<ConnectionType> NodesBelow = [
             ConnectionType.ChargingStation,
-            ConnectionType.LocalController
+            ConnectionType.LocalController,
+            ConnectionType.Gateway
         ];
 
         #endregion

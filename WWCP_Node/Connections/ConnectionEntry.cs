@@ -78,9 +78,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// A gateway: between charging stations and local controllers below
         /// it and the CSMS above - what a station, a local controller or
-        /// another gateway dials as its back end. Not yet what a CSMS dials as
-        /// a node below it: what a gateway is to a CSMS that dials downwards
-        /// is not decided.
+        /// another gateway dials as its back end, and what a node above it, a
+        /// CSMS, dials downwards: there it is spoken to as a local controller
+        /// is, over the overlay network.
         /// </summary>
         Gateway
 
