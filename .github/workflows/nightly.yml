@@ -2,11 +2,11 @@ name: Nightly
 
 # The counterpart to ci.yml. That workflow gates every push; this one runs the
 # same build and the same tests once a night, whether or not anybody pushed —
-# and that is the point. Nothing here is pinned: Styx, Hermod, Norn and Urdr
-# are built from master, so a breaking change in one of them is found on the
+# and that is the point. Nothing here is pinned: Styx, Hermod, Norn, Urdr and
+# WWCP_Core are built from master, so a breaking change in one of them is found on the
 # night it lands rather than on the day somebody next touches this repository.
 # Hermod's nightly notices Styx the same way; this one is one repository
-# further up the stack, and has four to notice.
+# further up the stack, and has five to notice.
 #
 # Two things worth knowing about scheduled workflows: they only ever run on the
 # default branch, and GitHub disables them after 60 days without any repository
@@ -31,7 +31,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # Everything, against the tips. Same two legs as ci.yml — see there for why
   # it is exactly Windows and a debian:13 container, and for the side-by-side
-  # checkout of the four repositories this one is built on.
+  # checkout of the five repositories this one is built on.
   # ---------------------------------------------------------------------------
   full-suite:
     strategy:
@@ -79,6 +79,11 @@ jobs:
           repository: Vanaheimr/Urdr
           path: Urdr
 
+      - uses: actions/checkout@v7
+        with:
+          repository: OpenChargingCloud/WWCP_Core
+          path: WWCP_Core
+
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
@@ -98,7 +103,7 @@ jobs:
         run: dotnet test WWCP_Node_Tests/WWCP_Node_Tests.csproj --configuration Release --no-build --logger "console;verbosity=normal" --logger "trx;LogFileName=${{ matrix.leg }}.trx" --results-directory artifacts
 
       # The NuGet packages of the whole graph, transitives included — the test
-      # project is the widest of the six, and the four libraries built from
+      # project is the widest of the seven, and the five libraries built from
       # source beside it declare their packages inside it either way, so they
       # need no scan of their own.
       #
@@ -123,7 +128,7 @@ jobs:
             echo '## Known vulnerabilities (informational)'
             echo
             echo 'The NuGet packages of WWCP_Node and its tests, transitives included -'
-            echo 'and with them those of Styx, Hermod, Norn and Urdr, which are built'
+            echo 'and with them those of Styx, Hermod, Norn, Urdr and WWCP_Core, which are built'
             echo 'from source beside it. Informational: an advisory published overnight'
             echo 'is news, not a regression, so this step cannot turn the night red.'
             echo
