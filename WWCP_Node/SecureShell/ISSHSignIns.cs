@@ -87,8 +87,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// kind keeps for the login. A login let in so is confined as one a key let in. Default: no.
         /// </summary>
         /// <remarks>
-        /// A one-time password that is not bound to the session is a password, and a password opens no
-        /// login of a kind: the node never asks a kind about one.
+        /// A one-time password that is not bound to the session is a password, and opens a login of a
+        /// kind only as its password does - see <see cref="AuthorizePasswordAsync"/>.
         /// </remarks>
         /// <param name="Username">The login name, as the client sent it.</param>
         /// <param name="Totp">The one-time password as it was sent.</param>
@@ -100,6 +100,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                                                               ReadOnlyMemory<Byte>   SessionId,
                                                               System.Net.IPAddress?  Client,
                                                               CancellationToken      CancellationToken = default)
+
+            => ValueTask.FromResult(false);
+
+        /// <summary>
+        /// Whether these logins can sign in with a password: the node offers the method "password"
+        /// where a kind says so, as it does where its accounts may. Default: no.
+        /// </summary>
+        Boolean                TakesPasswords
+
+            => false;
+
+        /// <summary>
+        /// Whether the given password lets the given login in now. A login let in so is confined as one
+        /// a key let in. Default: no.
+        /// </summary>
+        /// <remarks>
+        /// The password goes through the encrypted SSH connection, to the server whose host key the
+        /// client checked - as a password over TLS does. A kind decides, as it does on its other doors,
+        /// whether a login may use one.
+        /// </remarks>
+        /// <param name="Username">The login name, as the client sent it.</param>
+        /// <param name="Password">The password as it was sent.</param>
+        /// <param name="Client">The address of the client, or null where it can not be told.</param>
+        /// <param name="CancellationToken">An optional token to cancel this request.</param>
+        ValueTask<Boolean>     AuthorizePasswordAsync(String                 Username,
+                                                      String                 Password,
+                                                      System.Net.IPAddress?  Client,
+                                                      CancellationToken      CancellationToken = default)
 
             => ValueTask.FromResult(false);
 
@@ -120,7 +148,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <summary>
         /// Why the given session may not go on - the login gone or switched off, the key it came with
         /// taken out, the secret of the one-time password it came with (no key, and the method
-        /// <c>totp@open.charging.cloud</c>) changed - or null where it may. Asked before every subsystem and every few seconds while a
+        /// <c>totp@open.charging.cloud</c>) changed, the password it came with (the method
+        /// <c>password</c>) changed - or null where it may. Asked before every subsystem and every few seconds while a
         /// session lasts.
         /// </summary>
         /// <param name="Session">The session, as it signed in.</param>

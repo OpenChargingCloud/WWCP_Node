@@ -58,7 +58,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// A one-time password bound to the session (totp@open.charging.cloud)
     /// opens the logins of a kind that says it takes one, and nothing else:
     /// no account, and no login of a kind that does not. Unbound, a one-time
-    /// password is a password, and a password opens no login of a kind.
+    /// password is a password.
+    /// </para>
+    /// <para>
+    /// A password opens a login of a kind where the kind says it takes
+    /// passwords - asked of the kind, whatever the node says of its accounts -,
+    /// and never an account then: a name is one or the other.
     /// </para>
     /// </remarks>
     public sealed class NodeSSHAuthenticator : ISshUserAuthenticator
@@ -75,26 +80,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         /// <summary>
         /// "publickey"; "totp@open.charging.cloud" where a kind lets logins in that sign in with a
-        /// one-time password bound to the session; and "password" where the node says so. Asked at
-        /// every attempt: a kind may add its logins while the server runs.
+        /// one-time password bound to the session; and "password" where the node says so of its
+        /// accounts, or a kind of its logins. Asked at every attempt: a kind may add its logins while
+        /// the server runs.
         /// </summary>
         public IReadOnlyList<String> OfferedMethods
         {
             get
             {
 
-                var boundTotp = false;
+                var boundTotp      = false;
+                var kindPasswords  = false;
 
                 try
                 {
-                    boundTotp = node.SSHSignIns.Any(signIns => signIns.TakesSessionBoundTotp);
+                    boundTotp      = node.SSHSignIns.Any(signIns => signIns.TakesSessionBoundTotp);
+                    kindPasswords  = node.SSHSignIns.Any(signIns => signIns.TakesPasswords);
                 }
                 catch (Exception)
                 {
                     // What can not be told is not offered.
                 }
 
-                return (boundTotp, passwords) switch {
+                return (boundTotp, passwords || kindPasswords) switch {
                            (true,  true)  => [ "publickey", UserAuthentication.SessionBoundTotpMethod, "password" ],
                            (true,  false) => [ "publickey", UserAuthentication.SessionBoundTotpMethod ],
                            (false, true)  => [ "publickey", "password" ],
@@ -231,12 +239,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                                                                CancellationToken      CancellationToken = default)
         {
 
+            var (signIns, clash) = node.SSHLoginOf(Username);
+
+            // A kind's login with its password, where the kind takes passwords: the kind decides.
+            if (clash is null && signIns is not null && signIns.TakesPasswords)
+                return await signIns.AuthorizePasswordAsync(Username, Password, Client, CancellationToken);
+
             if (!passwords)
                 return false;
 
-            // A kind's login opens with its keys alone - and a name that is an account and such a login
-            // as well, with nothing: neither costs less than a password that opens nothing.
-            var user = node.SSHLoginOf(Username) is (null, null)
+            // A kind's login that takes no password opens with nothing here - and a name that is an
+            // account and such a login as well, with nothing: neither costs less than a password that
+            // opens nothing.
+            var user = (signIns, clash) is (null, null)
                            ? AccountMaySignIn(Username)
                            : null;
 

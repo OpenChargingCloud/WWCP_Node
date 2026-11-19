@@ -19,6 +19,7 @@
 
 using System.Collections.Concurrent;
 
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
@@ -34,9 +35,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// <summary>
     /// The charging stations, as logins of this local controller's SSH server:
     /// a station signs in under its identification with one of its SSH keys,
-    /// or with a one-time password of its TOTP secret that is bound to the
-    /// SSH session, for OCPP over SSH and for what else a station has over
-    /// its connection: its time and its names.
+    /// with a one-time password of its TOTP secret that is bound to the SSH
+    /// session, or with its password, for OCPP over SSH and for what else a
+    /// station has over its connection: its time and its names.
     /// </summary>
     /// <remarks>
     /// <b>The station logins decide, as over the WebSocket port.</b> A station
@@ -51,9 +52,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// the session identifier of the SSH connection it is sent in, so that
     /// it is good in that session and nowhere else. The group has to accept
     /// <see cref="AuthMethod.TOTP"/>, as it has to over the WebSocket port.
-    /// A one-time password that is not bound to the session is a password,
-    /// and a password opens no station's login: the node never asks about
-    /// one. What such a session may do is what a key's may, and no more.
+    /// What such a session may do is what a key's may, and no more.
+    ///
+    /// <b>Or its password, where its group accepts those.</b> The password the
+    /// station has here for HTTP Basic, sent as the SSH method "password":
+    /// through the encrypted connection, to the server whose host key the
+    /// station checked, as a password over TLS goes. The group has to accept
+    /// <see cref="AuthMethod.Basic"/>, as it has to over the WebSocket port. A
+    /// one-time password that is not bound to the session is sent this way as
+    /// well, and opens nothing: it is no password of the station. What such a
+    /// session may do is what a key's may, and it lasts while the password is
+    /// the one it came with.
     ///
     /// <b>OCPP - and its time and its names, where its group gives them.</b>
     /// The SSH connection is the station's, and OCPP one channel of it: NTS
@@ -73,14 +82,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// "principal=station:* service=subsystem:...".
     ///
     /// <b>Asked again while a session lasts.</b> Every few seconds, and at once
-    /// when the station logins change: a key taken away, a TOTP secret taken
-    /// away or changed, a station or its group switched off, ends the session
-    /// it opened.
+    /// when the station logins change: a key taken away, a TOTP secret or a
+    /// password taken away or changed, a station or its group switched off,
+    /// ends the session it opened.
     ///
-    /// Only stations with an SSH key or a TOTP secret are logins here, so
-    /// that a station that only ever signs in over the WebSocket port with a
-    /// password or a certificate does not take a name away from an account
-    /// of the same name on the SSH server.
+    /// Only stations with an SSH key, a TOTP secret or a password are logins
+    /// here, so that a station that only ever signs in over the WebSocket port
+    /// with a certificate does not take a name away from an account of the
+    /// same name on the SSH server.
     /// </remarks>
     public sealed class LoginSSHSignIns : ISSHSignIns
     {
@@ -126,6 +135,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// with what they are now.
         /// </remarks>
         private readonly ConcurrentDictionary<String, TOTPSettings>    letInWith = new (StringComparer.Ordinal);
+
+        /// <summary>
+        /// The password that last let a station in: a session that came with
+        /// it is held to it, as one that came with a one-time password is held
+        /// to its secret.
+        /// </summary>
+        private readonly ConcurrentDictionary<String, SecurePassword>  letInWithPassword = new (StringComparer.Ordinal);
 
         #endregion
 
@@ -187,13 +203,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         #region Knows(Username)
 
         /// <summary>
-        /// Whether the name is a charging station that has an SSH key, or a
-        /// TOTP secret.
+        /// Whether the name is a charging station that has an SSH key, a TOTP
+        /// secret or a password.
         /// </summary>
         public Boolean Knows(String Username)
 
             => logins.TryGet(Username, out var login) &&
-               (login.HasSSHKey || login.HasTOTP);
+               (login.HasSSHKey || login.HasTOTP || login.HasPassword);
 
         #endregion
 
@@ -278,6 +294,53 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
+        #region TakesPasswords / AuthorizePasswordAsync(Username, Password, Client, CancellationToken)
+
+        /// <summary>
+        /// Whether a station can sign in with its password now: while OCPP
+        /// over SSH is served, and some station has a password. The node
+        /// offers the method then.
+        /// </summary>
+        public Boolean TakesPasswords
+
+            => served() &&
+               logins.Logins.Any(login => login.HasPassword);
+
+        /// <summary>
+        /// Whether the password lets the station in: see the remarks of this
+        /// class.
+        /// </summary>
+        /// <remarks>
+        /// The password is checked first, and for a station that is not here
+        /// as well (<see cref="WebSocketLogins.Verify"/>), so that the answer
+        /// takes the same shape of time whoever asks; why a station that showed
+        /// the right one is turned away all the same is said in the log, as for
+        /// a key.
+        /// </remarks>
+        public ValueTask<Boolean> AuthorizePasswordAsync(String                 Username,
+                                                         String                 Password,
+                                                         System.Net.IPAddress?  Client,
+                                                         CancellationToken      CancellationToken = default)
+        {
+
+            if (!logins.Verify(Username, Password))
+                return ValueTask.FromResult(false);
+
+            if (WhyNotLetInWithPassword(Username, Saying: true) is not null ||
+                !logins.TryGet(Username, out var login) ||
+                login.Password is not SecurePassword password)
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            letInWithPassword[Username] = password;
+
+            return ValueTask.FromResult(true);
+
+        }
+
+        #endregion
+
         #region SubsystemsFor(Username) / GroupsOf(Username)
 
         /// <summary>
@@ -334,8 +397,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             if (Session.PublicKeyBlob is Byte[] key)
                 return WhyNotLetIn(Session.Username, key, Saying: false);
 
+            if (Session.Method == UserAuthentication.PasswordMethod)
+            {
+
+                if (WhyNotLetInWithPassword(Session.Username, Saying: false) is String whyNot)
+                    return whyNot;
+
+                // Held to the password it came with, as a key's session to its key.
+                if (!logins.TryGet(Session.Username, out var station) ||
+                    station.Password is not SecurePassword password ||
+                    !letInWithPassword.TryGetValue(Session.Username, out var cameWithPassword) ||
+                    !password.Equals(cameWithPassword))
+                {
+                    return $"the password the charging station '{Session.Username}' signed in with is no longer the one it has here - changed or taken away";
+                }
+
+                return null;
+
+            }
+
             if (Session.Method != SshSessionBoundTotp.MethodName)
-                return $"the charging station '{Session.Username}' signed in with neither an SSH key nor a one-time password of its session";
+                return $"the charging station '{Session.Username}' signed in with neither an SSH key, a one-time password of its session nor its password";
 
             if (WhyNotLetInWithTotp(Session.Username, Saying: false) is String why)
                 return why;
@@ -397,6 +479,49 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
+
+        #region (private) WhyNotLetInWithPassword(Id, Saying)
+
+        /// <summary>
+        /// Why the station may not sign in with its password now, or null
+        /// where it may - the password itself aside, which is checked where it
+        /// is shown.
+        /// </summary>
+        private String? WhyNotLetInWithPassword(String   Id,
+                                                Boolean  Saying)
+        {
+
+            if (!served())
+                return "OCPP over SSH is switched off";
+
+            if (!logins.TryGet(Id, out var login))
+                return $"there is no charging station '{Id}' any more";
+
+            String? why = null;
+
+            if (!login.HasPassword)
+                why = $"the charging station '{Id}' has no password here any more";
+
+            else if (!login.Enabled)
+                why = $"the charging station '{Id}' is switched off here";
+
+            else if (logins.GroupOf(login) is not WebSocketLoginGroup group)
+                why = $"the charging station '{Id}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
+
+            else if (!group.Enabled)
+                why = $"the charging station '{Id}' is in the login group '{group.Id}', which is switched off";
+
+            else if (!group.Allows(AuthMethod.Basic))
+                why = $"the charging station '{Id}' is in the login group '{group.Id}', which does not accept passwords";
+
+            if (why is not null && Saying)
+                Say(Id, why, timeProvider.GetUtcNow());
+
+            return why;
+
+        }
+
+        #endregion
 
         #region (private) WhyNotLetIn(Id, PublicKeyBlob, Saying)
 
