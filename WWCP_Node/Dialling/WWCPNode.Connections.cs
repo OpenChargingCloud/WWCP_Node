@@ -529,7 +529,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                          ".", "ocpp", "connections");
 
                 // Under a name of its own, and the primary under the name of the
-                // CSMS as well - see NextHopOf and CSMSNamesOf.
+                // CSMS as well - see NextHopOf and CSMSNamesOf -, and in the frame
+                // of the overlay network by the name its far end answers to.
+                NamedOnTheWire(Connection);
+
                 var response = await ConnectOverWebSocket(Connection, basic, validator, certificates, totp, totpLogin, CancellationToken);
 
                 // 101 and nothing else: an HTTP answer that is not an upgrade
@@ -677,27 +680,44 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (protected internal) DestinationOf(Connection)
+        #region (protected internal virtual) FarEndNameOf(Connection)
 
         /// <summary>
-        /// Where what this node says by itself over a connection goes - its
-        /// BootNotification, its heartbeats: the connection's own name, by
-        /// which the node routes it - and in the overlay network, for the
-        /// primary, the name of the CSMS, which routes to the same line.
+        /// What the node at the far end of a connection answers to, as the
+        /// frame of the overlay network names it: the node the connection
+        /// names, where it names one, and the CSMS otherwise - "CSMS", in
+        /// OCPP 1.6 "CentralSystem".
         /// </summary>
         /// <remarks>
-        /// In the overlay network the frame carries where it goes, and the
-        /// far end reads it: a name of the connection's own is this node's
-        /// alone, and the far end takes what is sent to it for something to
-        /// pass on - and turns it away. In the plain frame of OCPP nothing
-        /// of it is sent.
+        /// The connection's own name - see NextHopOf - routes what this node
+        /// says by itself over the line, its BootNotification and heartbeats
+        /// among it, every line of a version a route of its own; the far end
+        /// does not know that name, and took what came by it for something to
+        /// pass on, and turned it away. So the routing writes this one in its
+        /// place, see Routing.SetNameOnTheWire.
         /// </remarks>
-        protected internal NetworkingNode_Id DestinationOf(ConnectionEntry Connection)
+        protected internal virtual NetworkingNode_Id FarEndNameOf(ConnectionEntry Connection)
 
-            => NetworkingModeOf(Connection) == NetworkingMode.OverlayNetwork &&
-               CSMSNamesOf(Connection) is [ var csms, .. ]
-                   ? csms
-                   : NextHopOf(Connection);
+            => !Connection.Inbound && Connection.RemoteNodeId is String itsNode
+                   ? NetworkingNode_Id.Parse(itsNode)
+                   : Connection.OCPPVersion == OCPPVersion.OCPP1_6
+                         ? NetworkingNode_Id.CentralSystem
+                         : NetworkingNode_Id.CSMS;
+
+        #endregion
+
+        #region (private) NamedOnTheWire(Connection)
+
+        /// <summary>
+        /// The routing of the node that dials the connection told what the far
+        /// end of its route answers to - see FarEndNameOf.
+        /// </summary>
+        private void NamedOnTheWire(ConnectionEntry Connection)
+
+            => DiallingNodeOrNoneOf(Connection.OCPPVersion)?.Routing.SetNameOnTheWire(
+                   NextHopOf   (Connection),
+                   FarEndNameOf(Connection)
+               );
 
         #endregion
 
@@ -1193,6 +1213,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var peer    = SshPeerFor(Connection, login, trust);
 
             // Named as over a WebSocket - see Dial.
+            NamedOnTheWire(Connection);
+
             var result  = await ConnectOverSSH(Connection,
                                                node,
                                                login,
