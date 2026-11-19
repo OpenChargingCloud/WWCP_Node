@@ -178,7 +178,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public virtual Byte[] CBORFrameOf(String Text)
 
-            => throw new NotSupportedException($"This {NodeWording.Noun} writes nothing as CBOR.");
+            => throw new NotSupportedException($"This {WWCPNode.NodeNoun} writes nothing as CBOR.");
 
         /// <summary>
         /// What the given CBOR frame stands for, as JSON: nothing is read as CBOR.
@@ -188,7 +188,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                              [NotNullWhen(false)] out String?  Error)
         {
             JSON   = null;
-            Error  = $"This {NodeWording.Noun} reads nothing as CBOR.";
+            Error  = $"This {WWCPNode.NodeNoun} reads nothing as CBOR.";
             return false;
         }
 
@@ -221,7 +221,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            CancellationToken                                  CancellationToken)
 
             => Task.FromResult<(IWWCPClient?, Boolean, Exception?)>(
-                   (null, false, new NotSupportedException($"This {NodeWording.Noun} dials nothing over SSH."))
+                   (null, false, new NotSupportedException($"This {WWCPNode.NodeNoun} dials nothing over SSH."))
                );
 
         #endregion
@@ -236,7 +236,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                               String     Action,
                                               JObject?   Payload)
 
-            => $"This {NodeWording.Noun} believes its server by a key pin it learned on its first connection, " +
+            => $"This {WWCPNode.NodeNoun} believes its server by a key pin it learned on its first connection, " +
                 "which is on probation: until a signed pin set confirms it, nothing is executed.";
 
         #endregion

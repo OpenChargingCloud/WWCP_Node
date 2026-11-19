@@ -119,6 +119,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
+        #region NodeNoun
+
+        /// <summary>
+        /// What the node calls itself in what this store says: "this station
+        /// cannot ..." - the node's own word, or the process's where none was
+        /// given.
+        /// </summary>
+        public String NodeNoun
+            => nodeNoun ?? NodeWording.Noun;
+
+        private readonly String? nodeNoun;
+
+        #endregion
+
         #region Constructor(s)
 
         /// <summary>
@@ -130,11 +144,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <exception cref="InvalidOperationException">There is a key, and it cannot be read.</exception>
         public SshClientKey(String   Directory,
                             String   Comment,
-                            String?  KeyFileName   = null)
+                            String?  KeyFileName   = null,
+                            String?  NodeNoun      = null)
         {
 
-            this.Path     = System.IO.Path.Combine(System.IO.Path.GetFullPath(Directory), KeyFileName ?? FileName);
-            this.Comment  = Comment;
+            this.Path      = System.IO.Path.Combine(System.IO.Path.GetFullPath(Directory), KeyFileName ?? FileName);
+            this.Comment   = Comment;
+            this.nodeNoun  = NodeNoun;
 
             if (File.Exists(Path))
                 key = Read(Path);
@@ -354,9 +370,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 Volatile.Write(ref key, newKey);
 
                 OnNotice?.Invoke(LogLevel.Notice,
-                                 $"A key was made for this {NodeWording.Noun} to sign in with over SSH: {newKey.AlgorithmNames[0]} " +
+                                 $"A key was made for this {NodeNoun} to sign in with over SSH: {newKey.AlgorithmNames[0]} " +
                                  $"{SshFingerprint.Sha256(newKey.PublicKeyBlob)}, kept in '{Path}'. " +
-                                 $"Its public half goes into the authorized_keys of every back end this {NodeWording.Noun} dials over SSH.");
+                                 $"Its public half goes into the authorized_keys of every back end this {NodeNoun} dials over SSH.");
 
                 return newKey;
 
@@ -401,7 +417,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// be a new identity, which every back end that knew the old one turns
         /// away.
         /// </summary>
-        private static ISshHostKey Read(String Path)
+        private ISshHostKey Read(String Path)
         {
             try
             {
@@ -410,7 +426,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             catch (Exception problem)
             {
                 throw new InvalidOperationException(
-                          $"The key this {NodeWording.Noun} signs in with over SSH, in '{Path}', could not be read: {problem.Message} " +
+                          $"The key this {NodeNoun} signs in with over SSH, in '{Path}', could not be read: {problem.Message} " +
                           "Repair it, or remove it for a new one - whose public half every back end then has to be given again.",
                           problem
                       );

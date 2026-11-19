@@ -90,7 +90,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected internal AWWCPNetworkingNode DiallingNodeOf(OCPPVersion Version)
 
             => DiallingNodeOrNoneOf(Version)
-                   ?? throw new InvalidOperationException($"This {NodeWording.Noun} does not speak {ConnectionEntry.AsText(Version)}.");
+                   ?? throw new InvalidOperationException($"This {NodeNoun} does not speak {ConnectionEntry.AsText(Version)}.");
 
         #endregion
 
@@ -411,7 +411,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return (showing.Length == 1
                                 ? $"The connection '{showing[0]}' shows it"
                                 : $"{showing.Length} connections show it ({String.Join(", ", showing.Select(name => $"'{name}'"))})") +
-                           $" when this {NodeWording.Noun} dials. Choose another identity on the Connections page first - or switch this one off, which keeps it.";
+                           $" when this {NodeNoun} dials. Choose another identity on the Connections page first - or switch this one off, which keeps it.";
 
             }
 

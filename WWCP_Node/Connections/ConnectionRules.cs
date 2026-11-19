@@ -128,37 +128,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                              OCPPVersion                       Version,
                              Boolean                           Inbound,
                              String?                           RemoteNodeId,
-                             [NotNullWhen(false)] out String?  Error)
+                             [NotNullWhen(false)] out String?  Error,
+                             String?                           NodeNoun   = null)
         {
 
             if (!Types.Contains(Type))
             {
-                Error = $"'{Type}' is not what a connection of this {NodeWording.Noun} leads to. It leads to: {String.Join(", ", Types)}.";
+                Error = $"'{Type}' is not what a connection of this {NodeNoun ?? NodeWording.Noun} leads to. It leads to: {String.Join(", ", Types)}.";
                 return false;
             }
 
             if (URL.Scheme == URIScheme.ssh && !SSH)
             {
-                Error = $"This {NodeWording.Noun} dials over ws:// and wss://, and not over ssh://.";
+                Error = $"This {NodeNoun ?? NodeWording.Noun} dials over ws:// and wss://, and not over ssh://.";
                 return false;
             }
 
             if (Version == OCPPVersion.OCPP1_6 && !OCPP1_6)
             {
-                Error = $"This {NodeWording.Noun} speaks {ConnectionEntry.AsText(OCPPVersion.OCPP2_1)} on its connections, and no OCPP 1.6.";
+                Error = $"This {NodeNoun ?? NodeWording.Noun} speaks {ConnectionEntry.AsText(OCPPVersion.OCPP2_1)} on its connections, and no OCPP 1.6.";
                 return false;
             }
 
             if (Inbound && !this.Inbound)
             {
-                Error = $"A connection of this {NodeWording.Noun} is one it dials. What dials this {NodeWording.Noun} comes in over its own server, " +
+                Error = $"A connection of this {NodeNoun ?? NodeWording.Noun} is one it dials. What dials this {NodeNoun ?? NodeWording.Noun} comes in over its own server, " +
                         "and is written down there.";
                 return false;
             }
 
             if (!NamesTheNodeItLeadsTo && RemoteNodeId is not null)
             {
-                Error = $"What this {NodeWording.Noun} dials is its back end, and is spoken to as that: a connection names no node at its other end.";
+                Error = $"What this {NodeNoun ?? NodeWording.Noun} dials is its back end, and is spoken to as that: a connection names no node at its other end.";
                 return false;
             }
 
@@ -166,7 +167,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             {
                 Error = "Say which node is at the other end - the name it is spoken to by, as a charging station that dials is known by the " +
                         "name its URL ends with. Nothing in the URL of this connection says it: that ends with the name this " +
-                        $"{NodeWording.Noun} comes under.";
+                        $"{NodeNoun ?? NodeWording.Noun} comes under.";
                 return false;
             }
 

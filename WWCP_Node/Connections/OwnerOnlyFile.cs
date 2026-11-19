@@ -22,43 +22,52 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// Writing a file that only its owner may read.
     /// </summary>
     /// <remarks>
-    /// What goes through here is what this station cannot let anybody else
-    /// read: the private keys it dials its back ends with, and the credentials
-    /// that go alongside them. The accounts are not among them - the HTTPExt
-    /// API keeps those, and their permissions with them.
+    /// What goes through here is what this node cannot let anybody else
+    /// read: the private keys it dials its back ends with, the credentials
+    /// that go alongside them, and the logins of the charging stations it
+    /// serves. The accounts are not among them - the HTTPExt API keeps those,
+    /// and their permissions with them.
     ///
-    /// <b>The mode goes on at creation and not afterwards.</b> Creating a file
-    /// readable and restricting it once the content is in leaves a window, and
-    /// the window is exactly as long as the writing.
-    ///
-    /// On Windows there is no mode to set - permissions there are ACLs
-    /// inherited from the directory - so this falls back to an ordinary write.
-    /// Saying so is better than a call that quietly does nothing.
+    /// <b>The restriction goes on before the content and not afterwards.</b>
+    /// Creating a file readable and restricting it once the content is in
+    /// leaves a window, and the window is exactly as long as the writing. On
+    /// Unix the mode is given at creation; on Windows the file gets
+    /// <see cref="OwnerOnly"/>'s protected access control list while it is
+    /// still empty - nothing inherited from the folder above, which at the
+    /// root of a drive grants every authenticated user.
     /// </remarks>
     internal static class OwnerOnlyFile
     {
 
-        #region Write(Path, Content)
+        #region Write(Path, Content, Complain = null)
 
         /// <summary>
-        /// Writes a file readable and writable by its owner alone (0600 on
-        /// Unix); an ordinary write on Windows, where the directory decides.
+        /// Writes a file readable and writable by its owner alone: 0600 on
+        /// Unix, and on Windows its owner, SYSTEM and the administrators.
         /// </summary>
-        public static void Write(String Path, String Content)
+        /// <param name="Path">The file.</param>
+        /// <param name="Content">What goes into it.</param>
+        /// <param name="Complain">Told what could not be restricted, and why - a file system that knows neither, say. The file is written all the same.</param>
+        public static void Write(String           Path,
+                                 String           Content,
+                                 Action<String>?  Complain   = null)
         {
 
-            if (OperatingSystem.IsWindows())
-            {
-                File.WriteAllText(Path, Content);
-                return;
-            }
-
             using var stream = File.Open(Path,
-                                         new FileStreamOptions {
-                                             Mode            = FileMode.Create,
-                                             Access          = FileAccess.Write,
-                                             UnixCreateMode  = UnixFileMode.UserRead | UnixFileMode.UserWrite
-                                         });
+                                         OperatingSystem.IsWindows()
+                                             ? new FileStreamOptions {
+                                                   Mode            = FileMode.Create,
+                                                   Access          = FileAccess.Write
+                                               }
+                                             : new FileStreamOptions {
+                                                   Mode            = FileMode.Create,
+                                                   Access          = FileAccess.Write,
+                                                   UnixCreateMode  = UnixFileMode.UserRead | UnixFileMode.UserWrite
+                                               });
+
+            // Still empty here. On Windows this is the restriction; on Unix it
+            // is for a file that was there before, which keeps the mode it had.
+            OwnerOnly.File(Path, Complain);
 
             using var writer = new StreamWriter(stream);
 

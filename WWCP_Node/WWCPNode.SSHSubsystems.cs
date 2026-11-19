@@ -482,6 +482,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     if (Subsystem.ForAccounts is not Permission needed)
                         return $"{Subsystem.Label} is served to no account of this {Kind.Name}";
 
+                    // Served to accounts, and not now: switched off, say.
+                    if (Subsystem.WhyNoAccountNow?.Invoke() is String notNow)
+                        return notNow;
+
                     if (!IsAllowed(account, [ needed ]))
                         return $"'{account.Id}' may not use {Subsystem.Label}: that takes {needed}";
 

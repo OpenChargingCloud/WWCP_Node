@@ -259,7 +259,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 System.IO.Directory.CreateDirectory(Directory);
 
-                var key = new SshClientKey(Directory, comment, id);
+                var key = new SshClientKey(Directory, comment, id, Own.NodeNoun);
 
                 key.OnNotice += (level, message) => OnNotice?.Invoke(level, message);
 
@@ -377,7 +377,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             catch (Exception e)
             {
                 throw new InvalidOperationException(
-                          $"What the SSH keys of this {NodeWording.Noun} are called, in '{index}', could not be read: {e.Message} Repair it, or remove it.",
+                          $"What the SSH keys of this {Own.NodeNoun} are called, in '{index}', could not be read: {e.Message} Repair it, or remove it.",
                           e
                       );
             }
@@ -393,7 +393,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 if (!File.Exists(System.IO.Path.Combine(Directory, id)))
                     continue;
 
-                var key = new SshClientKey(Directory, comment, id);
+                var key = new SshClientKey(Directory, comment, id, Own.NodeNoun);
 
                 key.OnNotice += (level, message) => OnNotice?.Invoke(level, message);
 

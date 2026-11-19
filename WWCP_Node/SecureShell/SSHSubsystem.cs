@@ -34,7 +34,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <para>
     /// Who may use it: the logins a kind adds (see <see cref="ISSHSignIns"/>), where they say so for the
     /// login - and an account of the node only with <see cref="ForAccounts"/>, which no account holds
-    /// unless a role gives it. A subsystem without it is served to no account at all.
+    /// unless a role gives it. A subsystem without it is served to no account at all, and one whose
+    /// <see cref="WhyNoAccountNow"/> says why not is served to none for as long as it says so: a kind
+    /// that serves the same subsystem to its logins and, switched on and off, to its accounts.
     /// </para>
     /// <para>
     /// Asked of every session before it is served and every few seconds while it lasts, as the command
@@ -47,10 +49,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <param name="Label">What the log, who and the SSH page call it: "OCPP".</param>
     /// <param name="Handler">Serves one session of it - Hermod closes the channel once it returns.</param>
     /// <param name="ForAccounts">What an account of the node needs to be served it; null for no account.</param>
+    /// <param name="WhyNoAccountNow">Why no account is served it now, or null where accounts are; asked as the permission is. Null for "always, as <paramref name="ForAccounts"/> says".</param>
     public sealed record SSHSubsystem(String               Name,
                                       String               Label,
                                       SshSubsystemHandler  Handler,
-                                      Permission?          ForAccounts = null)
+                                      Permission?          ForAccounts      = null,
+                                      Func<String?>?       WhyNoAccountNow  = null)
     {
 
         #region Data

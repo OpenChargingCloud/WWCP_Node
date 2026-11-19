@@ -226,32 +226,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public const String PinsKey              = "pins";
 
         /// <summary>
-        /// Where a connection the other end dials says which keys the client
-        /// certificate of the other end may hold, in the file and as a page
-        /// sends it - see <see cref="ClientKeyPins"/>.
+        /// Where a connection the other end dials said which keys the client
+        /// certificate of the other end may hold, before the other end signed
+        /// in with its WebSocket login: refused where it is still said.
         /// </summary>
         public const String ClientKeyPinsKey     = "clientKeyPins";
 
         /// <summary>
-        /// Where a connection the other end dials says what the client
-        /// certificate of the other end is held to, in the file and as a page
-        /// sends it - see <see cref="ClientPins"/>.
+        /// Where a connection the other end dials said what the client
+        /// certificate of the other end is held to, before the other end
+        /// signed in with its WebSocket login: refused where it is still said.
         /// </summary>
         public const String ClientPinsKey        = "clientPins";
-
-        /// <summary>
-        /// Where a page that changes a connection the other end dials says
-        /// which key pins of its client certificate it showed - see
-        /// <see cref="ClientKeyPinsKey"/>.
-        /// </summary>
-        public const String ClientKeyPinsAsShownKey  = "clientKeyPinsAsShown";
-
-        /// <summary>
-        /// Where a page that changes a connection the other end dials says
-        /// what it showed its client certificate held to - see
-        /// <see cref="ClientPinsKey"/>.
-        /// </summary>
-        public const String ClientPinsAsShownKey     = "clientPinsAsShown";
 
         /// <summary>
         /// The key the version of HTTP the WebSocket of a ws:// or wss://
@@ -356,9 +342,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// tells one it dialled; only who opens the WebSocket is the other
         /// way round. Its URL is the one the other end dials, and the last
         /// segment of its path the name it comes under
-        /// (<see cref="InboundName"/>). The credentials it names are what the
-        /// other end signs in with, and not what this node proves itself
-        /// with. <see cref="AutoConnect"/> says whether it is let in at all.
+        /// (<see cref="InboundName"/>) - the name of the WebSocket login of
+        /// this node the other end signs in with: its password, its one-time
+        /// password, its key pin or a certificate issued to that name, as for
+        /// whoever else signs in at the station port. The connection names no
+        /// credentials of its own. <see cref="AutoConnect"/> says whether it
+        /// is let in at all.
         /// </remarks>
         public Boolean         Inbound              { get; internal set; }
 
@@ -502,49 +491,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// clock is set. A set, so that a server about to change its key can be
         /// pinned with both for the time of the change.
         ///
-        /// On a connection the other end dials (<see cref="Inbound"/>) the
-        /// same check is the other way round: the keys the client certificate
-        /// of the other end may hold - see <see cref="ClientKeyPins"/>, under
-        /// whose name it is written there.
+        /// None on a connection the other end dials (<see cref="Inbound"/>):
+        /// this node is its server, and the key of the client certificate of
+        /// the other end is pinned on its WebSocket login.
         /// </remarks>
         public IReadOnlyList<KeyPin>  ServerKeyPins            { get; internal set; } = [];
-
-        /// <summary>
-        /// The keys the client certificate of the other end of a connection it
-        /// dials may hold, at most <see cref="MaxServerKeyPins"/>: the other
-        /// end signs in with that certificate, and its key is the whole check -
-        /// no chain, no name, no validity period. None for a connection this
-        /// node dials, and for one whose other end signs in otherwise.
-        /// </summary>
-        /// <remarks>
-        /// The key pins of <see cref="ServerKeyPins"/>, read the other way
-        /// round: a connection is dialled by one end, and only that end shows
-        /// a server certificate.
-        /// </remarks>
-        public IReadOnlyList<KeyPin>  ClientKeyPins
-            => Inbound ? ServerKeyPins : [];
-
-        /// <summary>
-        /// What the client certificate of the other end of a connection it
-        /// dials is held to: the roots its chain may end at, or the group of
-        /// roots of the certificate store, and the certificates it may be - and
-        /// its common name is the name the connection comes under. Null for a
-        /// connection this node dials, and for one whose other end signs in
-        /// otherwise.
-        /// </summary>
-        /// <remarks>
-        /// What <see cref="Pins"/> holds a server to, read the other way round.
-        /// </remarks>
-        public ServerPins?            ClientPins
-            => Inbound && Pins is { SaysAnything: true } ? Pins : null;
-
-        /// <summary>
-        /// Whether the other end of a connection it dials signs in with a
-        /// client certificate - known by its key, or by its CA - rather than
-        /// with credentials. One or the other, never both.
-        /// </summary>
-        public Boolean                SignsInWithACertificate
-            => ClientKeyPins.Count > 0 || ClientPins is not null;
 
         /// <summary>
         /// The version of the signed pin set the key pins came from; 0 where
@@ -620,7 +571,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// key-pinned is checked by the CA as it always was.
         ///
         /// Never one the other end dials: this node is its server, and shows
-        /// the certificate - see <see cref="ClientKeyPins"/>.
+        /// the certificate.
         /// </remarks>
         public Boolean                IsKeyPinned
 
@@ -645,9 +596,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// Never beside key pins: a connection is checked by its CA or known
         /// by its key - see <see cref="CheckOneWay"/>.
         ///
-        /// On a connection the other end dials (<see cref="Inbound"/>) what
-        /// the client certificate of the other end is held to - see
-        /// <see cref="ClientPins"/>, under whose name it is written there.
+        /// None on a connection the other end dials (<see cref="Inbound"/>):
+        /// what the client certificate of the other end is held to is said by
+        /// its WebSocket login and the chains the station port accepts.
         /// </remarks>
         public ServerPins?            Pins                     { get; internal set; }
 
@@ -882,7 +833,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                        out URL                          URL,
                                        out ConnectionType               Type,
                                        out OCPPVersion                  Version,
-                                       [NotNullWhen(false)] out String? Error)
+                                       [NotNullWhen(false)] out String? Error,
+                                       String?                          NodeNoun   = null)
         {
 
             URL      = default;
@@ -946,13 +898,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (!AllowedSchemes.Contains(url.Scheme))
             {
-                Error = $"'{url.Scheme}' is not something this {NodeWording.Noun} dials. OCPP goes over ws, wss or ssh.";
+                Error = $"'{url.Scheme}' is not something this {NodeNoun ?? NodeWording.Noun} dials. OCPP goes over ws, wss or ssh.";
                 return false;
             }
 
             if (!TryParseType(TypeText, out var type))
             {
-                Error = $"'{TypeText}' is not a kind of connection this {NodeWording.Noun} knows.";
+                Error = $"'{TypeText}' is not a kind of connection this {NodeNoun ?? NodeWording.Noun} knows.";
                 return false;
             }
 
@@ -961,7 +913,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             // older protocol.
             if (!String.IsNullOrWhiteSpace(VersionText) && !TryParseVersion(VersionText, out Version))
             {
-                Error = $"'{VersionText}' is not an OCPP version this {NodeWording.Noun} speaks. It speaks OCPP1.6 and OCPP2.1.";
+                Error = $"'{VersionText}' is not an OCPP version this {NodeNoun ?? NodeWording.Noun} speaks. It speaks OCPP1.6 and OCPP2.1.";
                 return false;
             }
 
@@ -969,6 +921,47 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             Type  = type;
 
             return true;
+
+        }
+
+        #endregion
+
+        #region (static) WhatAnInboundConnectionSaidBefore(JSON)
+
+        /// <summary>
+        /// What a connection the other end makes says of what the other end
+        /// signs in with, which it said itself before the other end signed in
+        /// with its WebSocket login - credentials of this node, the key pins
+        /// or the CA of its client certificate, a certificate of this node's
+        /// own - in one sentence, with what to do instead; or null.
+        /// </summary>
+        /// <param name="JSON">The connection, as the file or a page says it.</param>
+        public static String? WhatAnInboundConnectionSaidBefore(JObject JSON)
+        {
+
+            var said = new List<String>();
+
+            if (JSON["authenticationId"] is JToken { Type: not JTokenType.Null })
+                said.Add("'authenticationId'");
+
+            if (JSON[ClientKeyPinsKey] is JToken { Type: not JTokenType.Null } ||
+                JSON["serverKeyPins"]  is JToken { Type: not JTokenType.Null })
+                said.Add($"'{ClientKeyPinsKey}'");
+
+            if (JSON[ClientPinsKey] is JToken { Type: not JTokenType.Null } ||
+                JSON[PinsKey]       is JToken { Type: not JTokenType.Null })
+                said.Add($"'{ClientPinsKey}'");
+
+            if (JSON["certificateId"] is JToken { Type: not JTokenType.Null } ||
+                JSON["identities"]    is JToken { Type: not JTokenType.Null })
+                said.Add("a client certificate of this node");
+
+            return said.Count == 0
+                       ? null
+                       : $"the other end dials it, and signs in with the WebSocket login of the name it comes under - its password, " +
+                          "one-time password, key pin or SSH key are said there, and the chains its certificate may lead to under " +
+                         $"Accepted chains. {String.Join(", ", said)} of the connection itself {(said.Count == 1 ? "is" : "are")} no more: " +
+                          "take it out, and give the WebSocket login what the other end signs in with.";
 
         }
 
@@ -1007,7 +1000,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public static Boolean ValidateInbound(URL                               URL,
                                               [NotNullWhen(true)]  out String?  Name,
-                                              [NotNullWhen(false)] out String?  Error)
+                                              [NotNullWhen(false)] out String?  Error,
+                                              String?                           NodeNoun   = null)
         {
 
             Name   = null;
@@ -1015,7 +1009,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (URL.Scheme == URIScheme.ssh)
             {
-                Error = $"Over SSH nothing dials this {NodeWording.Noun}'s OCPP server: a connection the other end makes is a ws:// or a wss:// one.";
+                Error = $"Over SSH nothing dials this {NodeNoun ?? NodeWording.Noun}'s OCPP server: a connection the other end makes is a ws:// or a wss:// one.";
                 return false;
             }
 
@@ -1045,7 +1039,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 node == cloud.charging.open.protocols.WWCP.NetworkingNode.NetworkingNode_Id.Zero          ||
                 Name.StartsWith("connection-", StringComparison.Ordinal))
             {
-                Error = $"'{Name}' is a name this {NodeWording.Noun} keeps for itself. Whatever dials in comes under a name of its own - csms-01, say; " +
+                Error = $"'{Name}' is a name this {NodeNoun ?? NodeWording.Noun} keeps for itself. Whatever dials in comes under a name of its own - csms-01, say; " +
                         "the one in charge is spoken to as the CSMS all the same.";
                 Name  = null;
                 return false;
@@ -1068,7 +1062,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Name">The name, or null where none is written.</param>
         public static Boolean ValidateRemoteNodeId(String?                           Text,
                                                    out String?                       Name,
-                                                   [NotNullWhen(false)] out String?  Error)
+                                                   [NotNullWhen(false)] out String?  Error,
+                                                   String?                           NodeNoun   = null)
         {
 
             Name   = Named(Text);
@@ -1098,7 +1093,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 node == cloud.charging.open.protocols.WWCP.NetworkingNode.NetworkingNode_Id.Zero          ||
                 Name.StartsWith("connection-", StringComparison.Ordinal))
             {
-                Error = $"'{Name}' is a name this {NodeWording.Noun} keeps for itself. The node at the other end has a name of its own - " +
+                Error = $"'{Name}' is a name this {NodeNoun ?? NodeWording.Noun} keeps for itself. The node at the other end has a name of its own - " +
                         "the one a charging station dials its CSMS under, say.";
                 Name  = null;
                 return false;
@@ -1598,7 +1593,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public static Boolean TryParse(JObject                                JSON,
                                        [NotNullWhen(true)]  out ConnectionEntry?  Entry,
-                                       [NotNullWhen(false)] out String?           Error)
+                                       [NotNullWhen(false)] out String?           Error,
+                                       String?                                    NodeNoun   = null)
         {
 
             Entry = null;
@@ -1639,22 +1635,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             var inbound = JSON.Value<Boolean?>(InboundKey) ?? false;
 
-            // Which end shows the certificate the pins are about: the server
-            // of a connection this node dials, the client of one it is dialled
-            // by. Each under its own name, and the other one not at all.
-            var keyPinsKey  = inbound ? ClientKeyPinsKey : "serverKeyPins";
-            var pinsKey     = inbound ? ClientPinsKey    : PinsKey;
-
-            if (JSON[inbound ? "serverKeyPins" : ClientKeyPinsKey] is JToken { Type: not JTokenType.Null } ||
-                JSON[inbound ? PinsKey         : ClientPinsKey]    is JToken { Type: not JTokenType.Null })
+            // What the other end of an inbound connection signed in with, when
+            // the connection said it itself: what reads it now would believe
+            // it was obeyed. Said once, where it is found, and the connection
+            // is not read.
+            if (inbound &&
+                WhatAnInboundConnectionSaidBefore(JSON) is String before)
             {
-                Error = inbound
-                            ? $"connection '{id}': the other end dials it, so what its certificate is held to stands under '{ClientKeyPinsKey}' and '{ClientPinsKey}', " +
-                              $"and not under 'serverKeyPins' and '{PinsKey}', which are for a server this node dials."
-                            : $"connection '{id}': this node dials it, so what its server is held to stands under 'serverKeyPins' and '{PinsKey}', " +
-                              $"and not under '{ClientKeyPinsKey}' and '{ClientPinsKey}', which are for the other end of a connection it is dialled by.";
+                Error = $"connection '{id}': {before}";
                 return false;
             }
+
+            if (JSON[ClientKeyPinsKey] is JToken { Type: not JTokenType.Null } ||
+                JSON[ClientPinsKey]    is JToken { Type: not JTokenType.Null })
+            {
+                Error = $"connection '{id}': this node dials it, so what its server is held to stands under 'serverKeyPins' and '{PinsKey}', " +
+                        $"and not under '{ClientKeyPinsKey}' and '{ClientPinsKey}'.";
+                return false;
+            }
+
+            var keyPinsKey  = "serverKeyPins";
+            var pinsKey     = PinsKey;
 
             // The key pins of a wss:// connection: a list, as they are written,
             // or one text of them, as somebody may write them by hand.
@@ -1713,13 +1714,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            if (inbound && !ValidateInbound(url, out _, out var wrongInbound))
+            if (inbound && !ValidateInbound(url, out _, out var wrongInbound, NodeNoun))
             {
                 Error = $"connection '{id}': {wrongInbound}";
                 return false;
             }
 
-            if (!ValidateRemoteNodeId(JSON.Value<String>(RemoteNodeIdKey), out var remoteNodeId, out var wrongRemoteNodeId))
+            if (!ValidateRemoteNodeId(JSON.Value<String>(RemoteNodeIdKey), out var remoteNodeId, out var wrongRemoteNodeId, NodeNoun))
             {
                 Error = $"connection '{id}': {wrongRemoteNodeId}";
                 return false;
@@ -1830,27 +1831,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             }
 
-            // How the other end of a TLS connection it is dialled by signs in,
-            // where it does so with a certificate: by the key pin of its key,
-            // or by its CA. Nothing of a server: this node is the server.
-            if (IsSecure && Inbound)
-            {
-
-                if (ServerKeyPins.Count > 0)
-                    json.Add(new JProperty(ClientKeyPinsKey, new JArray(ServerKeyPins.Select(pin => pin.ToHex()))));
-
-                if (ClientPins is ServerPins clientPins)
-                {
-                    var pins = new JObject();
-                    clientPins.WriteInto(pins);
-                    json.Add(new JProperty(ClientPinsKey, pins));
-                }
-
-            }
-
             // How the server of a TLS connection is known: by its CA, or by
             // the key pin of its key ("Key Pins and Raw Public Keys", 7.1).
-            else if (IsSecure)
+            // Nothing of the kind where the other end dials: this node is the
+            // server.
+            if (IsSecure && !Inbound)
             {
 
                 json.Add(new JProperty("keyPinned",  IsKeyPinned));

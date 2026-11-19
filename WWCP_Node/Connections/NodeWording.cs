@@ -24,10 +24,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// station cannot ...", "this local controller cannot ...".
     /// </summary>
     /// <remarks>
-    /// One word for the process, set once by the node when it is made: a
-    /// process is one kind of node, and the texts are written where there
-    /// is no node to ask - in a store, in a static check of what was typed.
-    /// Nothing but texts reads it.
+    /// One word for the process, set by a kind of node when it is first
+    /// used - and only what is said where no node is to ask: a store made
+    /// on its own, as a command of the command line makes one. A node says
+    /// its own word, <see cref="WWCPNode.NodeNoun"/>, and gives it to the
+    /// stores it makes, so that a test which runs a station and a gateway in
+    /// one process hears each of them call itself what it is. Nothing but
+    /// texts reads it.
     /// </remarks>
     public static class NodeWording
     {

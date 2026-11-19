@@ -117,7 +117,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     }
                     catch (Exception e)
                     {
-                        Log.Error($"The SSH key of this {cloud.charging.open.protocols.WWCP.Node.Connections.NodeWording.Noun} could not be had for its SSH peers: {e.Message}", "ocpp", "connections", "ssh", "security");
+                        Log.Error($"The SSH key of this {NodeNoun} could not be had for its SSH peers: {e.Message}", "ocpp", "connections", "ssh", "security");
                         return null;
                     }
                 }

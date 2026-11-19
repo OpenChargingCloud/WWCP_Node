@@ -17,7 +17,6 @@
 
 #region Usings
 
-using cloud.charging.open.protocols.WWCP.WebSockets;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 
@@ -32,6 +31,7 @@ using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 using cloud.charging.open.protocols.WWCP.Node.KeyPins;
+using org.GraphDefined.Vanaheimr.Illias;
 
 #endregion
 
@@ -139,12 +139,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// The directory the two files live in.
         /// </summary>
-        public String        Path                  { get; }
+        public String                              Path                      { get; }
 
         /// <summary>
         /// The clock that stamps a record when it is written down.
         /// </summary>
-        public TimeProvider  TimeProvider          { get; }
+        public TimeProvider                        TimeProvider              { get; }
 
         /// <summary>
         /// Which client certificates exist, for the connections that name one.
@@ -156,12 +156,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// the certificate store itself. Left unset, a connection naming a
         /// certificate is taken at its word; the station sets it.
         /// </remarks>
-        public Func<IEnumerable<String>>? KnownCertificateIds { get; set; }
+        public Func<IEnumerable<String>>?          KnownCertificateIds       { get; set; }
 
         /// <summary>
         /// The same for the SSH keys an ssh:// connection may name.
         /// </summary>
-        public Func<IEnumerable<String>>? KnownSshKeyIds      { get; set; }
+        public Func<IEnumerable<String>>?          KnownSshKeyIds            { get; set; }
 
         /// <summary>
         /// Why a connection the other end makes can not come under the given
@@ -169,13 +169,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// others in as well - a local controller, whose charging stations
         /// come under names of their own.
         /// </summary>
-        public Func<String, String?>?     WhyInboundNameIsTaken { get; set; }
+        public Func<String, String?>?              WhyInboundNameIsTaken     { get; set; }
 
         /// <summary>
         /// What this kind of node writes down as a connection, and what
         /// not. Untold, everything a node that dials its back end does.
         /// </summary>
-        public ConnectionRules            Rules                 { get; set; } = new ();
+        public ConnectionRules                     Rules                     { get; set; } = new ();
+
+        /// <summary>
+        /// What the node calls itself in what this store says: "this station
+        /// cannot ..." - the node's own word, or the process's where none was
+        /// given.
+        /// </summary>
+        public String NodeNoun
+            => nodeNoun ?? NodeWording.Noun;
+
+        private readonly String? nodeNoun;
 
         /// <summary>
         /// Why a connection can not lead to the node of the given name, or
@@ -183,12 +193,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// knows what is below it - a CSMS, whose charging stations and
         /// local controllers are written down with what they may do.
         /// </summary>
-        public Func<String, String?>?     WhyItLeadsToNoSuchNode { get; set; }
+        public Func<String, String?>?              WhyItLeadsToNoSuchNode    { get; set; }
 
         /// <summary>
         /// Every set of credentials, newest first.
         /// </summary>
-        public IReadOnlyList<AuthenticationEntry> Authentications
+        public IReadOnlyList<AuthenticationEntry>  Authentications
         {
             get
             {
@@ -327,11 +337,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// exist yet.
         /// </summary>
         public ConnectionStore(String?        Path           = null,
-                               TimeProvider?  TimeProvider   = null)
+                               TimeProvider?  TimeProvider   = null,
+                               String?        NodeNoun       = null)
         {
 
             this.Path          = System.IO.Path.GetFullPath(Path ?? DefaultDirectoryName);
             this.TimeProvider  = TimeProvider ?? System.TimeProvider.System;
+            this.nodeNoun      = NodeNoun;
 
             Reload();
 
@@ -362,7 +374,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 foreach (var json in Read(AuthenticationsFileName))
                 {
-                    if (AuthenticationEntry.TryParse(json, out var entry, out var problem))
+                    if (AuthenticationEntry.TryParse(json, out var entry, out var problem, NodeNoun))
                         authentications[entry.Id] = entry;
                     else
                         Notice(LogLevel.Warning, $"A set of credentials could not be read: {problem}");
@@ -379,7 +391,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                     foreach (var json in Read(ConnectionsFileName))
                     {
-                        if (ConnectionEntry.TryParse(json, out var entry, out var problem))
+                        if (ConnectionEntry.TryParse(json, out var entry, out var problem, NodeNoun))
                             connections[entry.Id] = entry;
                         else
                             Notice(LogLevel.Warning, $"A connection could not be read: {problem}");
@@ -675,74 +687,243 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #endregion
 
 
-        #region TryAddAuthentication   (Description, Kind, Login, Secret, ..., out Id, out Error [, out NotSaved])
+        #region TryAddBasicAuthentication(Login, Password,     Description, out Id, out Error [, out NotSaved])
 
         /// <summary>
-        /// Write down one set of credentials.
+        /// Write down HTTP Basic credentials: a login and a password.
         /// </summary>
-        public Boolean TryAddAuthentication(String?                          Description,
-                                            String?                          Kind,
-                                            String?                          Login,
-                                            String?                          Secret,
-                                            [NotNullWhen(true)]  out String? Id,
-                                            [NotNullWhen(false)] out String? Error,
-                                            Double?                          ValiditySeconds     = null,
-                                            UInt32?                          Length              = null,
-                                            String?                          Alphabet            = null,
-                                            String?                          HashAlgorithm       = null,
-                                            Boolean?                         TLSChannelBinding   = null)
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="Password">The password.</param>
+        /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
+        public Boolean TryAddBasicAuthentication(String?                           Login,
+                                                 String?                           Password,
+                                                 String?                           Description,
+                                                 [NotNullWhen(true)]  out String?  Id,
+                                                 [NotNullWhen(false)] out String?  Error)
 
-            => TryAddAuthentication(Description, Kind, Login, Secret, out Id, out Error, out _,
-                                    ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding);
+            => TryAddBasicAuthentication(
+                   Login,
+                   Password,
+                   Description,
+                   out Id,
+                   out Error,
+                   out _
+               );
 
         /// <summary>
-        /// Write down one set of credentials - and say whether a refusal was
+        /// Write down HTTP Basic credentials - and say whether a refusal was
         /// the file's rather than theirs.
         /// </summary>
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="Password">The password.</param>
+        /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
         /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about them was wrong, and they were not taken.</param>
-        public Boolean TryAddAuthentication(String?                          Description,
-                                            String?                          Kind,
-                                            String?                          Login,
-                                            String?                          Secret,
-                                            [NotNullWhen(true)]  out String? Id,
-                                            [NotNullWhen(false)] out String? Error,
-                                            out Boolean                      NotSaved,
-                                            Double?                          ValiditySeconds     = null,
-                                            UInt32?                          Length              = null,
-                                            String?                          Alphabet            = null,
-                                            String?                          HashAlgorithm       = null,
-                                            Boolean?                         TLSChannelBinding   = null)
+        public Boolean TryAddBasicAuthentication(String?                           Login,
+                                                 String?                           Password,
+                                                 String?                           Description,
+                                                 [NotNullWhen(true)]  out String?  Id,
+                                                 [NotNullWhen(false)] out String?  Error,
+                                                 out Boolean                       NotSaved)
         {
 
             Id        = null;
             NotSaved  = false;
 
-            if (!TryParseKind(Kind, out var kind, out Error))
+            if (!AuthenticationEntry.ValidateBasic(Description, Login, Password, out Error))
                 return false;
 
-            if (!AuthenticationEntry.Validate(Description, kind, Login, Secret, Alphabet, Length, out Error))
-                return false;
-
-            if (String.IsNullOrWhiteSpace(Secret))
+            if (String.IsNullOrWhiteSpace(Password))
             {
-                Error = kind == AuthenticationKind.Basic
-                            ? "A password is needed. It can be changed later without being shown again, but it has to be set once."
-                            : "A shared secret is needed. It can be changed later without being shown again, but it has to be set once.";
+                Error = "A password is needed. It can be changed later without being shown again, but it has to be set once.";
                 return false;
             }
+
+            if (!HTTPBasicAuthentication.TryCreate(Login!.Trim(), Password.Trim(), out var basic))
+            {
+                Error = $"A login is needed: it is the name the other end knows this {NodeNoun} by.";
+                return false;
+            }
+
+            return TryAdd(Description!, basic, out Id, out Error, out NotSaved);
+
+        }
+
+        #endregion
+
+        #region TryAddTOTPAuthentication (Login, SharedSecret, Description, out Id, out Error [, out NotSaved], ...)
+
+        /// <summary>
+        /// Write down HTTP TOTP credentials: a login and the shared secret a
+        /// time-based one-time password is worked out from.
+        /// </summary>
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="SharedSecret">The shared secret.</param>
+        /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
+        /// <param name="ValiditySeconds">How long one password is good for; none, or no seconds, for the default.</param>
+        /// <param name="Length">How many characters it has; none for the default.</param>
+        /// <param name="Alphabet">Which characters it is drawn from; none for the default.</param>
+        /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
+        /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none for unbound.</param>
+        public Boolean TryAddTOTPAuthentication(String?                           Login,
+                                                String?                           SharedSecret,
+                                                String?                           Description,
+                                                [NotNullWhen(true)]  out String?  Id,
+                                                [NotNullWhen(false)] out String?  Error,
+                                                Double?                           ValiditySeconds     = null,
+                                                UInt32?                           Length              = null,
+                                                String?                           Alphabet            = null,
+                                                String?                           HashAlgorithm       = null,
+                                                Boolean?                          TLSChannelBinding   = null)
+
+            => TryAddTOTPAuthentication(
+                   Login,
+                   SharedSecret,
+                   Description,
+                   out Id,
+                   out Error,
+                   out _,
+                   ValiditySeconds,
+                   Length,
+                   Alphabet,
+                   HashAlgorithm,
+                   TLSChannelBinding
+               );
+
+        /// <summary>
+        /// Write down HTTP TOTP credentials - and say whether a refusal was
+        /// the file's rather than theirs.
+        /// </summary>
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="SharedSecret">The shared secret.</param>
+        /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
+        /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about them was wrong, and they were not taken.</param>
+        /// <param name="ValiditySeconds">How long one password is good for; none, or no seconds, for the default.</param>
+        /// <param name="Length">How many characters it has; none for the default.</param>
+        /// <param name="Alphabet">Which characters it is drawn from; none for the default.</param>
+        /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
+        /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none for unbound.</param>
+        public Boolean TryAddTOTPAuthentication(String?                           Login,
+                                                String?                           SharedSecret,
+                                                String?                           Description,
+                                                [NotNullWhen(true)]  out String?  Id,
+                                                [NotNullWhen(false)] out String?  Error,
+                                                out Boolean                       NotSaved,
+                                                Double?                           ValiditySeconds     = null,
+                                                UInt32?                           Length              = null,
+                                                String?                           Alphabet            = null,
+                                                String?                           HashAlgorithm       = null,
+                                                Boolean?                          TLSChannelBinding   = null)
+        {
+
+            Id        = null;
+            NotSaved  = false;
+
+            if (!AuthenticationEntry.ValidateTOTP(Description, Login, SharedSecret, Alphabet, Length, out Error))
+                return false;
+
+            if (String.IsNullOrWhiteSpace(SharedSecret))
+            {
+                Error = "A shared secret is needed. It can be changed later without being shown again, but it has to be set once.";
+                return false;
+            }
+
+            if (!HTTPTOTPAuthentication.TryCreate(Login!.Trim(),
+                                                  AuthenticationEntry.TOTPConfigOf(SharedSecret,
+                                                                                   ValiditySeconds,
+                                                                                   Length,
+                                                                                   Alphabet,
+                                                                                   HashAlgorithm,
+                                                                                   // Left out, unbound,
+                                                                                   // see AuthenticationEntry.TLSChannelBinding.
+                                                                                   TLSChannelBinding ?? false),
+                                                  out var totp))
+            {
+                Error = $"A login is needed: it is the name the other end knows this {NodeNoun} by.";
+                return false;
+            }
+
+            return TryAdd(Description!, totp, out Id, out Error, out NotSaved);
+
+        }
+
+        #endregion
+
+        #region TryAddTokenAuthentication(Token,               Description, out Id, out Error [, out NotSaved])
+
+        /// <summary>
+        /// Write down HTTP Token credentials: a token and nothing else.
+        /// </summary>
+        /// <param name="Token">The token.</param>
+        /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
+        public Boolean TryAddTokenAuthentication(String?                           Token,
+                                                 String?                           Description,
+                                                 [NotNullWhen(true)]  out String?  Id,
+                                                 [NotNullWhen(false)] out String?  Error)
+
+            => TryAddTokenAuthentication(
+                   Token,
+                   Description,
+                   out Id,
+                   out Error,
+                   out _
+               );
+
+        /// <summary>
+        /// Write down HTTP Token credentials - and say whether a refusal was
+        /// the file's rather than theirs.
+        /// </summary>
+        /// <param name="Token">The token.</param>
+        /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
+        /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about them was wrong, and they were not taken.</param>
+        public Boolean TryAddTokenAuthentication(String?                           Token,
+                                                 String?                           Description,
+                                                 [NotNullWhen(true)]  out String?  Id,
+                                                 [NotNullWhen(false)] out String?  Error,
+                                                 out Boolean                       NotSaved)
+        {
+
+            Id        = null;
+            NotSaved  = false;
+
+            if (!AuthenticationEntry.ValidateToken(Description, Token, out Error))
+                return false;
+
+            if (!HTTPTokenAuthentication.TryCreate(Token ?? "", out var token))
+            {
+                Error = "A token is needed. It can be changed later without being shown again, but it has to be set once.";
+                return false;
+            }
+
+            return TryAdd(Description!, token, out Id, out Error, out NotSaved);
+
+        }
+
+        #endregion
+
+        #region (private) TryAdd(Description, Authentication, out Id, out Error, out NotSaved)
+
+        /// <summary>
+        /// Write down credentials that were found to be right.
+        /// </summary>
+        private Boolean TryAdd(String                            Description,
+                               IHTTPAuthentication               Authentication,
+                               [NotNullWhen(true)]  out String?  Id,
+                               [NotNullWhen(false)] out String?  Error,
+                               out Boolean                       NotSaved)
+        {
+
+            Id        = null;
+            NotSaved  = false;
 
             lock (updateLock)
             {
 
                 var entry = new AuthenticationEntry(
                                 NewId(),
-                                Description!.Trim(),
-                                kind,
-                                Login!.Trim(),
+                                Description.Trim(),
+                                Authentication,
                                 TimeProvider.GetUtcNow()
                             );
-
-                Apply(entry, Secret, ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding);
 
                 authentications[entry.Id] = entry;
 
@@ -764,58 +945,292 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
-        #region TryUpdateAuthentication(Id, Description, Kind, Login, Secret, ..., out Error [, out NotSaved])
+
+        #region TryUpdateBasicAuthentication(Id, Login, Password,     Description, out Error [, out NotSaved])
 
         /// <summary>
-        /// Change one set of credentials.
+        /// Change one set of credentials to HTTP Basic, or change the HTTP
+        /// Basic credentials they are.
         /// </summary>
         /// <remarks>
-        /// An empty secret keeps whatever is already there. That is the whole
-        /// reason this is not a delete and an add: somebody fixing a
+        /// An empty password keeps whatever is already there. That is the
+        /// whole reason this is not a delete and an add: somebody fixing a
         /// description should not have to know the password, and asking them
         /// for it again is how a password ends up written on a sticky note.
         /// </remarks>
-        public Boolean TryUpdateAuthentication(String?                          Id,
-                                               String?                          Description,
-                                               String?                          Kind,
-                                               String?                          Login,
-                                               String?                          Secret,
-                                               [NotNullWhen(false)] out String? Error,
-                                               Double?                          ValiditySeconds     = null,
-                                               UInt32?                          Length              = null,
-                                               String?                          Alphabet            = null,
-                                               String?                          HashAlgorithm       = null,
-                                               Boolean?                         TLSChannelBinding   = null)
+        /// <param name="Id">Which credentials.</param>
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="Password">The password; none to keep the one there is.</param>
+        /// <param name="Description">What the credentials are for.</param>
+        public Boolean TryUpdateBasicAuthentication(String?                           Id,
+                                                    String?                           Login,
+                                                    String?                           Password,
+                                                    String?                           Description,
+                                                    [NotNullWhen(false)] out String?  Error)
 
-            => TryUpdateAuthentication(Id, Description, Kind, Login, Secret, out Error, out _,
-                                       ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding);
+            => TryUpdateBasicAuthentication(
+                   Id,
+                   Login,
+                   Password,
+                   Description,
+                   out Error,
+                   out _
+               );
 
         /// <summary>
-        /// Change one set of credentials - and say whether a refusal was the
-        /// file's rather than the change's.
+        /// Change one set of credentials to HTTP Basic - and say whether a
+        /// refusal was the file's rather than the change's.
         /// </summary>
+        /// <param name="Id">Which credentials.</param>
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="Password">The password; none to keep the one there is.</param>
+        /// <param name="Description">What the credentials are for.</param>
         /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about the change was wrong, and they stay as they were.</param>
-        public Boolean TryUpdateAuthentication(String?                          Id,
-                                               String?                          Description,
-                                               String?                          Kind,
-                                               String?                          Login,
-                                               String?                          Secret,
-                                               [NotNullWhen(false)] out String? Error,
-                                               out Boolean                      NotSaved,
-                                               Double?                          ValiditySeconds     = null,
-                                               UInt32?                          Length              = null,
-                                               String?                          Alphabet            = null,
-                                               String?                          HashAlgorithm       = null,
-                                               Boolean?                         TLSChannelBinding   = null)
+        public Boolean TryUpdateBasicAuthentication(String?                           Id,
+                                                    String?                           Login,
+                                                    String?                           Password,
+                                                    String?                           Description,
+                                                    [NotNullWhen(false)] out String?  Error,
+                                                    out Boolean                       NotSaved)
         {
 
             NotSaved = false;
 
-            if (!TryParseKind(Kind, out var kind, out Error))
+            if (!AuthenticationEntry.ValidateBasic(Description, Login, Password, out Error))
                 return false;
 
-            if (!AuthenticationEntry.Validate(Description, kind, Login, Secret, Alphabet, Length, out Error))
+            return TryUpdate(
+                       Id,
+                       Description!,
+                       AuthenticationKind.Basic,
+                       (AuthenticationEntry was, out String? error) => {
+
+                           var password = String.IsNullOrWhiteSpace(Password)
+                                              ? was.ToBasicAuthentication()?.Password
+                                              : Password.Trim();
+
+                           if (password is null)
+                           {
+                               error = NeedsASecret(was, AuthenticationKind.Basic);
+                               return null;
+                           }
+
+                           error = null;
+                           return HTTPBasicAuthentication.Create(Login!.Trim(), password);
+
+                       },
+                       out Error,
+                       out NotSaved
+                   );
+
+        }
+
+        #endregion
+
+        #region TryUpdateTOTPAuthentication (Id, Login, SharedSecret, Description, out Error [, out NotSaved], ...)
+
+        /// <summary>
+        /// Change one set of credentials to HTTP TOTP, or change the HTTP TOTP
+        /// credentials they are. An empty shared secret keeps whatever is
+        /// already there, see <see cref="TryUpdateBasicAuthentication(String?, String?, String?, String?, out String?)"/>.
+        /// </summary>
+        /// <param name="Id">Which credentials.</param>
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="SharedSecret">The shared secret; none to keep the one there is.</param>
+        /// <param name="Description">What the credentials are for.</param>
+        /// <param name="ValiditySeconds">How long one password is good for; none, or no seconds, for the default.</param>
+        /// <param name="Length">How many characters it has; none for the default.</param>
+        /// <param name="Alphabet">Which characters it is drawn from; none for the default.</param>
+        /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
+        /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none to leave it as it is.</param>
+        public Boolean TryUpdateTOTPAuthentication(String?                           Id,
+                                                   String?                           Login,
+                                                   String?                           SharedSecret,
+                                                   String?                           Description,
+                                                   [NotNullWhen(false)] out String?  Error,
+                                                   Double?                           ValiditySeconds     = null,
+                                                   UInt32?                           Length              = null,
+                                                   String?                           Alphabet            = null,
+                                                   String?                           HashAlgorithm       = null,
+                                                   Boolean?                          TLSChannelBinding   = null)
+
+            => TryUpdateTOTPAuthentication(
+                   Id,
+                   Login,
+                   SharedSecret,
+                   Description,
+                   out Error,
+                   out _,
+                   ValiditySeconds,
+                   Length,
+                   Alphabet,
+                   HashAlgorithm,
+                   TLSChannelBinding
+               );
+
+        /// <summary>
+        /// Change one set of credentials to HTTP TOTP - and say whether a
+        /// refusal was the file's rather than the change's.
+        /// </summary>
+        /// <param name="Id">Which credentials.</param>
+        /// <param name="Login">The name the other end knows this node by.</param>
+        /// <param name="SharedSecret">The shared secret; none to keep the one there is.</param>
+        /// <param name="Description">What the credentials are for.</param>
+        /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about the change was wrong, and they stay as they were.</param>
+        /// <param name="ValiditySeconds">How long one password is good for; none, or no seconds, for the default.</param>
+        /// <param name="Length">How many characters it has; none for the default.</param>
+        /// <param name="Alphabet">Which characters it is drawn from; none for the default.</param>
+        /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
+        /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none to leave it as it is.</param>
+        public Boolean TryUpdateTOTPAuthentication(String?                           Id,
+                                                   String?                           Login,
+                                                   String?                           SharedSecret,
+                                                   String?                           Description,
+                                                   [NotNullWhen(false)] out String?  Error,
+                                                   out Boolean                       NotSaved,
+                                                   Double?                           ValiditySeconds     = null,
+                                                   UInt32?                           Length              = null,
+                                                   String?                           Alphabet            = null,
+                                                   String?                           HashAlgorithm       = null,
+                                                   Boolean?                          TLSChannelBinding   = null)
+        {
+
+            NotSaved = false;
+
+            if (!AuthenticationEntry.ValidateTOTP(Description, Login, SharedSecret, Alphabet, Length, out Error))
                 return false;
+
+            return TryUpdate(
+                       Id,
+                       Description!,
+                       AuthenticationKind.TOTP,
+                       (AuthenticationEntry was, out String? error) => {
+
+                           var sharedSecret = String.IsNullOrWhiteSpace(SharedSecret)
+                                                  ? was.ToTOTPConfig()?.SharedSecret
+                                                  : SharedSecret.Trim();
+
+                           if (sharedSecret is null)
+                           {
+                               error = NeedsASecret(was, AuthenticationKind.TOTP);
+                               return null;
+                           }
+
+                           error = null;
+                           return HTTPTOTPAuthentication.Create(
+                                      Login!.Trim(),
+                                      AuthenticationEntry.TOTPConfigOf(
+                                          sharedSecret,
+                                          ValiditySeconds,
+                                          Length,
+                                          Alphabet,
+                                          HashAlgorithm,
+                                          // Left out, it is what it was - unbound for credentials
+                                          // that were not TOTP, see AuthenticationEntry.TLSChannelBinding.
+                                          TLSChannelBinding ?? was.TLSChannelBinding
+                                      )
+                                  );
+
+                       },
+                       out Error,
+                       out NotSaved
+                   );
+
+        }
+
+        #endregion
+
+        #region TryUpdateTokenAuthentication(Id, Token,               Description, out Error [, out NotSaved])
+
+        /// <summary>
+        /// Change one set of credentials to HTTP Token, or change the HTTP
+        /// Token credentials they are. An empty token keeps whatever is
+        /// already there, see <see cref="TryUpdateBasicAuthentication(String?, String?, String?, String?, out String?)"/>.
+        /// </summary>
+        /// <param name="Id">Which credentials.</param>
+        /// <param name="Token">The token; none to keep the one there is.</param>
+        /// <param name="Description">What the credentials are for.</param>
+        public Boolean TryUpdateTokenAuthentication(String?                           Id,
+                                                    String?                           Token,
+                                                    String?                           Description,
+                                                    [NotNullWhen(false)] out String?  Error)
+
+            => TryUpdateTokenAuthentication(
+                   Id,
+                   Token,
+                   Description,
+                   out Error,
+                   out _
+               );
+
+        /// <summary>
+        /// Change one set of credentials to HTTP Token - and say whether a
+        /// refusal was the file's rather than the change's.
+        /// </summary>
+        /// <param name="Id">Which credentials.</param>
+        /// <param name="Token">The token; none to keep the one there is.</param>
+        /// <param name="Description">What the credentials are for.</param>
+        /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about the change was wrong, and they stay as they were.</param>
+        public Boolean TryUpdateTokenAuthentication(String?                           Id,
+                                                    String?                           Token,
+                                                    String?                           Description,
+                                                    [NotNullWhen(false)] out String?  Error,
+                                                    out Boolean                       NotSaved)
+        {
+
+            NotSaved = false;
+
+            if (!AuthenticationEntry.ValidateToken(Description, Token, out Error))
+                return false;
+
+            return TryUpdate(
+                       Id,
+                       Description!,
+                       AuthenticationKind.Token,
+                       (AuthenticationEntry was, out String? error) => {
+
+                           var token = String.IsNullOrWhiteSpace(Token)
+                                           ? was.Token
+                                           : Token.Trim();
+
+                           if (token is null)
+                           {
+                               error = NeedsASecret(was, AuthenticationKind.Token);
+                               return null;
+                           }
+
+                           error = null;
+                           return HTTPTokenAuthentication.Create(token);
+
+                       },
+                       out Error,
+                       out NotSaved
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) TryUpdate(Id, Description, Kind, Authentication, out Error, out NotSaved) / NeedsASecret(Was, Kind)
+
+        /// <summary>
+        /// What the credentials are to be, worked out from what they were.
+        /// Called under the lock.
+        /// </summary>
+        private delegate IHTTPAuthentication? AuthenticationOf(AuthenticationEntry Was, out String? Error);
+
+        /// <summary>
+        /// Change credentials whose change was found to be right.
+        /// </summary>
+        private Boolean TryUpdate(String?                           Id,
+                                  String                            Description,
+                                  AuthenticationKind                Kind,
+                                  AuthenticationOf                  Authentication,
+                                  [NotNullWhen(false)] out String?  Error,
+                                  out Boolean                       NotSaved)
+        {
+
+            NotSaved = false;
 
             lock (updateLock)
             {
@@ -826,23 +1241,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     return false;
                 }
 
-                // Changing what kind it is means the secret that is there is
-                // the wrong kind of secret, so one has to be given.
-                if (entry.Kind != kind && String.IsNullOrWhiteSpace(Secret))
+                if (Authentication(entry, out Error) is not IHTTPAuthentication authentication)
                 {
-                    Error = kind == AuthenticationKind.Basic
-                                ? "Changing these to HTTP Basic needs a password: a shared secret is not one."
-                                : "Changing these to HTTP TOTP needs a shared secret: a password is not one.";
+                    Error ??= $"These credentials can not be changed to {KindName(Kind)}.";
                     return false;
                 }
 
                 var was = entry.Copy();
 
-                entry.Description  = Description!.Trim();
-                entry.Login        = Login!.Trim();
-                entry.Kind         = kind;
-
-                Apply(entry, Secret, ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding);
+                entry.Description     = Description.Trim();
+                entry.Authentication  = authentication;
+                entry.LastChangeAt    = TimeProvider.GetUtcNow();
 
                 if (!TrySaveAuthentications(out Error))
                 {
@@ -870,98 +1279,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         }
 
-        #endregion
-
-        #region (private) Apply(Entry, Secret, ...) / TryParseKind(Text, out Kind, out Error)
-
         /// <summary>
-        /// The half of a change that is the same whether it is new or not.
-        /// Called under the lock.
+        /// Why credentials can not be changed without the secret of their new
+        /// kind: where they were another kind, the secret that is there is the
+        /// wrong kind of secret.
         /// </summary>
-        private static void Apply(AuthenticationEntry  Entry,
-                                  String?              Secret,
-                                  Double?              ValiditySeconds,
-                                  UInt32?              Length,
-                                  String?              Alphabet,
-                                  String?              HashAlgorithm,
-                                  Boolean?             TLSChannelBinding)
-        {
+        private static String NeedsASecret(AuthenticationEntry  Was,
+                                           AuthenticationKind   Kind)
 
-            var secret = Secret?.Trim();
+            => Was.Kind == Kind
+                   ? $"{SecretName(Kind)} is needed. It can be changed later without being shown again, but it has to be set once."
+                   : $"Changing these to {KindName(Kind)} needs {SecretName(Kind).ToLowerInvariant()}: {SecretName(Was.Kind).ToLowerInvariant()} is not one.";
 
-            if (Entry.Kind == AuthenticationKind.Basic)
-            {
+        private static String KindName(AuthenticationKind Kind)
 
-                if (!String.IsNullOrEmpty(secret))
-                    Entry.Password = secret;
+            => Kind switch {
+                   AuthenticationKind.TOTP   => "HTTP TOTP",
+                   AuthenticationKind.Token  => "HTTP Token",
+                   _                         => "HTTP Basic"
+               };
 
-                // Whatever was here as TOTP is not a password, and keeping it
-                // would leave a secret on disk that nothing can use.
-                Entry.SharedSecret       = null;
-                Entry.Validity           = null;
-                Entry.Length             = null;
-                Entry.Alphabet           = null;
-                Entry.HashAlgorithm      = null;
+        private static String SecretName(AuthenticationKind Kind)
 
-            }
-
-            else
-            {
-
-                if (!String.IsNullOrEmpty(secret))
-                    Entry.SharedSecret = secret;
-
-                Entry.Password           = null;
-
-                Entry.Validity           = ValiditySeconds is Double seconds && seconds > 0
-                                               ? TimeSpan.FromSeconds(seconds)
-                                               : null;
-
-                Entry.Length             = Length;
-
-                Entry.Alphabet           = String.IsNullOrWhiteSpace(Alphabet) ? null : Alphabet.Trim();
-
-                Entry.HashAlgorithm      = HashAlgorithm?.Trim().ToUpperInvariant() switch {
-                                               "SHA384"  => TOTPHashAlgorithm.SHA384,
-                                               "SHA512"  => TOTPHashAlgorithm.SHA512,
-                                               "SHA256"  => TOTPHashAlgorithm.SHA256,
-                                               _         => null
-                                           };
-
-                // Left out, it is what it was - unbound for credentials written
-                // down anew, see AuthenticationEntry.TLSChannelBinding.
-                Entry.TLSChannelBinding  = TLSChannelBinding ?? Entry.TLSChannelBinding;
-
-            }
-
-        }
-
-        private static Boolean TryParseKind(String?                          Text,
-                                            out AuthenticationKind           Kind,
-                                            [NotNullWhen(false)] out String? Error)
-        {
-
-            switch (Text?.Trim().ToLowerInvariant())
-            {
-
-                case "basic":
-                    Kind   = AuthenticationKind.Basic;
-                    Error  = null;
-                    return true;
-
-                case "totp":
-                    Kind   = AuthenticationKind.TOTP;
-                    Error  = null;
-                    return true;
-
-                default:
-                    Kind   = AuthenticationKind.Basic;
-                    Error  = $"'{Text}' is not a kind of authentication this {NodeWording.Noun} knows.";
-                    return false;
-
-            }
-
-        }
+            => Kind switch {
+                   AuthenticationKind.TOTP   => "A shared secret",
+                   AuthenticationKind.Token  => "A token",
+                   _                         => "A password"
+               };
 
         #endregion
 
@@ -1039,29 +1383,50 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// Write down one connection.
         /// </summary>
-        public Boolean TryAddConnection(String?                          Description,
-                                        String?                          URL,
-                                        String?                          ConnectionType,
-                                        Boolean?                         AutoConnect,
-                                        String?                          AuthenticationId,
-                                        String?                          CertificateId,
-                                        [NotNullWhen(true)]  out String? Id,
-                                        [NotNullWhen(false)] out String? Error,
-                                        String?                          OCPPVersion     = null,
-                                        String?                          SshHostKey      = null,
-                                        SshTrustSettings?                SshTrust        = null,
-                                        String?                          ServerKeyPins   = null,
-                                        ServerKeyPinSettings?            KeyPinTrust     = null,
-                                        ServerPinsChange?                Pins            = null,
-                                        String?                          HTTPVersion     = null,
-                                        String?                          Encoding        = null,
-                                        String?                          SignatureFormats = null,
-                                        IEnumerable<ConnectionIdentity>? Identities      = null,
-                                        Boolean?                         Inbound         = null,
-                                        String?                          RemoteNodeId    = null)
+        public Boolean TryAddConnection(String?                           Description,
+                                        String?                           URL,
+                                        String?                           ConnectionType,
+                                        Boolean?                          AutoConnect,
+                                        String?                           AuthenticationId,
+                                        String?                           CertificateId,
+                                        [NotNullWhen(true)]  out String?  Id,
+                                        [NotNullWhen(false)] out String?  Error,
+                                        String?                           OCPPVersion        = null,
+                                        String?                           SshHostKey         = null,
+                                        SshTrustSettings?                 SshTrust           = null,
+                                        String?                           ServerKeyPins      = null,
+                                        ServerKeyPinSettings?             KeyPinTrust        = null,
+                                        ServerPinsChange?                 Pins               = null,
+                                        String?                           HTTPVersion        = null,
+                                        String?                           Encoding           = null,
+                                        String?                           SignatureFormats   = null,
+                                        IEnumerable<ConnectionIdentity>?  Identities         = null,
+                                        Boolean?                          Inbound            = null,
+                                        String?                           RemoteNodeId       = null)
 
-            => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust, Pins, HTTPVersion, Encoding, SignatureFormats, Identities, Inbound, RemoteNodeId);
+            => TryAddConnection(
+                   Description,
+                   URL,
+                   ConnectionType,
+                   AutoConnect,
+                   AuthenticationId,
+                   CertificateId,
+                   out Id,
+                   out Error,
+                   out _,
+                   OCPPVersion,
+                   SshHostKey,
+                   SshTrust,
+                   ServerKeyPins,
+                   KeyPinTrust,
+                   Pins,
+                   HTTPVersion,
+                   Encoding,
+                   SignatureFormats,
+                   Identities,
+                   Inbound,
+                   RemoteNodeId
+               );
 
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
@@ -1078,34 +1443,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="SignatureFormats">Which signatures it writes - "jws", "cose" or "both"; none, or "policy", for what the signature policy says.</param>
         /// <param name="Inbound">Whether the other end dials, see <see cref="ConnectionEntry.Inbound"/>; none for a connection this node dials.</param>
         /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; none where this node dials its back end.</param>
-        public Boolean TryAddConnection(String?                          Description,
-                                        String?                          URL,
-                                        String?                          ConnectionType,
-                                        Boolean?                         AutoConnect,
-                                        String?                          AuthenticationId,
-                                        String?                          CertificateId,
-                                        [NotNullWhen(true)]  out String? Id,
-                                        [NotNullWhen(false)] out String? Error,
-                                        out Boolean                      NotSaved,
-                                        String?                          OCPPVersion     = null,
-                                        String?                          SshHostKey      = null,
-                                        SshTrustSettings?                SshTrust        = null,
-                                        String?                          ServerKeyPins   = null,
-                                        ServerKeyPinSettings?            KeyPinTrust     = null,
-                                        ServerPinsChange?                Pins            = null,
-                                        String?                          HTTPVersion     = null,
-                                        String?                          Encoding        = null,
-                                        String?                          SignatureFormats = null,
-                                        IEnumerable<ConnectionIdentity>? Identities      = null,
-                                        Boolean?                         Inbound         = null,
-                                        String?                          RemoteNodeId    = null)
+        public Boolean TryAddConnection(String?                           Description,
+                                        String?                           URL,
+                                        String?                           ConnectionType,
+                                        Boolean?                          AutoConnect,
+                                        String?                           AuthenticationId,
+                                        String?                           CertificateId,
+                                        [NotNullWhen(true)]  out String?  Id,
+                                        [NotNullWhen(false)] out String?  Error,
+                                        out Boolean                       NotSaved,
+                                        String?                           OCPPVersion        = null,
+                                        String?                           SshHostKey         = null,
+                                        SshTrustSettings?                 SshTrust           = null,
+                                        String?                           ServerKeyPins      = null,
+                                        ServerKeyPinSettings?             KeyPinTrust        = null,
+                                        ServerPinsChange?                 Pins               = null,
+                                        String?                           HTTPVersion        = null,
+                                        String?                           Encoding           = null,
+                                        String?                           SignatureFormats   = null,
+                                        IEnumerable<ConnectionIdentity>?  Identities         = null,
+                                        Boolean?                          Inbound            = null,
+                                        String?                           RemoteNodeId       = null)
         {
 
             Id        = null;
             NotSaved  = false;
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
-                                          out var url, out var type, out var version, out Error))
+                                          out var url, out var type, out var version, out Error, NodeNoun))
                 return false;
 
             if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
@@ -1147,14 +1512,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             var inbound = Inbound ?? false;
 
-            if (!ConnectionEntry.ValidateRemoteNodeId(RemoteNodeId, out var remoteNodeId, out Error))
+            if (!ConnectionEntry.ValidateRemoteNodeId(RemoteNodeId, out var remoteNodeId, out Error, NodeNoun))
                 return false;
 
             // What dials in is named by its URL, and by nothing else.
             if (inbound)
                 remoteNodeId = null;
 
-            if (!Rules.Check(url, type, version, inbound, remoteNodeId, out Error))
+            if (!Rules.Check(url, type, version, inbound, remoteNodeId, out Error, NodeNoun))
                 return false;
 
             if (remoteNodeId is not null && WhyItLeadsToNoSuchNode?.Invoke(remoteNodeId) is String noSuchNode)
@@ -1173,8 +1538,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                      out var authenticationId, out var identities, out Error))
                     return false;
 
-                if (inbound && !CheckInboundReferences(null, url, version, authenticationId, identities,
-                                                       serverKeyPins.Count > 0 || pins is not null, out Error))
+                if (inbound && !CheckInboundReferences(null, url, version, authenticationId, identities, out Error))
                     return false;
 
                 var entry = new ConnectionEntry(
@@ -1184,23 +1548,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                 type,
                                 TimeProvider.GetUtcNow()
                             ) {
-                                OCPPVersion         = version,
-                                AutoConnect  = AutoConnect ?? false,
-                                Inbound             = inbound,
-                                RemoteNodeId        = remoteNodeId,
-                                AuthenticationId    = authenticationId,
-                                Identities          = identities,
-                                SshHostKey          = hostKey,
-                                SshTrustOnFirstUse  = url.Scheme == URIScheme.ssh ? trustOnFirstUse : SshTrustOnFirstUse.None,
-                                SshOnPinMismatch    = url.Scheme == URIScheme.ssh ? onPinMismatch   : SshOnPinMismatch.Refuse,
-                                SshProbationTime    = probationTime,
+                                OCPPVersion                = version,
+                                AutoConnect                = AutoConnect ?? false,
+                                Inbound                    = inbound,
+                                RemoteNodeId               = remoteNodeId,
+                                AuthenticationId           = authenticationId,
+                                Identities                 = identities,
+                                SshHostKey                 = hostKey,
+                                SshTrustOnFirstUse         = url.Scheme == URIScheme.ssh ? trustOnFirstUse : SshTrustOnFirstUse.None,
+                                SshOnPinMismatch           = url.Scheme == URIScheme.ssh ? onPinMismatch   : SshOnPinMismatch.Refuse,
+                                SshProbationTime           = probationTime,
                                 ServerKeyPins              = serverKeyPins,
                                 RawPublicKeys              = rawPublicKeys,
                                 TrustOnFirstUse            = keyTrustOnFirstUse,
                                 ServerKeyPinProbationTime  = keyPinProbationTime,
                                 Pins                       = pins,
                                 HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
-                                Encoding                   = encoding    ?? cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.JSON,
+                                Encoding                   = encoding    ?? WebSockets.MessageEncodings.JSON,
                                 SignatureFormats           = signatureFormats
                             };
 
@@ -1319,7 +1683,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             NotSaved = false;
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
-                                          out var url, out var type, out var version, out Error))
+                                          out var url, out var type, out var version, out Error, NodeNoun))
                 return false;
 
             if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
@@ -1464,14 +1828,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 String? remoteNodeId = entry.RemoteNodeId;
 
                 if (RemoteNodeId is not null &&
-                    !ConnectionEntry.ValidateRemoteNodeId(RemoteNodeId, out remoteNodeId, out Error))
+                    !ConnectionEntry.ValidateRemoteNodeId(RemoteNodeId, out remoteNodeId, out Error, NodeNoun))
                     return false;
 
                 // What dials in is named by its URL, and by nothing else.
                 if (inbound)
                     remoteNodeId = null;
 
-                if (!Rules.Check(url, type, version, inbound, remoteNodeId, out Error))
+                if (!Rules.Check(url, type, version, inbound, remoteNodeId, out Error, NodeNoun))
                     return false;
 
                 if (remoteNodeId is not null && WhyItLeadsToNoSuchNode?.Invoke(remoteNodeId) is String noSuchNode)
@@ -1482,8 +1846,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (inbound &&
                     (!CheckInbound(url, hostKey, keyPins, rawPublicKeys, keyTrustOnFirstUse, pins, httpVersion ?? entry.HTTPVersion, out Error) ||
-                     !CheckInboundReferences(entry.Id, url, version, authenticationId, identities,
-                                             keyPins.Count > 0 || pins is { SaysAnything: true }, out Error)))
+                     !CheckInboundReferences(entry.Id, url, version, authenticationId, identities, out Error)))
                     return false;
 
                 var peer = PeerOfUnlocked(entry.Id);
@@ -1660,7 +2023,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (KnownCertificateIds is not null && !KnownCertificateIds().Contains(CertificateId))
                 {
-                    Error = $"This {NodeWording.Noun} has no identity '{CertificateId}'.";
+                    Error = $"This {NodeNoun} has no identity '{CertificateId}'.";
                     return false;
                 }
 
@@ -2114,7 +2477,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description}' is dialled by the other end, so this {NodeWording.Noun} is its server and has no server of it to pin. " +
+                    Error = $"'{entry.Description}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to pin. " +
                              "The keys the other end signs in with are written down by hand.";
                     return false;
                 }
@@ -2286,7 +2649,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description}' is dialled by the other end, so this {NodeWording.Noun} is its server and has no server of it to hold to a root. " +
+                    Error = $"'{entry.Description}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to hold to a root. " +
                              "The roots the other end's certificate is held to are written down by hand.";
                     return false;
                 }
@@ -2415,7 +2778,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description}' is dialled by the other end: raw public keys and learning a key on first use are for a server this {NodeWording.Noun} dials.";
+                    Error = $"'{entry.Description}' is dialled by the other end: raw public keys and learning a key on first use are for a server this {NodeNoun} dials.";
                     return false;
                 }
 
@@ -2728,7 +3091,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 foreach (var endpointJSON in endpoints)
                 {
 
-                    if (!ConnectionEntry.TryParse(endpointJSON, out var entry, out problem))
+                    if (!ConnectionEntry.TryParse(endpointJSON, out var entry, out problem, NodeNoun))
                     {
                         Notice(LogLevel.Warning, $"An endpoint of peer '{peer.Id}' could not be read: {problem}");
                         continue;
@@ -2834,7 +3197,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 {
                     successor.Role = PeerRole.Successor;
                     notes.Add($"Peer {successor.Id} '{successor.Description}' was in charge of the {ConnectionEntry.AsText(otherVersion)} node, " +
-                              $"as '{primary.Description}' was of the {ConnectionEntry.AsText(primary.OCPPVersion)} one. The {NodeWording.Noun} has one primary now, " +
+                              $"as '{primary.Description}' was of the {ConnectionEntry.AsText(primary.OCPPVersion)} one. The {NodeNoun} has one primary now, " +
                               $"so it is a successor: dialled and registered with as before, and held to a successor's rights once they apply.");
                 }
 
@@ -3102,7 +3465,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (peer.Role == PeerRole.Primary && newRole != PeerRole.Primary)
                 {
-                    Error = $"'{peer.Description}' is the primary. To hand the {NodeWording.Noun} to another back end, make that one the primary.";
+                    Error = $"'{peer.Description}' is the primary. To hand the {NodeNoun} to another back end, make that one the primary.";
                     return false;
                 }
 
@@ -3289,7 +3652,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             if (OverSSH && Identities is null && certificate is not null)
             {
                 Error = "A client certificate is shown in a TLS handshake, and an ssh:// connection makes none: " +
-                        $"it signs in with this {NodeWording.Noun}'s SSH key.";
+                        $"it signs in with this {NodeNoun}'s SSH key.";
                 return false;
             }
 
@@ -3325,7 +3688,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 else if (KnownSshKeyIds is not null &&
                     identities.FirstOrDefault(identity => !KnownSshKeyIds().Contains(identity.Id)) is ConnectionIdentity noKey)
                 {
-                    Error = $"There is no SSH key '{noKey.Id}' on this {NodeWording.Noun}.";
+                    Error = $"There is no SSH key '{noKey.Id}' on this {NodeNoun}.";
                     return false;
                 }
 
@@ -3334,7 +3697,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             else if (KnownCertificateIds is not null &&
                      identities.Any(identity => !KnownCertificateIds().Contains(identity.Id)))
             {
-                Error = $"That client certificate is not on this {NodeWording.Noun}.";
+                Error = $"That client certificate is not on this {NodeNoun}.";
                 return false;
             }
 
@@ -3356,26 +3719,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// What a connection the other end dials can not say: what this node
-        /// holds a server to that it dials itself, beyond the key pins and the
-        /// roots its client certificate is held to the other way round.
+        /// holds a server to that it dials itself, and what the other end
+        /// signs in with, which its WebSocket login says.
         /// </summary>
         /// <remarks>
-        /// <para>
-        /// The other end signs in with a client certificate where the
-        /// connection names its key pins or what its chain is held to: by its
-        /// key alone - no chain, no name, no validity period -, or by its CA,
-        /// which is then named - roots or a group of roots of the store - and
-        /// never left to whatever this machine trusts: a public CA issues a
-        /// certificate to anybody who owns a name, and a name is all the
-        /// connection would hold it to.
-        /// </para>
-        /// <para>
-        /// Nothing is learned on first use, and a certificate that does not
-        /// match is refused: whoever dials is let in by what is written down,
-        /// and not by what it showed first or might have shown.
-        /// </para>
+        /// Nothing of a client certificate either: the other end signs in at
+        /// the station port as whoever else does, with the WebSocket login of
+        /// the name it comes under - by a key pin of that login, or by a
+        /// certificate issued to its name that leads to a chain the station
+        /// port accepts.
         /// </remarks>
-        private static Boolean CheckInbound(URL                               URL,
+        private Boolean CheckInbound(URL                               URL,
                                             String?                           HostKey,
                                             IReadOnlyList<KeyPin>             ServerKeyPins,
                                             RawPublicKeyMode                  RawPublicKeys,
@@ -3385,41 +3739,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                             [NotNullWhen(false)] out String?  Error)
         {
 
-            if (!ConnectionEntry.ValidateInbound(URL, out _, out Error))
+            if (!ConnectionEntry.ValidateInbound(URL, out var name, out Error, NodeNoun))
                 return false;
 
             if (HostKey is not null || RawPublicKeys != RawPublicKeyMode.Off || TrustOnFirstUse != KeyTrustOnFirstUse.None)
             {
-                Error = $"Host keys, raw public keys and learning a key on first use are for a server this {NodeWording.Noun} dials. " +
-                        $"Here the other end dials, and this {NodeWording.Noun} is the server: leave them out.";
+                Error = $"Host keys, raw public keys and learning a key on first use are for a server this {NodeNoun} dials. " +
+                        $"Here the other end dials, and this {NodeNoun} is the server: leave them out.";
                 return false;
             }
 
-            if (Pins is { SaysAnything: true } clientPins)
+            if (ServerKeyPins.Count > 0 || Pins is { SaysAnything: true })
             {
-
-                if (clientPins.TrustOnFirstUse != protocols.WWCP.Node.Configuration.TrustOnFirstUse.None)
-                {
-                    Error = "Nothing is learned from the first client certificate the other end shows: it is let in by what is written down here. " +
-                            "Name the roots, or the certificate, it is held to.";
-                    return false;
-                }
-
-                if (clientPins.OnMismatch != PinMismatch.Refuse)
-                {
-                    Error = "A client certificate that is not what the connection holds it to is refused: whoever shows it is not let in, " +
-                            "and is not let in all the same either.";
-                    return false;
-                }
-
-                if (clientPins.Roots.Count == 0 && clientPins.RootGroup is null)
-                {
-                    Error = "A client certificate checked by its CA is held to that CA: name the roots its chain may end at, or a group of roots " +
-                            $"of this {NodeWording.Noun}'s certificate store. Whatever root this machine trusts would let in anybody a public CA " +
-                            "issued a certificate under that name.";
-                    return false;
-                }
-
+                Error = $"'{name}' signs in with its WebSocket login: the key pins of its client certificate are said there, and the chains " +
+                         "its certificate may lead to under Accepted chains - not on the connection.";
+                return false;
             }
 
             if (HTTPVersion is not null && HTTPVersion != WebSocketHTTPVersion.Auto)
@@ -3434,23 +3768,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// What a connection the other end dials needs of the rest of the
-        /// store: what the other end signs in with - a client certificate,
-        /// or credentials under the name it comes under, and never both -,
-        /// and that name to itself, among the connections of its OCPP version.
-        /// Called under the lock.
+        /// store: nothing it would sign in with of this node's - credentials,
+        /// a client certificate -, which are what this node proves itself with
+        /// where it dials; and its name to itself, among the connections of its
+        /// OCPP version. Called under the lock.
         /// </summary>
         /// <remarks>
-        /// One or the other, because a certificate is the better of the two
-        /// and a password beside it would be the way in that is easier to
-        /// steal: a connection that takes either is only as good as the weaker.
+        /// What the other end signs in with is its WebSocket login's, under
+        /// the name it comes under - see ConnectionEntry.Inbound.
         /// </remarks>
-        /// <param name="ByCertificate">Whether it names the key pins, or the roots, of a client certificate the other end signs in with.</param>
         private Boolean CheckInboundReferences(String?                               Id,
                                                URL                                   URL,
                                                OCPPVersion                           Version,
                                                String?                               AuthenticationId,
                                                IReadOnlyList<ConnectionIdentity>     Identities,
-                                               Boolean                               ByCertificate,
                                                [NotNullWhen(false)] out String?      Error)
         {
 
@@ -3458,40 +3789,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (Identities.Count > 0)
             {
-                Error = $"A client certificate of this {NodeWording.Noun}'s store is what it shows where it dials. Here the other end dials: " +
-                         "leave it out, and name the key pins or the roots of the certificate the other end shows instead.";
+                Error = $"A client certificate of this {NodeNoun}'s store is what it shows where it dials. Here the other end dials: " +
+                        $"leave it out - '{name}' signs in with its WebSocket login.";
                 return false;
             }
 
-            if (ByCertificate)
+            if (AuthenticationId is not null)
             {
-
-                if (AuthenticationId is not null)
-                {
-                    Error = $"'{name}' signs in with a client certificate, so it does not sign in with credentials as well: a password or a one-time " +
-                             "password beside a certificate would be the easier way in. Take the credentials away, or what the certificate is held to.";
-                    return false;
-                }
-
-            }
-
-            else
-            {
-
-                if (AuthenticationId is null || !authentications.TryGetValue(AuthenticationId, out var credentials))
-                {
-                    Error = $"A connection the other end makes needs something '{name}' signs in with: the key pins or the roots of its client " +
-                             "certificate, or credentials. Nothing gets in without.";
-                    return false;
-                }
-
-                if (credentials.Login != name)
-                {
-                    Error = $"'{credentials.Description}' signs in as '{credentials.Login}', and the URL ends with '{name}'. " +
-                            "It is one name - the one the other end comes under - so the two have to agree.";
-                    return false;
-                }
-
+                Error = $"Credentials of this {NodeNoun} are what it proves itself with where it dials. Here the other end dials, and " +
+                        $"'{name}' signs in with its WebSocket login: give that login its password, one-time password, key pin or SSH key, " +
+                         "and leave the credentials out.";
+                return false;
             }
 
             if (connections.Values.FirstOrDefault(other => other.Inbound &&
@@ -3547,25 +3855,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                         warnings.Add($"'{credentials.Description}' has no secret set, so this connection cannot prove itself.");
 
                     if (credentials.Kind == AuthenticationKind.Basic && !Entry.IsSecure && !Entry.IsSSH)
-                        warnings.Add(Entry.Inbound
-                                         ? "Without TLS the other end sends its password in the clear to anybody on the way."
-                                         : "HTTP Basic over a connection without TLS sends the password in the clear to anybody on the way.");
+                        warnings.Add("HTTP Basic over a connection without TLS sends the password in the clear to anybody on the way.");
 
-                    if (Entry.Inbound && !credentials.HasSecret)
-                        warnings.Add($"'{credentials.Description}' has no secret set, so nothing is let in as '{Entry.InboundName}'.");
+                    if (credentials.Kind == AuthenticationKind.Token && !Entry.IsSecure && !Entry.IsSSH && !Entry.Inbound)
+                        warnings.Add("HTTP Token over a connection without TLS sends the token in the clear to anybody on the way.");
 
-                    if (Entry.Inbound && credentials.Login != Entry.InboundName)
-                        warnings.Add($"'{credentials.Description}' signs in as '{credentials.Login}', and this connection comes under the name " +
-                                     $"'{Entry.InboundName}': nothing is let in until the two agree.");
-
-                    if (Entry.Inbound && credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding)
-                        warnings.Add($"'{credentials.Description}' binds its password to the TLS session, and only the TLS of HTTP/3 exports the " +
-                                      "keying material to check one with: the other end is let in where it opens its WebSocket over HTTP/3, " +
-                                      $"to an OCPP server of this {NodeWording.Noun} that serves HTTP/3, and not over HTTP/1.1 or HTTP/2.");
-
-                    if (Entry.Inbound && Entry.SignsInWithACertificate)
-                        warnings.Add($"The other end signs in with a client certificate, and '{credentials.Description}' is named as well: " +
-                                      "nothing is let in until one of the two is taken away.");
+                    if (credentials.Kind == AuthenticationKind.Token && Entry.IsSSH)
+                        warnings.Add($"'{credentials.Description}' is a token, and an SSH server takes a password or a one-time password: " +
+                                      "it is not connected until it names one of those.");
 
                     if (credentials.Kind == AuthenticationKind.TOTP && Entry.IsSSH && !credentials.TLSChannelBinding)
                         warnings.Add($"'{credentials.Description}' is not bound to its session, so over SSH its one-time password is " +
@@ -3574,14 +3871,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                       "that takes 'totp@open.charging.cloud' and to no other.");
 
                     if (Entry.IsSSH &&
-                        Entry.URL.Login is String login && login != credentials.Login)
+                        Entry.URL.Login is String login && credentials.Login is not null && login != credentials.Login)
                         warnings.Add($"The URL signs in as '{login}' and '{credentials.Description}' as '{credentials.Login}'. " +
                                       "It is one login, so it is not connected until the two agree.");
 
                     if (credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding && !Entry.IsSSH && !Entry.Inbound &&
                         !Entry.BindsItsPassword)
                         warnings.Add($"'{credentials.Description}' binds its password to the TLS session, and one is bound only on a " +
-                                      $"connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this {NodeWording.Noun}'s TLS exports " +
+                                      $"connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this {NodeNoun}'s TLS exports " +
                                       "no keying material to bind one with, so it is not connected. Name HTTP/3 for it, or switch the " +
                                       "binding off to have the password sent unbound - and know that an unbound password can be replayed " +
                                       "within its validity.");
@@ -3595,8 +3892,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (KnownCertificateIds is not null && Entry.Identities.Any(identity => !KnownCertificateIds().Contains(identity.Id)))
                     warnings.Add(Entry.Identities.Count == 1
-                                     ? $"The client certificate this connection names is not on this {NodeWording.Noun} any more."
-                                     : $"One of the client certificates this connection names is not on this {NodeWording.Noun} any more.");
+                                     ? $"The client certificate this connection names is not on this {NodeNoun} any more."
+                                     : $"One of the client certificates this connection names is not on this {NodeNoun} any more.");
 
                 if (!Entry.IsSecure)
                     warnings.Add("A client certificate is shown during a TLS handshake, and this connection makes none.");
@@ -3607,7 +3904,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             {
 
                 if (KnownSshKeyIds is not null && Entry.Identities.Any(identity => identity.Id != SshClientKeys.NoneId && !KnownSshKeyIds().Contains(identity.Id)))
-                    warnings.Add($"An SSH key this connection names is not on this {NodeWording.Noun} any more.");
+                    warnings.Add($"An SSH key this connection names is not on this {NodeNoun} any more.");
 
             }
 
@@ -3617,14 +3914,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 warnings.Add($"None of the identities this connection names is shown yet: the first from " +
                              $"{Entry.Identities.Min(identity => identity.From)!.Value.UtcDateTime:yyyy-MM-dd HH:mm} UTC. Until then it is not connected.");
 
-            // Over SSH this station always shows its own key.
-            if (Entry.AuthenticationId is null && Entry.CertificateId is null && !Entry.IsSSH && !Entry.SignsInWithACertificate)
-                warnings.Add(Entry.Inbound
-                                 ? "This connection names no credentials and no client certificate, so nothing is let in under its name."
-                                 : "This connection proves nothing about who is dialling. A back end that asks will refuse it.");
+            // Over SSH this station always shows its own key; what dials in
+            // signs in with its WebSocket login.
+            if (Entry.AuthenticationId is null && Entry.CertificateId is null && !Entry.IsSSH && !Entry.Inbound)
+                warnings.Add("This connection proves nothing about who is dialling. A back end that asks will refuse it.");
 
-            if (Entry.Inbound && Entry.SignsInWithACertificate && !Entry.IsSecure)
-                warnings.Add("A client certificate is shown during a TLS handshake, and the other end makes none to this URL: nothing is let in.");
+            if (Entry.Inbound && !Entry.IsSecure)
+                warnings.Add("Without TLS the other end sends its password in the clear to anybody on the way, and shows no client certificate.");
 
             if (Entry.IsSSH)
             {

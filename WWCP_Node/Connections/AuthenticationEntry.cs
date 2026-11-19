@@ -30,8 +30,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 {
 
     /// <summary>
-    /// Which of the two ways of proving who this station is a set of
-    /// credentials is for.
+    /// Which of the ways of proving who this node is a set of credentials is
+    /// for.
     /// </summary>
     public enum AuthenticationKind
     {
@@ -46,25 +46,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// password good for the next half minute is worked out at each
         /// connection.
         /// </summary>
-        TOTP
+        TOTP,
+
+        /// <summary>
+        /// HTTP Token: a token and nothing else, sent on every request.
+        /// </summary>
+        Token
 
     }
 
 
     /// <summary>
-    /// One set of credentials this charging station can prove itself with, and
-    /// what somebody meant it for.
+    /// One set of credentials this node can prove itself with, and what
+    /// somebody meant it for.
     /// </summary>
     /// <remarks>
+    /// The credentials themselves are an HTTP authentication of Hermod's -
+    /// HTTP Basic, HTTP TOTP with its configuration, or HTTP Token - and this
+    /// entry is what is written down beside them: what they are called here,
+    /// what they are for and when they were written down.
+    ///
     /// The description is the point of having several. A station in a fleet
     /// frequently has one login for the back end and another for the local
     /// controller in the same cabinet, and the two are not interchangeable -
     /// so whoever configured them writes down which is which, and whoever
     /// reads the page a year later does not have to guess from a URL.
     ///
-    /// <b>The secret half never leaves this station.</b> The password and the
-    /// shared secret are written into a file only their owner may read, and
-    /// <see cref="ToJSON"/> leaves them out unless it is being asked for the
+    /// <b>The secret half never leaves this node.</b> The password, the shared
+    /// secret and the token are written into a file only their owner may read,
+    /// and <see cref="ToJSON"/> leaves them out unless it is being asked for the
     /// file itself. The web interface is told whether a secret is set, never
     /// what it is - the same rule the private keys next door live under, and
     /// for the same reason: a secret that can be read back out of a page is a
@@ -106,6 +116,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public const Int32   MaxPasswordLength      = 512;
 
         /// <summary>
+        /// The longest a token may be written.
+        /// </summary>
+        public const Int32   MaxTokenLength         = 512;
+
+        /// <summary>
         /// How long one time-based password is good for, when nothing says
         /// otherwise - the same half minute Hermod's generator assumes.
         /// </summary>
@@ -130,20 +145,46 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// What this set of credentials is called here.
         /// </summary>
-        public String              Id                  { get; }
+        public String               Id                  { get; }
 
         /// <summary>
         /// What somebody wrote down that it is for, e.g. "CSMS login".
         /// </summary>
-        public String              Description         { get; internal set; }
+        public String               Description         { get; internal set; }
 
         /// <summary>
-        /// Which of the two ways of proving it this is.
+        /// The credentials themselves: an HTTP Basic, an HTTP TOTP - with the
+        /// TOTP configuration to work a password out from - or an HTTP Token
+        /// authentication.
         /// </summary>
-        public AuthenticationKind  Kind                { get; internal set; }
+        public IHTTPAuthentication  Authentication      { get; internal set; }
 
         /// <summary>
-        /// The name the other end knows this station by.
+        /// When this was written down.
+        /// </summary>
+        public DateTimeOffset       CreatedAt           { get; }
+
+        /// <summary>
+        /// When these credentials were last changed, or when they were written
+        /// down where they never were.
+        /// </summary>
+        public DateTimeOffset       LastChangeAt        { get; internal set; }
+
+
+        /// <summary>
+        /// Which of the ways of proving it this is.
+        /// </summary>
+        public AuthenticationKind   Kind
+
+            => Authentication switch {
+                   HTTPTOTPAuthentication   => AuthenticationKind.TOTP,
+                   HTTPTokenAuthentication  => AuthenticationKind.Token,
+                   _                        => AuthenticationKind.Basic
+               };
+
+        /// <summary>
+        /// The name the other end knows this node by, or null for a token,
+        /// which names nobody.
         /// </summary>
         /// <remarks>
         /// A login and not a user name: it names a role - a charging station,
@@ -151,41 +192,57 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// TOTP scheme says so in as many words, and HTTP Basic is used the
         /// same way here.
         /// </remarks>
-        public String              Login               { get; internal set; }
+        public String?              Login
+
+            => Authentication switch {
+                   HTTPBasicAuthentication  basic  => basic.Username,
+                   HTTPTOTPAuthentication   totp   => totp. Login,
+                   _                               => null
+               };
 
         /// <summary>
-        /// The password, for HTTP Basic. Null for TOTP, and left out of
-        /// everything this station hands to a web interface.
+        /// The password, for HTTP Basic. Null otherwise, and left out of
+        /// everything this node hands to a web interface.
         /// </summary>
-        public String?             Password            { get; internal set; }
+        public String?              Password
+
+            => (Authentication as HTTPBasicAuthentication)?.Password;
+
+        /// <summary>
+        /// The TOTP configuration, for HTTP TOTP: the shared secret and how a
+        /// password is worked out from it. Null otherwise.
+        /// </summary>
+        public TOTPConfig?          TOTPConfig
+
+            => (Authentication as HTTPTOTPAuthentication)?.TOTPConfig;
 
         /// <summary>
         /// The shared secret, for TOTP. Never sent anywhere - a time-based
         /// password is worked out from it and that is what travels.
         /// </summary>
-        public String?             SharedSecret        { get; internal set; }
+        public String?              SharedSecret        => TOTPConfig?.SharedSecret;
 
         /// <summary>
         /// How long one time-based password is good for. Null means the
         /// default.
         /// </summary>
-        public TimeSpan?           Validity            { get; internal set; }
+        public TimeSpan?            Validity            => TOTPConfig?.ValidityTime;
 
         /// <summary>
         /// How many characters it has. Null means the default.
         /// </summary>
-        public UInt32?             Length              { get; internal set; }
+        public UInt32?              Length              => TOTPConfig?.Length;
 
         /// <summary>
         /// Which characters it is drawn from. Null means the default.
         /// </summary>
-        public String?             Alphabet            { get; internal set; }
+        public String?              Alphabet            => TOTPConfig?.Alphabet;
 
         /// <summary>
         /// Which HMAC the password is derived with. Null means HMAC-SHA256,
         /// which is what both ends assume.
         /// </summary>
-        public TOTPHashAlgorithm?  HashAlgorithm       { get; internal set; }
+        public TOTPHashAlgorithm?   HashAlgorithm       => TOTPConfig?.HashAlgorithm;
 
         /// <summary>
         /// Whether the password is bound to the TLS session it is sent over.
@@ -195,22 +252,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// only. Binding needs keying material exported from the TLS session.
         /// The TLS of QUIC exports it, so a connection that names HTTP/3 and
         /// nothing else binds its password; .NET's SslStream, which is the
-        /// station's TLS over HTTP/1.1 and HTTP/2, exports none. A connection
-        /// of those whose credentials ask for the binding - one left the
-        /// choice of the version among them - is not connected at all, and says
-        /// why: sending the password unbound instead would be less than what
-        /// was configured, quietly.
+        /// node's TLS over HTTP/1.1 and HTTP/2, exports none. A connection of
+        /// those whose credentials ask for the binding - one left the choice
+        /// of the version among them - is not connected at all, and says why:
+        /// sending the password unbound instead would be less than what was
+        /// configured, quietly.
         ///
         /// A bound password is the better choice where it can be had: it is
         /// no use to anybody who copies it off one connection and tries it on
         /// another.
         /// </remarks>
-        public Boolean             TLSChannelBinding   { get; internal set; }
+        public Boolean              TLSChannelBinding   => TOTPConfig?.TLSChannelBinding == true;
 
         /// <summary>
-        /// When this was written down.
+        /// The token, for HTTP Token. Null otherwise, and left out of
+        /// everything this node hands to a web interface.
         /// </summary>
-        public DateTimeOffset      CreatedAt           { get; }
+        public String?              Token
+
+            => (Authentication as HTTPTokenAuthentication)?.Token;
 
         /// <summary>
         /// Whether the secret half is set at all.
@@ -220,11 +280,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// that a page can show the difference between "not configured yet"
         /// and "configured, and you are not being shown it".
         /// </remarks>
-        public Boolean             HasSecret
+        public Boolean              HasSecret
 
-            => Kind == AuthenticationKind.Basic
-                   ? !String.IsNullOrEmpty(Password)
-                   : !String.IsNullOrEmpty(SharedSecret);
+            => Kind switch {
+                   AuthenticationKind.TOTP   => !String.IsNullOrEmpty(SharedSecret),
+                   AuthenticationKind.Token  => !String.IsNullOrEmpty(Token),
+                   _                         => !String.IsNullOrEmpty(Password)
+               };
 
         #endregion
 
@@ -233,18 +295,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// One set of credentials.
         /// </summary>
-        public AuthenticationEntry(String              Id,
-                                   String              Description,
-                                   AuthenticationKind  Kind,
-                                   String              Login,
-                                   DateTimeOffset      CreatedAt)
+        /// <param name="Id">What the credentials are called here.</param>
+        /// <param name="Description">What somebody wrote down that they are for.</param>
+        /// <param name="Authentication">The credentials themselves.</param>
+        /// <param name="CreatedAt">When they were written down.</param>
+        /// <param name="LastChangeAt">When they were last changed; when they were written down, where left out.</param>
+        public AuthenticationEntry(String               Id,
+                                   String               Description,
+                                   IHTTPAuthentication  Authentication,
+                                   DateTimeOffset       CreatedAt,
+                                   DateTimeOffset?      LastChangeAt   = null)
         {
 
-            this.Id           = Id;
-            this.Description  = Description;
-            this.Kind         = Kind;
-            this.Login        = Login;
-            this.CreatedAt    = CreatedAt;
+            this.Id              = Id;
+            this.Description     = Description;
+            this.Authentication  = Authentication;
+            this.CreatedAt       = CreatedAt;
+            this.LastChangeAt    = LastChangeAt ?? CreatedAt;
 
         }
 
@@ -276,37 +343,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
-        #region (static) Validate(Description, Kind, Login, Secret, Alphabet, Length, out Error)
+        #region (static) ValidateDescription(Description, out Error)
 
         /// <summary>
-        /// Everything that can be said to be wrong with a set of credentials
-        /// before it is written down, in the words somebody typing it should
-        /// read.
+        /// What can be wrong with the description of a set of credentials,
+        /// whatever kind they are.
         /// </summary>
-        /// <remarks>
-        /// One place rather than two, because adding one and changing one have
-        /// to agree about what is allowed - and a rule enforced on the way in
-        /// but not on the way through an edit is not a rule.
-        ///
-        /// An empty secret is allowed here and means "leave whatever is
-        /// already there alone". A record that ends up with no secret at all
-        /// is caught by the store, which is the only place that knows whether
-        /// there was one before.
-        /// </remarks>
-        public static Boolean Validate(String?                          Description,
-                                       AuthenticationKind               Kind,
-                                       String?                          Login,
-                                       String?                          Secret,
-                                       String?                          Alphabet,
-                                       UInt32?                          Length,
-                                       [NotNullWhen(false)] out String? Error)
+        public static Boolean ValidateDescription(String?                           Description,
+                                                  [NotNullWhen(false)] out String?  Error)
         {
 
-            Error = null;
-
             var description = (Description ?? "").Trim();
-            var login       = (Login       ?? "").Trim();
-            var secret      = (Secret      ?? "").Trim();
 
             if (description.Length == 0)
             {
@@ -320,34 +367,80 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            if (login.Length == 0)
+            Error = null;
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) ValidateBasic(Description, Login, Password, out Error)
+
+        /// <summary>
+        /// Everything that can be said to be wrong with HTTP Basic credentials
+        /// before they are written down, in the words somebody typing them
+        /// should read.
+        /// </summary>
+        /// <remarks>
+        /// One place rather than two, because adding one and changing one have
+        /// to agree about what is allowed - and a rule enforced on the way in
+        /// but not on the way through an edit is not a rule.
+        ///
+        /// An empty password is allowed here and means "leave whatever is
+        /// already there alone". Credentials that end up with no password at
+        /// all are caught by the store, which is the only place that knows
+        /// whether there was one before.
+        /// </remarks>
+        public static Boolean ValidateBasic(String?                           Description,
+                                            String?                           Login,
+                                            String?                           Password,
+                                            [NotNullWhen(false)] out String?  Error)
+        {
+
+            if (!ValidateDescription(Description, out Error) ||
+                !ValidateLogin      (Login,       out Error))
             {
-                Error = $"A login is needed: it is the name the other end knows this {NodeWording.Noun} by.";
                 return false;
             }
 
-            if (login.Length > MaxLoginLength)
+            if ((Password ?? "").Trim().Length > MaxPasswordLength)
             {
-                Error = $"A login may be at most {MaxLoginLength} characters.";
+                Error = $"A password may be at most {MaxPasswordLength} characters.";
                 return false;
             }
 
-            if (Kind == AuthenticationKind.Basic)
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) ValidateTOTP (Description, Login, SharedSecret, Alphabet, Length, out Error)
+
+        /// <summary>
+        /// Everything that can be said to be wrong with HTTP TOTP credentials
+        /// before they are written down. An empty shared secret is allowed,
+        /// see <see cref="ValidateBasic"/>.
+        /// </summary>
+        public static Boolean ValidateTOTP(String?                           Description,
+                                           String?                           Login,
+                                           String?                           SharedSecret,
+                                           String?                           Alphabet,
+                                           UInt32?                           Length,
+                                           [NotNullWhen(false)] out String?  Error)
+        {
+
+            if (!ValidateDescription(Description, out Error) ||
+                !ValidateLogin      (Login,       out Error))
             {
-
-                if (secret.Length > MaxPasswordLength)
-                {
-                    Error = $"A password may be at most {MaxPasswordLength} characters.";
-                    return false;
-                }
-
-                return true;
-
+                return false;
             }
 
-            // TOTP, where the shared secret has rules of its own - Hermod's
-            // generator throws on all of these, and throwing at the first
-            // connection is far away from whoever typed it.
+            var secret = (SharedSecret ?? "").Trim();
+
+            // The shared secret has rules of its own - Hermod's generator
+            // throws on all of these, and throwing at the first connection is
+            // far away from whoever typed it.
             if (secret.Length > 0)
             {
 
@@ -396,15 +489,80 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
+        #region (static) ValidateToken(Description, Token, out Error)
+
+        /// <summary>
+        /// Everything that can be said to be wrong with HTTP Token credentials
+        /// before they are written down. An empty token is allowed, see
+        /// <see cref="ValidateBasic"/>.
+        /// </summary>
+        public static Boolean ValidateToken(String?                           Description,
+                                            String?                           Token,
+                                            [NotNullWhen(false)] out String?  Error)
+        {
+
+            if (!ValidateDescription(Description, out Error))
+                return false;
+
+            var token = (Token ?? "").Trim();
+
+            if (token.Length > MaxTokenLength)
+            {
+                Error = $"A token may be at most {MaxTokenLength} characters.";
+                return false;
+            }
+
+            // "Authorization: Token <token>" ends at the first space.
+            if (token.Any(Char.IsWhiteSpace))
+            {
+                Error = "A token may not contain spaces - it is sent as it is, in one piece.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) ValidateLogin(Login, out Error)
+
+        private static Boolean ValidateLogin(String?                           Login,
+                                             [NotNullWhen(false)] out String?  Error,
+                                             String?                           NodeNoun   = null)
+        {
+
+            var login = (Login ?? "").Trim();
+
+            if (login.Length == 0)
+            {
+                Error = $"A login is needed: it is the name the other end knows this {NodeNoun ?? NodeWording.Noun} by.";
+                return false;
+            }
+
+            if (login.Length > MaxLoginLength)
+            {
+                Error = $"A login may be at most {MaxLoginLength} characters.";
+                return false;
+            }
+
+            Error = null;
+            return true;
+
+        }
+
+        #endregion
+
         #region (static) TryParse(JSON, out Entry, out Error)
 
         /// <summary>
         /// One set of credentials as it stands in the file, or the one
         /// sentence that says what is wrong with it.
         /// </summary>
-        public static Boolean TryParse(JObject                                    JSON,
+        public static Boolean TryParse(JObject                                        JSON,
                                        [NotNullWhen(true)]  out AuthenticationEntry?  Entry,
-                                       [NotNullWhen(false)] out String?               Error)
+                                       [NotNullWhen(false)] out String?               Error,
+                                       String?                                        NodeNoun   = null)
         {
 
             Entry = null;
@@ -418,49 +576,111 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            var kindText = JSON.Value<String>("kind")?.Trim().ToLowerInvariant();
+            var kindText  = JSON.Value<String>("kind")?.Trim().ToLowerInvariant();
+            var login     = JSON.Value<String>("login")?.Trim() ?? "";
 
-            var kind     = kindText switch {
-                               "basic"  => AuthenticationKind.Basic,
-                               "totp"   => AuthenticationKind.TOTP,
-                               _        => (AuthenticationKind?) null
-                           };
+            IHTTPAuthentication? authentication = null;
 
-            if (kind is null)
+            switch (kindText)
             {
-                Error = $"'{kindText}' is not a kind of authentication this {NodeWording.Noun} knows.";
+
+                // A password or a shared secret missing from the file is read
+                // as none: a file edited by hand is a real thing, and these
+                // credentials are then said to have no secret set rather than
+                // the station refusing to start.
+                case "basic":
+                    if (HTTPBasicAuthentication.TryCreate(login,
+                                                          JSON.Value<String>("password") ?? "",
+                                                          out var basic))
+                    {
+                        authentication = basic;
+                    }
+                    break;
+
+                case "totp":
+                    if (HTTPTOTPAuthentication.TryCreate(login,
+                                                         TOTPConfigOf(JSON.Value<String>("sharedSecret") ?? "",
+                                                                      JSON.Value<Double?>("validitySeconds"),
+                                                                      JSON.Value<UInt32?>("length"),
+                                                                      JSON.Value<String>("alphabet"),
+                                                                      JSON.Value<String>("hashAlgorithm"),
+                                                                      JSON.Value<Boolean?>("tlsChannelBinding") ?? false),
+                                                         out var totp))
+                    {
+                        authentication = totp;
+                    }
+                    break;
+
+                case "token":
+                    if (HTTPTokenAuthentication.TryCreate(JSON.Value<String>("token") ?? "",
+                                                          out var token))
+                    {
+                        authentication = token;
+                    }
+                    break;
+
+                default:
+                    Error = $"'{kindText}' is not a kind of authentication this {NodeNoun ?? NodeWording.Noun} knows.";
+                    return false;
+
+            }
+
+            if (authentication is null)
+            {
+                Error = $"The credentials '{id}' have no {(kindText == "token" ? "token" : "login")}.";
                 return false;
             }
 
-            var entry = new AuthenticationEntry(
-                            id,
-                            JSON.Value<String>("description") ?? "",
-                            kind.Value,
-                            JSON.Value<String>("login")       ?? "",
-                            Written(JSON.Value<String>("createdAt"))
-                        ) {
-                            Password           = JSON.Value<String>("password"),
-                            SharedSecret       = JSON.Value<String>("sharedSecret"),
-                            Length             = JSON.Value<UInt32?>("length"),
-                            Alphabet           = JSON.Value<String>("alphabet"),
-                            TLSChannelBinding  = JSON.Value<Boolean?>("tlsChannelBinding") ?? false
-                        };
+            var createdAt = Written(JSON.Value<String>("createdAt"));
 
-            if (JSON.Value<Double?>("validitySeconds") is Double seconds && seconds > 0)
-                entry.Validity = TimeSpan.FromSeconds(seconds);
+            Entry = new AuthenticationEntry(
+                        id,
+                        JSON.Value<String>("description") ?? "",
+                        authentication,
+                        createdAt,
+                        JSON.Value<String>("lastChangeAt") is String lastChangeAt
+                            ? Written(lastChangeAt)
+                            : createdAt
+                    );
 
-            if (JSON.Value<String>("hashAlgorithm")?.Trim().ToUpperInvariant() is String hash && hash.Length > 0)
-                entry.HashAlgorithm = hash switch {
-                                          "SHA256"  => TOTPHashAlgorithm.SHA256,
-                                          "SHA384"  => TOTPHashAlgorithm.SHA384,
-                                          "SHA512"  => TOTPHashAlgorithm.SHA512,
-                                          _         => null
-                                      };
-
-            Entry = entry;
             return true;
 
         }
+
+        #endregion
+
+        #region (static) TOTPConfigOf(SharedSecret, ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding)
+
+        /// <summary>
+        /// The TOTP configuration of a shared secret and how a password is to
+        /// be worked out from it, as they are typed or written down: a validity
+        /// of no seconds and an alphabet of nothing are the defaults, and so is
+        /// a hash algorithm this node does not know.
+        /// </summary>
+        public static TOTPConfig TOTPConfigOf(String    SharedSecret,
+                                              Double?   ValiditySeconds,
+                                              UInt32?   Length,
+                                              String?   Alphabet,
+                                              String?   HashAlgorithm,
+                                              Boolean   TLSChannelBinding)
+
+            => new (
+                   SharedSecret.Trim(),
+                   ValiditySeconds is Double seconds && seconds > 0
+                       ? TimeSpan.FromSeconds(seconds)
+                       : null,
+                   Length,
+                   String.IsNullOrWhiteSpace(Alphabet)
+                       ? null
+                       : Alphabet.Trim(),
+                   HashAlgorithm?.Trim().ToUpperInvariant() switch {
+                       "SHA256"  => TOTPHashAlgorithm.SHA256,
+                       "SHA384"  => TOTPHashAlgorithm.SHA384,
+                       "SHA512"  => TOTPHashAlgorithm.SHA512,
+                       _         => null
+                   },
+                   TLSChannelBinding
+               );
 
         #endregion
 
@@ -478,15 +698,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         {
 
             var json = new JObject(
-                           new JProperty("id",           Id),
-                           new JProperty("description",  Description),
-                           new JProperty("kind",         Kind == AuthenticationKind.Basic ? "basic" : "totp"),
-                           new JProperty("login",        Login),
-                           new JProperty("createdAt",    CreatedAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
-                           new JProperty("hasSecret",    HasSecret)
+                           new JProperty("id",            Id),
+                           new JProperty("description",   Description),
+                           new JProperty("kind",          Kind switch {
+                                                              AuthenticationKind.TOTP   => "totp",
+                                                              AuthenticationKind.Token  => "token",
+                                                              _                         => "basic"
+                                                          }),
+                           new JProperty("createdAt",     CreatedAt.   UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
+                           new JProperty("lastChangeAt",  LastChangeAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
+                           new JProperty("hasSecret",     HasSecret)
                        );
 
-            if (Kind == AuthenticationKind.TOTP)
+            if (Login is not null)
+                json.Add(new JProperty("login", Login));
+
+            if (TOTPConfig is TOTPConfig totp)
             {
 
                 json.Add(new JProperty("tlsChannelBinding",  TLSChannelBinding));
@@ -495,10 +722,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 // both ends have to agree on them, and somebody comparing two
                 // configurations needs to see them. Only the secret is left
                 // out.
-                if (Validity      is not null)  json.Add(new JProperty("validitySeconds",  Validity.Value.TotalSeconds));
-                if (Length        is not null)  json.Add(new JProperty("length",           Length.Value));
-                if (Alphabet      is not null)  json.Add(new JProperty("alphabet",         Alphabet));
-                if (HashAlgorithm is not null)  json.Add(new JProperty("hashAlgorithm",    HashAlgorithm.Value.ToString()));
+                if (totp.ValidityTime  is not null)  json.Add(new JProperty("validitySeconds",  totp.ValidityTime.Value.TotalSeconds));
+                if (totp.Length        is not null)  json.Add(new JProperty("length",           totp.Length.Value));
+                if (totp.Alphabet      is not null)  json.Add(new JProperty("alphabet",         totp.Alphabet));
+                if (totp.HashAlgorithm is not null)  json.Add(new JProperty("hashAlgorithm",    totp.HashAlgorithm.Value.ToString()));
 
             }
 
@@ -506,6 +733,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             {
                 if (Password     is not null)  json.Add(new JProperty("password",      Password));
                 if (SharedSecret is not null)  json.Add(new JProperty("sharedSecret",  SharedSecret));
+                if (Token        is not null)  json.Add(new JProperty("token",         Token));
             }
 
             return json;
@@ -514,21 +742,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
-        #region ToBasicAuthentication() / ToTOTPConfig()
+        #region ToBasicAuthentication() / ToTOTPConfig() / ToTokenAuthentication()
 
         /// <summary>
         /// These credentials as an HTTP Basic authentication, or null when
-        /// they are not that kind or have no password yet.
+        /// they are not that kind or have no password.
         /// </summary>
         public HTTPBasicAuthentication? ToBasicAuthentication()
 
-            => Kind == AuthenticationKind.Basic && !String.IsNullOrEmpty(Password)
-                   ? HTTPBasicAuthentication.Create(Login, Password)
+            => Authentication is HTTPBasicAuthentication { Password.Length: > 0 } basic
+                   ? basic
                    : null;
 
         /// <summary>
         /// These credentials as a TOTP configuration, or null when they are
-        /// not that kind or have no shared secret yet.
+        /// not that kind or have no shared secret.
         /// </summary>
         /// <remarks>
         /// What the HTTP client is handed: it works out a password from this
@@ -537,16 +765,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </remarks>
         public TOTPConfig? ToTOTPConfig()
 
-            => Kind == AuthenticationKind.TOTP && !String.IsNullOrEmpty(SharedSecret)
-                   ? new TOTPConfig(
-                         SharedSecret,
-                         Validity,
-                         Length,
-                         Alphabet,
-                         TLSChannelBinding,
-                         HashAlgorithm
-                     )
+            => TOTPConfig is { SharedSecret.Length: > 0 } totp
+                   ? totp
                    : null;
+
+        /// <summary>
+        /// These credentials as an HTTP Token authentication, or null when
+        /// they are not that kind.
+        /// </summary>
+        public HTTPTokenAuthentication? ToTokenAuthentication()
+
+            => Authentication as HTTPTokenAuthentication;
 
         #endregion
 
@@ -566,7 +795,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         public override String ToString()
 
-            => $"{Description} ({(Kind == AuthenticationKind.Basic ? "HTTP Basic" : "HTTP TOTP")}, '{Login}')" +
+            => Kind switch {
+                   AuthenticationKind.TOTP   => $"{Description} (HTTP TOTP, '{Login}')",
+                   AuthenticationKind.Token  => $"{Description} (HTTP Token)",
+                   _                         => $"{Description} (HTTP Basic, '{Login}')"
+               } +
                (HasSecret ? "" : ", no secret yet");
 
         #endregion

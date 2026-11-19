@@ -222,6 +222,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public NodeKind               Kind                         { get; }
 
         /// <summary>
+        /// What this node calls itself where it says "this ...": "station",
+        /// "local controller" - the word of its own kind, whatever other nodes
+        /// share its process.
+        /// </summary>
+        public String                 NodeNoun
+            => Kind.Noun;
+
+        /// <summary>
         /// The version of the assembly this node is.
         /// </summary>
         public String                 Version                      { get; }
@@ -651,40 +659,40 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="SSH">What the program says about serving the command line over SSH: nothing by default, and then only the configuration file can switch it on - see <see cref="SSHSettings"/>.</param>
         /// <param name="FrontendSecurityHeaders">The security headers the web interface's pages are served with, or null for Hermod's defaults - which allow nothing from elsewhere: a kind of node whose pages need more, the tiles of a map from a tile server, says so here, and says only that.</param>
         /// <param name="Web">What the program says of TLS and of the reverse proxies in front - NodeArguments.Web, from --https, --https-cert, --redirect-port and --trusted-proxy - over the "web" section of the configuration file; nothing by default, and then only the file says it. Not for a server that is handed in, or a certificate selector: those bring their own TLS.</param>
-        public WWCPNode(NodeKind?                                  Kind               = null,
-                        String?                                    Version            = null,
-                        IPPort?                                    HTTPPort           = null,
-                        IIPAddress?                                HTTPHostname       = null,
-                        HTTPServer?                                HTTPServer         = null,
-                        ServerCertificateSelectorDelegate?         ServerCertificateSelector       = null,
-                        ServerCertificateChainSelectorDelegate?    ServerCertificateChainSelector  = null,
-                        HTTPPath?                                  BasePath           = null,
-                        HTTPPath?                                  HTTPRootPath       = null,
-                        HTTPExtAPI?                                ExtAPI             = null,
-                        String?                                    AccountsPath       = null,
-                        IEnumerable<String>?                       Roles              = null,
-                        IEnumerable<String>?                       Resources          = null,
-                        IEnumerable<Role>?                         RoleDefinitions    = null,
-                        WWCPConfigFile?                            ConfigFile         = null,
-                        DNSClient?                                 DNSClient          = null,
-                        NTSClient?                                 NTSClient          = null,
-                        IStaticContentSource?                      Frontend           = null,
-                        String?                                    CertificatesPath   = null,
-                        IEnumerable<CertificateKind>?              CertificateKinds   = null,
-                        IEnumerable<String>?                       CertificateUsages  = null,
-                        IEnumerable<String>?                       CertificateListeners  = null,
-                        EventLog?                                  Log                = null,
-                        Boolean                                    LogToConsole       = true,
-                        LogLevel                                   ConsoleLogLevel    = LogLevel.Info,
-                        String?                                    LogPath            = null,
-                        String?                                    MetrologicalLogPath  = null,
-                        Boolean                                    BridgeDebugLog     = true,
-                        IEnumerable<(String Needle, String Tag)>?  TraceTags          = null,
-                        TimeProvider?                              TimeProvider       = null,
-                        SSHSettings?                               SSH                = null,
-                        SecurityHeaderOptions?                     FrontendSecurityHeaders  = null,
-                        WebConfiguration?                          Web                = null,
-                        IEnumerable<CertificateKind>?              CertificateRequestKinds  = null)
+        public WWCPNode(NodeKind?                                  Kind                             = null,
+                        String?                                    Version                          = null,
+                        IPPort?                                    HTTPPort                         = null,
+                        IIPAddress?                                HTTPHostname                     = null,
+                        HTTPServer?                                HTTPServer                       = null,
+                        ServerCertificateSelectorDelegate?         ServerCertificateSelector        = null,
+                        ServerCertificateChainSelectorDelegate?    ServerCertificateChainSelector   = null,
+                        HTTPPath?                                  BasePath                         = null,
+                        HTTPPath?                                  HTTPRootPath                     = null,
+                        HTTPExtAPI?                                ExtAPI                           = null,
+                        String?                                    AccountsPath                     = null,
+                        IEnumerable<String>?                       Roles                            = null,
+                        IEnumerable<String>?                       Resources                        = null,
+                        IEnumerable<Role>?                         RoleDefinitions                  = null,
+                        WWCPConfigFile?                            ConfigFile                       = null,
+                        DNSClient?                                 DNSClient                        = null,
+                        NTSClient?                                 NTSClient                        = null,
+                        IStaticContentSource?                      Frontend                         = null,
+                        String?                                    CertificatesPath                 = null,
+                        IEnumerable<CertificateKind>?              CertificateKinds                 = null,
+                        IEnumerable<String>?                       CertificateUsages                = null,
+                        IEnumerable<String>?                       CertificateListeners             = null,
+                        EventLog?                                  Log                              = null,
+                        Boolean                                    LogToConsole                     = true,
+                        LogLevel                                   ConsoleLogLevel                  = LogLevel.Info,
+                        String?                                    LogPath                          = null,
+                        String?                                    MetrologicalLogPath              = null,
+                        Boolean                                    BridgeDebugLog                   = true,
+                        IEnumerable<(String Needle, String Tag)>?  TraceTags                        = null,
+                        TimeProvider?                              TimeProvider                     = null,
+                        SSHSettings?                               SSH                              = null,
+                        SecurityHeaderOptions?                     FrontendSecurityHeaders          = null,
+                        WebConfiguration?                          Web                              = null,
+                        IEnumerable<CertificateKind>?              CertificateRequestKinds          = null)
 
         {
 

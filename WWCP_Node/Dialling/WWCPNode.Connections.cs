@@ -313,7 +313,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return false;
                 }
 
-                Basic  = credentials.ToBasicAuthentication();
+                // HTTP Basic and HTTP Token are sent as they are; HTTP TOTP is
+                // a configuration a password is worked out from.
+                Basic  = credentials.Kind == AuthenticationKind.TOTP || !credentials.HasSecret
+                             ? null
+                             : credentials.Authentication;
                 TOTP   = credentials.ToTOTPConfig();
 
                 if (Basic is null && TOTP is null)
@@ -325,7 +329,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (TOTP is not null && credentials.TLSChannelBinding && !BindsItsPassword(Connection))
                 {
                     Error = $"it uses '{credentials.Description}', a one-time password bound to the TLS session, and one is bound only on " +
-                             $"a connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this {NodeWording.Noun}'s TLS exports no " +
+                             $"a connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this {NodeNoun}'s TLS exports no " +
                              "keying material to bind one with. Name HTTP/3 for it, or switch the binding off to have it sent unbound";
                     TOTP  = null;
                     return false;
@@ -334,10 +338,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (TOTP is not null)
                     TOTPLogin = credentials.Login;
 
-                Says = TOTP is not null
-                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), " +
-                             (credentials.TLSChannelBinding ? "bound to the TLS session of the connection" : "unbound")
-                           : $"HTTP Basic as '{credentials.Login}' ('{credentials.Description}')";
+                Says = credentials.Kind switch {
+                           AuthenticationKind.TOTP   => $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), " +
+                                                        (credentials.TLSChannelBinding ? "bound to the TLS session of the connection" : "unbound"),
+                           AuthenticationKind.Token  => $"HTTP Token ('{credentials.Description}')",
+                           _                         => $"HTTP Basic as '{credentials.Login}' ('{credentials.Description}')"
+                       };
 
             }
 
@@ -371,7 +377,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     String? wrong;
 
                     if (identity is null)
-                        wrong = $"it names an identity this {NodeWording.Noun} does not have";
+                        wrong = $"it names an identity this {NodeNoun} does not have";
 
                     else if (!identity.IsActive)
                         wrong = $"it would show the identity '{identity.Label}', which is switched off";
@@ -671,6 +677,30 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (protected internal) DestinationOf(Connection)
+
+        /// <summary>
+        /// Where what this node says by itself over a connection goes - its
+        /// BootNotification, its heartbeats: the connection's own name, by
+        /// which the node routes it - and in the overlay network, for the
+        /// primary, the name of the CSMS, which routes to the same line.
+        /// </summary>
+        /// <remarks>
+        /// In the overlay network the frame carries where it goes, and the
+        /// far end reads it: a name of the connection's own is this node's
+        /// alone, and the far end takes what is sent to it for something to
+        /// pass on - and turns it away. In the plain frame of OCPP nothing
+        /// of it is sent.
+        /// </remarks>
+        protected internal NetworkingNode_Id DestinationOf(ConnectionEntry Connection)
+
+            => NetworkingModeOf(Connection) == NetworkingMode.OverlayNetwork &&
+               CSMSNamesOf(Connection) is [ var csms, .. ]
+                   ? csms
+                   : NextHopOf(Connection);
+
+        #endregion
+
         #region (internal) IsPrimary(Connection)
 
         /// <summary>
@@ -908,6 +938,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 }
 
+                else if (credentials.Kind == AuthenticationKind.Token)
+                {
+                    Error = $"it uses '{credentials.Description}', a token, and an SSH server takes a password or a one-time password";
+                    return false;
+                }
+
                 else if (String.IsNullOrEmpty(credentials.Password))
                 {
                     Error = $"it uses '{credentials.Description}', which has no secret set";
@@ -1032,7 +1068,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Connection.Identities.Count == 0)
             {
                 Keys = [ Own ];
-                Says = $"this {NodeWording.Noun}'s SSH key ({SshFingerprint.Sha256(Own.PublicKeyBlob)})";
+                Says = $"this {NodeNoun}'s SSH key ({SshFingerprint.Sha256(Own.PublicKeyBlob)})";
                 return true;
             }
 
@@ -1061,7 +1097,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (SshKeys.Get(named.Id) is not SshClientKeyEntry entry)
                 {
-                    Error = $"it names the SSH key '{named.Id}', which this {NodeWording.Noun} does not have";
+                    Error = $"it names the SSH key '{named.Id}', which this {NodeNoun} does not have";
                     return false;
                 }
 
@@ -1300,7 +1336,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// The sentence that says why an ssh:// connection did not get through.
         /// </summary>
-        protected static String WhyNotOverSSH(String Where, SshHostKeyTrust Trust, Exception? Error)
+        protected String WhyNotOverSSH(String Where, SshHostKeyTrust Trust, Exception? Error)
         {
 
             if (Trust.Refused)
@@ -1309,18 +1345,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var error = FinalOrNot(Error);
 
             return error switch {
-                       SshAuthenticationException  => $"{Where} did not let this {NodeWording.Noun} in: {error.Message} " +
-                                                       $"Its authorized_keys needs this {NodeWording.Noun}'s SSH key, which the Connections page shows",
+                       SshAuthenticationException  => $"{Where} did not let this {NodeNoun} in: {error.Message} " +
+                                                       $"Its authorized_keys needs this {NodeNoun}'s SSH key, which the Connections page shows",
                        SshStrictKexRequiredException
-                                                   => $"{Where} does not signal strict KEX, which this {NodeWording.Noun} requires against Terrapin (CVE-2023-48795): " +
+                                                   => $"{Where} does not signal strict KEX, which this {NodeNoun} requires against Terrapin (CVE-2023-48795): " +
                                                        "its SSH server needs OpenSSH 9.6 or later, or another with strict KEX",
                        SshMessageRefusedException { RetryAfter: TimeSpan after }
-                                                   => $"{Where} let this {NodeWording.Noun} in, and keeps another connection of it that still answers " +
+                                                   => $"{Where} let this {NodeNoun} in, and keeps another connection of it that still answers " +
                                                       $"({error.Message}); it is tried again in {after.TotalSeconds:0} s at the earliest",
-                       SshMessageRefusedException  => $"{Where} let this {NodeWording.Noun} in, and refused it the OCPP subsystem: {error.Message}",
+                       SshMessageRefusedException  => $"{Where} let this {NodeNoun} in, and refused it the OCPP subsystem: {error.Message}",
                        SshSubsystemRefusedException
-                                                   => $"{Where} let this {NodeWording.Noun} in, and refused it the OCPP subsystem: " +
-                                                       $"it serves no OCPP over SSH, or an access rule there denies it to this {NodeWording.Noun}",
+                                                   => $"{Where} let this {NodeNoun} in, and refused it the OCPP subsystem: " +
+                                                       $"it serves no OCPP over SSH, or an access rule there denies it to this {NodeNoun}",
                        null                        => $"{Where} could not be reached over SSH",
                        _                           => $"{Where} could not be reached over SSH: {ReasonOf(error)}"
                    };
@@ -1480,7 +1516,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Connections.TryLearnHostKey(Connection.Id, DialledURL, learned, out var notWritten) &&
                 ReportedLearned(Connection, learned))
                 Log.Warning($"'{Connection.Description}' learned the host key {learned} on its first connection. It is on probation for " +
-                            $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s): until a signed pin set confirms it, this {NodeWording.Noun} " +
+                            $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s): until a signed pin set confirms it, this {NodeNoun} " +
                              "executes nothing its server asks but such a pin set.",
                             "ocpp", "connections", "ssh", "security");
 
@@ -1576,7 +1612,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // until the connection is closed.
                 var onIt = probations.OfTrust(Trust);
 
-                probations.NoLongerBelieved(onIt, $"This {NodeWording.Noun} no longer believes its server by the host key {Learned} it learned on its first " +
+                probations.NoLongerBelieved(onIt, $"This {NodeNoun} no longer believes its server by the host key {Learned} it learned on its first " +
                                                   $"connection: no signed pin set confirmed it within {Connection.SshProbationTime.TotalSeconds:0} s, and the connection is closed.");
 
                 Connections.TryForgetLearnedHostKey(Connection.Id, Learned);
@@ -1657,7 +1693,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// the SSH client, SetVariables of SSHClientController, or
         /// ChangeConfiguration of an SSHClient key in OCPP 1.6.
         /// </summary>
-        protected static String? GateOnSshProbation(SshHostKeyTrust  sshTrust,
+        protected String? GateOnSshProbation(SshHostKeyTrust  sshTrust,
                                                   String           Action,
                                                   JObject?         Payload)
         {
@@ -1671,7 +1707,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Payload?["key"]?.Value<String>() is String key && key.StartsWith("SSHClient.", StringComparison.Ordinal))
                 return null;
 
-            return $"This {NodeWording.Noun} believes its server by the host key {sshTrust.Learned}, which it learned on its first connection " +
+            return $"This {NodeNoun} believes its server by the host key {sshTrust.Learned}, which it learned on its first connection " +
                     "and which is on probation: until a signed pin set confirms it, nothing but such a pin set is executed.";
 
 
@@ -2116,7 +2152,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // test of a half-filled form should say what is missing rather
             // than fail at a socket with something less useful.
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
-                                          out var url, out var type, out var version, out var notYet) ||
+                                          out var url, out var type, out var version, out var notYet, NodeNoun) ||
                 !ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out notYet) ||
                 !ConnectionEntry.TryParseEncoding(version, Encoding, out var encoding, out notYet) ||
                 !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet) ||
@@ -2138,7 +2174,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 case "":
                 case TestAsksHeartbeat:
-                    asked = new TestRequest("Heartbeat", clock, TimeProvider);
+                    asked = new TestRequest("Heartbeat", clock, TimeProvider, NodeNoun);
                     break;
 
                 case TestAsksNothing:
@@ -2200,7 +2236,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 Step("error", $"'{connection.Description}' is a connection the other end makes: '{connection.InboundName}' dials {connection.URL}. " +
-                              $"There is nothing this {NodeWording.Noun} could dial to test it - what is said of it on the page is how it stands.");
+                              $"There is nothing this {NodeNoun} could dial to test it - what is said of it on the page is how it stands.");
 
                 return Done(connection, false);
 
@@ -2253,8 +2289,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                : "No host key is pinned. Whatever key the server shows is said below and believed for this test; " +
                                  "a test writes nothing down" +
                                  (connection.SshTrustOnFirstUse == SshTrustOnFirstUse.HostKey
-                                      ? $", so the first connection this {NodeWording.Noun} makes learns it, on probation."
-                                      : $", and without a pin or trust on first use the {NodeWording.Noun} does not dial it."));
+                                      ? $", so the first connection this {NodeNoun} makes learns it, on probation."
+                                      : $", and without a pin or trust on first use the {NodeNoun} does not dial it."));
 
             }
             else
@@ -2273,21 +2309,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              ? $"The URL is a TLS one, and its server is known by the key pin of its key: it must show one of {ConnectionEntry.AsText(connection.ServerKeyPins)}. " +
                                 "Its certificate's chain, name and validity are not checked."
                              : "The URL is a TLS one, and its server is known by its key, of which none is pinned. Whatever key it shows is said " +
-                               $"below and believed for this test; a test writes nothing down, so the first connection this {NodeWording.Noun} makes learns it, " +
+                               $"below and believed for this test; a test writes nothing down, so the first connection this {NodeNoun} makes learns it, " +
                                "on probation.");
 
                     if (connection.RawPublicKeys != RawPublicKeyMode.Off)
                         Step("warning", connection.RawPublicKeys == RawPublicKeyMode.Require
-                                            ? $"It requires raw public keys, which this {NodeWording.Noun}'s TLS stack cannot offer yet: a certificate is refused, " +
-                                              $"and the {NodeWording.Noun} does not dial it."
-                                            : $"It prefers raw public keys, which this {NodeWording.Noun}'s TLS stack cannot offer yet: the key is checked in the certificate.");
+                                            ? $"It requires raw public keys, which this {NodeNoun}'s TLS stack cannot offer yet: a certificate is refused, " +
+                                              $"and the {NodeNoun} does not dial it."
+                                            : $"It prefers raw public keys, which this {NodeNoun}'s TLS stack cannot offer yet: the key is checked in the certificate.");
 
                 }
 
                 else
                     Step(connection.IsSecure ? "info" : "warning",
                          connection.IsSecure
-                             ? $"The URL is a TLS one, so the certificate of whatever answers will be checked against this {NodeWording.Noun}'s trust store."
+                             ? $"The URL is a TLS one, so the certificate of whatever answers will be checked against this {NodeNoun}'s trust store."
                              : "The URL is not a TLS one. Nothing on this connection is encrypted or authenticated at the transport layer.");
 
                 if (!WhatItProvesItselfWith(connection, out basic, out totp, out totpLogin, out certificates, out var proves, out var wrong))
@@ -2302,7 +2338,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             if (!connection.AutoConnect)
-                Step("info", $"This is not one the {NodeWording.Noun} connects to by itself. A test that gets through does not " +
+                Step("info", $"This is not one the {NodeNoun} connects to by itself. A test that gets through does not " +
                              "change that - it only says that it could.");
 
             #endregion
@@ -2335,7 +2371,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             catch (Exception e)
             {
 
-                Step("error", $"'{host}' could not be looked up with this {NodeWording.Noun}'s name servers: {e.Message} " +
+                Step("error", $"'{host}' could not be looked up with this {NodeNoun}'s name servers: {e.Message} " +
                               "Nothing else is asked, so the rest was not tried.");
 
                 Log.Warning($"The connection test for '{connection.Description}' could not look up '{host}': {e.Message}",
@@ -2532,10 +2568,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     Step(judged.Accepted ? "info" : "error",
                          judged.Accepted
-                             ? $"The server showed the certificate {judged.CertificateFingerprint}, which this {NodeWording.Noun} accepts" +
+                             ? $"The server showed the certificate {judged.CertificateFingerprint}, which this {NodeNoun} accepts" +
                                (judged.RootFingerprint is not null ? $": its chain ends at the root {judged.RootFingerprint} ({judged.RootKeyPin})" : "") +
                                $". Its key has the key pin {shownKeyPin}."
-                             : $"The server showed the certificate {judged.CertificateFingerprint}, which this {NodeWording.Noun} does not accept ({judged.Outcome}), " +
+                             : $"The server showed the certificate {judged.CertificateFingerprint}, which this {NodeNoun} does not accept ({judged.Outcome}), " +
                                $"for a key whose key pin is {shownKeyPin}. Pinned as a key pin, that key would be believed by itself, without a CA.");
 
                     // Everything the judgement went through, in its own words:
@@ -2545,15 +2581,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         Step(level, text);
 
                     if (judged.Accepted && connection.Pins is { TrustOnFirstUse: not protocols.WWCP.Node.Configuration.TrustOnFirstUse.None } learning)
-                        Step("info", $"A test writes nothing down: the first connection this {NodeWording.Noun} makes holds the server to its {protocols.WWCP.Node.Configuration.TrustOnFirstUseExtensions.AsText(learning.TrustOnFirstUse)}.");
+                        Step("info", $"A test writes nothing down: the first connection this {NodeNoun} makes holds the server to its {protocols.WWCP.Node.Configuration.TrustOnFirstUseExtensions.AsText(learning.TrustOnFirstUse)}.");
 
                 }
 
                 else if (shownKeyPin is not null)
                     Step(caSaid == SslPolicyErrors.None ? "info" : "error",
                          caSaid == SslPolicyErrors.None
-                             ? $"The server showed a certificate this {NodeWording.Noun}'s trust store accepts, for a key whose key pin is {shownKeyPin}."
-                             : $"The server showed a certificate this {NodeWording.Noun}'s trust store does not accept ({caSaid}), for a key whose key pin is " +
+                             ? $"The server showed a certificate this {NodeNoun}'s trust store accepts, for a key whose key pin is {shownKeyPin}."
+                             : $"The server showed a certificate this {NodeNoun}'s trust store does not accept ({caSaid}), for a key whose key pin is " +
                                $"{shownKeyPin}. Pinned, that key would be believed by itself, without a CA.");
 
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
@@ -2608,7 +2644,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 {
 
                     Step("error", $"It did not agree on {String.Join(", ", SubProtocolsOf(connection))}: whatever is there does not speak " +
-                                  $"OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else. The {NodeWording.Noun} would let go of it again.");
+                                  $"OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else. The {NodeNoun} would let go of it again.");
 
                     Log.Warning($"The connection test for '{connection.Description}' got through, and its back end does not speak CBOR.",
                                 "ocpp", "connections", "test");
@@ -2653,7 +2689,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!answered)
                 {
 
-                    Step("error", $"Closed. The connection can be made, and what the {NodeWording.Noun} asked on it was not answered.");
+                    Step("error", $"Closed. The connection can be made, and what the {NodeNoun} asked on it was not answered.");
 
                     Log.Warning($"The connection test for '{connection.Description}' got through, and its {asked!.Action} was not answered.",
                                 "ocpp", "connections", "test");
@@ -2725,7 +2761,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// CALLERROR (OCPP 2.x: SecurityError), and it has then read a
         /// request and answered it in OCPP, which is what was asked.
         /// </remarks>
-        protected sealed class TestRequest(String Action, Stopwatch Clock, TimeProvider TimeProvider)
+        protected sealed class TestRequest(String Action, Stopwatch Clock, TimeProvider TimeProvider, String NodeNoun)
         {
 
             private readonly TaskCompletionSource<JArray> answer = new (TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2845,7 +2881,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                    (theirs is { } time
                                         ? $" Its clock says {time.UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ}, " +
                                           $"{Math.Abs((Int64) (time - answeredAt!.Value).TotalMilliseconds)} ms " +
-                                          $"{(time >= answeredAt.Value ? "ahead of" : "behind")} this {NodeWording.Noun}'s."
+                                          $"{(time >= answeredAt.Value ? "ahead of" : "behind")} this {NodeNoun}'s."
                                         : ""));
 
                 }
@@ -2853,7 +2889,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 else
                     Step("warning", $"Answered after {took} ms, with an error: {said} OCPP is spoken here. A back end answers so " +
                                      "where it does not take the request - one that has not accepted a BootNotification of this " +
-                                     $"{NodeWording.Noun} yet may.");
+                                     $"{NodeNoun} yet may.");
 
                 return true;
 
@@ -3006,7 +3042,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 {
 
                     Step("error", $"The server did not take {String.Join(", ", subprotocols)}: it does not speak OCPP as CBOR, and a " +
-                                  $"connection that says \"cbor\" speaks nothing else. The {NodeWording.Noun} would let go of it again.");
+                                  $"connection that says \"cbor\" speaks nothing else. The {NodeNoun} would let go of it again.");
 
                     Log.Warning($"The connection test for '{Connection.Description}' got through, and its back end does not speak CBOR.",
                                 "ocpp", "connections", "test");
@@ -3057,7 +3093,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!answered)
                 {
 
-                    Step("error", $"Closed. The connection can be made, and what the {NodeWording.Noun} asked on it was not answered.");
+                    Step("error", $"Closed. The connection can be made, and what the {NodeNoun} asked on it was not answered.");
 
                     Log.Warning($"The connection test for '{Connection.Description}' got through, and its {Asked!.Action} was not answered.",
                                 "ocpp", "connections", "test");
@@ -3089,14 +3125,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     Step("error", error switch {
                                       SshAuthenticationException  => $"The server did not let '{Login.Username}' in: {error.Message} " +
-                                                                      $"Its authorized_keys needs this {NodeWording.Noun}'s key: {SshKey.PublicKeyLine}",
+                                                                      $"Its authorized_keys needs this {NodeNoun}'s key: {SshKey.PublicKeyLine}",
                                       SshStrictKexRequiredException
-                                                                  => $"The server does not signal strict KEX, which this {NodeWording.Noun} requires against Terrapin " +
+                                                                  => $"The server does not signal strict KEX, which this {NodeNoun} requires against Terrapin " +
                                                                      "(CVE-2023-48795): its SSH server needs OpenSSH 9.6 or later.",
                                       SshMessageRefusedException  => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: {error.Message}",
                                       SshSubsystemRefusedException
                                                                   => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: " +
-                                                                      $"it serves no OCPP over SSH, or an access rule there denies it to this {NodeWording.Noun}.",
+                                                                      $"it serves no OCPP over SSH, or an access rule there denies it to this {NodeNoun}.",
                                       _                           => $"{error.GetType().Name}: {ReasonOf(error)}"
                                   });
 
@@ -3246,7 +3282,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 try
                 {
-                    await Disconnect(client, $"This {NodeWording.Noun} hangs up.");
+                    await Disconnect(client, $"This {NodeNoun} hangs up.");
                 }
                 catch (Exception e)
                 {
@@ -3255,7 +3291,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             foreach (var sshClient in DiallingNodes.SelectMany(node => node.WWCPSshClients).ToArray())
-                await LetGo(sshClient, $"This {NodeWording.Noun} hangs up.");
+                await LetGo(sshClient, $"This {NodeNoun} hangs up.");
 
             lock (dialled)
                 dialled.Clear();

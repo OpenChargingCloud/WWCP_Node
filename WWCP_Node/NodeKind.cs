@@ -60,11 +60,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// A node of no particular kind: what this assembly is on its own, and
         /// what its tests construct.
         /// </summary>
-        public static readonly NodeKind  Default  = new ("WWCP node", "node", "WWCP Node", "Node", "node");
+        public static readonly NodeKind  Default  = new ("WWCP node", "node", "WWCP Node", "Node", "node") { Noun = "node" };
 
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// The node in a word, where what it says calls it "this ...":
+        /// "station" for a charging station; its name where it has no
+        /// shorter one.
+        /// </summary>
+        public String Noun { get; init; } = Name;
 
         /// <summary>
         /// The name as a sentence begins with it: "Electric vehicle".

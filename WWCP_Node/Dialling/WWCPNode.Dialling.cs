@@ -74,7 +74,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return kept;
 
                 var keys = new SshClientKeys(SshKey,
-                                             $"This {NodeWording.Noun}'s own key",
+                                             $"This {NodeNoun}'s own key",
                                              SshKey.Comment,
                                              TimeProvider);
 
