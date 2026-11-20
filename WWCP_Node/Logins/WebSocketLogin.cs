@@ -21,6 +21,7 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
@@ -56,7 +57,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// <param name="TOTP">What it needs to be let in with a one-time token, or null when it has none.</param>
     /// <param name="Enabled">Whether it may sign in at the moment.</param>
     /// <param name="AddedAt">When it was added.</param>
-    /// <param name="Note">What it is, for whoever reads the list later.</param>
+    /// <param name="Description">What it is, for whoever reads the list later - in as many languages as it is said in.</param>
     /// <param name="SSHKeys">The SSH public keys it signs in with for OCPP over SSH, as authorized_keys lines; null or none when it has none.</param>
     /// <param name="KeyPins">The key pins of the TLS client keys it signs in with; null or none when it has none.</param>
     /// <param name="LocalController">Whether it is a local controller's login: one that may send, in the overlay network, in the name of the charging stations behind it. Any other speaks for itself alone.</param>
@@ -67,7 +68,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                               TOTPSettings?                  TOTP,
                                               Boolean                        Enabled,
                                               DateTimeOffset                 AddedAt,
-                                              String?                        Note,
+                                              I18NString?                    Description,
                                               IReadOnlyList<UserSSHKey>?     SSHKeys          = null,
                                               IReadOnlyList<LoginKeyPin>?  KeyPins          = null,
                                               Boolean                        LocalController  = false,
@@ -414,7 +415,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                         totp,
                         JSON.Value<Boolean?>("enabled") ?? true,
                         addedAt,
-                        JSON.Value<String>("note")?.Trim() is { Length: > 0 } note ? note : null,
+                        JSON["description"] is JObject descriptionJSON &&
+                        I18NString.TryParse(descriptionJSON, out I18NString? description, out _) &&
+                        description.IsNotNullOrEmpty()
+                            ? description
+                            : null,
                         sshKeys,
                         keyPins,
                         JSON["localController"]?.Type == JTokenType.Boolean && JSON.Value<Boolean>("localController"),
@@ -453,8 +458,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                            new JProperty("gateway",         Gateway)
                        );
 
-            if (Note is not null)
-                json.Add("note", Note);
+            if (Description.IsNotNullOrEmpty())
+                json.Add("description", Description.ToJSON());
 
             // Public keys, so the same with and without the secrets.
             if (HasSSHKey)

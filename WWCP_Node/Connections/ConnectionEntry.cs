@@ -22,6 +22,7 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
@@ -34,6 +35,7 @@ using WWCPSignatureFormats = cloud.charging.open.protocols.WWCP.SignatureFormats
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 using cloud.charging.open.protocols.WWCP.Node.KeyPins;
+using cloud.charging.open.protocols.WWCP.Node.Logins;
 
 #endregion
 
@@ -294,9 +296,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public String          Id                   { get; }
 
         /// <summary>
-        /// What somebody wrote down that it is, e.g. "CSMS, main".
+        /// What somebody wrote down that it is, e.g. "CSMS, main" - in as many
+        /// languages as it is said in.
         /// </summary>
-        public String          Description          { get; internal set; }
+        public I18NString      Description          { get; internal set; }
+
+        /// <summary>
+        /// What it is, as an endpoint with pins says it: in the first language
+        /// it is said in.
+        /// </summary>
+        String IPinnedTLSEndpoint.Description
+            => Description.FirstText();
 
         /// <summary>
         /// Where it goes.
@@ -695,7 +705,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// One connection.
         /// </summary>
         public ConnectionEntry(String          Id,
-                               String          Description,
+                               I18NString      Description,
                                URL             URL,
                                ConnectionType  ConnectionType,
                                DateTimeOffset  CreatedAt)
@@ -812,50 +822,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
-        #region (static) Validate(Description, URLText, TypeText, out URL, out Type, out Error)
+        #region (static) TryParseURL(URLText, out URL, out Error)
 
         /// <summary>
-        /// Everything that can be said to be wrong with a connection before it
-        /// is written down, in the words somebody typing it should read.
+        /// Read the URL of a connection as somebody typed it, and say in a
+        /// sentence what is wrong with it where it cannot be read.
         /// </summary>
         /// <remarks>
-        /// One place rather than two, so that adding one and changing one
-        /// cannot come to disagree about what is allowed.
+        /// A scheme is insisted on before parsing, because Hermod's parser
+        /// puts "https://" in front of anything that has no scheme. Everywhere
+        /// else that is a convenience; here the scheme is the whole question
+        /// of whether there is TLS at all, and everything this node says about
+        /// a connection - whether a client certificate can be shown, whether a
+        /// password goes out in the clear - is read off it. A guessed scheme
+        /// would have the node quietly claiming to be secure because somebody
+        /// left four characters out.
         ///
-        /// Whether the credentials it names exist is not asked here: this
-        /// record does not know what else is configured, and the store that
-        /// does asks that question.
+        /// Whether the scheme is one a connection may use is not asked here,
+        /// but by <see cref="Validate(String?, URL?, String?, String?, out URL, out ConnectionType, out OCPPVersion, out String?, String?)"/>.
         /// </remarks>
-        public static Boolean Validate(String?                          Description,
-                                       String?                          URLText,
-                                       String?                          TypeText,
-                                       String?                          VersionText,
-                                       out URL                          URL,
-                                       out ConnectionType               Type,
-                                       out OCPPVersion                  Version,
-                                       [NotNullWhen(false)] out String? Error,
-                                       String?                          NodeNoun   = null)
+        /// <param name="URLText">The URL as text.</param>
+        /// <param name="URL">The URL read.</param>
+        /// <param name="Error">What is wrong with the text, where it cannot be read.</param>
+        public static Boolean TryParseURL(String?                          URLText,
+                                          out URL                          URL,
+                                          [NotNullWhen(false)] out String? Error)
         {
 
-            URL      = default;
-            Type     = ConnectionType.CSMS;
-            Version  = OCPPVersion.OCPP2_1;
-            Error    = null;
+            URL    = default;
+            Error  = null;
 
-            var description = (Description ?? "").Trim();
-            var urlText     = (URLText     ?? "").Trim();
-
-            if (description.Length == 0)
-            {
-                Error = "Say what this connection is - that is what tells it from the others.";
-                return false;
-            }
-
-            if (description.Length > MaxDescriptionLength)
-            {
-                Error = $"A description may be at most {MaxDescriptionLength} characters.";
-                return false;
-            }
+            var urlText = (URLText ?? "").Trim();
 
             if (urlText.Length == 0)
             {
@@ -869,14 +866,6 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            // Insisted on before parsing, because Hermod's parser puts
-            // "https://" in front of anything that has no scheme. Everywhere
-            // else that is a convenience; here the scheme is the whole
-            // question of whether there is TLS at all, and everything this
-            // station says about a connection - whether a client certificate
-            // can be shown, whether a password goes out in the clear - is read
-            // off it. A guessed scheme would have the station quietly claiming
-            // to be secure because somebody left four characters out.
             if (!urlText.Contains("://", StringComparison.Ordinal))
             {
                 Error = "The URL says no scheme - write ws://, wss:// or ssh:// in front of it. " +
@@ -884,9 +873,105 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            if (!org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.TryParse(urlText, out var url))
+            if (!org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.TryParse(urlText, out URL))
             {
                 Error = $"'{urlText}' cannot be read as a URL.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) Validate(Description, URLText, TypeText, VersionText, out URL, out Type, out Version, out Error)
+
+        /// <summary>
+        /// Everything that can be said to be wrong with a connection before it
+        /// is written down, in the words somebody typing it should read - with
+        /// its URL as text, read by <see cref="TryParseURL"/>.
+        /// </summary>
+        /// <remarks>
+        /// One place rather than two, so that adding one and changing one
+        /// cannot come to disagree about what is allowed.
+        ///
+        /// Whether the credentials it names exist is not asked here: this
+        /// record does not know what else is configured, and the store that
+        /// does asks that question.
+        /// </remarks>
+        public static Boolean Validate(I18NString?                      Description,
+                                       String?                          URLText,
+                                       String?                          TypeText,
+                                       String?                          VersionText,
+                                       out URL                          URL,
+                                       out ConnectionType               Type,
+                                       out OCPPVersion                  Version,
+                                       [NotNullWhen(false)] out String? Error,
+                                       String?                          NodeNoun   = null)
+        {
+
+            URL      = default;
+            Type     = ConnectionType.CSMS;
+            Version  = OCPPVersion.OCPP2_1;
+
+            // The description first, as it is when the URL is one already.
+            if (!ValidateDescription(Description, out Error))
+                return false;
+
+            if (!TryParseURL(URLText, out var url, out Error))
+                return false;
+
+            return Validate(Description, url, TypeText, VersionText,
+                            out URL, out Type, out Version, out Error, NodeNoun);
+
+        }
+
+        #endregion
+
+        #region (static) Validate(Description, URL,     TypeText, VersionText, out Checked, out Type, out Version, out Error)
+
+        /// <summary>
+        /// Everything that can be said to be wrong with a connection before it
+        /// is written down, in the words somebody typing it should read.
+        /// </summary>
+        /// <remarks>
+        /// One place rather than two, so that adding one and changing one
+        /// cannot come to disagree about what is allowed.
+        ///
+        /// Whether the credentials it names exist is not asked here: this
+        /// record does not know what else is configured, and the store that
+        /// does asks that question.
+        /// </remarks>
+        /// <param name="URL">Where the connection goes; none for nowhere, which is refused.</param>
+        /// <param name="Checked">The URL, where it is one a connection may go to.</param>
+        public static Boolean Validate(I18NString?                      Description,
+                                       URL?                             URL,
+                                       String?                          TypeText,
+                                       String?                          VersionText,
+                                       out URL                          Checked,
+                                       out ConnectionType               Type,
+                                       out OCPPVersion                  Version,
+                                       [NotNullWhen(false)] out String? Error,
+                                       String?                          NodeNoun   = null)
+        {
+
+            Checked  = default;
+            Type     = ConnectionType.CSMS;
+            Version  = OCPPVersion.OCPP2_1;
+
+            if (!ValidateDescription(Description, out Error))
+                return false;
+
+            if (URL is not URL url || url.IsNullOrEmpty)
+            {
+                Error = "A connection needs somewhere to go.";
+                return false;
+            }
+
+            if (url.ToString().Length > MaxURLLength)
+            {
+                Error = $"A URL may be at most {MaxURLLength} characters.";
                 return false;
             }
 
@@ -917,12 +1002,54 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            URL   = url;
-            Type  = type;
+            Checked  = url;
+            Type     = type;
 
             return true;
 
         }
+
+        #endregion
+
+        #region (static) ValidateDescription(Description, out Error)
+
+        /// <summary>
+        /// Whether a connection is said to be something, in no more words than
+        /// fit in each language it is said in; and if not, a sentence saying so.
+        /// </summary>
+        private static Boolean ValidateDescription(I18NString?                      Description,
+                                                   [NotNullWhen(false)] out String? Error)
+
+            => Descriptions.TryCheckRequired(
+                   Description,
+                   MaxDescriptionLength,
+                   "Say what this connection is - that is what tells it from the others.",
+                   out _,
+                   out Error
+               );
+
+        #endregion
+
+        #region (static) Kept(Description) / DescriptionOf(JSON)
+
+        /// <summary>
+        /// A description as it is kept: its texts trimmed, those that say
+        /// nothing left out. Asked after it was validated.
+        /// </summary>
+        public static I18NString Kept(I18NString Description)
+
+            => Descriptions.Normalized(Description) ?? Description;
+
+        /// <summary>
+        /// What the given JSON says under "description": an object of texts by
+        /// language - or nothing.
+        /// </summary>
+        public static I18NString? DescriptionOf(JObject JSON)
+
+            => JSON["description"] is JObject descriptionJSON &&
+               I18NString.TryParse(descriptionJSON, out I18NString? description, out _)
+                   ? description
+                   : null;
 
         #endregion
 
@@ -1607,7 +1734,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            if (!Validate(JSON.Value<String>("description"),
+            if (!Validate(DescriptionOf(JSON),
                           JSON.Value<String>("url"),
                           JSON.Value<String>("connectionType"),
                           JSON.Value<String>("ocppVersion"),
@@ -1728,7 +1855,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             Entry = new ConnectionEntry(
                         id,
-                        (JSON.Value<String>("description") ?? "").Trim(),
+                        Kept(DescriptionOf(JSON)!),
                         url,
                         type,
                         AuthenticationEntry.Written(JSON.Value<String>("createdAt"))
@@ -1788,7 +1915,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             var json = new JObject(
                            new JProperty("id",                  Id),
-                           new JProperty("description",         Description),
+                           new JProperty("description",         Description.ToJSON()),
                            new JProperty("url",                 URL.ToString()),
                            new JProperty("connectionType",      ConnectionType.ToString()),
                            new JProperty("ocppVersion",         AsText(OCPPVersion)),
@@ -1923,7 +2050,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// whether it tests a connection of the store or one that is still
         /// being filled in. Nothing of it is checked here.
         /// </summary>
-        public static ConnectionEntry NotOfAStore(String                 Description,
+        public static ConnectionEntry NotOfAStore(I18NString             Description,
                                                   URL                    URL,
                                                   ConnectionType         ConnectionType,
                                                   DateTimeOffset         CreatedAt,
@@ -2212,7 +2339,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         public override String ToString()
 
-            => $"{Description} ({ConnectionType} over {AsText(OCPPVersion)}, {URL})";
+            => $"{Description.FirstText()} ({ConnectionType} over {AsText(OCPPVersion)}, {URL})";
 
         #endregion
 

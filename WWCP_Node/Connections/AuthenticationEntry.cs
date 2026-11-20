@@ -21,8 +21,11 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+
+using cloud.charging.open.protocols.WWCP.Node.Logins;
 
 #endregion
 
@@ -148,9 +151,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public String               Id                  { get; }
 
         /// <summary>
-        /// What somebody wrote down that it is for, e.g. "CSMS login".
+        /// What somebody wrote down that it is for, e.g. "CSMS login" - in as
+        /// many languages as it is said in.
         /// </summary>
-        public String               Description         { get; internal set; }
+        public I18NString           Description         { get; internal set; }
 
         /// <summary>
         /// The credentials themselves: an HTTP Basic, an HTTP TOTP - with the
@@ -301,7 +305,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="CreatedAt">When they were written down.</param>
         /// <param name="LastChangeAt">When they were last changed; when they were written down, where left out.</param>
         public AuthenticationEntry(String               Id,
-                                   String               Description,
+                                   I18NString           Description,
                                    IHTTPAuthentication  Authentication,
                                    DateTimeOffset       CreatedAt,
                                    DateTimeOffset?      LastChangeAt   = null)
@@ -347,30 +351,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// What can be wrong with the description of a set of credentials,
-        /// whatever kind they are.
+        /// whatever kind they are: it has to say something, in each language
+        /// it is said in at most <see cref="MaxDescriptionLength"/> characters.
         /// </summary>
-        public static Boolean ValidateDescription(String?                           Description,
+        public static Boolean ValidateDescription(I18NString?                       Description,
                                                   [NotNullWhen(false)] out String?  Error)
-        {
 
-            var description = (Description ?? "").Trim();
+            => Descriptions.TryCheckRequired(
+                   Description,
+                   MaxDescriptionLength,
+                   "Say what these credentials are for - that is what tells them apart later.",
+                   out _,
+                   out Error
+               );
 
-            if (description.Length == 0)
-            {
-                Error = "Say what these credentials are for - that is what tells them apart later.";
-                return false;
-            }
+        #endregion
 
-            if (description.Length > MaxDescriptionLength)
-            {
-                Error = $"A description may be at most {MaxDescriptionLength} characters.";
-                return false;
-            }
+        #region (static) Kept(Description)
 
-            Error = null;
-            return true;
+        /// <summary>
+        /// A description as it is kept: its texts trimmed, those that say
+        /// nothing left out. Asked after <see cref="ValidateDescription"/>.
+        /// </summary>
+        public static I18NString Kept(I18NString Description)
 
-        }
+            => Descriptions.Normalized(Description) ?? Description;
 
         #endregion
 
@@ -391,7 +396,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// all are caught by the store, which is the only place that knows
         /// whether there was one before.
         /// </remarks>
-        public static Boolean ValidateBasic(String?                           Description,
+        public static Boolean ValidateBasic(I18NString?                       Description,
                                             String?                           Login,
                                             String?                           Password,
                                             [NotNullWhen(false)] out String?  Error)
@@ -422,7 +427,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// before they are written down. An empty shared secret is allowed,
         /// see <see cref="ValidateBasic"/>.
         /// </summary>
-        public static Boolean ValidateTOTP(String?                           Description,
+        public static Boolean ValidateTOTP(I18NString?                       Description,
                                            String?                           Login,
                                            String?                           SharedSecret,
                                            String?                           Alphabet,
@@ -496,7 +501,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// before they are written down. An empty token is allowed, see
         /// <see cref="ValidateBasic"/>.
         /// </summary>
-        public static Boolean ValidateToken(String?                           Description,
+        public static Boolean ValidateToken(I18NString?                       Description,
                                             String?                           Token,
                                             [NotNullWhen(false)] out String?  Error)
         {
@@ -635,7 +640,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             Entry = new AuthenticationEntry(
                         id,
-                        JSON.Value<String>("description") ?? "",
+                        JSON["description"] is JObject descriptionJSON &&
+                        I18NString.TryParse(descriptionJSON, out I18NString? description, out _)
+                            ? description
+                            : I18NString.Empty,
                         authentication,
                         createdAt,
                         JSON.Value<String>("lastChangeAt") is String lastChangeAt
@@ -699,7 +707,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             var json = new JObject(
                            new JProperty("id",            Id),
-                           new JProperty("description",   Description),
+                           new JProperty("description",   Description.ToJSON()),
                            new JProperty("kind",          Kind switch {
                                                               AuthenticationKind.TOTP   => "totp",
                                                               AuthenticationKind.Token  => "token",
@@ -796,9 +804,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public override String ToString()
 
             => Kind switch {
-                   AuthenticationKind.TOTP   => $"{Description} (HTTP TOTP, '{Login}')",
-                   AuthenticationKind.Token  => $"{Description} (HTTP Token)",
-                   _                         => $"{Description} (HTTP Basic, '{Login}')"
+                   AuthenticationKind.TOTP   => $"{Description.FirstText()} (HTTP TOTP, '{Login}')",
+                   AuthenticationKind.Token  => $"{Description.FirstText()} (HTTP Token)",
+                   _                         => $"{Description.FirstText()} (HTTP Basic, '{Login}')"
                } +
                (HasSecret ? "" : ", no secret yet");
 

@@ -27,6 +27,7 @@ using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
@@ -322,13 +323,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (Basic is null && TOTP is null)
                 {
-                    Error = $"it uses '{credentials.Description}', which has no secret set";
+                    Error = $"it uses '{credentials.Description.FirstText()}', which has no secret set";
                     return false;
                 }
 
                 if (TOTP is not null && credentials.TLSChannelBinding && !BindsItsPassword(Connection))
                 {
-                    Error = $"it uses '{credentials.Description}', a one-time password bound to the TLS session, and one is bound only on " +
+                    Error = $"it uses '{credentials.Description.FirstText()}', a one-time password bound to the TLS session, and one is bound only on " +
                              $"a connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this {NodeNoun}'s TLS exports no " +
                              "keying material to bind one with. Name HTTP/3 for it, or switch the binding off to have it sent unbound";
                     TOTP  = null;
@@ -339,10 +340,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     TOTPLogin = credentials.Login;
 
                 Says = credentials.Kind switch {
-                           AuthenticationKind.TOTP   => $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), " +
+                           AuthenticationKind.TOTP   => $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description.FirstText()}'), " +
                                                         (credentials.TLSChannelBinding ? "bound to the TLS session of the connection" : "unbound"),
-                           AuthenticationKind.Token  => $"HTTP Token ('{credentials.Description}')",
-                           _                         => $"HTTP Basic as '{credentials.Login}' ('{credentials.Description}')"
+                           AuthenticationKind.Token  => $"HTTP Token ('{credentials.Description.FirstText()}')",
+                           _                         => $"HTTP Basic as '{credentials.Login}' ('{credentials.Description.FirstText()}')"
                        };
 
             }
@@ -463,7 +464,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                 CancellationToken  CancellationToken)
         {
 
-            var where = $"'{Connection.Description}' ({Connection.URL})";
+            var where = $"'{Connection.Description.FirstText()}' ({Connection.URL})";
 
             try
             {
@@ -632,7 +633,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     Follow(Connection, client, Connected: true);
 
                 else
-                    Log.Warning($"'{Connection.Description}' connected, but the client that did it could not be found again, " +
+                    Log.Warning($"'{Connection.Description.FirstText()}' connected, but the client that did it could not be found again, " +
                                  "so nothing could be said about what becomes of it.", "ocpp", "connections");
 
                 Note(Connection, "Connected, and will come back by itself if it drops.");
@@ -952,7 +953,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     if (totp is null)
                     {
-                        Error = $"it uses '{credentials.Description}', which has no secret set";
+                        Error = $"it uses '{credentials.Description.FirstText()}', which has no secret set";
                         return false;
                     }
 
@@ -960,13 +961,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 else if (credentials.Kind == AuthenticationKind.Token)
                 {
-                    Error = $"it uses '{credentials.Description}', a token, and an SSH server takes a password or a one-time password";
+                    Error = $"it uses '{credentials.Description.FirstText()}', a token, and an SSH server takes a password or a one-time password";
                     return false;
                 }
 
                 else if (String.IsNullOrEmpty(credentials.Password))
                 {
-                    Error = $"it uses '{credentials.Description}', which has no secret set";
+                    Error = $"it uses '{credentials.Description.FirstText()}', which has no secret set";
                     return false;
                 }
 
@@ -974,7 +975,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     password   = credentials.Password;
 
                 passwordLogin  = credentials.Login;
-                passwordOf     = credentials.Description;
+                passwordOf     = credentials.Description.FirstText();
 
             }
 
@@ -1301,7 +1302,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             else
-                Log.Warning($"'{Connection.Description}' connected, but the client that did it could not be found again, " +
+                Log.Warning($"'{Connection.Description.FirstText()}' connected, but the client that did it could not be found again, " +
                              "so nothing could be said about what becomes of it.", "ocpp", "connections");
 
             Note(Connection, "Connected, and will come back by itself if it drops.");
@@ -1446,7 +1447,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (!IsLetGo(Client))
                     Fail(Connection, ConnectionStatus.Lost,
-                         $"'{Connection.Description}' was lost ({close.Code?.ToString() ?? "without a word"}" +
+                         $"'{Connection.Description.FirstText()}' was lost ({close.Code?.ToString() ?? "without a word"}" +
                          $"{(String.IsNullOrWhiteSpace(close.Reason) ? "" : $": {close.Reason}")}); it comes back by itself.");
 
                 return Task.CompletedTask;
@@ -1463,7 +1464,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 ReportFinal(Connection, Trust, null);
 
                 Fail(Connection, ConnectionStatus.Refused,
-                     $"'{Connection.Description}' was not believed when it was tried again: {why}; " +
+                     $"'{Connection.Description.FirstText()}' was not believed when it was tried again: {why}; " +
                       "that answer is final, and it is not tried again.");
 
                 _ = Task.Run(() => LetGo(Client, "Not believed."));
@@ -1483,7 +1484,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     ReportFinal(Connection, Trust, error);
 
                     Fail(Connection, ConnectionStatus.Refused,
-                         WhyNotOverSSH($"'{Connection.Description}'", Trust, error) +
+                         WhyNotOverSSH($"'{Connection.Description.FirstText()}'", Trust, error) +
                          " when it was tried again; that answer is final, and it is not tried again.");
 
                     _ = Task.Run(() => LetGo(Client, "Not tried again."));
@@ -1492,13 +1493,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 else if (nextAttemptIn is TimeSpan delay)
                 {
-                    Log.Debug($"'{Connection.Description}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt + 1}).", "ocpp", "connections");
+                    Log.Debug($"'{Connection.Description.FirstText()}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt + 1}).", "ocpp", "connections");
                     NextAttempt(Connection, attempt + 1, delay);
                 }
 
                 else
                     Fail(Connection, ConnectionStatus.Failed,
-                         $"{WhyNotOverSSH($"'{Connection.Description}'", Trust, error)}; it was tried {attempt} time(s), and is not tried again.");
+                         $"{WhyNotOverSSH($"'{Connection.Description.FirstText()}'", Trust, error)}; it was tried {attempt} time(s), and is not tried again.");
 
                 return Task.CompletedTask;
 
@@ -1537,13 +1538,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (Connections.TryLearnHostKey(Connection.Id, DialledURL, learned, out var notWritten) &&
                 ReportedLearned(Connection, learned))
-                Log.Warning($"'{Connection.Description}' learned the host key {learned} on its first connection. It is on probation for " +
+                Log.Warning($"'{Connection.Description.FirstText()}' learned the host key {learned} on its first connection. It is on probation for " +
                             $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s): until a signed pin set confirms it, this {NodeNoun} " +
                              "executes nothing its server asks but such a pin set.",
                             "ocpp", "connections", "ssh", "security");
 
             else if (notWritten is not null)
-                Log.Warning($"'{Connection.Description}' learned the host key {learned} on its first connection, and it could not be " +
+                Log.Warning($"'{Connection.Description.FirstText()}' learned the host key {learned} on its first connection, and it could not be " +
                             $"written down: {notWritten}. It is on probation all the same.",
                             "ocpp", "connections", "ssh", "security");
 
@@ -1640,7 +1641,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Connections.TryForgetLearnedHostKey(Connection.Id, Learned);
                 Trust.Forget();
 
-                Log.Warning($"'{Connection.Description}': no signed pin set confirmed the host key {Learned} within " +
+                Log.Warning($"'{Connection.Description.FirstText()}': no signed pin set confirmed the host key {Learned} within " +
                             $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s), so it is forgotten, and the connection is made anew.",
                             "ocpp", "connections", "ssh", "security");
 
@@ -1866,7 +1867,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (Client.ReconnectPolicy is not null)
                     Fail(Connection, ConnectionStatus.Lost,
-                         $"'{Connection.Description}' was lost ({(UInt16) statusCode} {statusCode}" +
+                         $"'{Connection.Description.FirstText()}' was lost ({(UInt16) statusCode} {statusCode}" +
                          $"{(String.IsNullOrWhiteSpace(reason) ? "" : $": {reason}")}); it comes back by itself.");
 
                 return Task.CompletedTask;
@@ -1885,7 +1886,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (Client.ReconnectPolicy is null)
                     return Task.CompletedTask;
 
-                Log.Debug($"'{Connection.Description}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt}).", "ocpp", "connections");
+                Log.Debug($"'{Connection.Description.FirstText()}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt}).", "ocpp", "connections");
 
                 NextAttempt(Connection, attempt, delay);
 
@@ -1904,9 +1905,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (Client.ReconnectPolicy is not null && !Client.KeepsTrying)
                     Fail(Connection, ConnectionStatus.Refused,
                          response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols
-                             ? $"'{Connection.Description}' answered {response.HTTPStatusCode} when it was tried again; " +
+                             ? $"'{Connection.Description.FirstText()}' answered {response.HTTPStatusCode} when it was tried again; " +
                                 "that answer is final, and it is not tried again."
-                             : $"'{Connection.Description}' ended the connection in a way that is not tried again " +
+                             : $"'{Connection.Description.FirstText()}' ended the connection in a way that is not tried again " +
                                $"({Client.ClientCloseMessage ?? "nothing more was said"}).");
 
                 return Task.CompletedTask;
@@ -1953,7 +1954,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var sending = FlushOfflineQueueOf(Connection.OCPPVersion);
 
-            _ = sending.ContinueWith(task => Log.Warning($"Sending what waited for '{Connection.Description}' failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
+            _ = sending.ContinueWith(task => Log.Warning($"Sending what waited for '{Connection.Description.FirstText()}' failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
         }
@@ -1973,13 +1974,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // connected, and what is said of it stays that it is waited for.
             if (Connection.Inbound && !IsUp(Connection))
             {
-                Log.Debug($"'{Connection.Description}': {What} - said after it went, and so not of how it stands.", "ocpp", "connections", "inbound");
+                Log.Debug($"'{Connection.Description.FirstText()}': {What} - said after it went, and so not of how it stands.", "ocpp", "connections", "inbound");
                 return;
             }
 
             Record(Connection, ConnectionStatus.Connected, What);
 
-            Log.Info($"'{Connection.Description}': {What}", "ocpp", "connections");
+            Log.Info($"'{Connection.Description.FirstText()}': {What}", "ocpp", "connections");
 
         }
 
@@ -2089,7 +2090,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="HTTPVersion">Which version of HTTP a WebSocket is opened over; nothing for what the server chooses.</param>
         /// <param name="OCPPRequest">What is asked in OCPP once it is connected: "heartbeat", which it is where nothing is said, or "none".</param>
         /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; nothing for "json".</param>
-        public async Task<JObject> TestConnection(String?                Description,
+        public async Task<JObject> TestConnection(I18NString?            Description,
                                                   String?                URL,
                                                   String?                ConnectionType,
                                                   String?                OCPPVersion           = null,
@@ -2151,7 +2152,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
 
                 var result = new JObject(
-                                 new JProperty("description",  Connection?.Description ?? (Description ?? "").Trim()),
+                                 new JProperty("description",  (Connection?.Description ?? Description ?? I18NString.Empty).ToJSON()),
                                  new JProperty("url",          Connection?.URL.ToString() ?? (URL ?? "").Trim()),
                                  new JProperty("ok",           OK),
                                  new JProperty("runtime_ms",   clock.ElapsedMilliseconds),
@@ -2212,7 +2213,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // A throwaway, so that everything below reads one shape whether it
             // came from the store or from a form. Nothing writes it anywhere.
             var connection = ConnectionEntry.NotOfAStore(
-                                 Description:                Description!.Trim(),
+                                 Description:                ConnectionEntry.Kept(Description!),
                                  URL:                        url,
                                  ConnectionType:             type,
                                  CreatedAt:                  TimeProvider.GetUtcNow(),
@@ -2257,14 +2258,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (connection.Inbound)
             {
 
-                Step("error", $"'{connection.Description}' is a connection the other end makes: '{connection.InboundName}' dials {connection.URL}. " +
+                Step("error", $"'{connection.Description.FirstText()}' is a connection the other end makes: '{connection.InboundName}' dials {connection.URL}. " +
                               $"There is nothing this {NodeNoun} could dial to test it - what is said of it on the page is how it stands.");
 
                 return Done(connection, false);
 
             }
 
-            Log.Info($"Testing the connection to '{connection.Description}' ({connection.URL}) ...", "ocpp", "connections", "test");
+            Log.Info($"Testing the connection to '{connection.Description.FirstText()}' ({connection.URL}) ...", "ocpp", "connections", "test");
 
             #region What is going to be tried
 
@@ -2293,7 +2294,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!SshLoginOf(connection, key, out sshLogin, out sshTrust, out var signsIn, out var notSSH, ForTest: true))
                 {
                     Step("error", $"Not tried: {notSSH}.");
-                    Log.Warning($"The connection test for '{connection.Description}' was not run: {notSSH}.", "ocpp", "connections", "test");
+                    Log.Warning($"The connection test for '{connection.Description.FirstText()}' was not run: {notSSH}.", "ocpp", "connections", "test");
                     return Done(connection, false);
                 }
 
@@ -2351,7 +2352,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (!WhatItProvesItselfWith(connection, out basic, out totp, out totpLogin, out certificates, out var proves, out var wrong))
                 {
                     Step("error", $"Not tried: {wrong}.");
-                    Log.Warning($"The connection test for '{connection.Description}' was not run: {wrong}.", "ocpp", "connections", "test");
+                    Log.Warning($"The connection test for '{connection.Description.FirstText()}' was not run: {wrong}.", "ocpp", "connections", "test");
                     return Done(connection, false);
                 }
 
@@ -2396,7 +2397,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Step("error", $"'{host}' could not be looked up with this {NodeNoun}'s name servers: {e.Message} " +
                               "Nothing else is asked, so the rest was not tried.");
 
-                Log.Warning($"The connection test for '{connection.Description}' could not look up '{host}': {e.Message}",
+                Log.Warning($"The connection test for '{connection.Description.FirstText()}' could not look up '{host}': {e.Message}",
                             "ocpp", "connections", "test");
 
                 return Done(connection, false);
@@ -2448,7 +2449,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Step("error", $"Nothing accepted a TCP connection on {host}:{port} ({why}). " +
                               $"There is nothing to speak {(connection.IsSSH ? "SSH" : "WebSocket")} to, so the rest was not tried.");
 
-                Log.Warning($"The connection test for '{connection.Description}' found nothing at {host}:{port}: {why}.",
+                Log.Warning($"The connection test for '{connection.Description.FirstText()}' found nothing at {host}:{port}: {why}.",
                             "ocpp", "connections", "test");
 
                 return Done(connection, false);
@@ -2630,7 +2631,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                  ". The socket was accepted, so something is there - it either would not upgrade, " +
                                  "or went away before saying anything.");
 
-                    Log.Warning($"The connection test for '{connection.Description}' did not get through: {response.HTTPStatusCode}.",
+                    Log.Warning($"The connection test for '{connection.Description.FirstText()}' did not get through: {response.HTTPStatusCode}.",
                                 "ocpp", "connections", "test");
 
                     return Done(connection, false);
@@ -2668,7 +2669,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     Step("error", $"It did not agree on {String.Join(", ", SubProtocolsOf(connection))}: whatever is there does not speak " +
                                   $"OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else. The {NodeNoun} would let go of it again.");
 
-                    Log.Warning($"The connection test for '{connection.Description}' got through, and its back end does not speak CBOR.",
+                    Log.Warning($"The connection test for '{connection.Description.FirstText()}' got through, and its back end does not speak CBOR.",
                                 "ocpp", "connections", "test");
 
                     return Done(connection, false);
@@ -2713,7 +2714,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     Step("error", $"Closed. The connection can be made, and what the {NodeNoun} asked on it was not answered.");
 
-                    Log.Warning($"The connection test for '{connection.Description}' got through, and its {asked!.Action} was not answered.",
+                    Log.Warning($"The connection test for '{connection.Description.FirstText()}' got through, and its {asked!.Action} was not answered.",
                                 "ocpp", "connections", "test");
 
                     return Done(connection, false);
@@ -2724,7 +2725,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 #endregion
 
-                Log.Notice($"The connection test for '{connection.Description}' got through.", "ocpp", "connections", "test");
+                Log.Notice($"The connection test for '{connection.Description.FirstText()}' got through.", "ocpp", "connections", "test");
 
                 return Done(connection, true);
 
@@ -2739,7 +2740,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 Step("error", $"{e.GetType().Name}: {e.Message}");
 
-                Log.Warning($"The connection test for '{connection.Description}' failed: {e.Message}", "ocpp", "connections", "test");
+                Log.Warning($"The connection test for '{connection.Description.FirstText()}' failed: {e.Message}", "ocpp", "connections", "test");
 
                 return Done(connection, false);
 
@@ -2956,7 +2957,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Task<JObject> TestConnection(JObject            Fields,
                                             CancellationToken  CancellationToken   = default)
 
-            => TestConnection(Fields.Value<String>("description"),
+            => TestConnection(ConnectionEntry.DescriptionOf(Fields),
                               Fields.Value<String>("url"),
                               Fields.Value<String>("connectionType"),
                               Fields.Value<String>("ocppVersion"),
@@ -3066,7 +3067,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     Step("error", $"The server did not take {String.Join(", ", subprotocols)}: it does not speak OCPP as CBOR, and a " +
                                   $"connection that says \"cbor\" speaks nothing else. The {NodeNoun} would let go of it again.");
 
-                    Log.Warning($"The connection test for '{Connection.Description}' got through, and its back end does not speak CBOR.",
+                    Log.Warning($"The connection test for '{Connection.Description.FirstText()}' got through, and its back end does not speak CBOR.",
                                 "ocpp", "connections", "test");
 
                     return Done(Connection, false);
@@ -3117,7 +3118,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     Step("error", $"Closed. The connection can be made, and what the {NodeNoun} asked on it was not answered.");
 
-                    Log.Warning($"The connection test for '{Connection.Description}' got through, and its {Asked!.Action} was not answered.",
+                    Log.Warning($"The connection test for '{Connection.Description.FirstText()}' got through, and its {Asked!.Action} was not answered.",
                                 "ocpp", "connections", "test");
 
                     return Done(Connection, false);
@@ -3126,7 +3127,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 Step("notice", "Closed. The connection can be made.");
 
-                Log.Notice($"The connection test for '{Connection.Description}' got through.", "ocpp", "connections", "test");
+                Log.Notice($"The connection test for '{Connection.Description.FirstText()}' got through.", "ocpp", "connections", "test");
 
                 return Done(Connection, true);
 
@@ -3160,7 +3161,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 }
 
-                Log.Warning($"The connection test for '{Connection.Description}' failed: " +
+                Log.Warning($"The connection test for '{Connection.Description.FirstText()}' failed: " +
                             $"{(Trust.Refused ? Trust.WhyRefused() : ReasonOf(e.GetBaseException()))}", "ocpp", "connections", "test");
 
                 return Done(Connection, false);

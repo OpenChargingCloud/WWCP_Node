@@ -19,6 +19,7 @@
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 #endregion
@@ -110,7 +111,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     public sealed record ConnectionState(ConnectionStatus  Status,
                                          DateTimeOffset    Since,
                                          String            Said,
-                                         String            Description,
+                                         I18NString        Description,
                                          URL               URL,
                                          OCPPVersion       OCPPVersion,
                                          UInt32?           Attempt         = null,
@@ -149,7 +150,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                            new JProperty("status",       AsText(Status)),
                            new JProperty("since",        Since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
                            new JProperty("said",         Said),
-                           new JProperty("description",  Description),
+                           new JProperty("description",  Description.ToJSON()),
                            new JProperty("url",          URL.ToString()),
                            new JProperty("ocppVersion",  ConnectionEntry.AsText(OCPPVersion))
                        );

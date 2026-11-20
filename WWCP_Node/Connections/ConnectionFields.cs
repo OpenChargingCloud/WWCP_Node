@@ -17,7 +17,11 @@
 
 #region Usings
 
+using System.Diagnostics.CodeAnalysis;
+
 using Newtonsoft.Json.Linq;
+
+using org.GraphDefined.Vanaheimr.Illias;
 
 using cloud.charging.open.protocols.WWCP.Node.KeyPins;
 
@@ -110,6 +114,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    JTokenType.Null or null                                                           => null,
                    _                                                                                 => -1
                };
+
+        #endregion
+
+
+        #region TryDescriptionOf(JSON, out Description, out Error)
+
+        /// <summary>
+        /// What something is, as it was sent under "description": an object of
+        /// texts by language, e.g. {"en": "Charging point 1"} - or null, where
+        /// nothing was sent. Anything else is refused with a sentence.
+        /// </summary>
+        public static Boolean TryDescriptionOf(JObject                           JSON,
+                                               out I18NString?                   Description,
+                                               [NotNullWhen(false)] out String?  Error)
+        {
+
+            Description  = null;
+            Error        = null;
+
+            switch (JSON["description"])
+            {
+
+                case null:
+                case { Type: JTokenType.Null }:
+                    return true;
+
+                case JObject texts when I18NString.TryParse(texts, out I18NString? parsed, out _):
+                    Description = parsed;
+                    return true;
+
+                default:
+                    Error = "'description' must be an object of texts by language, e.g. {\"en\": \"Charging point 1\"}.";
+                    return false;
+
+            }
+
+        }
 
         #endregion
 

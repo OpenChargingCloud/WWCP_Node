@@ -21,6 +21,8 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 using cloud.charging.open.protocols.WWCP.Node.Connections;
 
 #endregion
@@ -152,7 +154,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// <param name="AuthMethods">The ways its members may prove who they are.</param>
     /// <param name="ClientAuthentication">The ways of client authentication its members may come in with - OCPP's security profiles.</param>
     /// <param name="AddedAt">When the group was made.</param>
-    /// <param name="Note">What it is for, for whoever reads the list later.</param>
+    /// <param name="Description">What it is for, for whoever reads the list later - in as many languages as it is said in.</param>
     /// <param name="SSHChannels">What its members have over their SSH connection besides OCPP, of <see cref="KnownSSHChannels"/>: their time, their names. Null or none: OCPP alone.</param>
     public sealed record WebSocketLoginGroup(String                                       Id,
                                              String                                       Name,
@@ -160,7 +162,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                              IReadOnlySet<AuthMethod>                     AuthMethods,
                                              IReadOnlySet<WebSocketClientAuthentication>  ClientAuthentication,
                                              DateTimeOffset                               AddedAt,
-                                             String?                                      Note,
+                                             I18NString?                                  Description,
                                              IReadOnlySet<String>?                        SSHChannels = null)
     {
 
@@ -184,9 +186,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public const Int32   MaxNameLength  = 60;
 
         /// <summary>
-        /// The longest a note beside a group may be.
+        /// The longest a description of a group may be, in each language.
         /// </summary>
-        public const Int32   MaxNoteLength  = 200;
+        public const Int32   MaxDescriptionLength  = 200;
 
         /// <summary>
         /// How many groups may be listed.
@@ -277,7 +279,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
-        #region (static) TryCreate(Id, Name, Enabled, AuthMethods, ClientAuthentication, Note, AddedAt, out Group, out Error)
+        #region (static) TryCreate(Id, Name, Enabled, AuthMethods, ClientAuthentication, Description, AddedAt, out Group, out Error)
 
         /// <summary>
         /// A group, with everything about it checked.
@@ -287,7 +289,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                         Boolean                                       Enabled,
                                         IEnumerable<AuthMethod>?                      AuthMethods,
                                         IEnumerable<WebSocketClientAuthentication>?   ClientAuthentication,
-                                        String?                                       Note,
+                                        I18NString?                                   Description,
                                         DateTimeOffset                                AddedAt,
                                         [NotNullWhen(true)]  out WebSocketLoginGroup?  Group,
                                         [NotNullWhen(false)] out String?               Error)
@@ -331,13 +333,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 return false;
             }
 
-            var note = Note?.Trim() ?? "";
-
-            if (note.Length > MaxNoteLength)
-            {
-                Error = $"The note may be at most {MaxNoteLength} characters long.";
+            if (!Descriptions.TryCheck(Description, MaxDescriptionLength, out var description, out Error))
                 return false;
-            }
 
             var authentications = new HashSet<WebSocketClientAuthentication>(ClientAuthentication ?? []);
 
@@ -355,7 +352,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                         new HashSet<AuthMethod>(AuthMethods ?? []),
                         authentications,
                         AddedAt,
-                        note.Length > 0 ? note : null
+                        description
                     );
 
             return true;
@@ -470,7 +467,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                      JSON.Value<Boolean?>("enabled") ?? true,
                      methods,
                      authentications,
-                     JSON.Value<String>("note"),
+                     JSON["description"] is JObject descriptionJSON &&
+                     I18NString.TryParse(descriptionJSON, out I18NString? description, out _)
+                         ? description
+                         : null,
                      addedAt,
                      out Group,
                      out Error
@@ -546,8 +546,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                            new JProperty("sshChannels",       new JArray(Channels.Order(StringComparer.Ordinal)))
                        );
 
-            if (Note is not null)
-                json.Add("note", Note);
+            if (Description.IsNotNullOrEmpty())
+                json.Add("description", Description.ToJSON());
 
             if (Members.HasValue)
                 json.Add("members", Members.Value);

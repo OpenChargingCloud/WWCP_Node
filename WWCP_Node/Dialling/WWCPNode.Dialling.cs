@@ -73,10 +73,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (sshKeys is SshClientKeys kept)
                     return kept;
 
-                var keys = new SshClientKeys(SshKey,
-                                             $"This {NodeNoun}'s own key",
-                                             SshKey.Comment,
-                                             TimeProvider);
+                var keys = new SshClientKeys(
+                               SshKey,
+                               $"This {NodeNoun}'s own key",
+                               SshKey.Comment,
+                               TimeProvider
+                           );
 
                 keys.OnNotice += (level, message) => Log.Log(level, message, "ocpp", "connections", "ssh", "security");
 

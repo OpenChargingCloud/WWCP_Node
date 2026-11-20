@@ -21,6 +21,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -184,7 +185,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Connections.CopyOf(Connection) is ConnectionEntry entry)
             {
 
-                Log.Notice($"'{entry.Description}': the signed pin set of version {Version}, signed by '{Signer}', holds its server to the root " +
+                Log.Notice($"'{entry.Description.FirstText()}': the signed pin set of version {Version}, signed by '{Signer}', holds its server to the root " +
                            $"{String.Join(" or ", entry.Pins?.Roots ?? [])}.", "ocpp", "connections", "pins", "security");
 
                 KeyPinSecurityEvent(entry, "ReconfigurationOfSecurityParameters",

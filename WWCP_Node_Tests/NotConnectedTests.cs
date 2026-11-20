@@ -19,7 +19,9 @@
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Connections;
@@ -114,7 +116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var store  = new ConnectionStore(Path.Combine(directory, "conn"));
             URL        = $"ws://127.0.0.1:{TestPorts.Free()}/cs001";
 
-            Assert.That(store.TryAddConnection("The gateway below", URL, "Gateway", true, null, null, out var id, out var error),
+            Assert.That(store.TryAddConnection(I18NString.Create("The gateway below"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "Gateway", true, null, null, out var id, out var error),
                         Is.True, error);
 
             return store.Connections.Single(connection => connection.Id == id);
@@ -172,7 +174,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             node.Keeps(store);
 
-            Assert.That(store.TryAddConnection("The back end", url, "CSMS", true, null, null, out var id, out var error),
+            Assert.That(store.TryAddConnection(I18NString.Create("The back end"), URL.Parse(url), "CSMS", true, null, null, out var id, out var error),
                         Is.True, error);
 
             var connection = store.Connections.Single(one => one.Id == id);

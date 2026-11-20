@@ -422,7 +422,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                                 _ = connection.Close(WebSocketFrame.ClosingStatusCode.PolicyViolation, "No longer a connection of this node");
 
-                                Log.Notice($"'{entry.Description}' is let go of: it is no longer let in.", "ocpp", "connections", "inbound");
+                                Log.Notice($"'{entry.Description.FirstText()}' is let go of: it is no longer let in.", "ocpp", "connections", "inbound");
 
                             }
 
@@ -522,7 +522,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             Record(Connection, ConnectionStatus.Waiting, what);
 
-            Log.Info($"'{Connection.Description}': {what}", "ocpp", "connections", "inbound");
+            Log.Info($"'{Connection.Description.FirstText()}': {what}", "ocpp", "connections", "inbound");
 
         }
 
@@ -678,7 +678,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             Record(entry, ConnectionStatus.Waiting, what);
 
-            Log.Warning($"'{entry.Description}': {what}", "ocpp", "connections", "inbound");
+            Log.Warning($"'{entry.Description.FirstText()}': {what}", "ocpp", "connections", "inbound");
 
         }
 

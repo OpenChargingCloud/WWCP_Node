@@ -31,6 +31,7 @@ using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 using cloud.charging.open.protocols.WWCP.Node.KeyPins;
+using cloud.charging.open.protocols.WWCP.Node.Logins;
 using org.GraphDefined.Vanaheimr.Illias;
 
 #endregion
@@ -695,11 +696,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Login">The name the other end knows this node by.</param>
         /// <param name="Password">The password.</param>
         /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
-        public Boolean TryAddBasicAuthentication(String?                           Login,
-                                                 String?                           Password,
-                                                 String?                           Description,
-                                                 [NotNullWhen(true)]  out String?  Id,
-                                                 [NotNullWhen(false)] out String?  Error)
+        public Boolean TryAddPasswordAuthentication(String?                           Login,
+                                                    String?                           Password,
+                                                    I18NString?                       Description,
+                                                    [NotNullWhen(true)]  out String?  Id,
+                                                    [NotNullWhen(false)] out String?  Error)
 
             => TryAddBasicAuthentication(
                    Login,
@@ -709,6 +710,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    out Error,
                    out _
                );
+
 
         /// <summary>
         /// Write down HTTP Basic credentials - and say whether a refusal was
@@ -720,7 +722,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about them was wrong, and they were not taken.</param>
         public Boolean TryAddBasicAuthentication(String?                           Login,
                                                  String?                           Password,
-                                                 String?                           Description,
+                                                 I18NString?                       Description,
                                                  [NotNullWhen(true)]  out String?  Id,
                                                  [NotNullWhen(false)] out String?  Error,
                                                  out Boolean                       NotSaved)
@@ -744,7 +746,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            return TryAdd(Description!, basic, out Id, out Error, out NotSaved);
+            return TryAdd(
+                       AuthenticationEntry.Kept(Description!),
+                       basic,
+                       out Id,
+                       out Error,
+                       out NotSaved
+                   );
 
         }
 
@@ -766,7 +774,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none for unbound.</param>
         public Boolean TryAddTOTPAuthentication(String?                           Login,
                                                 String?                           SharedSecret,
-                                                String?                           Description,
+                                                I18NString?                       Description,
                                                 [NotNullWhen(true)]  out String?  Id,
                                                 [NotNullWhen(false)] out String?  Error,
                                                 Double?                           ValiditySeconds     = null,
@@ -804,7 +812,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none for unbound.</param>
         public Boolean TryAddTOTPAuthentication(String?                           Login,
                                                 String?                           SharedSecret,
-                                                String?                           Description,
+                                                I18NString?                       Description,
                                                 [NotNullWhen(true)]  out String?  Id,
                                                 [NotNullWhen(false)] out String?  Error,
                                                 out Boolean                       NotSaved,
@@ -842,7 +850,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            return TryAdd(Description!, totp, out Id, out Error, out NotSaved);
+            return TryAdd(AuthenticationEntry.Kept(Description!), totp, out Id, out Error, out NotSaved);
 
         }
 
@@ -856,7 +864,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Token">The token.</param>
         /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
         public Boolean TryAddTokenAuthentication(String?                           Token,
-                                                 String?                           Description,
+                                                 I18NString?                       Description,
                                                  [NotNullWhen(true)]  out String?  Id,
                                                  [NotNullWhen(false)] out String?  Error)
 
@@ -876,7 +884,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
         /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about them was wrong, and they were not taken.</param>
         public Boolean TryAddTokenAuthentication(String?                           Token,
-                                                 String?                           Description,
+                                                 I18NString?                       Description,
                                                  [NotNullWhen(true)]  out String?  Id,
                                                  [NotNullWhen(false)] out String?  Error,
                                                  out Boolean                       NotSaved)
@@ -894,7 +902,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            return TryAdd(Description!, token, out Id, out Error, out NotSaved);
+            return TryAdd(AuthenticationEntry.Kept(Description!), token, out Id, out Error, out NotSaved);
 
         }
 
@@ -905,7 +913,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// Write down credentials that were found to be right.
         /// </summary>
-        private Boolean TryAdd(String                            Description,
+        private Boolean TryAdd(I18NString                         Description,
                                IHTTPAuthentication               Authentication,
                                [NotNullWhen(true)]  out String?  Id,
                                [NotNullWhen(false)] out String?  Error,
@@ -920,7 +928,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 var entry = new AuthenticationEntry(
                                 NewId(),
-                                Description.Trim(),
+                                Description,
                                 Authentication,
                                 TimeProvider.GetUtcNow()
                             );
@@ -965,7 +973,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public Boolean TryUpdateBasicAuthentication(String?                           Id,
                                                     String?                           Login,
                                                     String?                           Password,
-                                                    String?                           Description,
+                                                    I18NString?                       Description,
                                                     [NotNullWhen(false)] out String?  Error)
 
             => TryUpdateBasicAuthentication(
@@ -989,7 +997,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public Boolean TryUpdateBasicAuthentication(String?                           Id,
                                                     String?                           Login,
                                                     String?                           Password,
-                                                    String?                           Description,
+                                                    I18NString?                       Description,
                                                     [NotNullWhen(false)] out String?  Error,
                                                     out Boolean                       NotSaved)
         {
@@ -1001,7 +1009,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             return TryUpdate(
                        Id,
-                       Description!,
+                       AuthenticationEntry.Kept(Description!),
                        AuthenticationKind.Basic,
                        (AuthenticationEntry was, out String? error) => {
 
@@ -1046,7 +1054,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public Boolean TryUpdateTOTPAuthentication(String?                           Id,
                                                    String?                           Login,
                                                    String?                           SharedSecret,
-                                                   String?                           Description,
+                                                   I18NString?                       Description,
                                                    [NotNullWhen(false)] out String?  Error,
                                                    Double?                           ValiditySeconds     = null,
                                                    UInt32?                           Length              = null,
@@ -1085,7 +1093,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public Boolean TryUpdateTOTPAuthentication(String?                           Id,
                                                    String?                           Login,
                                                    String?                           SharedSecret,
-                                                   String?                           Description,
+                                                   I18NString?                       Description,
                                                    [NotNullWhen(false)] out String?  Error,
                                                    out Boolean                       NotSaved,
                                                    Double?                           ValiditySeconds     = null,
@@ -1102,7 +1110,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             return TryUpdate(
                        Id,
-                       Description!,
+                       AuthenticationEntry.Kept(Description!),
                        AuthenticationKind.TOTP,
                        (AuthenticationEntry was, out String? error) => {
 
@@ -1152,7 +1160,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Description">What the credentials are for.</param>
         public Boolean TryUpdateTokenAuthentication(String?                           Id,
                                                     String?                           Token,
-                                                    String?                           Description,
+                                                    I18NString?                       Description,
                                                     [NotNullWhen(false)] out String?  Error)
 
             => TryUpdateTokenAuthentication(
@@ -1173,7 +1181,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about the change was wrong, and they stay as they were.</param>
         public Boolean TryUpdateTokenAuthentication(String?                           Id,
                                                     String?                           Token,
-                                                    String?                           Description,
+                                                    I18NString?                       Description,
                                                     [NotNullWhen(false)] out String?  Error,
                                                     out Boolean                       NotSaved)
         {
@@ -1185,7 +1193,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             return TryUpdate(
                        Id,
-                       Description!,
+                       AuthenticationEntry.Kept(Description!),
                        AuthenticationKind.Token,
                        (AuthenticationEntry was, out String? error) => {
 
@@ -1223,7 +1231,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// Change credentials whose change was found to be right.
         /// </summary>
         private Boolean TryUpdate(String?                           Id,
-                                  String                            Description,
+                                  I18NString                         Description,
                                   AuthenticationKind                Kind,
                                   AuthenticationOf                  Authentication,
                                   [NotNullWhen(false)] out String?  Error,
@@ -1249,7 +1257,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 var was = entry.Copy();
 
-                entry.Description     = Description.Trim();
+                entry.Description     = Description;
                 entry.Authentication  = authentication;
                 entry.LastChangeAt    = TimeProvider.GetUtcNow();
 
@@ -1352,7 +1360,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (used.Length > 0)
                 {
-                    Error = $"These credentials are in use by {String.Join(", ", used.Select(one => $"'{one.Description}'"))}. " +
+                    Error = $"These credentials are in use by {String.Join(", ", used.Select(one => $"'{one.Description.FirstText()}'"))}. " +
                              "Point those somewhere else first.";
                     return false;
                 }
@@ -1383,15 +1391,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// Write down one connection.
         /// </summary>
-        public Boolean TryAddConnection(String?                           Description,
-                                        String?                           URL,
+        /// <param name="URL">Where it goes: ws://, wss:// or ssh://. Read a URL somebody typed with <see cref="ConnectionEntry.TryParseURL"/>, which says what is wrong with it.</param>
+        public Boolean TryAddConnection(I18NString?                       Description,
+                                        URL?                              URL,
                                         String?                           ConnectionType,
                                         Boolean?                          AutoConnect,
                                         String?                           AuthenticationId,
                                         String?                           CertificateId,
                                         [NotNullWhen(true)]  out String?  Id,
                                         [NotNullWhen(false)] out String?  Error,
+
                                         String?                           OCPPVersion        = null,
+
                                         String?                           SshHostKey         = null,
                                         SshTrustSettings?                 SshTrust           = null,
                                         String?                           ServerKeyPins      = null,
@@ -1428,10 +1439,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    RemoteNodeId
                );
 
+
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
         /// file's rather than the connection's.
         /// </summary>
+        /// <param name="URL">Where it goes: ws://, wss:// or ssh://. Read a URL somebody typed with <see cref="ConnectionEntry.TryParseURL"/>, which says what is wrong with it.</param>
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about this one was wrong, and it was not taken.</param>
         /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas; none where it is not dialled or learns one on first use.</param>
         /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins; none for no trust on first use, mismatches refused.</param>
@@ -1443,8 +1456,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="SignatureFormats">Which signatures it writes - "jws", "cose" or "both"; none, or "policy", for what the signature policy says.</param>
         /// <param name="Inbound">Whether the other end dials, see <see cref="ConnectionEntry.Inbound"/>; none for a connection this node dials.</param>
         /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; none where this node dials its back end.</param>
-        public Boolean TryAddConnection(String?                           Description,
-                                        String?                           URL,
+        public Boolean TryAddConnection(I18NString?                       Description,
+                                        URL?                              URL,
                                         String?                           ConnectionType,
                                         Boolean?                          AutoConnect,
                                         String?                           AuthenticationId,
@@ -1543,7 +1556,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 var entry = new ConnectionEntry(
                                 NewId(),
-                                Description!.Trim(),
+                                ConnectionEntry.Kept(Description!),
                                 url,
                                 type,
                                 TimeProvider.GetUtcNow()
@@ -1610,9 +1623,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// Change one connection.
         /// </summary>
+        /// <param name="URL">Where it goes: ws://, wss:// or ssh://. Read a URL somebody typed with <see cref="ConnectionEntry.TryParseURL"/>, which says what is wrong with it.</param>
         public Boolean TryUpdateConnection(String?                          Id,
-                                           String?                          Description,
-                                           String?                          URL,
+                                           I18NString?                      Description,
+                                           URL?                             URL,
                                            String?                          ConnectionType,
                                            Boolean?                         AutoConnect,
                                            String?                          AuthenticationId,
@@ -1642,6 +1656,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// Change one connection - and say whether a refusal was the file's
         /// rather than the change's.
         /// </summary>
+        /// <param name="URL">Where it goes: ws://, wss:// or ssh://. Read a URL somebody typed with <see cref="ConnectionEntry.TryParseURL"/>, which says what is wrong with it.</param>
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about the change was wrong, and the connection stays as it was.</param>
         /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas: "" for none, and nothing to keep those there are.</param>
         /// <param name="SshHostKeyAsShown">The host keys the page showed when it was drawn. Where <paramref name="SshHostKey"/> is still that, those there are now stay: a signed pin set taken meanwhile is not undone by a change of something else.</param>
@@ -1656,8 +1671,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Inbound">Whether the other end dials, see <see cref="ConnectionEntry.Inbound"/>; nothing to keep what it says.</param>
         /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; nothing to keep what it says, an empty text for none.</param>
         public Boolean TryUpdateConnection(String?                          Id,
-                                           String?                          Description,
-                                           String?                          URL,
+                                           I18NString?                      Description,
+                                           URL?                             URL,
                                            String?                          ConnectionType,
                                            Boolean?                         AutoConnect,
                                            String?                          AuthenticationId,
@@ -1853,7 +1868,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (peer is not null && peer.EndpointIds.Count > 1 && version != peer.OCPPVersion)
                 {
-                    Error = $"Every endpoint of a peer speaks one OCPP version, and '{peer.Description}' speaks {ConnectionEntry.AsText(peer.OCPPVersion)}. " +
+                    Error = $"Every endpoint of a peer speaks one OCPP version, and '{peer.Description.FirstText()}' speaks {ConnectionEntry.AsText(peer.OCPPVersion)}. " +
                             "Make this connection a peer of its own first.";
                     return false;
                 }
@@ -1861,7 +1876,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 var peersBefore = SnapshotPeers();
                 var was = entry.Copy();
 
-                entry.Description         = Description!.Trim();
+                entry.Description         = ConnectionEntry.Kept(Description!);
                 entry.URL                 = url;
                 entry.ConnectionType      = type;
                 entry.OCPPVersion         = version;
@@ -2017,7 +2032,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (!entry.IsSecure || entry.IsSSH)
                 {
-                    Error = $"'{entry.Description}' makes no TLS handshake a certificate could be shown in.";
+                    Error = $"'{entry.Description.FirstText()}' makes no TLS handshake a certificate could be shown in.";
                     return false;
                 }
 
@@ -2055,7 +2070,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                       $"'{entry.Description}' shows the certificate of the key {CertificateId} from now on" +
+                       $"'{entry.Description.FirstText()}' shows the certificate of the key {CertificateId} from now on" +
                        (was.CertificateId is not null ? $", and no longer that of {was.CertificateId}" : "") +
                         ". It is dialled again.");
 
@@ -2119,7 +2134,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                                 $"'{entry.Description}' pins no host key and trusts on first use, so the one its server showed on the first " +
+                                 $"'{entry.Description.FirstText()}' pins no host key and trusts on first use, so the one its server showed on the first " +
                                  $"connection was learned: {HostKey}. It is on probation for {entry.SshProbationTime.TotalMinutes:0.#} minute(s), " +
                                   "until a signed pin set confirms it; until then nothing but such a pin set is executed.");
 
@@ -2173,7 +2188,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                                 $"'{entry.Description}' believes its server as a signed pin set said: trust on first use {trustOnFirstUse}, " +
+                                 $"'{entry.Description.FirstText()}' believes its server as a signed pin set said: trust on first use {trustOnFirstUse}, " +
                                  $"a mismatch {onPinMismatch}, a probation of {probationTime.TotalSeconds:0} s.");
 
                 Error = null;
@@ -2214,12 +2229,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 {
                     entry.SshLearnedHostKey  = HostKey;
                     entry.SshLearnedAt       = learnedAt;
-                    Notice(LogLevel.Warning, $"'{entry.Description}' could not forget the host key it learned: {error}.");
+                    Notice(LogLevel.Warning, $"'{entry.Description.FirstText()}' could not forget the host key it learned: {error}.");
                     return false;
                 }
 
                 Notice(LogLevel.Warning,
-                                 $"'{entry.Description}' forgot the host key {HostKey} it learned on its first connection: no signed pin set " +
+                                 $"'{entry.Description.FirstText()}' forgot the host key {HostKey} it learned on its first connection: no signed pin set " +
                                   "confirmed it in time. The next connection learns again.");
 
                 return true;
@@ -2300,7 +2315,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                                 $"'{entry.Description}' took the host keys of the signed pin set of version {Version}: {hostKey}" +
+                                 $"'{entry.Description.FirstText()}' took the host keys of the signed pin set of version {Version}: {hostKey}" +
                                  (Learned is null
                                       ? "."
                                       : Confirmed
@@ -2370,7 +2385,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                       $"'{entry.Description}' pins no key and trusts on first use, so the key pin of the one its server showed on the first " +
+                       $"'{entry.Description.FirstText()}' pins no key and trusts on first use, so the key pin of the one its server showed on the first " +
                        $"connection was learned: {Pin}. It is on probation for {entry.ServerKeyPinProbationTime.TotalMinutes:0.#} minute(s), " +
                         "until a signed pin set confirms it; until then nothing but such a pin set is executed.");
 
@@ -2411,12 +2426,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 {
                     entry.ServerKeyPinLearned    = Pin;
                     entry.ServerKeyPinLearnedAt  = learnedAt;
-                    Notice(LogLevel.Warning, $"'{entry.Description}' could not forget the key pin it learned: {error}.");
+                    Notice(LogLevel.Warning, $"'{entry.Description.FirstText()}' could not forget the key pin it learned: {error}.");
                     return false;
                 }
 
                 Notice(LogLevel.Warning,
-                       $"'{entry.Description}' forgot the key pin {Pin} it learned on its first connection: no signed pin set " +
+                       $"'{entry.Description.FirstText()}' forgot the key pin {Pin} it learned on its first connection: no signed pin set " +
                         "confirmed it in time. The next connection learns again.");
 
                 return true;
@@ -2471,13 +2486,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (!entry.IsSecure)
                 {
-                    Error = $"'{entry.Description}' makes no TLS handshake, so there is no key of its server to pin.";
+                    Error = $"'{entry.Description.FirstText()}' makes no TLS handshake, so there is no key of its server to pin.";
                     return false;
                 }
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to pin. " +
+                    Error = $"'{entry.Description.FirstText()}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to pin. " +
                              "The keys the other end signs in with are written down by hand.";
                     return false;
                 }
@@ -2521,7 +2536,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                       $"'{entry.Description}' took the key pins of the signed pin set of version {Version}: {ConnectionEntry.AsText(pins)}" +
+                       $"'{entry.Description.FirstText()}' took the key pins of the signed pin set of version {Version}: {ConnectionEntry.AsText(pins)}" +
                        (Learned is null
                             ? "."
                             : Confirmed
@@ -2596,7 +2611,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                       $"'{entry.Description}' is held to the {What.AsText()} {Fingerprint} from now on: the first one its server was believed with, trusted on first use.");
+                       $"'{entry.Description.FirstText()}' is held to the {What.AsText()} {Fingerprint} from now on: the first one its server was believed with, trusted on first use.");
 
                 return true;
 
@@ -2643,20 +2658,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (!entry.IsSecure)
                 {
-                    Error = $"'{entry.Description}' makes no TLS handshake, so there is no chain of its server to hold to a root.";
+                    Error = $"'{entry.Description.FirstText()}' makes no TLS handshake, so there is no chain of its server to hold to a root.";
                     return false;
                 }
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to hold to a root. " +
+                    Error = $"'{entry.Description.FirstText()}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to hold to a root. " +
                              "The roots the other end's certificate is held to are written down by hand.";
                     return false;
                 }
 
                 if (entry.IsKeyPinned)
                 {
-                    Error = $"'{entry.Description}' knows its server by the key of that server and asks no CA: a root it were held to would never be asked.";
+                    Error = $"'{entry.Description.FirstText()}' knows its server by the key of that server and asks no CA: a root it were held to would never be asked.";
                     return false;
                 }
 
@@ -2711,7 +2726,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 Notice(LogLevel.Notice,
-                       $"'{entry.Description}' took the roots of the signed pin set of version {Version}: its chain may end at {String.Join(" or ", roots)}. " +
+                       $"'{entry.Description.FirstText()}' took the roots of the signed pin set of version {Version}: its chain may end at {String.Join(" or ", roots)}. " +
                         "It is dialled again, held to them.");
 
                 Error = null;
@@ -2778,7 +2793,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description}' is dialled by the other end: raw public keys and learning a key on first use are for a server this {NodeNoun} dials.";
+                    Error = $"'{entry.Description.FirstText()}' is dialled by the other end: raw public keys and learning a key on first use are for a server this {NodeNoun} dials.";
                     return false;
                 }
 
@@ -2818,7 +2833,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 KeyPinnedChanged = was.IsKeyPinned != entry.IsKeyPinned;
 
                 Notice(LogLevel.Notice,
-                       $"'{entry.Description}' believes its server as a signed pin set said: raw public keys {rawPublicKeys}, trust on first use " +
+                       $"'{entry.Description.FirstText()}' believes its server as a signed pin set said: raw public keys {rawPublicKeys}, trust on first use " +
                        $"{trustOnFirstUse}, a probation of {probationTime.TotalSeconds:0} s" +
                        (Forgotten is not null
                             ? $"; the key pin {Forgotten} it learned on probation is forgotten with trust on first use."
@@ -3168,14 +3183,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 if (backedUp.Length == 1)
                 {
                     backedUp[0].AddEndpoint(backup.Id);
-                    notes.Add($"'{backup.Description}' ({backup.Id}), a CSMSBackup, is the next endpoint of peer {backedUp[0].Id} " +
-                              $"'{backedUp[0].Description}', the one CSMS of {ConnectionEntry.AsText(backup.OCPPVersion)}.");
+                    notes.Add($"'{backup.Description.FirstText()}' ({backup.Id}), a CSMSBackup, is the next endpoint of peer {backedUp[0].Id} " +
+                              $"'{backedUp[0].Description.FirstText()}', the one CSMS of {ConnectionEntry.AsText(backup.OCPPVersion)}.");
                 }
 
                 else
                 {
                     peers[backup.Id] = NewPeerOf(backup);
-                    notes.Add($"'{backup.Description}' ({backup.Id}), a CSMSBackup, is a peer of its own: " +
+                    notes.Add($"'{backup.Description.FirstText()}' ({backup.Id}), a CSMSBackup, is a peer of its own: " +
                               (backedUp.Length == 0
                                    ? $"there is no CSMS of {ConnectionEntry.AsText(backup.OCPPVersion)} it would back up."
                                    : $"{backedUp.Length} CSMS of {ConnectionEntry.AsText(backup.OCPPVersion)} could be the one it backs up."));
@@ -3196,14 +3211,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 if (OldestDialled(otherVersion) is PeerEntry successor)
                 {
                     successor.Role = PeerRole.Successor;
-                    notes.Add($"Peer {successor.Id} '{successor.Description}' was in charge of the {ConnectionEntry.AsText(otherVersion)} node, " +
-                              $"as '{primary.Description}' was of the {ConnectionEntry.AsText(primary.OCPPVersion)} one. The {NodeNoun} has one primary now, " +
+                    notes.Add($"Peer {successor.Id} '{successor.Description.FirstText()}' was in charge of the {ConnectionEntry.AsText(otherVersion)} node, " +
+                              $"as '{primary.Description.FirstText()}' was of the {ConnectionEntry.AsText(primary.OCPPVersion)} one. The {NodeNoun} has one primary now, " +
                               $"so it is a successor: dialled and registered with as before, and held to a successor's rights once they apply.");
                 }
 
             }
 
-            notes.InsertRange(0, OrderedPeers().Select(peer => $"Peer {peer.Id} '{peer.Description}': {peer.Kind}, {peer.Role}, " +
+            notes.InsertRange(0, OrderedPeers().Select(peer => $"Peer {peer.Id} '{peer.Description.FirstText()}': {peer.Kind}, {peer.Role}, " +
                                                                 $"{ConnectionEntry.AsText(peer.OCPPVersion)}, endpoint(s) {String.Join(", ", peer.EndpointIds)}."));
 
             notes.Insert(0, $"The {connections.Count} connection(s) of {ConnectionsFileName} are {peers.Count} peer(s) in {PeersFileName} now; " +
@@ -3245,7 +3260,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             foreach (var peer in peers.Values.Where(peer => peer.EndpointIds.Count == 0).ToArray())
             {
                 peers.Remove(peer.Id);
-                notes.Add($"Peer {peer.Id} '{peer.Description}' has no endpoint left and is gone.");
+                notes.Add($"Peer {peer.Id} '{peer.Description.FirstText()}' has no endpoint left and is gone.");
             }
 
             var owned = peers.Values.SelectMany(peer => peer.EndpointIds).ToHashSet();
@@ -3255,7 +3270,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 var peer = NewPeerOf(entry);
                 peer.Role = IsDialled(peer) ? PeerRole.Observer : PeerRole.Service;
                 peers[peer.Id] = peer;
-                notes.Add($"Connection '{entry.Description}' ({entry.Id}) belonged to no peer and is peer {peer.Id} of its own now, a {peer.Role}.");
+                notes.Add($"Connection '{entry.Description.FirstText()}' ({entry.Id}) belonged to no peer and is peer {peer.Id} of its own now, a {peer.Role}.");
             }
 
             foreach (var peer in peers.Values)
@@ -3265,14 +3280,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (!dialled && peer.Role != PeerRole.Service)
                 {
-                    notes.Add($"None of the endpoints of peer {peer.Id} '{peer.Description}' dials by itself, so it is no {peer.Role} but a Service now.");
+                    notes.Add($"None of the endpoints of peer {peer.Id} '{peer.Description.FirstText()}' dials by itself, so it is no {peer.Role} but a Service now.");
                     peer.Role = PeerRole.Service;
                 }
 
                 else if (dialled && peer.Role == PeerRole.Service)
                 {
                     peer.Role = PeerRole.Observer;
-                    notes.Add($"An endpoint of peer {peer.Id} '{peer.Description}' dials by itself, so it is no Service but an Observer now.");
+                    notes.Add($"An endpoint of peer {peer.Id} '{peer.Description.FirstText()}' dials by itself, so it is no Service but an Observer now.");
                 }
 
             }
@@ -3282,19 +3297,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             foreach (var extra in primaries.Skip(1))
             {
                 extra.Role = PeerRole.Successor;
-                notes.Add($"Peer {extra.Id} '{extra.Description}' was a second primary and is a Successor now: one back end is in charge.");
+                notes.Add($"Peer {extra.Id} '{extra.Description.FirstText()}' was a second primary and is a Successor now: one back end is in charge.");
             }
 
             if (primaries.Length == 0 && OldestDialled() is PeerEntry next)
             {
-                notes.Add($"Switchover: peer {next.Id} '{next.Description}' is the primary now, as the oldest peer dialled by itself; it was a {next.Role}.");
+                notes.Add($"Switchover: peer {next.Id} '{next.Description.FirstText()}' is the primary now, as the oldest peer dialled by itself; it was a {next.Role}.");
                 next.Role = PeerRole.Primary;
             }
 
             foreach (var peer in peers.Values.Where(peer => peer.Role == PeerRole.Primary && peer.Rights is not null))
             {
                 peer.Rights = null;
-                notes.Add($"The rights of peer {peer.Id} '{peer.Description}' are gone: a primary has every right.");
+                notes.Add($"The rights of peer {peer.Id} '{peer.Description.FirstText()}' are gone: a primary has every right.");
             }
 
             return notes;
@@ -3393,7 +3408,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// its peer one that is dialled always.
         /// </remarks>
         public Boolean TryUpdatePeer(String?                          Id,
-                                     String?                          Description,
+                                     I18NString?                      Description,
                                      String?                          Kind,
                                      String?                          Role,
                                      String?                          Identity,
@@ -3403,7 +3418,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             => TryUpdatePeer(Id, Description, Kind, Role, Identity, Rights, out Error, out _);
 
         public Boolean TryUpdatePeer(String?                          Id,
-                                     String?                          Description,
+                                     I18NString?                      Description,
                                      String?                          Kind,
                                      String?                          Role,
                                      String?                          Identity,
@@ -3414,11 +3429,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             NotSaved = false;
 
-            var description = Description?.Trim();
+            I18NString? description = null;
 
-            if (description is not null && (description.Length == 0 || description.Length > PeerEntry.MaxDescriptionLength))
+            if (Description is not null &&
+                !Descriptions.TryCheckRequired(Description, PeerEntry.MaxDescriptionLength, "", out description, out _))
             {
-                Error = $"A peer is described in 1 to {PeerEntry.MaxDescriptionLength} characters.";
+                Error = $"A peer is described in 1 to {PeerEntry.MaxDescriptionLength} characters, in each language it is said in.";
                 return false;
             }
 
@@ -3465,19 +3481,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (peer.Role == PeerRole.Primary && newRole != PeerRole.Primary)
                 {
-                    Error = $"'{peer.Description}' is the primary. To hand the {NodeNoun} to another back end, make that one the primary.";
+                    Error = $"'{peer.Description.FirstText()}' is the primary. To hand the {NodeNoun} to another back end, make that one the primary.";
                     return false;
                 }
 
                 if (newRole == PeerRole.Service && IsDialled(peer))
                 {
-                    Error = $"An endpoint of '{peer.Description}' dials by itself, and a service is dialled on demand only. Switch that off first.";
+                    Error = $"An endpoint of '{peer.Description.FirstText()}' dials by itself, and a service is dialled on demand only. Switch that off first.";
                     return false;
                 }
 
                 if (newRole != PeerRole.Service && !IsDialled(peer))
                 {
-                    Error = $"None of the endpoints of '{peer.Description}' dials by itself, and a {newRole} is dialled always. Switch that on for one of them first.";
+                    Error = $"None of the endpoints of '{peer.Description.FirstText()}' dials by itself, and a {newRole} is dialled always. Switch that on for one of them first.";
                     return false;
                 }
 
@@ -3496,17 +3512,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     foreach (var previous in peers.Values.Where(other => other.Role == PeerRole.Primary))
                     {
                         previous.Role = PeerRole.Successor;
-                        notes.Add($"Switchover: peer {peer.Id} '{peer.Description}' is the primary now, in place of peer {previous.Id} " +
-                                  $"'{previous.Description}', which is a successor.");
+                        notes.Add($"Switchover: peer {peer.Id} '{peer.Description.FirstText()}' is the primary now, in place of peer {previous.Id} " +
+                                  $"'{previous.Description.FirstText()}', which is a successor.");
                     }
 
                     if (notes.Count == 0)
-                        notes.Add($"Switchover: peer {peer.Id} '{peer.Description}' is the primary now.");
+                        notes.Add($"Switchover: peer {peer.Id} '{peer.Description.FirstText()}' is the primary now.");
 
                 }
 
                 else if (newRole != peer.Role)
-                    notes.Add($"Peer {peer.Id} '{peer.Description}' is a {newRole} now; it was a {peer.Role}.");
+                    notes.Add($"Peer {peer.Id} '{peer.Description.FirstText()}' is a {newRole} now; it was a {peer.Role}.");
 
                 if (description is not null)  peer.Description  = description;
                 if (Kind        is not null)  peer.Kind         = kind;
@@ -3576,8 +3592,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.OCPPVersion != peer.OCPPVersion)
                 {
-                    Error = $"Every endpoint of a peer speaks one OCPP version: '{peer.Description}' speaks {ConnectionEntry.AsText(peer.OCPPVersion)}, " +
-                            $"'{entry.Description}' {ConnectionEntry.AsText(entry.OCPPVersion)}.";
+                    Error = $"Every endpoint of a peer speaks one OCPP version: '{peer.Description.FirstText()}' speaks {ConnectionEntry.AsText(peer.OCPPVersion)}, " +
+                            $"'{entry.Description.FirstText()}' {ConnectionEntry.AsText(entry.OCPPVersion)}.";
                     return false;
                 }
 
@@ -3595,7 +3611,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     return false;
                 }
 
-                Notice(LogLevel.Info, $"'{entry.Description}' ({entry.Id}) is endpoint {peer.EndpointIds.ToList().IndexOf(entry.Id) + 1} of peer {peer}.");
+                Notice(LogLevel.Info, $"'{entry.Description.FirstText()}' ({entry.Id}) is endpoint {peer.EndpointIds.ToList().IndexOf(entry.Id) + 1} of peer {peer}.");
                 Tell(notes, LogLevel.Notice);
 
                 Error = null;
@@ -3807,7 +3823,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                                            other.OCPPVersion == Version &&
                                                            other.InboundName == name) is ConnectionEntry taken)
             {
-                Error = $"'{name}' is the name '{taken.Description}' comes under already, in {ConnectionEntry.AsText(Version)}. " +
+                Error = $"'{name}' is the name '{taken.Description.FirstText()}' comes under already, in {ConnectionEntry.AsText(Version)}. " +
                         "Two connections under one name could not be told apart at the door.";
                 return false;
             }
@@ -3852,7 +3868,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 {
 
                     if (!credentials.HasSecret && !Entry.Inbound)
-                        warnings.Add($"'{credentials.Description}' has no secret set, so this connection cannot prove itself.");
+                        warnings.Add($"'{credentials.Description.FirstText()}' has no secret set, so this connection cannot prove itself.");
 
                     if (credentials.Kind == AuthenticationKind.Basic && !Entry.IsSecure && !Entry.IsSSH)
                         warnings.Add("HTTP Basic over a connection without TLS sends the password in the clear to anybody on the way.");
@@ -3861,23 +3877,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                         warnings.Add("HTTP Token over a connection without TLS sends the token in the clear to anybody on the way.");
 
                     if (credentials.Kind == AuthenticationKind.Token && Entry.IsSSH)
-                        warnings.Add($"'{credentials.Description}' is a token, and an SSH server takes a password or a one-time password: " +
+                        warnings.Add($"'{credentials.Description.FirstText()}' is a token, and an SSH server takes a password or a one-time password: " +
                                       "it is not connected until it names one of those.");
 
                     if (credentials.Kind == AuthenticationKind.TOTP && Entry.IsSSH && !credentials.TLSChannelBinding)
-                        warnings.Add($"'{credentials.Description}' is not bound to its session, so over SSH its one-time password is " +
+                        warnings.Add($"'{credentials.Description.FirstText()}' is not bound to its session, so over SSH its one-time password is " +
                                       "sent as a password, or as the answer to a prompt, where the server asks for one: whoever the " +
                                       "session ends at reads it, and can use it within its validity. Bound, it is sent to a server " +
                                       "that takes 'totp@open.charging.cloud' and to no other.");
 
                     if (Entry.IsSSH &&
                         Entry.URL.Login is String login && credentials.Login is not null && login != credentials.Login)
-                        warnings.Add($"The URL signs in as '{login}' and '{credentials.Description}' as '{credentials.Login}'. " +
+                        warnings.Add($"The URL signs in as '{login}' and '{credentials.Description.FirstText()}' as '{credentials.Login}'. " +
                                       "It is one login, so it is not connected until the two agree.");
 
                     if (credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding && !Entry.IsSSH && !Entry.Inbound &&
                         !Entry.BindsItsPassword)
-                        warnings.Add($"'{credentials.Description}' binds its password to the TLS session, and one is bound only on a " +
+                        warnings.Add($"'{credentials.Description.FirstText()}' binds its password to the TLS session, and one is bound only on a " +
                                       $"connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this {NodeNoun}'s TLS exports " +
                                       "no keying material to bind one with, so it is not connected. Name HTTP/3 for it, or switch the " +
                                       "binding off to have the password sent unbound - and know that an unbound password can be replayed " +

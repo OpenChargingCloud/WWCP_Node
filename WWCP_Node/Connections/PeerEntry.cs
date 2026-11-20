@@ -21,6 +21,10 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
+using cloud.charging.open.protocols.WWCP.Node.Logins;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.Connections
@@ -221,7 +225,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public String                 Id             { get; }
 
-        public String                 Description    { get; internal set; }
+        public I18NString             Description    { get; internal set; }
 
         public PeerKind               Kind           { get; internal set; }
 
@@ -258,7 +262,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region Constructor(s)
 
         public PeerEntry(String          Id,
-                         String          Description,
+                         I18NString      Description,
                          PeerKind        Kind,
                          PeerRole        Role,
                          OCPPVersion     OCPPVersion,
@@ -372,13 +376,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            var description = JSON.Value<String>("description")?.Trim() ?? "";
-
-            if (description.Length > MaxDescriptionLength)
+            if (!Descriptions.TryCheck(ConnectionEntry.DescriptionOf(JSON), MaxDescriptionLength, out var checkedDescription, out _))
             {
-                Error = $"The description of peer '{id}' is longer than {MaxDescriptionLength} characters.";
+                Error = $"The description of peer '{id}' is longer than {MaxDescriptionLength} characters, in a language it is said in.";
                 return false;
             }
+
+            var description = checkedDescription ?? I18NString.Empty;
 
             if (!TryParseKind(JSON.Value<String>("kind"), out var kind))
             {
@@ -457,7 +461,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             var json = new JObject(
                            new JProperty("id",           Id),
-                           new JProperty("description",  Description),
+                           new JProperty("description",  Description.ToJSON()),
                            new JProperty("kind",         Kind.ToString()),
                            new JProperty("role",         Role.ToString()),
                            new JProperty("ocppVersion",  ConnectionEntry.AsText(OCPPVersion))
@@ -493,7 +497,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             var json = new JObject(
                            new JProperty("id",           Id),
-                           new JProperty("description",  Description),
+                           new JProperty("description",  Description.ToJSON()),
                            new JProperty("kind",         Kind.ToString()),
                            new JProperty("role",         Role.ToString()),
                            new JProperty("ocppVersion",  ConnectionEntry.AsText(OCPPVersion))
@@ -515,7 +519,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         public override String ToString()
 
-            => $"'{Description}' ({Id}): {Kind}, {Role}, {ConnectionEntry.AsText(OCPPVersion)}, {endpointIds.Count} endpoint(s)";
+            => $"'{Description.FirstText()}' ({Id}): {Kind}, {Role}, {ConnectionEntry.AsText(OCPPVersion)}, {endpointIds.Count} endpoint(s)";
 
         #endregion
 

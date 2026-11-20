@@ -23,6 +23,7 @@ using System.Security.Cryptography;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
@@ -82,9 +83,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public const Int32   MaxIdLength        = 48;
 
         /// <summary>
-        /// The longest a note beside a station may be.
+        /// The longest a description of a station may be, in each language.
         /// </summary>
-        public const Int32   MaxNoteLength      = 200;
+        public const Int32   MaxDescriptionLength  = 200;
 
         /// <summary>
         /// The shortest password that may be set by hand. OCPP asks for at
@@ -415,7 +416,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         #endregion
 
 
-        #region TryAddOrUpdateGroup(Id, Name, Enabled, AuthMethods, ClientAuthentication, Note, out Error [, out NotSaved])
+        #region TryAddOrUpdateGroup(Id, Name, Enabled, AuthMethods, ClientAuthentication, Description, out Error [, out NotSaved])
 
         /// <summary>
         /// Make a group, or change what one allows.
@@ -425,10 +426,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                            Boolean                           Enabled,
                                            IEnumerable<AuthMethod>?          AuthMethods,
                                            IEnumerable<WebSocketClientAuthentication>?  ClientAuthentication,
-                                           String?                           Note,
+                                           I18NString?                       Description,
                                            [NotNullWhen(false)] out String?  Error)
 
-            => TryAddOrUpdateGroup(Id, Name, Enabled, AuthMethods, ClientAuthentication, Note, out Error, out _);
+            => TryAddOrUpdateGroup(Id, Name, Enabled, AuthMethods, ClientAuthentication, Description, out Error, out _);
 
         /// <summary>
         /// Make a group, or change what one allows - and say whether a refusal
@@ -440,11 +441,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                            Boolean                           Enabled,
                                            IEnumerable<AuthMethod>?          AuthMethods,
                                            IEnumerable<WebSocketClientAuthentication>?  ClientAuthentication,
-                                           String?                           Note,
+                                           I18NString?                       Description,
                                            [NotNullWhen(false)] out String?  Error,
                                            out Boolean                       NotSaved)
 
-            => TryAddOrUpdateGroup(Id, Name, Enabled, AuthMethods, ClientAuthentication, Note, null, out Error, out NotSaved);
+            => TryAddOrUpdateGroup(Id, Name, Enabled, AuthMethods, ClientAuthentication, Description, null, out Error, out NotSaved);
 
         /// <summary>
         /// Make a group, or change what one allows - and what its members
@@ -457,7 +458,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                            Boolean                           Enabled,
                                            IEnumerable<AuthMethod>?          AuthMethods,
                                            IEnumerable<WebSocketClientAuthentication>?  ClientAuthentication,
-                                           String?                           Note,
+                                           I18NString?                       Description,
                                            IEnumerable<String>?              SSHChannels,
                                            [NotNullWhen(false)] out String?  Error,
                                            out Boolean                       NotSaved)
@@ -478,7 +479,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                           Enabled,
                                           AuthMethods,
                                           ClientAuthentication,
-                                          Note,
+                                          Description,
                                           existing?.AddedAt ?? TimeProvider.GetUtcNow(),
                                           out var group,
                                           out Error))
@@ -683,7 +684,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         #endregion
 
 
-        #region TrySetPassword(Id, Password, GroupId, Note, out Error [, out NotSaved])
+        #region TrySetPassword(Login, Password, GroupId, Description, out Error [, out NotSaved])
 
         /// <summary>
         /// Add a charging station, or give one that is already here a new
@@ -694,50 +695,51 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// but in its hash, and whoever sets it has to know it to type it into
         /// the charging station.
         /// </remarks>
-        /// <param name="Id">What the charging station calls itself in OCPP.</param>
+        /// <param name="Login">What the charging station calls itself in OCPP.</param>
         /// <param name="Password">The password, at least <see cref="MinPasswordLength"/> characters long.</param>
         /// <param name="GroupId">The group it should belong to, or null for the one it is in already.</param>
-        /// <param name="Note">What this station is, for whoever reads the list later.</param>
-        public Boolean TrySetPassword(String                            Id,
-                                      String?                           Password,
-                                      String?                           GroupId,
-                                      String?                           Note,
-                                      [NotNullWhen(false)] out String?  Error)
+        /// <param name="Description">What this station is, for whoever reads the list later - in as many languages as it is said in.</param>
+        public Boolean TrySetPasswordAuthentication(String                            Login,
+                                                    String?                           Password,
+                                                    String?                           GroupId,
+                                                    I18NString?                       Description,
+                                                    [NotNullWhen(false)] out String?  Error)
 
-            => TrySetPassword(
-                   Id,
+            => TrySetPasswordAuthentication(
+                   Login,
                    Password,
                    GroupId,
-                   Note,
+                   Description,
                    out Error,
                    out _
                );
+
 
         /// <summary>
         /// Add a charging station, or give one that is already here a new
         /// password - and say whether a refusal was the file's rather than the
         /// change's.
         /// </summary>
-        /// <param name="Id">What the charging station calls itself in OCPP.</param>
+        /// <param name="Login">What the charging station calls itself in OCPP.</param>
         /// <param name="Password">The password, at least <see cref="MinPasswordLength"/> characters long.</param>
         /// <param name="GroupId">The group it should belong to, or null for the one it is in already.</param>
-        /// <param name="Note">What this station is, for whoever reads the list later.</param>
+        /// <param name="Description">What this station is, for whoever reads the list later - in as many languages as it is said in.</param>
         /// <param name="NotSaved">True where the file could not be written: see <see cref="TryRemove(String, out String?, out Boolean)"/>.</param>
-        public Boolean TrySetPassword(String                            Id,
-                                      String?                           Password,
-                                      String?                           GroupId,
-                                      String?                           Note,
-                                      [NotNullWhen(false)] out String?  Error,
-                                      out Boolean                       NotSaved)
+        public Boolean TrySetPasswordAuthentication(String                            Login,
+                                                    String?                           Password,
+                                                    String?                           GroupId,
+                                                    I18NString?                       Description,
+                                                    [NotNullWhen(false)] out String?  Error,
+                                                    out Boolean                       NotSaved)
         {
 
-            Error      = null;
-            NotSaved   = false;
+            Error     = null;
+            NotSaved  = false;
 
-            if (!TryCheckIdAndNote(Id, Note, out var id, out var note, out Error))
+            if (!TryCheckLoginAndDescription(Login, Description, out var login, out var description, out Error))
                 return false;
 
-            var password = Password?.Trim() ?? "";
+            var password = Password?.Trim() ?? String.Empty;
 
             if (password.Length == 0)
             {
@@ -757,47 +759,57 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 return false;
             }
 
-            return TryChange(id,
-                             note,
-                             GroupId,
-                             login   => login with { Password = SecurePassword.Create(password) },
-                             existed => existed
-                                            ? $"The password of the charging station '{id}' was changed."
-                                            : $"The charging station '{id}' may now sign in to this {NodeNoun}.",
-                             out Error,
-                             out NotSaved);
+            return TryChange(
+                       login,
+                       description,
+                       GroupId,
+                       login   => login with { Password = SecurePassword.Create(password) },
+                       existed => existed
+                                      ? $"The password of the charging station '{login}' was changed."
+                                      : $"The charging station '{login}' may now sign in to this {NodeNoun}.",
+                       out Error,
+                       out NotSaved
+                   );
 
         }
 
         #endregion
 
-        #region TrySetTOTP(Id, SharedSecret, ValidityTime, Length, Alphabet, HashAlgorithm, GroupId, Note, out Generated, out Error [, out NotSaved])
+        #region TrySetTOTPAuthentication(Login, SharedSecret, ValidityTime, Length, Alphabet, HashAlgorithm, GroupId, Description, out Error [, out NotSaved])
 
         /// <summary>
         /// Add a charging station, or give one that is already here what it
         /// needs to be let in with a one-time token.
         /// </summary>
         /// <remarks>
-        /// A shared secret of null means "make one up", and unlike a password
-        /// the made-up one is not the only time it can be read: the secret has
-        /// to stay readable for the controller to compute tokens from, so it
-        /// can be looked at again by whoever may manage certificates. It still
-        /// comes back here once, because that is the moment somebody is
-        /// standing in front of the charging station.
+        /// A shared secret of null means "make one up". Unlike a password it
+        /// stays readable - the controller computes tokens from it - so the
+        /// one made up is read from the login, by <see cref="TryGet"/>,
+        /// whenever it is to be shown.
         /// </remarks>
-        /// <param name="Generated">The shared secret, when it was made up here.</param>
-        public Boolean TrySetTOTP(String                            Id,
-                                  String?                           SharedSecret,
-                                  TimeSpan?                         ValidityTime,
-                                  UInt32?                           Length,
-                                  String?                           Alphabet,
-                                  TOTPHashAlgorithm?                HashAlgorithm,
-                                  String?                           GroupId,
-                                  String?                           Note,
-                                  out String?                       Generated,
-                                  [NotNullWhen(false)] out String?  Error)
+        public Boolean TrySetTOTPAuthentication(String                            Login,
+                                                String?                           SharedSecret,
+                                                TimeSpan?                         ValidityTime,
+                                                UInt32?                           Length,
+                                                String?                           Alphabet,
+                                                TOTPHashAlgorithm?                HashAlgorithm,
+                                                String?                           GroupId,
+                                                I18NString?                       Description,
+                                                [NotNullWhen(false)] out String?  Error)
 
-            => TrySetTOTP(Id, SharedSecret, ValidityTime, Length, Alphabet, HashAlgorithm, GroupId, Note, out Generated, out Error, out _);
+            => TrySetTOTPAuthentication(
+                   Login,
+                   SharedSecret,
+                   ValidityTime,
+                   Length,
+                   Alphabet,
+                   HashAlgorithm,
+                   GroupId,
+                   Description,
+                   out Error,
+                   out _
+               );
+
 
         /// <summary>
         /// Add a charging station, or give one that is already here what it
@@ -805,55 +817,55 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// was the file's rather than the change's.
         /// </summary>
         /// <param name="NotSaved">True where the file could not be written: see <see cref="TryRemove(String, out String?, out Boolean)"/>.</param>
-        public Boolean TrySetTOTP(String                            Id,
-                                  String?                           SharedSecret,
-                                  TimeSpan?                         ValidityTime,
-                                  UInt32?                           Length,
-                                  String?                           Alphabet,
-                                  TOTPHashAlgorithm?                HashAlgorithm,
-                                  String?                           GroupId,
-                                  String?                           Note,
-                                  out String?                       Generated,
-                                  [NotNullWhen(false)] out String?  Error,
-                                  out Boolean                       NotSaved)
+        public Boolean TrySetTOTPAuthentication(String                            Login,
+                                                String?                           SharedSecret,
+                                                TimeSpan?                         ValidityTime,
+                                                UInt32?                           Length,
+                                                String?                           Alphabet,
+                                                TOTPHashAlgorithm?                HashAlgorithm,
+                                                String?                           GroupId,
+                                                I18NString?                       Description,
+                                                [NotNullWhen(false)] out String?  Error,
+                                                out Boolean                       NotSaved)
         {
 
-            Generated  = null;
-            Error      = null;
-            NotSaved   = false;
+            Error     = null;
+            NotSaved  = false;
 
-            if (!TryCheckIdAndNote(Id, Note, out var id, out var note, out Error))
+            if (!TryCheckLoginAndDescription(Login, Description, out var login, out var description, out Error))
                 return false;
 
-            if (!TOTPSettings.TryCreate(SharedSecret,
-                                        ValidityTime,
-                                        Length,
-                                        Alphabet,
-                                        HashAlgorithm,
-                                        out var settings,
-                                        out var generated,
-                                        out Error))
+            if (!TOTPSettings.TryCreate(
+                     SharedSecret,
+                     ValidityTime,
+                     Length,
+                     Alphabet,
+                     HashAlgorithm,
+                     out var settings,
+                     out _,
+                     out Error
+               ))
             {
                 return false;
             }
 
-            if (!TryChange(id,
-                           note,
-                           GroupId,
-                           // A new secret does not undo the binding that was
-                           // asked for: that would be less than configured,
-                           // quietly.
-                           login => login with { TOTP = settings with { TLSChannelBinding = login.TOTP?.TLSChannelBinding ?? false } },
-                           existed => existed
-                                          ? $"The TOTP configuration of the charging station '{id}' was changed: {settings}."
-                                          : $"The charging station '{id}' may now sign in to this {NodeNoun} with a one-time token.",
-                           out Error,
-                           out NotSaved))
+            if (!TryChange(
+                     login,
+                     description,
+                     GroupId,
+                     // A new secret does not undo the binding that was
+                     // asked for: that would be less than configured,
+                     // quietly.
+                     login => login with { TOTP = settings with { TLSChannelBinding = login.TOTP?.TLSChannelBinding ?? false } },
+                     existed => existed
+                                    ? $"The TOTP configuration of the charging station '{login}' was changed: {settings}."
+                                    : $"The charging station '{login}' may now sign in to this {NodeNoun} with a one-time token.",
+                     out Error,
+                     out NotSaved
+               ))
             {
                 return false;
             }
-
-            Generated = generated;
 
             return true;
 
@@ -953,7 +965,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
-        #region TryAddSSHKey(Id, Line, Label, GroupId, Note, CreatedBy, out Key, out Error [, out NotSaved])
+        #region TryAddSSHKey(Id, Line, Label, GroupId, Description, CreatedBy, out Key, out Error [, out NotSaved])
 
         /// <summary>
         /// Add a charging station, or give one that is already here an SSH key
@@ -963,19 +975,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// <param name="Line">Its public key, as one line of an authorized_keys file: "ssh-ed25519 AAAA... comment", options such as from= in front where wanted.</param>
         /// <param name="Label">What the key is called, if anything.</param>
         /// <param name="GroupId">The group it should belong to, or null for the one it is in already.</param>
-        /// <param name="Note">What this station is, for whoever reads the list later.</param>
+        /// <param name="Description">What this station is, for whoever reads the list later - in as many languages as it is said in.</param>
         /// <param name="CreatedBy">Who added the key, if anybody said.</param>
         /// <param name="Key">The key, as it was added.</param>
         public Boolean TryAddSSHKey(String                                Id,
                                     String?                               Line,
                                     String?                               Label,
                                     String?                               GroupId,
-                                    String?                               Note,
+                                    I18NString?                           Description,
                                     String?                               CreatedBy,
                                     [NotNullWhen(true)]  out UserSSHKey?  Key,
                                     [NotNullWhen(false)] out String?      Error)
 
-            => TryAddSSHKey(Id, Line, Label, GroupId, Note, CreatedBy, out Key, out Error, out _);
+            => TryAddSSHKey(Id, Line, Label, GroupId, Description, CreatedBy, out Key, out Error, out _);
 
         /// <summary>
         /// Add a charging station, or give one that is already here an SSH key
@@ -996,7 +1008,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                     String?                               Line,
                                     String?                               Label,
                                     String?                               GroupId,
-                                    String?                               Note,
+                                    I18NString?                           Description,
                                     String?                               CreatedBy,
                                     [NotNullWhen(true)]  out UserSSHKey?  Key,
                                     [NotNullWhen(false)] out String?      Error,
@@ -1006,7 +1018,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             Key       = null;
             NotSaved  = false;
 
-            if (!TryCheckIdAndNote(Id, Note, out var id, out var note, out Error))
+            if (!TryCheckLoginAndDescription(Id, Description, out var id, out var description, out Error))
                 return false;
 
             if (Line is null || Line.Trim().Length == 0)
@@ -1074,7 +1086,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                               null
                                           )) with {
                                  GroupId  = groupId,
-                                 Note     = note.Length > 0 ? note : existing?.Note,
+                                 Description  = description ?? existing?.Description,
                                  SSHKeys  = [ .. existing?.Keys ?? [], key ]
                              };
 
@@ -1182,7 +1194,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
-        #region TryAddKeyPin(Id, Pin, Label, GroupId, Note, AddedBy, out KeyPin, out Error [, out NotSaved])
+        #region TryAddKeyPin(Id, Pin, Label, GroupId, Description, AddedBy, out KeyPin, out Error [, out NotSaved])
 
         /// <summary>
         /// Add a charging station, or give one that is already here the key pin
@@ -1192,19 +1204,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// <param name="Pin">The key pin: 64 hexadecimal digits, with or without colons, or "sha256//" and base64.</param>
         /// <param name="Label">What the key is called, if anything.</param>
         /// <param name="GroupId">The group it should belong to, or null for the one it is in already.</param>
-        /// <param name="Note">What this station is, for whoever reads the list later.</param>
+        /// <param name="Description">What this station is, for whoever reads the list later - in as many languages as it is said in.</param>
         /// <param name="AddedBy">Who listed the pin, if anybody said.</param>
         /// <param name="KeyPin">The key pin, as it was listed.</param>
         public Boolean TryAddKeyPin(String                                   Id,
                                     String?                                  Pin,
                                     String?                                  Label,
                                     String?                                  GroupId,
-                                    String?                                  Note,
+                                    I18NString?                              Description,
                                     String?                                  AddedBy,
                                     [NotNullWhen(true)]  out LoginKeyPin?  KeyPin,
                                     [NotNullWhen(false)] out String?         Error)
 
-            => TryAddKeyPin(Id, Pin, Label, GroupId, Note, AddedBy, out KeyPin, out Error, out _);
+            => TryAddKeyPin(Id, Pin, Label, GroupId, Description, AddedBy, out KeyPin, out Error, out _);
 
         /// <summary>
         /// Add a charging station, or give one that is already here a key pin -
@@ -1222,7 +1234,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                     String?                                  Pin,
                                     String?                                  Label,
                                     String?                                  GroupId,
-                                    String?                                  Note,
+                                    I18NString?                              Description,
                                     String?                                  AddedBy,
                                     [NotNullWhen(true)]  out LoginKeyPin?  KeyPin,
                                     [NotNullWhen(false)] out String?         Error,
@@ -1232,7 +1244,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             KeyPin    = null;
             NotSaved  = false;
 
-            if (!TryCheckIdAndNote(Id, Note, out var id, out var note, out Error))
+            if (!TryCheckLoginAndDescription(Id, Description, out var id, out var description, out Error))
                 return false;
 
             if (!LoginKeyPin.TryCreate(Pin, Label, TimeProvider.GetUtcNow(), AddedBy, out var keyPin, out Error))
@@ -1284,7 +1296,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                               null
                                           )) with {
                                  GroupId  = groupId,
-                                 Note     = note.Length > 0 ? note : existing?.Note,
+                                 Description  = description ?? existing?.Description,
                                  KeyPins  = [ .. existing?.Pins ?? [], keyPin ]
                              };
 
@@ -1984,39 +1996,36 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         #endregion
 
 
-        #region (private) TryCheckIdAndNote(...) / TryChange(...) / TryClear(...)
+        #region (private) TryCheckLoginAndDescription(...) / TryChange(...) / TryClear(...)
 
         /// <summary>
         /// What every way of adding a charging station has to check first.
         /// </summary>
-        private static Boolean TryCheckIdAndNote(String?                           Id,
-                                                 String?                           Note,
-                                                 out String                        CheckedId,
-                                                 out String                        CheckedNote,
-                                                 [NotNullWhen(false)] out String?  Error)
+        private static Boolean TryCheckLoginAndDescription(String?                           Login,
+                                                           I18NString?                       Description,
+                                                           out String                        CheckedLogin,
+                                                           out I18NString?                   CheckedDescription,
+                                                           [NotNullWhen(false)] out String?  Error)
         {
 
-            CheckedId    = Id?.Trim()   ?? "";
-            CheckedNote  = Note?.Trim() ?? "";
-            Error        = null;
+            CheckedLogin        = Login?.Trim() ?? "";
+            CheckedDescription  = null;
+            Error               = null;
 
-            if (CheckedId.Length == 0)
+            if (CheckedLogin.Length == 0)
             {
-                Error = "A charging station needs the identification it signs in with.";
+                Error = "A charging station needs a login it signs in with.";
                 return false;
             }
 
-            if (CheckedId.Length > MaxIdLength)
+            if (CheckedLogin.Length > MaxIdLength)
             {
-                Error = $"A charging station identification may be at most {MaxIdLength} characters long.";
+                Error = $"A charging station login may be at most {MaxIdLength} characters long.";
                 return false;
             }
 
-            if (CheckedNote.Length > MaxNoteLength)
-            {
-                Error = $"The note may be at most {MaxNoteLength} characters long.";
+            if (!Descriptions.TryCheck(Description, MaxDescriptionLength, out CheckedDescription, out Error))
                 return false;
-            }
 
             return true;
 
@@ -2026,13 +2035,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// Add a charging station or change one, write the file, and put
         /// everything back where it was when the file could not be written.
         /// </summary>
-        private Boolean TryChange(String                                              Id,
-                                  String                                              Note,
-                                  String?                                             GroupId,
-                                  Func<WebSocketLogin, WebSocketLogin>    Change,
-                                  Func<Boolean, String>                               Notice,
-                                  [NotNullWhen(false)] out String?                    Error,
-                                  out Boolean                                         NotSaved)
+        private Boolean TryChange(String                                Login,
+                                  I18NString?                           Description,
+                                  String?                               GroupId,
+                                  Func<WebSocketLogin, WebSocketLogin>  Change,
+                                  Func<Boolean, String>                 Notice,
+                                  [NotNullWhen(false)] out String?      Error,
+                                  out Boolean                           NotSaved)
         {
 
             Error     = null;
@@ -2041,13 +2050,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             lock (updateLock)
             {
 
-                if (!logins.ContainsKey(Id) && logins.Count >= MaxStations)
+                if (!logins.ContainsKey(Login) && logins.Count >= MaxStations)
                 {
                     Error = $"At most {MaxStations} charging stations may be listed here.";
                     return false;
                 }
 
-                var existing  = logins.GetValueOrDefault(Id);
+                var existing  = logins.GetValueOrDefault(Login);
 
                 var groupId   = GroupId?.Trim().ToLowerInvariant() is { Length: > 0 } wanted
                                     ? wanted
@@ -2059,21 +2068,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     return false;
                 }
 
-                logins[Id] = Change(
-                                 existing
-                                     ?? new WebSocketLogin(
-                                            Id,
-                                            groupId,
-                                            null,
-                                            null,
-                                            true,
-                                            TimeProvider.GetUtcNow(),
-                                            null
-                                        )
-                             ) with {
-                                 GroupId  = groupId,
-                                 Note     = Note.Length > 0 ? Note : existing?.Note
-                             };
+                logins[Login] = Change(
+                                    existing ?? new WebSocketLogin(
+                                                    Login,
+                                                    groupId,
+                                                    null,
+                                                    null,
+                                                    true,
+                                                    TimeProvider.GetUtcNow(),
+                                                    null
+                                                )
+                                ) with {
+                                    GroupId  = groupId,
+                                    Description  = Description ?? existing?.Description
+                                };
 
                 if (!TrySave(out Error))
                 {
@@ -2081,9 +2089,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     NotSaved = true;
 
                     if (existing is not null)
-                        logins[Id] = existing;
+                        logins[Login] = existing;
                     else
-                        logins.Remove(Id);
+                        logins.Remove(Login);
 
                     return false;
 
@@ -2102,13 +2110,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// <summary>
         /// Take one credential away from a charging station.
         /// </summary>
-        private Boolean TryClear(String                                            Id,
-                                 Func<WebSocketLogin, Boolean>               Has,
+        private Boolean TryClear(String                                Id,
+                                 Func<WebSocketLogin, Boolean>         Has,
                                  Func<WebSocketLogin, WebSocketLogin>  Change,
-                                 String                                            Notice,
-                                 String                                            NothingThere,
-                                 [NotNullWhen(false)] out String?                  Error,
-                                 out Boolean                                       NotSaved)
+                                 String                                Notice,
+                                 String                                NothingThere,
+                                 [NotNullWhen(false)] out String?      Error,
+                                 out Boolean                           NotSaved)
         {
 
             Error     = null;
@@ -2138,7 +2146,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice, Notice);
+                OnNotice?.Invoke(
+                    LogLevel.Notice,
+                    Notice
+                );
 
             }
 
