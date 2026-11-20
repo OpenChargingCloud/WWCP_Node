@@ -52,12 +52,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Roles">Roles beside the ones the node and its kind bring, and what one they brought may do instead.</param>
     /// <param name="SSH">Whether and where the node's command line is served over SSH.</param>
     /// <param name="Web">Which reverse proxies in front of the node are believed when they name the client.</param>
+    /// <param name="SignIns">How the node treats those who sign in wrong, at every door it has.</param>
     public sealed record WWCPConfiguration(DNSConfiguration?           DNS            = null,
                                            NTSSection?                 NTS            = null,
                                            CertificatesConfiguration?  Certificates   = null,
                                            RolesConfiguration?         Roles          = null,
                                            SSHConfiguration?           SSH            = null,
-                                           WebConfiguration?           Web            = null)
+                                           WebConfiguration?           Web            = null,
+                                           SignInsConfiguration?       SignIns        = null)
     {
 
         #region Properties
@@ -72,7 +74,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                Certificates is null &&
                Roles        is null &&
                SSH          is null &&
-               Web          is null;
+               Web          is null &&
+               SignIns      is null;
 
         #endregion
 
@@ -222,13 +225,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             #endregion
 
+            #region SignIns
+
+            SignInsConfiguration? signIns = null;
+
+            if (JSON[SignInsConfiguration.SectionName] is JToken signInsToken && signInsToken.Type != JTokenType.Null)
+            {
+
+                if (signInsToken is not JObject signInsJSON)
+                {
+                    Error = $"'{SignInsConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!SignInsConfiguration.TryParse(signInsJSON, out signIns, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
             Configuration = new WWCPConfiguration(
                                 dns,
                                 nts,
                                 certificates,
                                 roles,
                                 ssh,
-                                web
+                                web,
+                                signIns
                             );
 
             return true;
@@ -265,6 +289,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Web is not null)
                 json.Add(WebConfiguration.         SectionName,  Web.         ToJSON());
 
+            if (SignIns is not null)
+                json.Add(SignInsConfiguration.     SectionName,  SignIns.     ToJSON());
+
             return json;
 
         }
@@ -284,7 +311,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                              Certificates?.ToString(),
                              Roles?.ToString(),
                              SSH?.ToString(),
-                             Web?.ToString()
+                             Web?.ToString(),
+                             SignIns?.ToString()
                          }.Where(section => section is not null));
 
         #endregion

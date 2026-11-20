@@ -280,6 +280,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public TimeProvider           TimeProvider                 { get; }
 
         /// <summary>
+        /// How often one address may sign in wrong within a minute, at every
+        /// door of this node - the station port as its SSH server - before it
+        /// is told to wait: as the section "signIns" of the file says, and
+        /// <see cref="SignInBrake.DefaultMaxFailedPerMinute"/> otherwise.
+        /// </summary>
+        public SignInBrake            SignInBrake                  { get; }
+
+        /// <summary>
         /// When this node was made.
         /// </summary>
         public DateTimeOffset         CreatedAt                    { get; }
@@ -989,6 +997,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // --import-certificate tlsServerIdentity=<file>.
             this.WebSwitches  = Web;
             this.WebSettings  = WebSettingsOf(Web, configuration.Web);
+
+            this.SignInBrake  = new SignInBrake(this.TimeProvider) {
+                                    MaxFailedPerMinute = configuration.SignIns?.MaxFailedPerMinute ?? SignInBrake.DefaultMaxFailedPerMinute
+                                };
 
             var storeKinds    = CertificateKinds;
 

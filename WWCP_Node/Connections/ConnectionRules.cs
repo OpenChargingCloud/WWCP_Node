@@ -27,23 +27,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 {
 
     /// <summary>
-    /// What a kind of node writes down as a connection, and what not: said
-    /// once by the node, and held against every connection that is written
-    /// or changed.
+    /// What a node writes down as a connection, and what not: held against
+    /// every connection that is written or changed.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A charging station and a local controller dial their back end, and
-    /// say nothing here: what they are told nothing of is as it always was.
+    /// One rule for every kind of node: a connection may lead to any kind of
+    /// node, over ws://, wss:// and ssh://, in OCPP 1.6 and 2.1, dialled by
+    /// this node or by the other end. A connection that names the node at its
+    /// other end is spoken to by that name - a node below, say, which this node
+    /// dials; one that names none leads to a back end, spoken to as that. A
+    /// charging station this node dials is reached by its name alone, and has
+    /// to be named.
     /// </para>
     /// <para>
-    /// A node that dials downwards - a CSMS dialling a charging station, a
-    /// local controller or a gateway that cannot dial it - says what is
-    /// different for it:
-    /// what is at the other end of its connections, that each of them names
-    /// the node it leads to, and what it does not have - no OCPP server of
-    /// its own for what dials back, since what dials it are its charging
-    /// stations, no ssh:// that anything would take, no OCPP 1.6.
+    /// What may be at the other end, and over what, can still be narrowed for
+    /// a node - but no kind of node narrows it by itself.
     /// </para>
     /// <para>
     /// Held against what is written, not against what is read: a file of
@@ -81,10 +80,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region Properties
 
         /// <summary>
+        /// Every kind of node a connection may lead to.
+        /// </summary>
+        public static readonly IReadOnlyList<ConnectionType> Every = [
+            ConnectionType.CSMS,
+            ConnectionType.CSMSBackup,
+            ConnectionType.LocalController,
+            ConnectionType.Gateway,
+            ConnectionType.ChargingStation
+        ];
+
+        /// <summary>
         /// What may be at the other end of a connection: the first of them
         /// is what a connection that says nothing is.
         /// </summary>
-        public IReadOnlyList<ConnectionType>  Types                  { get; init; } = BackEnds;
+        public IReadOnlyList<ConnectionType>  Types                  { get; init; } = Every;
 
         /// <summary>
         /// Whether a connection may be one the other end makes.
@@ -102,10 +112,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public Boolean                        OCPP1_6                { get; init; } = true;
 
         /// <summary>
-        /// Whether a connection this node dials names the node at its other
-        /// end, and has to: a node that dials downwards routes by it.
+        /// Whether a connection may name the node at its other end, which it
+        /// is spoken to by then.
         /// </summary>
-        public Boolean                        NamesTheNodeItLeadsTo  { get; init; }
+        public Boolean                        NamesTheNodeItLeadsTo  { get; init; } = true;
 
         /// <summary>
         /// The kind of connection one that says nothing is.
@@ -163,9 +173,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            if (NamesTheNodeItLeadsTo && !Inbound && RemoteNodeId is null)
+            // A charging station is nobody's back end: it is reached by its name.
+            if (Type == ConnectionType.ChargingStation && !Inbound && RemoteNodeId is null)
             {
-                Error = "Say which node is at the other end - the name it is spoken to by, as a charging station that dials is known by the " +
+                Error = "Say which charging station is at the other end - the name it is spoken to by, as a charging station that dials is known by the " +
                         "name its URL ends with. Nothing in the URL of this connection says it: that ends with the name this " +
                         $"{NodeNoun ?? NodeWording.Noun} comes under.";
                 return false;
