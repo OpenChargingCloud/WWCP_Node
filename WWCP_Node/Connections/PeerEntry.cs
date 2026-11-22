@@ -341,8 +341,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             => Type switch {
                    ConnectionType.LocalController  => PeerKind.LocalController,
-                   ConnectionType.EMSP or
-                   ConnectionType.CPO              => PeerKind.Service,
+                   ConnectionType.EMSP        or
+                   ConnectionType.CPO         or
+                   ConnectionType.EnergyMeter or
+                   ConnectionType.MeterReader      => PeerKind.Service,
                    _                               => PeerKind.CSMS
                };
 

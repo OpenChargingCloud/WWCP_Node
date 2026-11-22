@@ -53,6 +53,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
+        #region (static) Modbus
+
+        /// <summary>
+        /// Modbus, which has no version: the frames of Modbus/TCP.
+        /// </summary>
+        public static ProtocolVersion Modbus { get; } = new (ConnectionUse.Modbus, "");
+
+        #endregion
+
         #region (implicit) ProtocolVersion(OCPPVersion)
 
         /// <summary>
@@ -77,9 +86,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public override String ToString()
 
-            => Use == ConnectionUse.OCPI
-                   ? $"OCPI {Version}"
-                   : $"OCPP{Version}";
+            => Use switch {
+                   ConnectionUse.OCPI    => $"OCPI {Version}",
+                   ConnectionUse.Modbus  => "Modbus",
+                   _                     => $"OCPP{Version}"
+               };
 
         #endregion
 

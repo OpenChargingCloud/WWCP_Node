@@ -3377,9 +3377,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                                   OCPPVersion     OCPPVersion,
                                                   String?         OCPIVersion)
 
-            => ConnectionEntry.UseOf(Type) == ConnectionUse.OCPI
-                   ? ProtocolVersion.OCPI(OCPIVersion ?? "")
-                   : OCPPVersion;
+            => ConnectionEntry.UseOf(Type) switch {
+                   ConnectionUse.OCPI    => ProtocolVersion.OCPI(OCPIVersion ?? ""),
+                   ConnectionUse.Modbus  => ProtocolVersion.Modbus,
+                   _                     => OCPPVersion
+               };
 
         /// <summary>
         /// When the oldest of the endpoints of the given peer that connect by

@@ -98,7 +98,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// of a roaming agreement: what connects to an EMSP. Spoken to in OCPI,
         /// not in OCPP - see <see cref="ConnectionUse.OCPI"/>.
         /// </summary>
-        CPO
+        CPO,
+
+        /// <summary>
+        /// An energy meter: what a charging station or a local controller
+        /// connects to, to read it and to command it. Spoken to in Modbus, not in
+        /// OCPP - see <see cref="ConnectionUse.Modbus"/>.
+        /// </summary>
+        EnergyMeter,
+
+        /// <summary>
+        /// What reads an energy meter - a charging station, a local controller -
+        /// as the meter has it at the other end: what connects to a meter. Spoken
+        /// to in Modbus, not in OCPP - see <see cref="ConnectionUse.Modbus"/>.
+        /// </summary>
+        MeterReader
 
     }
 
@@ -161,7 +175,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// OCPI, in the version of <see cref="ConnectionEntry.OCPIVersion"/>.
         /// </summary>
-        OCPI
+        OCPI,
+
+        /// <summary>
+        /// Modbus: the frames of Modbus/TCP over a WebSocket of the subprotocol
+        /// "modbus" or over the SSH subsystem "modbus@open.charging.cloud" -
+        /// see <c>Modbus.ModbusWireNames</c>. It has no version.
+        /// </summary>
+        Modbus
 
     }
 
@@ -383,7 +404,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// Which protocol the connection carries, as what is at the other end
-        /// says: OCPI to an EMSP or a CPO, OCPP to everything else.
+        /// says: OCPI to an EMSP or a CPO, Modbus to an energy meter and to what
+        /// reads one, OCPP to everything else.
         /// </summary>
         public ConnectionUse   Use
             => UseOf(ConnectionType);
@@ -406,9 +428,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public ProtocolVersion Protocol
 
-            => Use == ConnectionUse.OCPI
-                   ? ProtocolVersion.OCPI(OCPIVersion ?? "")
-                   : OCPPVersion;
+            => Use switch {
+                   ConnectionUse.OCPI    => ProtocolVersion.OCPI(OCPIVersion ?? ""),
+                   ConnectionUse.Modbus  => ProtocolVersion.Modbus,
+                   _                     => OCPPVersion
+               };
 
         /// <summary>
         /// Whether this station connects here by itself - at start, and again
@@ -872,14 +896,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// Which protocol a connection to what is at the given end carries:
-        /// OCPI to an EMSP or a CPO, OCPP to everything else.
+        /// OCPI to an EMSP or a CPO, Modbus to an energy meter and to what reads
+        /// one, OCPP to everything else.
         /// </summary>
         public static ConnectionUse UseOf(ConnectionType Type)
 
-            => Type is ConnectionType.EMSP
-                    or ConnectionType.CPO
-                   ? ConnectionUse.OCPI
-                   : ConnectionUse.OCPP;
+            => Type switch {
+                   ConnectionType.EMSP        or ConnectionType.CPO          => ConnectionUse.OCPI,
+                   ConnectionType.EnergyMeter or ConnectionType.MeterReader  => ConnectionUse.Modbus,
+                   _                                                         => ConnectionUse.OCPP
+               };
 
         #endregion
 
@@ -932,12 +958,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             Version  = null;
             Error    = null;
 
-            if (UseOf(Type) == ConnectionUse.OCPP)
+            if (UseOf(Type) != ConnectionUse.OCPI)
             {
 
                 if (!String.IsNullOrWhiteSpace(Text))
                 {
-                    Error = $"A connection to a {Type} carries OCPP, and no OCPI version: leave '{OCPIVersionKey}' out.";
+                    Error = $"A connection to a {Type} carries {UseOf(Type)}, and no OCPI version: leave '{OCPIVersionKey}' out.";
                     return false;
                 }
 
@@ -1000,6 +1026,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 case "cpo":
                     Type = ConnectionType.CPO;
+                    return true;
+
+                case "energymeter":
+                    Type = ConnectionType.EnergyMeter;
+                    return true;
+
+                case "meterreader":
+                    Type = ConnectionType.MeterReader;
                     return true;
 
                 default:

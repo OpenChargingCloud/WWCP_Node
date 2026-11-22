@@ -87,14 +87,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region Properties
 
         /// <summary>
-        /// Every kind of node a connection may lead to.
+        /// Every kind of node a connection may lead to - an energy meter among
+        /// them, which a node connects to and which never connects to it.
         /// </summary>
         public static readonly IReadOnlyList<ConnectionType> Every = [
             ConnectionType.CSMS,
             ConnectionType.CSMSBackup,
             ConnectionType.LocalController,
             ConnectionType.Gateway,
-            ConnectionType.ChargingStation
+            ConnectionType.ChargingStation,
+            ConnectionType.EnergyMeter
         ];
 
         /// <summary>
@@ -186,11 +188,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            // Nothing is routed beyond a connection of OCPI: an EMSP, a CPO is
-            // the end of it.
-            if (ConnectionEntry.UseOf(Type) == ConnectionUse.OCPI && RemoteNodeId is not null)
+            // Nothing is routed beyond a connection of OCPI or of Modbus: an EMSP,
+            // a CPO, an energy meter is the end of it.
+            if (ConnectionEntry.UseOf(Type) != ConnectionUse.OCPP && RemoteNodeId is not null)
             {
-                Error = $"A connection to what is at the other end, '{Type}', carries OCPI, and names no node there: nothing is reached through it.";
+                Error = $"A connection to what is at the other end, '{Type}', carries {ConnectionEntry.UseOf(Type)}, and names no node there: nothing is reached through it.";
+                return false;
+            }
+
+            // A meter is connected to, and connects to nothing: what reads it is
+            // what makes the connection.
+            if (Type == ConnectionType.EnergyMeter && Inbound)
+            {
+                Error = $"An energy meter connects to nothing: a connection to one is one this {NodeNoun ?? NodeWording.Noun} makes.";
+                return false;
+            }
+
+            if (Type == ConnectionType.MeterReader && !Inbound)
+            {
+                Error = $"What reads an energy meter connects to it: a connection of a {ConnectionType.MeterReader} is one the other end makes.";
                 return false;
             }
 

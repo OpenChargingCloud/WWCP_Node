@@ -477,6 +477,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return;
                 }
 
+                // A meter: read over Modbus, over a WebSocket or over SSH, and
+                // nothing of OCPP is asked of it.
+                if (Connection.Use == ConnectionUse.Modbus)
+                {
+                    await ConnectOverModbus(Connection, where, CancellationToken);
+                    return;
+                }
+
                 // Not connected on purpose, for something the kind of node
                 // knows of it: said as that, and not as an end that could not
                 // be reached - nothing was tried.
@@ -3337,6 +3345,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             foreach (var sshClient in ConnectingNodes.SelectMany(node => node.WWCPSshClients).ToArray())
                 await LetGo(sshClient, $"This {NodeNoun} hangs up.");
+
+            await HangUpOnTheMeters();
 
             lock (connectionStates)
                 connectionStates.Clear();
