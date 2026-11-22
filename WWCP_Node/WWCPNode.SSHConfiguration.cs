@@ -139,7 +139,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                            SSHSessions.Select(session => new JObject(
                                                                new JProperty("id",         session.Id),
                                                                new JProperty("kind",       session.Kind),
-                                                               new JProperty("account",    session.Account),
+                                                               new JProperty("account",    session.Account.ToString()),
                                                                new JProperty("principal",  session.Principal),
                                                                new JProperty("subsystem",  session.SubsystemName),
                                                                new JProperty("label",      session.Label),

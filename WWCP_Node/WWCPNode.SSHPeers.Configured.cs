@@ -21,6 +21,7 @@ using System.Collections.Concurrent;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
@@ -77,7 +78,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// The SSH peers the configuration file names, as it names them and in
         /// its order - also one that is not used, because its host is a peer
-        /// by a connection the node dials already.
+        /// by a connection the node makes already.
         /// </summary>
         public IReadOnlyList<SSHPeerConfiguration> ConfiguredSSHPeers
             => sshFile?.Peers ?? [];
@@ -93,8 +94,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The user name this node signs in under at an SSH peer whose entry
         /// names none.
         /// </summary>
-        protected virtual String DefaultSSHPeerUser
-            => Dialling.DefaultSSHPeerUser ?? Kind.Tag;
+        protected virtual User_Id DefaultSSHPeerUser
+            => Connecting.DefaultSSHPeerUser ?? User_Id.Parse(Kind.Tag);
 
         /// <summary>
         /// The key this node signs in with at its SSH peers: its own, read from
@@ -107,9 +108,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             get
             {
 
-                // A node that dials signs in at its peers with the key of its
-                // connections, as a peer it dialled over ssh:// shares it.
-                if (Dialling.SignsInAtSSHPeersWithItsKey)
+                // A node that connects signs in at its peers with the key of its
+                // connections, as a peer it connected to over ssh:// shares it.
+                if (Connecting.SignsInAtSSHPeersWithItsKey)
                 {
                     try
                     {
@@ -183,7 +184,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public virtual String? SSHPeerClientPublicKey
 
-            => Dialling.SignsInAtSSHPeersWithItsKey
+            => Connecting.SignsInAtSSHPeersWithItsKey
                    ? SSHPeerClientKey is not null
                          ? SshKey.PublicKeyLine
                          : null
@@ -223,7 +224,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Make the SSH peers of the node what the configuration says: one that
-        /// is new becomes a peer, with a connection that is dialled when
+        /// is new becomes a peer, with a connection that is made when
         /// something first needs it; one that changed or is named no more is a
         /// peer no longer, and its connection is closed - for everything that
         /// shared it, which has the next one made by what the entry says now.
@@ -264,11 +265,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         continue;
 
                     // Somebody else's peer already: a charging station's, for an
-                    // "ssh://" connection of OCPP it dials there.
+                    // "ssh://" connection of OCPP it makes there.
                     if (SSHPeerTo(entry.Address) is not null)
                     {
                         Log.Warning($"The SSH peer '{entry.Id}' of the configuration is not used: {entry.Address.Trimmed} is an SSH peer of this {Kind.Name} already, " +
-                                    "by a connection it dials there.",
+                                    "by a connection it makes there.",
                                     Kind.Tag, "ssh", "peers");
                         continue;
                     }
@@ -340,17 +341,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// An SSH connection to the given configured peer: its host key judged,
         /// and this node signed in with its key.
         /// </summary>
-        private async ValueTask<SshClient> ConnectToSSHPeer(SSHPeerConfiguration  Entry,
+        private async ValueTask<SSHClient> ConnectToSSHPeer(SSHPeerConfiguration  Entry,
                                                             CancellationToken     CancellationToken)
         {
 
             var key = SSHPeerClientKey
                           ?? throw new InvalidOperationException(sshPeerClientKeyProblem ?? $"This {Kind.Name} has no key to sign in with at its SSH peers.");
 
-            return await SshClient.ConnectAsync(
+            return await SSHClient.Connect(
                              Entry.Address.Trimmed,
                              Entry.Port,
-                             new SshClientOptions {
+                             new SSHClientOptions {
                                  Username          = Entry.User ?? DefaultSSHPeerUser,
                                  DNSClient         = dnsClient,
                                  Credentials       = [ key ],
@@ -424,7 +425,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                var json = configured.Entry.ToJSON();
 
                                json["connected"]         = configured.Peer.Connection.Current is not null;
-                               json["port"]              = configured.Entry.Port;
+                               json["port"]              = configured.Entry.Port.ToUInt16();
                                json["hostKeyJudgement"]  = SSHPeerHostKeyJudgementOf(configured.Entry.Id)?.ToJSON();
 
                                return json;

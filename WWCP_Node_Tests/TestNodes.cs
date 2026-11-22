@@ -76,7 +76,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 File.WriteAllText(configFile, Configuration.ToString());
 
             return new WWCPNode(
-                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                       HTTPPort:          TestPorts.Free(),
                        AccountsPath:      Path.Combine(Directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configFile),
                        CertificatesPath:  Path.Combine(Directory, "certificates"),

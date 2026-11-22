@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
@@ -81,8 +82,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
 
                 Assert.That(full.IsOverSSH,             Is.True);
-                Assert.That(full.SSH!.PortOrDefault,    Is.EqualTo(2222));
-                Assert.That(full.SSH.UserOrDefault,     Is.EqualTo("station"));
+                Assert.That(full.SSH!.PortOrDefault,    Is.EqualTo(IPPort.Parse(2222)));
+                Assert.That(full.SSH.UserOrDefault,     Is.EqualTo(User_Id.Parse("station")));
                 Assert.That(full.SSH.Pins,              Is.EqualTo(new[] { pinA }), "the same pin twice, or with its padding");
                 Assert.That(full.SSH.CAs,               Is.EqualTo(new[] { pinB }));
                 Assert.That(full.SSH.OnMismatch,        Is.EqualTo(PinMismatch.Record));
@@ -90,7 +91,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(JToken.DeepEquals(full.ToJSON(), JToken.Parse($$"""{ "hostname": "time.lan.", "ntpPort": 1123, "ssh": { "port": 2222, "user": "station", "hostKeyPins": [ "{{pinA}}" ], "hostCAs": [ "{{pinB}}" ], "onMismatch": "record" } }""")),
                             Is.True, full.ToJSON().ToString());
 
-                Assert.That(bare.SSH!.UserOrDefault,    Is.EqualTo(NTSServerSSH.DefaultUser));
+                Assert.That(bare.SSH!.UserOrDefault,    Is.EqualTo(User_Id.Parse(NTSServerSSH.DefaultUser)));
                 Assert.That(bare.SSH.PortOrDefault,     Is.EqualTo(NTSServerSSH.DefaultPort));
                 Assert.That(JToken.DeepEquals(bare.ToJSON(), JToken.Parse("""{ "hostname": "time.lan.", "ssh": { } }""")), Is.True, bare.ToJSON().ToString());
 
@@ -514,9 +515,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var serversKey = server!.SSHHostKeys[0].PublicKeyBlob;
 
             await using var connection = new SshSharedConnection("127.0.0.1",
-                                                                 sshPort.ToUInt16(),
-                                                                 new SshClientOptions {
-                                                                     Username       = "ntske",
+                                                                 sshPort,
+                                                                 new SSHClientOptions {
+                                                                     Username       = User_Id.Parse("ntske"),
                                                                      Credentials    = [ nodeKey ],
                                                                      VerifyHostKey  = blob => blob.AsSpan().SequenceEqual(serversKey)
                                                                  });
@@ -525,7 +526,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var askedFor = new List<String>();
             var peer     = new SSHPeer(timeServer,
-                                       sshPort.ToUInt16(),
+                                       sshPort,
                                        connection,
                                        WhyNot: subsystem => { askedFor.Add(subsystem); return null; });
 
@@ -573,7 +574,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// Where the server's host is no SSH peer of the node - or its
         /// connection may not carry the key exchange now - there is no key
         /// exchange, and no other way is tried: not a connection of the node's
-        /// own, not TLS. A peer that says no is not even dialled.
+        /// own, not TLS. A peer that says no is not even connected to.
         /// </summary>
         [Test]
         public async Task WithoutAnSSHPeerThereIsNoKeyExchange()
@@ -585,11 +586,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var tested  = await node.TestTimeServerAsync(timeServer.Trimmed);
             var said    = String.Join(" | ", ((JArray) tested["steps"]!).Select(step => step["text"]!.Value<String>()));
 
-            var dials   = 0;
+            var connects = 0;
 
-            await using var connection = new SshSharedConnection(ct => { dials++; return ValueTask.FromException<SshClient>(new InvalidOperationException("dialled")); });
+            await using var connection = new SshSharedConnection(ct => { connects++; return ValueTask.FromException<SSHClient>(new InvalidOperationException("connected")); });
 
-            var peer    = new SSHPeer(timeServer, sshPort.ToUInt16(), connection, WhyNot: subsystem => "its host key is on probation.");
+            var peer    = new SSHPeer(timeServer, sshPort, connection, WhyNot: subsystem => "its host key is on probation.");
 
             node.AddSSHPeer(peer);
 
@@ -608,7 +609,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(said,                                       Does.Not.Contain("over TLS"));
                 Assert.That(again.Value<Boolean>("ok"),                 Is.False);
                 Assert.That(saidNow,                                    Does.Contain("its host key is on probation."));
-                Assert.That(dials,                                      Is.Zero,  "a peer that may not carry the key exchange was dialled for it");
+                Assert.That(connects,                                   Is.Zero,  "a peer that may not carry the key exchange was connected to for it");
                 Assert.That(removed,                                    Is.True);
                 Assert.That(node.SSHPeerTo(timeServer),                 Is.Null);
             });
@@ -646,7 +647,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(node.ConfiguredSSHPeers.Select(configured => configured.Id), Is.EqualTo(new[] { "time" }));
                 Assert.That(peer,                                        Is.Not.Null, "the host of the configuration is no SSH peer");
-                Assert.That(peer?.Port,                                  Is.EqualTo(sshPort.ToUInt16()));
+                Assert.That(peer?.Port,                                  Is.EqualTo(sshPort));
                 Assert.That(unmade,                                      Is.Null,  "a connection before anything needed one");
 
                 Assert.That(synced.Value<Boolean>("ok"),                 Is.True,  synced.ToString());
@@ -840,10 +841,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(read, Is.True, problem);
 
                 Assert.That(parsed!.Peers!.Select(peer => peer.Id),             Is.EqualTo(new[] { "lc", "time" }));
-                Assert.That(parsed.Peers![0].Port,                               Is.EqualTo(22));
+                Assert.That(parsed.Peers![0].Port,                               Is.EqualTo(IPPort.SSH));
                 Assert.That(parsed.Peers![0].User,                               Is.Null);
-                Assert.That(parsed.Peers![1].Port,                               Is.EqualTo(2222));
-                Assert.That(parsed.Peers![1].User,                               Is.EqualTo("cs001"));
+                Assert.That(parsed.Peers![1].Port,                               Is.EqualTo(IPPort.Parse(2222)));
+                Assert.That(parsed.Peers![1].User,                               Is.EqualTo(User_Id.Parse("cs001")));
                 Assert.That(parsed.Peers![1].Trust.OnMismatch,                   Is.EqualTo(PinMismatch.Record));
 
                 Assert.That(JToken.DeepEquals(parsed.ToJSON()["peers"],

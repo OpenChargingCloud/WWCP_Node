@@ -21,6 +21,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
@@ -59,13 +60,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// The logins of a kind, signing in over SSH with a password.
         /// </summary>
-        private sealed class Stations(String TheLogin, String ThePassword) : ISSHSignIns
+        private sealed class Stations(User_Id TheLogin, String ThePassword) : ISSHSignIns
         {
 
             public String PrincipalKind
                 => "station";
 
-            public Boolean Knows(String Username)
+            public Boolean Knows(User_Id Username)
                 => Username == TheLogin;
 
             public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest Request, CancellationToken CancellationToken = default)
@@ -74,13 +75,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             public Boolean TakesPasswords
                 => true;
 
-            public ValueTask<Boolean> AuthorizePasswordAsync(String Username, String Password, IPAddress? Client, CancellationToken CancellationToken = default)
+            public ValueTask<Boolean> AuthorizePasswordAsync(User_Id Username, String Password, IPAddress? Client, CancellationToken CancellationToken = default)
                 => ValueTask.FromResult(Username == TheLogin && Password == ThePassword);
 
-            public IReadOnlySet<String> SubsystemsFor(String Username)
+            public IReadOnlySet<String> SubsystemsFor(User_Id Username)
                 => new HashSet<String>(StringComparer.Ordinal);
 
-            public IReadOnlyList<String> GroupsOf(String Username)
+            public IReadOnlyList<String> GroupsOf(User_Id Username)
                 => [];
 
             public String? WhyNoLongerIn(SshSessionInfo Session)
@@ -262,20 +263,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             var node           = Node();
-            node.AddSSHSignIns(new Stations("cs001", "The-Right-Password"));
+            node.AddSSHSignIns(new Stations(User_Id.Parse("cs001"), "The-Right-Password"));
 
             var authenticator  = new NodeSSHAuthenticator(node, Passwords: true);
             var guesser        = IPAddress.Parse(Guesser);
 
             // An account's wrong password: no guess at a login of the kind.
-            Assert.That(await authenticator.AuthorizePasswordAsync("nobody", "Not-The-Password", guesser), Is.False);
-            Assert.That(await authenticator.AuthorizePasswordAsync("cs001",  "The-Right-Password", guesser), Is.True, "an account's wrong password braked a login of the kind");
+            Assert.That(await authenticator.AuthorizePasswordAsync(User_Id.Parse("nobody"), "Not-The-Password", guesser), Is.False);
+            Assert.That(await authenticator.AuthorizePasswordAsync(User_Id.Parse("cs001"),  "The-Right-Password", guesser), Is.True, "an account's wrong password braked a login of the kind");
 
             for (var guess = 1; guess <= SignInBrake.DefaultMaxFailedPerMinute; guess++)
-                Assert.That(await authenticator.AuthorizePasswordAsync("cs001", $"Not-The-Password-{guess}", guesser), Is.False);
+                Assert.That(await authenticator.AuthorizePasswordAsync(User_Id.Parse("cs001"), $"Not-The-Password-{guess}", guesser), Is.False);
 
-            var fromTheGuesser    = await authenticator.AuthorizePasswordAsync("cs001", "The-Right-Password", guesser);
-            var fromTheNeighbour  = await authenticator.AuthorizePasswordAsync("cs001", "The-Right-Password", IPAddress.Parse(Neighbour));
+            var fromTheGuesser    = await authenticator.AuthorizePasswordAsync(User_Id.Parse("cs001"), "The-Right-Password", guesser);
+            var fromTheNeighbour  = await authenticator.AuthorizePasswordAsync(User_Id.Parse("cs001"), "The-Right-Password", IPAddress.Parse(Neighbour));
 
             Assert.Multiple(() => {
                 Assert.That(fromTheGuesser,    Is.False, "the guesser's address may guess no more");

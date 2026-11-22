@@ -54,7 +54,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private NodeCLI          cli        = default!;
         private readonly List<String> said  = [];
 
-        private static readonly User_Id Root = User_Id.Parse(WWCPNode.DefaultAdminUser);
+        private static readonly User_Id Root = User_Id.Parse(WWCPNode.DefaultAdminUser.ToString());
 
         #endregion
 
@@ -79,7 +79,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                            said.Clear();
 
                        var made = new WWCPNode(
-                                      HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                      HTTPPort:          TestPorts.Free(),
                                       AccountsPath:      Path.Combine(directory, "accounts"),
                                       ConfigFile:        new WWCPConfigFile(configuration),
                                       CertificatesPath:  Path.Combine(directory, "certificates"),

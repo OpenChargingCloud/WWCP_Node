@@ -29,23 +29,23 @@ namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
-    /// The back ends this station is dialled to, peer by peer: one endpoint of
+    /// The back ends this station is connected to, peer by peer: one endpoint of
     /// each at a time, the next one when that one cannot be reached, and what
     /// is written down taken as it changes (work packages P7 and P8 of EVQI
     /// Transport, sections 11.3.2 and 11.7.1).
     /// </summary>
     /// <remarks>
-    /// A peer that dials by itself is dialled at the first of its endpoints
+    /// A peer that connects by itself is connected to at the first of its endpoints
     /// that does; the others wait in reserve. Its attempts are counted, and
     /// after <see cref="NetworkProfileConnectionAttempts"/> of them that failed
     /// - or at once where the answer is final, a password refused, an address
-    /// that leads nowhere - that endpoint is hung up and the next one dialled,
+    /// that leads nowhere - that endpoint is hung up and the next one connected to,
     /// round and round, with a pause after every round that reached none. A
     /// peer of one endpoint goes on trying it as before.
     ///
-    /// A change of what is written down is taken at once: a peer that dials by
-    /// itself now is dialled, one that does not any more, or an endpoint taken
-    /// away, is hung up, and one changed in how it is dialled is dialled again.
+    /// A change of what is written down is taken at once: a peer that connects by
+    /// itself now is connected to, one that does not any more, or an endpoint taken
+    /// away, is hung up, and one changed in how it is connected to is connected to again.
     /// A description written anew or a host key learned changes nothing that
     /// is up.
     /// </remarks>
@@ -55,7 +55,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region Data
 
         /// <summary>
-        /// What is dialled of each peer that dials by itself: one endpoint.
+        /// What is connected to of each peer that connects by itself: one endpoint.
         /// </summary>
         protected sealed class LiveEndpoint
         {
@@ -63,19 +63,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
             public required String           PeerId       { get; init; }
 
             /// <summary>
-            /// The connection as it was when it was dialled: the store changes
-            /// its entries where they are, and what is up is what was dialled.
+            /// The connection as it was when it was made: the store changes
+            /// its entries where they are, and what is up is what was connected to.
             /// </summary>
-            public required ConnectionEntry  Dialled      { get; init; }
+            public required ConnectionEntry  Connection      { get; init; }
 
             public required Int64            Revision     { get; init; }
             public required Boolean          Primary      { get; init; }
 
             /// <summary>
-            /// What the node said the connection was dialled on when it was
-            /// dialled, beyond what is written of it - see WhatItIsDialledOn.
+            /// What the node said the connection was connected on when it was
+            /// made, beyond what is written of it - see WhatItIsConnectedOn.
             /// </summary>
-            public String?                   DialledOn    { get; init; }
+            public String?                   ConnectedOn    { get; init; }
             public required Int32            Index        { get; init; }
 
             /// <summary>
@@ -95,8 +95,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             public Boolean                   LetGo        { get; set; }
 
             /// <summary>
-            /// Dialled because somebody asked for it - see DialOnDemand - and
-            /// not because it dials by itself: it stays at this endpoint, and
+            /// Connected because somebody asked for it - see ConnectOnDemand - and
+            /// not because it connects by itself: it stays at this endpoint, and
             /// is hung up when asked to, or when it is changed or taken away.
             /// </summary>
             public Boolean                   OnDemand     { get; init; }
@@ -109,66 +109,66 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected readonly SemaphoreSlim                      liveLock   = new (1, 1);
 
         /// <summary>
-        /// Whether the peers were dialled since this station started or last
-        /// hung up: a change written down before is left to that dialling,
+        /// Whether the peers were connected to since this station started or last
+        /// hung up: a change written down before is left to that connecting,
         /// which takes it anyway.
         /// </summary>
-        protected Boolean                                     peersDialled;
+        protected Boolean                                     peersConnected;
 
         /// <summary>
         /// How many attempts at an endpoint fail before the next endpoint of
-        /// its peer is dialled: OCPPCommCtrlr.NetworkProfileConnectionAttempts,
+        /// its peer is connected to: OCPPCommCtrlr.NetworkProfileConnectionAttempts,
         /// fixed at 3 until it is read and written for real (P14).
         /// </summary>
         public Int32 NetworkProfileConnectionAttempts { get; set; } = 3;
 
         /// <summary>
         /// How long a peer waits after a round of all its endpoints reached
-        /// none, before the first of them is dialled again.
+        /// none, before the first of them is connected to again.
         /// </summary>
         public TimeSpan FailoverPause { get; set; } = TimeSpan.FromSeconds(30);
 
         #endregion
 
 
-        #region (private) DialPeers(CancellationToken)
+        #region (private) ConnectToPeers(CancellationToken)
 
         /// <summary>
-        /// Dial every peer that dials by itself, at its first endpoint that
-        /// does - each on its own, in the order they were first dialled, and
+        /// Connect to every peer that connects by itself, at its first endpoint that
+        /// does - each on its own, in the order they were first connected to, and
         /// none of them affected by how another went.
         /// </summary>
-        protected async Task DialPeers(CancellationToken CancellationToken = default)
+        protected async Task ConnectToPeers(CancellationToken CancellationToken = default)
         {
 
             var connections  = Connections.Connections.ToDictionary(entry => entry.Id);
             var peers        = Connections.Peers.
                                    Where  (peer => peer.Role != PeerRole.Service).
-                                   OrderBy(peer => FirstDialledAt(peer, connections)).
+                                   OrderBy(peer => FirstConnectedAt(peer, connections)).
                                    ToArray();
 
-            lock (dialled)
-                dialled.Clear();
+            lock (connectionStates)
+                connectionStates.Clear();
 
             await liveLock.WaitAsync(CancellationToken);
 
             try
             {
 
-                // What was dialled on demand is dialled again as well: dialling
+                // What was connected on demand is connected again as well: connecting
                 // everything anew - the OCPP nodes replaced - is not somebody
                 // asking for it to be hung up.
                 String[] onDemand;
 
                 lock (livePeers)
                 {
-                    onDemand = [.. livePeers.Values.Where(live => live.OnDemand && !live.LetGo).Select(live => live.Dialled.Id)];
+                    onDemand = [.. livePeers.Values.Where(live => live.OnDemand && !live.LetGo).Select(live => live.Connection.Id)];
                     foreach (var live in livePeers.Values)
                         live.Pause.Cancel();
                     livePeers.Clear();
                 }
 
-                peersDialled = true;
+                peersConnected = true;
 
                 if (peers.Length == 0 && onDemand.Length == 0)
                 {
@@ -180,10 +180,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
 
                 foreach (var peer in peers)
-                    await DialPeer(peer, StartOf(peer, connections), null, CancellationToken);
+                    await ConnectToPeer(peer, StartOf(peer, connections), null, CancellationToken);
 
                 foreach (var id in onDemand)
-                    await DialOnDemandUnlocked(id, CancellationToken);
+                    await ConnectOnDemandUnlocked(id, CancellationToken);
 
             }
             finally
@@ -195,14 +195,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) DialPeer(Peer, Index, RoundStart, CancellationToken, Left = null)
+        #region (private) ConnectToPeer(Peer, Index, RoundStart, CancellationToken, Left = null)
 
         /// <summary>
-        /// Dial the given endpoint of a peer, and say of its others that they
+        /// Connect to the given endpoint of a peer, and say of its others that they
         /// wait in reserve - but the one it goes on from, which was said of
         /// already. Called under the live lock.
         /// </summary>
-        protected async Task DialPeer(PeerEntry          Peer,
+        protected async Task ConnectToPeer(PeerEntry          Peer,
                                     Int32              Index,
                                     Int32?             RoundStart,
                                     CancellationToken  CancellationToken,
@@ -216,14 +216,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 !connections.TryGetValue(Peer.EndpointIds[Index], out var entry))
                 return;
 
-            var dialledAs = entry.Copy();
+            var connectedAs = entry.Copy();
 
             var live = new LiveEndpoint {
                            PeerId      = Peer.Id,
-                           Dialled     = dialledAs,
-                           Revision    = Connections.DialRevisionOf(entry.Id),
-                           Primary     = IsPrimary(dialledAs),
-                           DialledOn   = WhatItIsDialledOn(dialledAs),
+                           Connection     = connectedAs,
+                           Revision    = Connections.ConnectionRevisionOf(entry.Id),
+                           Primary     = IsPrimary(connectedAs),
+                           ConnectedOn   = WhatItIsConnectedOn(connectedAs),
                            Index       = Index,
                            RoundStart  = RoundStart ?? Index,
                            Attempts    = 1,
@@ -237,10 +237,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             foreach (var other in Peer.EndpointIds.Where(id => id != entry.Id && id != Left))
                 if (connections.TryGetValue(other, out var reserve) && reserve.AutoConnect)
                     Record(reserve, ConnectionStatus.Standby,
-                           $"In reserve: '{entry.Description.FirstText()}' is dialled for '{Peer.Description.FirstText()}', and this endpoint " +
+                           $"In reserve: '{entry.Description.FirstText()}' is connected to for '{Peer.Description.FirstText()}', and this endpoint " +
                            "when that one cannot be reached.");
 
-            await Dial(dialledAs, CancellationToken);
+            await ConnectTo(connectedAs, CancellationToken);
 
         }
 
@@ -250,7 +250,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// The client that was made for the given connection when it was
-        /// dialled: what is hung up when its peer goes on to another endpoint,
+        /// made: what is hung up when its peer goes on to another endpoint,
         /// or when it changes.
         /// </summary>
         protected void RememberClient(ConnectionEntry Connection, Object? Client)
@@ -264,7 +264,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) EndpointStatus(Connection, Status) / EndpointRetries(Connection)
 
         /// <summary>
-        /// What became of an attempt at the endpoint a peer is dialled at: one
+        /// What became of an attempt at the endpoint a peer is connected to at: one
         /// that got through starts the count anew, one that cannot be tried
         /// again goes on to the next endpoint, and so does one the client tries
         /// again where that would be one too many.
@@ -302,7 +302,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         }
 
         /// <summary>
-        /// The client is about to try the endpoint a peer is dialled at again.
+        /// The client is about to try the endpoint a peer is connected to at again.
         /// </summary>
         protected void EndpointRetries(ConnectionEntry Connection)
         {
@@ -320,7 +320,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected LiveEndpoint? LiveOf(ConnectionEntry Connection)
         {
             lock (livePeers)
-                return livePeers.Values.FirstOrDefault(live => !live.LetGo && live.Dialled.Id == Connection.Id);
+                return livePeers.Values.FirstOrDefault(live => !live.LetGo && live.Connection.Id == Connection.Id);
         }
 
         #endregion
@@ -328,7 +328,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) FailOver(Live, Why)
 
         /// <summary>
-        /// Hang up the endpoint a peer is dialled at, and dial its next one -
+        /// Hang up the endpoint a peer is connected to at, and connect to its next one -
         /// after a pause, where that one began the round. A peer of one
         /// endpoint goes on as it is.
         /// </summary>
@@ -346,7 +346,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return;
 
             var connections  = Connections.Connections.ToDictionary(entry => entry.Id);
-            var next         = NextDialable(peer, Live.Index, connections);
+            var next         = NextConnectable(peer, Live.Index, connections);
 
             if (next is null || next == Live.Index)
                 return;
@@ -375,13 +375,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                        ? nextEntry.Description.FirstText()
                                        : peer.EndpointIds[next.Value];
 
-                    Log.Notice($"'{Live.Dialled.Description.FirstText()}' of '{peer.Description.FirstText()}' could not be reached - {Why}; '{nextName}' is dialled instead.",
+                    Log.Notice($"'{Live.Connection.Description.FirstText()}' of '{peer.Description.FirstText()}' could not be reached - {Why}; '{nextName}' is connected to instead.",
                                "ocpp", "connections");
 
                     await HangUpEndpoint(Live, $"Failing over: {Why}.");
 
-                    Record(Live.Dialled, ConnectionStatus.Standby,
-                           $"In reserve: it could not be reached ({Why}), so '{nextName}' is dialled for '{peer.Description.FirstText()}', " +
+                    Record(Live.Connection, ConnectionStatus.Standby,
+                           $"In reserve: it could not be reached ({Why}), so '{nextName}' is connected to for '{peer.Description.FirstText()}', " +
                            "and this endpoint again when that one cannot be reached either.");
 
                     if (next == Live.RoundStart)
@@ -413,7 +413,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     var now = Connections.Peers.FirstOrDefault(one => one.Id == Live.PeerId);
 
                     if (now is not null && now.Role != PeerRole.Service)
-                        await DialPeer(now, next.Value, next == Live.RoundStart ? null : Live.RoundStart, default, Live.Dialled.Id);
+                        await ConnectToPeer(now, next.Value, next == Live.RoundStart ? null : Live.RoundStart, default, Live.Connection.Id);
 
                 }
                 catch (Exception e)
@@ -434,9 +434,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) ApplyConnectionChanges()
 
         /// <summary>
-        /// Take what is written down now: dial a peer that dials by itself and
-        /// is not dialled, hang up what is dialled and should not be, and dial
-        /// again an endpoint that was changed in how it is dialled.
+        /// Take what is written down now: connect to a peer that connects by itself and
+        /// is not connected to, hang up what is connected to and should not be, and connect
+        /// again to an endpoint that was changed in how it is connected to.
         /// </summary>
         /// <remarks>
         /// Told by the store after every change it wrote; nothing here before
@@ -446,7 +446,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected async Task ApplyConnectionChanges()
         {
 
-            if (!started || !peersDialled)
+            if (!started || !peersConnected)
                 return;
 
             await liveLock.WaitAsync();
@@ -462,52 +462,52 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 lock (livePeers)
                     lives = [.. livePeers.Values];
 
-                var dialAgain          = new Dictionary<String, Int32>();
-                var dialAgainOnDemand  = new List<String>();
+                var connectAgain          = new Dictionary<String, Int32>();
+                var connectAgainOnDemand  = new List<String>();
                 var hungUp             = new HashSet<String>();
 
                 foreach (var live in lives)
                 {
 
                     peers.      TryGetValue(live.PeerId,     out var peer);
-                    connections.TryGetValue(live.Dialled.Id, out var entry);
+                    connections.TryGetValue(live.Connection.Id, out var entry);
 
                     String? why = null;
 
-                    // Dialled on demand, it is not hung up for not dialling by
+                    // Connected on demand, it is not hung up for not connecting by
                     // itself: it never did.
                     if (peer is null || (peer.Role == PeerRole.Service && !live.OnDemand))
-                        why = $"'{live.Dialled.Description.FirstText()}' is no longer dialled by itself";
+                        why = $"'{live.Connection.Description.FirstText()}' is no longer connected to by itself";
 
                     else if (entry is null || !peer.EndpointIds.Contains(entry.Id))
-                        why = $"'{live.Dialled.Description.FirstText()}' is no longer an endpoint of '{peer.Description.FirstText()}'";
+                        why = $"'{live.Connection.Description.FirstText()}' is no longer an endpoint of '{peer.Description.FirstText()}'";
 
-                    else if (Connections.DialRevisionOf(entry.Id) != live.Revision)
+                    else if (Connections.ConnectionRevisionOf(entry.Id) != live.Revision)
                         why = $"'{entry.Description.FirstText()}' was changed";
 
                     else if (IsPrimary(entry) != live.Primary)
                         why = $"which back end is in charge of OCPP {ConnectionEntry.AsText(entry.OCPPVersion)} changed";
 
-                    else if (WhatItIsDialledOn(entry) != live.DialledOn)
-                        why = $"what '{entry.Description.FirstText()}' is dialled on changed";
+                    else if (WhatItIsConnectedOn(entry) != live.ConnectedOn)
+                        why = $"what '{entry.Description.FirstText()}' is connected on changed";
 
                     if (why is null)
                         continue;
 
-                    // The same endpoint again, where it still dials by itself;
-                    // where not, its peer is dialled where it starts.
+                    // The same endpoint again, where it still connects by itself;
+                    // where not, its peer is connected to where it starts.
                     if (peer is not null && peer.Role != PeerRole.Service && entry is not null && entry.AutoConnect &&
                         peer.EndpointIds.Contains(entry.Id))
-                        dialAgain[peer.Id] = peer.EndpointIds.ToList().IndexOf(entry.Id);
+                        connectAgain[peer.Id] = peer.EndpointIds.ToList().IndexOf(entry.Id);
 
-                    // Dialled on demand and changed, it is dialled again on
+                    // Connected on demand and changed, it is connected again on
                     // demand, as it is now; taken away, or no longer an
                     // endpoint of its peer, it is not.
                     else if (live.OnDemand && peer is not null && entry is not null && !entry.Inbound &&
                              peer.EndpointIds.Contains(entry.Id))
-                        dialAgainOnDemand.Add(entry.Id);
+                        connectAgainOnDemand.Add(entry.Id);
 
-                    hungUp.Add(live.Dialled.Id);
+                    hungUp.Add(live.Connection.Id);
 
                     lock (livePeers)
                     {
@@ -516,34 +516,34 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         livePeers.Remove(live.PeerId);
                     }
 
-                    Log.Notice($"{why}: it is hung up{(dialAgain.ContainsKey(live.PeerId) || dialAgainOnDemand.Contains(live.Dialled.Id) ? " and dialled again" : "")}.", "ocpp", "connections");
+                    Log.Notice($"{why}: it is hung up{(connectAgain.ContainsKey(live.PeerId) || connectAgainOnDemand.Contains(live.Connection.Id) ? " and connected again" : "")}.", "ocpp", "connections");
 
                     await HangUpEndpoint(live, $"{why}.");
 
                 }
 
-                // Lines of what is not dialled any more, nor waits in reserve,
+                // Lines of what is not connected to any more, nor waits in reserve,
                 // and of what was hung up: what it is now is said below.
                 HashSet<String> stillLive;
 
                 lock (livePeers)
-                    stillLive = [.. livePeers.Values.Select(live => live.Dialled.Id)];
+                    stillLive = [.. livePeers.Values.Select(live => live.Connection.Id)];
 
-                lock (dialled)
-                    foreach (var id in dialled.Keys.ToArray())
+                lock (connectionStates)
+                    foreach (var id in connectionStates.Keys.ToArray())
                         if (hungUp.Contains(id) ||
                             !connections.TryGetValue(id, out var entry) ||
                             (!entry.AutoConnect && !stillLive.Contains(id)) ||
                             Connections.PeerOf(id) is not PeerEntry owner ||
                             (owner.Role == PeerRole.Service && !stillLive.Contains(id)))
-                            dialled.Remove(id);
+                            connectionStates.Remove(id);
 
-                foreach (var id in dialAgainOnDemand)
-                    await DialOnDemandUnlocked(id, default);
+                foreach (var id in connectAgainOnDemand)
+                    await ConnectOnDemandUnlocked(id, default);
 
                 foreach (var peer in peers.Values.
                                          Where  (peer => peer.Role != PeerRole.Service).
-                                         OrderBy(peer => FirstDialledAt(peer, connections)))
+                                         OrderBy(peer => FirstConnectedAt(peer, connections)))
                 {
 
                     Boolean isLive;
@@ -560,12 +560,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                         lock (livePeers)
                             live = livePeers[peer.Id];
 
-                        foreach (var id in peer.EndpointIds.Where(id => id != live.Dialled.Id))
-                            lock (dialled)
-                                if (!dialled.ContainsKey(id) && connections.TryGetValue(id, out var reserve) && reserve.AutoConnect)
-                                    dialled[id] = new ConnectionState(ConnectionStatus.Standby,
+                        foreach (var id in peer.EndpointIds.Where(id => id != live.Connection.Id))
+                            lock (connectionStates)
+                                if (!connectionStates.ContainsKey(id) && connections.TryGetValue(id, out var reserve) && reserve.AutoConnect)
+                                    connectionStates[id] = new ConnectionState(ConnectionStatus.Standby,
                                                                       TimeProvider.GetUtcNow(),
-                                                                      $"In reserve: '{live.Dialled.Description.FirstText()}' is dialled for '{peer.Description.FirstText()}', " +
+                                                                      $"In reserve: '{live.Connection.Description.FirstText()}' is connected to for '{peer.Description.FirstText()}', " +
                                                                        "and this endpoint when that one cannot be reached.",
                                                                       reserve.Description,
                                                                       reserve.URL,
@@ -575,13 +575,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     }
 
-                    var index = dialAgain.TryGetValue(peer.Id, out var again) && again >= 0
+                    var index = connectAgain.TryGetValue(peer.Id, out var again) && again >= 0
                                     ? again
                                     : StartOf(peer, connections);
 
-                    Log.Info($"'{peer.Description.FirstText()}' is dialled{(dialAgain.ContainsKey(peer.Id) ? " again" : "")}, as written down now.", "ocpp", "connections");
+                    Log.Info($"'{peer.Description.FirstText()}' is connected to{(connectAgain.ContainsKey(peer.Id) ? " again" : "")}, as written down now.", "ocpp", "connections");
 
-                    await DialPeer(peer, index, null, default);
+                    await ConnectToPeer(peer, index, null, default);
 
                 }
 
@@ -602,7 +602,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) HangUpEndpoint(Live, Reason) / EndRegistrationOf(Connection)
 
         /// <summary>
-        /// Close the connection a peer is dialled at, so that it does not come
+        /// Close the connection a peer is connected to at, so that it does not come
         /// back by itself, have the node forget its client, and end what it
         /// was registered as.
         /// </summary>
@@ -612,7 +612,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                switch (Live.Client ?? ClientOf(Live.Dialled))
+                switch (Live.Client ?? ClientOf(Live.Connection))
                 {
 
                     case WWCPSshClient sshClient:
@@ -628,10 +628,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
             catch (Exception e)
             {
-                Log.Debug($"The connection to {Live.Dialled.URL} did not close cleanly: {e.Message}", "ocpp", "connections");
+                Log.Debug($"The connection to {Live.Connection.URL} did not close cleanly: {e.Message}", "ocpp", "connections");
             }
 
-            EndRegistrationOf(Live.Dialled);
+            EndRegistrationOf(Live.Connection);
 
         }
 
@@ -644,10 +644,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private static) StartOf(Peer, Connections) / FirstDialledAt(Peer, Connections)
+        #region (private static) StartOf(Peer, Connections) / FirstConnectedAt(Peer, Connections)
 
         /// <summary>
-        /// The endpoint a peer is dialled at first: the first of them that dials
+        /// The endpoint a peer is connected to at first: the first of them that connects
         /// by itself.
         /// </summary>
         protected static Int32 StartOf(PeerEntry Peer, IReadOnlyDictionary<String, ConnectionEntry> Connections)
@@ -662,11 +662,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         }
 
         /// <summary>
-        /// The endpoint of a peer that is dialled after the given one: the
-        /// next one that dials by itself, round and round; null where none
+        /// The endpoint of a peer that is connected to after the given one: the
+        /// next one that connects by itself, round and round; null where none
         /// does.
         /// </summary>
-        protected static Int32? NextDialable(PeerEntry Peer, Int32 After, IReadOnlyDictionary<String, ConnectionEntry> Connections)
+        protected static Int32? NextConnectable(PeerEntry Peer, Int32 After, IReadOnlyDictionary<String, ConnectionEntry> Connections)
         {
 
             for (var step = 1; step <= Peer.EndpointIds.Count; step++)
@@ -680,7 +680,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         }
 
-        protected static DateTimeOffset FirstDialledAt(PeerEntry Peer, IReadOnlyDictionary<String, ConnectionEntry> Connections)
+        protected static DateTimeOffset FirstConnectedAt(PeerEntry Peer, IReadOnlyDictionary<String, ConnectionEntry> Connections)
 
             => Peer.EndpointIds.
                    Select(id => Connections.TryGetValue(id, out var entry) && entry.AutoConnect ? entry.CreatedAt : DateTimeOffset.MaxValue).
@@ -689,44 +689,44 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region DialOnDemand  (ConnectionId, CancellationToken)
+        #region ConnectOnDemand  (ConnectionId, CancellationToken)
 
         /// <summary>
-        /// Dial the given connection because somebody asks for it: one that is
-        /// not dialled by itself - a service, a back end kept ready for the day
-        /// somebody needs it - or one whose peer is not dialled at all.
+        /// Connect the given connection because somebody asks for it: one that is
+        /// not connected by itself - a service, a back end kept ready for the day
+        /// somebody needs it - or one whose peer is not connected to at all.
         /// </summary>
         /// <remarks>
-        /// Dialled as a connection that dials by itself is, and then kept up
+        /// Connected as a connection that connects by itself is, and then kept up
         /// as one: its client tries it again when it drops. It stays at this
         /// endpoint - nothing fails over to another one of its peer - until
         /// <see cref="HangUpOnDemand"/> hangs it up, it is taken away, or it is
-        /// no longer an endpoint of its peer. Changed, it is dialled again as
-        /// it is then; whether it dials by itself is not changed.
+        /// no longer an endpoint of its peer. Changed, it is connected again as
+        /// it is then; whether it connects by itself is not changed.
         ///
-        /// Not where the peer is dialled at another endpoint already: a peer is
-        /// dialled at one endpoint at a time. A connection that is dialled
-        /// already is not dialled twice, and is no refusal.
+        /// Not where the peer is connected to at another endpoint already: a peer is
+        /// connected to at one endpoint at a time. A connection that is connected
+        /// already is not connected twice, and is no refusal.
         ///
         /// What becomes of the call - connected, refused, not reached - is
         /// said in <see cref="ConnectionStates"/>, as of every other one: this
-        /// says whether it was dialled.
+        /// says whether it was connected.
         /// </remarks>
         /// <param name="ConnectionId">The connection, by its identification.</param>
         /// <param name="CancellationToken">An optional cancellation token.</param>
-        /// <returns>Null where it was dialled, or is already; why not otherwise.</returns>
-        public async Task<String?> DialOnDemand(String             ConnectionId,
+        /// <returns>Null where it was connected, or is already; why not otherwise.</returns>
+        public async Task<String?> ConnectOnDemand(String             ConnectionId,
                                                 CancellationToken  CancellationToken   = default)
         {
 
-            if (!started || !peersDialled)
-                return $"This {NodeNoun} does not dial yet: it dials once it is started.";
+            if (!started || !peersConnected)
+                return $"This {NodeNoun} does not connect yet: it connects once it is started.";
 
             await liveLock.WaitAsync(CancellationToken);
 
             try
             {
-                return await DialOnDemandUnlocked(ConnectionId, CancellationToken);
+                return await ConnectOnDemandUnlocked(ConnectionId, CancellationToken);
             }
             finally
             {
@@ -736,9 +736,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         }
 
         /// <summary>
-        /// Dial the given connection on demand. Called under the live lock.
+        /// Connect the given connection on demand. Called under the live lock.
         /// </summary>
-        private async Task<String?> DialOnDemandUnlocked(String             ConnectionId,
+        private async Task<String?> ConnectOnDemandUnlocked(String             ConnectionId,
                                                          CancellationToken  CancellationToken)
         {
 
@@ -748,10 +748,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return "There is no connection here under that identification.";
 
             if (entry.Inbound)
-                return $"'{entry.Description.FirstText()}' is one the other end makes: there is nothing to dial, and it is waited for.";
+                return $"'{entry.Description.FirstText()}' is one the other end makes: there is nothing to connect to, and it is waited for.";
 
             if (Connections.PeerOf(entry.Id) is not PeerEntry peer)
-                return $"'{entry.Description.FirstText()}' is an endpoint of no peer, and what is dialled is a peer at one of its endpoints.";
+                return $"'{entry.Description.FirstText()}' is an endpoint of no peer, and what is connected to is a peer at one of its endpoints.";
 
             LiveEndpoint? live;
 
@@ -761,19 +761,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (live is not null && !live.LetGo)
             {
 
-                if (live.Dialled.Id == entry.Id)
+                if (live.Connection.Id == entry.Id)
                     return null;
 
-                return $"'{peer.Description.FirstText()}' is dialled at '{live.Dialled.Description.FirstText()}' already, and a peer is dialled at one endpoint " +
+                return $"'{peer.Description.FirstText()}' is connected to at '{live.Connection.Description.FirstText()}' already, and a peer is connected to at one endpoint " +
                        (live.OnDemand
                             ? "at a time: hang that one up first."
                             : "at a time - that one by itself.");
 
             }
 
-            Log.Info($"'{entry.Description.FirstText()}' of '{peer.Description.FirstText()}' is dialled on demand.", "ocpp", "connections");
+            Log.Info($"'{entry.Description.FirstText()}' of '{peer.Description.FirstText()}' is connected on demand.", "ocpp", "connections");
 
-            await DialPeer(peer, peer.EndpointIds.ToList().IndexOf(entry.Id), null, CancellationToken, OnDemand: true);
+            await ConnectToPeer(peer, peer.EndpointIds.ToList().IndexOf(entry.Id), null, CancellationToken, OnDemand: true);
 
             return null;
 
@@ -784,12 +784,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region HangUpOnDemand(ConnectionId)
 
         /// <summary>
-        /// Hang up the given connection, which was dialled on demand - see
-        /// <see cref="DialOnDemand"/> - so that it does not come back by
+        /// Hang up the given connection, which was connected on demand - see
+        /// <see cref="ConnectOnDemand"/> - so that it does not come back by
         /// itself.
         /// </summary>
         /// <remarks>
-        /// Not one that dials by itself: that is hung up by switching it off,
+        /// Not one that connects by itself: that is hung up by switching it off,
         /// which is written down, rather than by a word that the next start
         /// forgets.
         /// </remarks>
@@ -806,18 +806,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 LiveEndpoint? live;
 
                 lock (livePeers)
-                    live = livePeers.Values.FirstOrDefault(one => !one.LetGo && one.Dialled.Id == ConnectionId);
+                    live = livePeers.Values.FirstOrDefault(one => !one.LetGo && one.Connection.Id == ConnectionId);
 
-                var description = live?.Dialled.Description ??
+                var description = live?.Connection.Description ??
                                   Connections.Connections.FirstOrDefault(connection => connection.Id == ConnectionId)?.Description;
 
                 if (live is null)
                     return description is null
                                ? "There is no connection here under that identification."
-                               : $"'{description}' is not dialled.";
+                               : $"'{description}' is not connected.";
 
                 if (!live.OnDemand)
-                    return $"'{description}' is dialled by itself: it is hung up by switching that off.";
+                    return $"'{description}' is connected by itself: it is hung up by switching that off.";
 
                 lock (livePeers)
                 {
@@ -830,9 +830,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 await HangUpEndpoint(live, "Hung up on demand.");
 
-                // Not dialled any more, as it was not before it was asked for.
-                lock (dialled)
-                    dialled.Remove(ConnectionId);
+                // Not connected any more, as it was not before it was asked for.
+                lock (connectionStates)
+                    connectionStates.Remove(ConnectionId);
 
                 return null;
 
@@ -846,17 +846,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region IsDialledOnDemand(ConnectionId)
+        #region IsConnectedOnDemand(ConnectionId)
 
         /// <summary>
-        /// Whether the given connection is dialled because somebody asked for
-        /// it - see <see cref="DialOnDemand"/>.
+        /// Whether the given connection is connected because somebody asked for
+        /// it - see <see cref="ConnectOnDemand"/>.
         /// </summary>
         /// <param name="ConnectionId">The connection, by its identification.</param>
-        public Boolean IsDialledOnDemand(String ConnectionId)
+        public Boolean IsConnectedOnDemand(String ConnectionId)
         {
             lock (livePeers)
-                return livePeers.Values.Any(live => live.OnDemand && !live.LetGo && live.Dialled.Id == ConnectionId);
+                return livePeers.Values.Any(live => live.OnDemand && !live.LetGo && live.Connection.Id == ConnectionId);
         }
 
         #endregion
@@ -864,13 +864,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) LetGoOfPeers()
 
         /// <summary>
-        /// Forget what is dialled of the peers, for a station that hangs up.
+        /// Forget what is connected to of the peers, for a station that hangs up.
         /// </summary>
         protected void LetGoOfPeers()
         {
             lock (livePeers)
             {
-                peersDialled = false;
+                peersConnected = false;
                 foreach (var live in livePeers.Values)
                 {
                     live.LetGo = true;

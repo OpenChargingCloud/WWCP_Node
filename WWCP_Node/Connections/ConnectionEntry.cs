@@ -47,7 +47,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// </summary>
     /// <remarks>
     /// A label, and deliberately no more than one. Nothing in this station
-    /// reads it to decide anything: every connection is dialled on its own
+    /// reads it to decide anything: every connection is made on its own
     /// merits. Whether a spare should wait for its main one to fail is a real
     /// question with a real answer, and it is not answered here - a guess at
     /// it now is something that would have to be unpicked when somebody
@@ -72,19 +72,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         LocalController,
 
         /// <summary>
-        /// A charging station: what a node above the stations dials, a CSMS
-        /// that reaches one that cannot dial it.
+        /// A charging station: what a node above the stations connects to, a CSMS
+        /// that reaches one that cannot connect to it.
         /// </summary>
         ChargingStation,
 
         /// <summary>
         /// A gateway: between charging stations and local controllers below
         /// it and the CSMS above - what a station, a local controller or
-        /// another gateway dials as its back end, and what a node above it, a
-        /// CSMS, dials downwards: there it is spoken to as a local controller
+        /// another gateway connects to as its back end, and what a node above it, a
+        /// CSMS, connects to downwards: there it is spoken to as a local controller
         /// is, over the overlay network.
         /// </summary>
-        Gateway
+        Gateway,
+
+        /// <summary>
+        /// An e-mobility service provider: the other end of a roaming agreement
+        /// of a charge point operator, which a CSMS connects to. Spoken to in OCPI,
+        /// not in OCPP - see <see cref="ConnectionUse.OCPI"/>.
+        /// </summary>
+        EMSP,
+
+        /// <summary>
+        /// A charge point operator - a CSMS - as an EMSP has it at the other end
+        /// of a roaming agreement: what connects to an EMSP. Spoken to in OCPI,
+        /// not in OCPP - see <see cref="ConnectionUse.OCPI"/>.
+        /// </summary>
+        CPO
 
     }
 
@@ -95,7 +109,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// <remarks>
     /// Written down rather than worked out, because there is nothing to work
     /// it out from. This station is two nodes - an OCPP 1.6 charge point and
-    /// an OCPP 2.1 charging station - and which of them dials is not something
+    /// an OCPP 2.1 charging station - and which of them connects is not something
     /// a URL says. The version is negotiated in the WebSocket sub-protocol
     /// during the handshake, and by then the node has already been chosen.
     /// </remarks>
@@ -116,7 +130,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
 
     /// <summary>
-    /// One place this charging station dials, and what it proves itself with
+    /// Which protocol a connection carries: OCPP, or OCPI.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Not written down, but read off what is at the other end (see
+    /// <see cref="ConnectionEntry.UseOf"/>): a CSMS, a local controller, a
+    /// gateway and a charging station are spoken to in OCPP, an EMSP and a
+    /// CPO in OCPI. A kind of node at the other end that speaks either is
+    /// not there yet, and the day it is, this is what it writes down.
+    /// </para>
+    /// <para>
+    /// The smallest form of what a connection is used for: the transport -
+    /// the URL, how the server is believed, what a node signs in with - is
+    /// the same for every one of them, and so is the connecting. What is a
+    /// matter of the protocol - its subprotocols, its SSH subsystem, the
+    /// networking node that makes the connection - is asked of the
+    /// <see cref="ConnectingProtocol"/> a node has for it, see
+    /// <see cref="WWCPNode.ConnectingOf(ConnectionEntry)"/>.
+    /// </para>
+    /// </remarks>
+    public enum ConnectionUse
+    {
+
+        /// <summary>
+        /// OCPP, in the version of <see cref="ConnectionEntry.OCPPVersion"/>.
+        /// </summary>
+        OCPP,
+
+        /// <summary>
+        /// OCPI, in the version of <see cref="ConnectionEntry.OCPIVersion"/>.
+        /// </summary>
+        OCPI
+
+    }
+
+
+    /// <summary>
+    /// One place this charging station connects to, and what it proves itself with
     /// when it gets there.
     /// </summary>
     /// <remarks>
@@ -146,7 +197,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public const Int32 MaxURLLength          = 500;
 
         /// <summary>
-        /// The schemes a charging station may be told to dial.
+        /// The schemes a charging station may be told to connect over.
         /// </summary>
         /// <remarks>
         /// OCPP is a WebSocket protocol, so ws and wss are what this is for.
@@ -176,7 +227,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// The most host keys one connection pins: the current ones of its
         /// server and room for a change, as HostKeyPins of the white paper
-        /// "OCPP over SSH" allows.
+        /// "OCPP-over-SSH" allows.
         /// </summary>
         public const Int32 MaxHostKeys           = 16;
 
@@ -228,14 +279,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public const String PinsKey              = "pins";
 
         /// <summary>
-        /// Where a connection the other end dials said which keys the client
+        /// Where a connection the other end makes said which keys the client
         /// certificate of the other end may hold, before the other end signed
         /// in with its WebSocket login: refused where it is still said.
         /// </summary>
         public const String ClientKeyPinsKey     = "clientKeyPins";
 
         /// <summary>
-        /// Where a connection the other end dials said what the client
+        /// Where a connection the other end makes said what the client
         /// certificate of the other end is held to, before the other end
         /// signed in with its WebSocket login: refused where it is still said.
         /// </summary>
@@ -270,16 +321,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public const String PinsAsShownKey       = ServerPins.AsShownKey;
 
         /// <summary>
-        /// The key that says the other end dials: true for a connection this
+        /// The key that says the other end connects: true for a connection this
         /// node waits for, on its own OCPP server.
         /// </summary>
         public const String InboundKey           = "inbound";
 
         /// <summary>
         /// The key a connection says under which node is at its other end:
-        /// the name it is routed by, where this node dials downwards.
+        /// the name it is routed by, where this node connects downwards.
         /// </summary>
         public const String RemoteNodeIdKey      = "remoteNodeId";
+
+        /// <summary>
+        /// The key the OCPI version of a connection of OCPI stands under:
+        /// "2.1.1", "2.2.1" or "2.3.0". A connection of OCPP has none.
+        /// </summary>
+        public const String OCPIVersionKey       = "ocpiVersion";
 
         /// <summary>
         /// The longest the name of the node at the other end may be written.
@@ -320,9 +377,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// Which OCPP this station speaks here, and so which of its two nodes
-        /// does the dialling.
+        /// does the connecting.
         /// </summary>
         public OCPPVersion     OCPPVersion          { get; internal set; }
+
+        /// <summary>
+        /// Which protocol the connection carries, as what is at the other end
+        /// says: OCPI to an EMSP or a CPO, OCPP to everything else.
+        /// </summary>
+        public ConnectionUse   Use
+            => UseOf(ConnectionType);
+
+        /// <summary>
+        /// Which OCPI the connection carries - "2.1.1", "2.2.1" or "2.3.0" -
+        /// where it carries OCPI, and null where it carries OCPP.
+        /// </summary>
+        /// <remarks>
+        /// Written down as the OCPP version is, and for the same reason: which
+        /// version is spoken is offered in the WebSocket handshake or the HELLO
+        /// of SSH, and not something the URL says. <see cref="OCPPVersion"/>
+        /// says nothing of a connection of OCPI.
+        /// </remarks>
+        public String?         OCPIVersion          { get; internal set; }
+
+        /// <summary>
+        /// The protocol the connection carries, and its version: "OCPP2.1",
+        /// "OCPI 2.2.1".
+        /// </summary>
+        public ProtocolVersion Protocol
+
+            => Use == ConnectionUse.OCPI
+                   ? ProtocolVersion.OCPI(OCPIVersion ?? "")
+                   : OCPPVersion;
 
         /// <summary>
         /// Whether this station connects here by itself - at start, and again
@@ -343,28 +429,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public Boolean         AutoConnect          { get; internal set; }
 
         /// <summary>
-        /// Whether the other end dials: a connection this node waits for on
+        /// Whether the other end connects: a connection this node waits for on
         /// its own OCPP server, rather than one it makes.
         /// </summary>
         /// <remarks>
-        /// The roles of OCPP stay as they are - what dials in is a CSMS or a
+        /// The roles of OCPP stay as they are - what connects is a CSMS or a
         /// local controller, and this node tells it that it started, as it
-        /// tells one it dialled; only who opens the WebSocket is the other
-        /// way round. Its URL is the one the other end dials, and the last
-        /// segment of its path the name it comes under
-        /// (<see cref="InboundName"/>) - the name of the WebSocket login of
-        /// this node the other end signs in with: its password, its one-time
-        /// password, its key pin or a certificate issued to that name, as for
-        /// whoever else signs in at the station port. The connection names no
-        /// credentials of its own. <see cref="AutoConnect"/> says whether it
-        /// is let in at all.
+        /// tells one it connected to; only who opens the WebSocket - or the SSH
+        /// channel - is the other way round. Its URL is the one the other end
+        /// connects to, and the last segment of its path - or, over SSH, its login -
+        /// the name it comes under (<see cref="InboundName"/>): the name of the
+        /// WebSocket login of this node the other end signs in with - its
+        /// password, its one-time password, its key pin or a certificate
+        /// issued to that name, as for whoever else signs in at the station
+        /// port, or its SSH key over SSH. The connection names no credentials
+        /// of its own. <see cref="AutoConnect"/> says whether it is let in at
+        /// all.
         /// </remarks>
         public Boolean         Inbound              { get; internal set; }
 
         /// <summary>
         /// The name the other end of an inbound connection comes under: the
-        /// last segment of the path of its URL. Null for a connection this
-        /// node dials.
+        /// last segment of the path of its URL, or its login over SSH. Null
+        /// for a connection this node makes.
         /// </summary>
         public String?         InboundName
             => Inbound
@@ -372,15 +459,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    : null;
 
         /// <summary>
-        /// The node at the other end of a connection this node dials, by the
+        /// The node at the other end of a connection this node makes, by the
         /// name it has in the routing table of the OCPP node - or null.
         /// </summary>
         /// <remarks>
-        /// A node that dials its back end needs none: whatever it dials is
-        /// its CSMS, and is spoken to as that. A node that dials downwards -
-        /// a CSMS dialling a charging station or a local controller - speaks
+        /// A node that connects to its back end needs none: whatever it connects to is
+        /// its CSMS, and is spoken to as that. A node that connects downwards -
+        /// a CSMS connecting to a charging station or a local controller - speaks
         /// to each by its name, and nothing in the URL says it: the URL ends
-        /// with the name the dialling node comes under, as it always does.
+        /// with the name the connecting node comes under, as it always does.
         /// </remarks>
         public String?         RemoteNodeId         { get; internal set; }
 
@@ -438,9 +525,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <remarks>
         /// A set, so that a server that is about to change its host key can be
         /// pinned with both for the time of the change. Without one, the
-        /// connection is dialled only where it trusts on first use (see
+        /// connection is made only where it trusts on first use (see
         /// <see cref="SshTrustOnFirstUse"/>). Written as HostKeyPins of the white
-        /// paper "OCPP over SSH" is.
+        /// paper "OCPP-over-SSH" is.
         /// </remarks>
         public String?         SshHostKey           { get; internal set; }
 
@@ -501,7 +588,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// clock is set. A set, so that a server about to change its key can be
         /// pinned with both for the time of the change.
         ///
-        /// None on a connection the other end dials (<see cref="Inbound"/>):
+        /// None on a connection the other end makes (<see cref="Inbound"/>):
         /// this node is its server, and the key of the client certificate of
         /// the other end is pinned on its WebSocket login.
         /// </remarks>
@@ -580,7 +667,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// not fall back to the CA where the key matches no pin. One that is not
         /// key-pinned is checked by the CA as it always was.
         ///
-        /// Never one the other end dials: this node is its server, and shows
+        /// Never one the other end makes: this node is its server, and shows
         /// the certificate.
         /// </remarks>
         public Boolean                IsKeyPinned
@@ -606,7 +693,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// Never beside key pins: a connection is checked by its CA or known
         /// by its key - see <see cref="CheckOneWay"/>.
         ///
-        /// None on a connection the other end dials (<see cref="Inbound"/>):
+        /// None on a connection the other end makes (<see cref="Inbound"/>):
         /// what the client certificate of the other end is held to is said by
         /// its WebSocket login and the chains the station port accepts.
         /// </remarks>
@@ -781,6 +868,101 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
+        #region (static) UseOf(Type)
+
+        /// <summary>
+        /// Which protocol a connection to what is at the given end carries:
+        /// OCPI to an EMSP or a CPO, OCPP to everything else.
+        /// </summary>
+        public static ConnectionUse UseOf(ConnectionType Type)
+
+            => Type is ConnectionType.EMSP
+                    or ConnectionType.CPO
+                   ? ConnectionUse.OCPI
+                   : ConnectionUse.OCPP;
+
+        #endregion
+
+        #region (static) TryParseOCPIVersion(Text, out Version) / ValidateOCPIVersion(Type, Text, out Version, out Error)
+
+        /// <summary>
+        /// The versions of OCPI a connection may carry, as they are written:
+        /// the labels OCPI gives them.
+        /// </summary>
+        public static readonly IReadOnlyList<String> OCPIVersions = [ "2.1.1", "2.2.1", "2.3.0" ];
+
+        /// <summary>
+        /// Which OCPI, written the way OCPI labels it - "2.2.1" - or with "v"
+        /// or "ocpi" in front of it, as the API writes it.
+        /// </summary>
+        public static Boolean TryParseOCPIVersion(String?                               Text,
+                                                  [NotNullWhen(true)] out String?       Version)
+        {
+
+            var text = Text?.Trim().ToLowerInvariant() ?? "";
+
+            if (text.StartsWith("ocpi", StringComparison.Ordinal))
+                text = text[4..].TrimStart();
+
+            if (text.StartsWith('v'))
+                text = text[1..];
+
+            Version = OCPIVersions.FirstOrDefault(version => version == text);
+
+            return Version is not null;
+
+        }
+
+        /// <summary>
+        /// The OCPI version of a connection to what is at the given end: one
+        /// of <see cref="OCPIVersions"/> for a connection of OCPI, which has to
+        /// say it, and none for a connection of OCPP, which may not.
+        /// </summary>
+        /// <param name="Type">What is at the other end.</param>
+        /// <param name="Text">The OCPI version as it was written, if at all.</param>
+        /// <param name="Version">The OCPI version, or null for a connection of OCPP.</param>
+        /// <param name="Error">What is wrong.</param>
+        public static Boolean ValidateOCPIVersion(ConnectionType                    Type,
+                                                  String?                           Text,
+                                                  out String?                       Version,
+                                                  [NotNullWhen(false)] out String?  Error,
+                                                  String?                           NodeNoun   = null)
+        {
+
+            Version  = null;
+            Error    = null;
+
+            if (UseOf(Type) == ConnectionUse.OCPP)
+            {
+
+                if (!String.IsNullOrWhiteSpace(Text))
+                {
+                    Error = $"A connection to a {Type} carries OCPP, and no OCPI version: leave '{OCPIVersionKey}' out.";
+                    return false;
+                }
+
+                return true;
+
+            }
+
+            if (String.IsNullOrWhiteSpace(Text))
+            {
+                Error = $"What is at the other end, '{Type}', is spoken to in OCPI: say which version, {String.Join(", ", OCPIVersions)}.";
+                return false;
+            }
+
+            if (!TryParseOCPIVersion(Text, out Version))
+            {
+                Error = $"'{Text}' is not an OCPI version this {NodeNoun ?? NodeWording.Noun} speaks. It speaks {String.Join(", ", OCPIVersions)}.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
         #region (static) TryParseType(Text, out Type)
 
         /// <summary>
@@ -810,6 +992,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 case "gateway":
                     Type = ConnectionType.Gateway;
+                    return true;
+
+                case "emsp":
+                    Type = ConnectionType.EMSP;
+                    return true;
+
+                case "cpo":
+                    Type = ConnectionType.CPO;
                     return true;
 
                 default:
@@ -983,7 +1173,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (!AllowedSchemes.Contains(url.Scheme))
             {
-                Error = $"'{url.Scheme}' is not something this {NodeNoun ?? NodeWording.Noun} dials. OCPP goes over ws, wss or ssh.";
+                Error = $"'{url.Scheme}' is not something this {NodeNoun ?? NodeWording.Noun} connects over. OCPP goes over ws, wss or ssh.";
                 return false;
             }
 
@@ -1085,7 +1275,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             return said.Count == 0
                        ? null
-                       : $"the other end dials it, and signs in with the WebSocket login of the name it comes under - its password, " +
+                       : $"the other end connects to it, and signs in with the WebSocket login of the name it comes under - its password, " +
                           "one-time password, key pin or SSH key are said there, and the chains its certificate may lead to under " +
                          $"Accepted chains. {String.Join(", ", said)} of the connection itself {(said.Count == 1 ? "is" : "are")} no more: " +
                           "take it out, and give the WebSocket login what the other end signs in with.";
@@ -1097,11 +1287,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region (static) InboundNameOf(URL) / ValidateInbound(URL, out Name, out Error)
 
         /// <summary>
-        /// The last segment of the path of the given URL: the name the other
-        /// end of an inbound connection comes under. Null where there is none.
+        /// The name the other end of an inbound connection comes under: the
+        /// last segment of the path of the given URL - or, over SSH, the login
+        /// it signs in to the SSH server with. Null where there is none.
         /// </summary>
         public static String? InboundNameOf(URL URL)
         {
+
+            if (URL.Scheme == URIScheme.ssh)
+                return URL.Login is User_Id login
+                           ? Uri.UnescapeDataString(login.ToString())
+                           : null;
 
             var path = URL.Path.ToString();
             var cut  = path.IndexOfAny([ '?', '#' ]);
@@ -1122,8 +1318,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// What can be said to be wrong with the URL of a connection the other
-        /// end dials: it is a WebSocket one, and the last segment of its path
-        /// names the other end.
+        /// end makes: the last segment of the path of a WebSocket one, or the
+        /// login of an SSH one, names the other end.
         /// </summary>
         public static Boolean ValidateInbound(URL                               URL,
                                               [NotNullWhen(true)]  out String?  Name,
@@ -1134,13 +1330,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             Name   = null;
             Error  = null;
 
-            if (URL.Scheme == URIScheme.ssh)
+            Name = InboundNameOf(URL);
+
+            if (Name is null && URL.Scheme == URIScheme.ssh)
             {
-                Error = $"Over SSH nothing dials this {NodeNoun ?? NodeWording.Noun}'s OCPP server: a connection the other end makes is a ws:// or a wss:// one.";
+                Error = "The URL of a connection the other end makes over SSH names the login the other end signs in with - " +
+                        "ssh://csms-01@this-station.example.org:22. It says none.";
                 return false;
             }
-
-            Name = InboundNameOf(URL);
 
             if (Name is null)
             {
@@ -1166,7 +1363,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 node == cloud.charging.open.protocols.WWCP.NetworkingNode.NetworkingNode_Id.Zero          ||
                 Name.StartsWith("connection-", StringComparison.Ordinal))
             {
-                Error = $"'{Name}' is a name this {NodeNoun ?? NodeWording.Noun} keeps for itself. Whatever dials in comes under a name of its own - csms-01, say; " +
+                Error = $"'{Name}' is a name this {NodeNoun ?? NodeWording.Noun} keeps for itself. Whatever connects comes under a name of its own - csms-01, say; " +
                         "the one in charge is spoken to as the CSMS all the same.";
                 Name  = null;
                 return false;
@@ -1221,7 +1418,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 Name.StartsWith("connection-", StringComparison.Ordinal))
             {
                 Error = $"'{Name}' is a name this {NodeNoun ?? NodeWording.Noun} keeps for itself. The node at the other end has a name of its own - " +
-                        "the one a charging station dials its CSMS under, say.";
+                        "the one a charging station connects to its CSMS under, say.";
                 Name  = null;
                 return false;
             }
@@ -1252,11 +1449,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         /// <remarks>
         /// Read as the SSH client reads them, so that what is taken here is what
-        /// is checked when the station dials: SHA-256 fingerprints, or
+        /// is checked when the station connects: SHA-256 fingerprints, or
         /// public-key lines, at most <see cref="MaxHostKeys"/> of them. An MD5
         /// fingerprint is refused with the way to its SHA-256 one (white paper
-        /// "OCPP over SSH", decision 3); one already in the file is kept, so
-        /// that the connection is not lost, and it is not dialled until it is
+        /// "OCPP-over-SSH", decision 3); one already in the file is kept, so
+        /// that the connection is not lost, and it is not connected to until it is
         /// replaced (see <see cref="PinsMD5"/>). Only for ssh://: the server of
         /// a WebSocket is known by its TLS certificate, and a host key written
         /// down beside it would look like a check nothing makes.
@@ -1330,7 +1527,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// Whether one of the host keys pinned is an MD5 fingerprint, which is
-        /// no longer taken: one kept from the file, which is not dialled with.
+        /// no longer taken: one kept from the file, which is not connected with.
         /// </summary>
         public Boolean PinsMD5
 
@@ -1776,7 +1973,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             if (JSON[ClientKeyPinsKey] is JToken { Type: not JTokenType.Null } ||
                 JSON[ClientPinsKey]    is JToken { Type: not JTokenType.Null })
             {
-                Error = $"connection '{id}': this node dials it, so what its server is held to stands under 'serverKeyPins' and '{PinsKey}', " +
+                Error = $"connection '{id}': this node connects to it, so what its server is held to stands under 'serverKeyPins' and '{PinsKey}', " +
                         $"and not under '{ClientKeyPinsKey}' and '{ClientPinsKey}'.";
                 return false;
             }
@@ -1853,6 +2050,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
+            if (!ValidateOCPIVersion(type, JSON.Value<String>(OCPIVersionKey), out var ocpiVersion, out var wrongOCPIVersion, NodeNoun))
+            {
+                Error = $"connection '{id}': {wrongOCPIVersion}";
+                return false;
+            }
+
             Entry = new ConnectionEntry(
                         id,
                         Kept(DescriptionOf(JSON)!),
@@ -1861,6 +2064,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                         AuthenticationEntry.Written(JSON.Value<String>("createdAt"))
                     ) {
                         OCPPVersion         = version,
+                        OCPIVersion         = ocpiVersion,
                         AutoConnect  = JSON.Value<Boolean?>("autoConnect") ?? false,
                         Inbound             = inbound,
                         RemoteNodeId        = inbound ? null : remoteNodeId,
@@ -1918,7 +2122,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                            new JProperty("description",         Description.ToJSON()),
                            new JProperty("url",                 URL.ToString()),
                            new JProperty("connectionType",      ConnectionType.ToString()),
-                           new JProperty("ocppVersion",         AsText(OCPPVersion)),
+                           Use == ConnectionUse.OCPI
+                               ? new JProperty(OCPIVersionKey,  OCPIVersion)
+                               : new JProperty("ocppVersion",   AsText(OCPPVersion)),
                            new JProperty("autoConnect",  AutoConnect),
                            new JProperty("secure",              IsSecure),
                            new JProperty("transport",           IsSSH ? "ssh" : "websocket"),
@@ -1960,7 +2166,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             // How the server of a TLS connection is known: by its CA, or by
             // the key pin of its key ("Key Pins and Raw Public Keys", 7.1).
-            // Nothing of the kind where the other end dials: this node is the
+            // Nothing of the kind where the other end connects: this node is the
             // server.
             if (IsSecure && !Inbound)
             {
@@ -2068,7 +2274,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                                   TimeSpan               ServerKeyPinProbationTime,
                                                   ServerPins?            Pins,
                                                   WebSocketHTTPVersion   HTTPVersion,
-                                                  MessageEncodings       Encoding)
+                                                  MessageEncodings       Encoding,
+                                                  String?                OCPIVersion   = null)
 
             => new (
                    "",
@@ -2078,6 +2285,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    CreatedAt
                ) {
                    OCPPVersion                = OCPPVersion,
+                   OCPIVersion                = OCPIVersion,
                    AutoConnect                = AutoConnect,
                    AuthenticationId           = Named(AuthenticationId),
                    CertificateId              = Named(CertificateId),
@@ -2107,6 +2315,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             => new (Id, Description, URL, ConnectionType, CreatedAt) {
                    OCPPVersion       = OCPPVersion,
+                   OCPIVersion       = OCPIVersion,
                    AutoConnect       = AutoConnect,
                    Inbound           = Inbound,
                    RemoteNodeId        = RemoteNodeId,
@@ -2339,7 +2548,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         public override String ToString()
 
-            => $"{Description.FirstText()} ({ConnectionType} over {AsText(OCPPVersion)}, {URL})";
+            => $"{Description.FirstText()} ({ConnectionType} over {Protocol}, {URL})";
 
         #endregion
 

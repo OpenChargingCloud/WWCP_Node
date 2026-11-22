@@ -270,7 +270,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                                    Func<PortUnavailableException, String?>?  SwitchOf  = null)
         {
 
-            var port    = Problem.Port.ToUInt16();
+            var port    = Problem.Port;
 
             // The meter's web interface is --http-port, its Modbus/TLS server
             // --port; the web interface of every other kind is --port.
@@ -280,7 +280,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                                 : Problem.Whose == NodePort.HTTPSRedirect  ? "--redirect-port"
                                 :                                            null);
 
-            if (Problem.Because == SocketError.AccessDenied && port < 1024 && !OnWindows)
+            if (Problem.Because == SocketError.AccessDenied && port.ToUInt16() < 1024 && !OnWindows)
             {
 
                 if (IsDotnet(Program))

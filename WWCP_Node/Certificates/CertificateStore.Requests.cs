@@ -404,7 +404,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
 
             else if (names.Length > 0)
             {
-                Error = $"A certificate for {template.Name} is reachable as nothing: it is shown by whoever dials, and recognised by its subject.";
+                Error = $"A certificate for {template.Name} is reachable as nothing: it is shown by whoever connects, and recognised by its subject.";
                 return false;
             }
 

@@ -25,6 +25,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
@@ -53,8 +54,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <param name="User">The login the URL names, or null where it names none.</param>
     /// <param name="Path">The path: "/dir/file", or "~/dir/file" where it is relative to the home directory of the login.</param>
     /// <param name="Fingerprint">The host key fingerprint the URL expects, "SHA256:...", or null: never a source of trust, only something a pinned key can contradict.</param>
-    public sealed record SftpLocation(String   Host,
-                                      UInt16   Port,
+    public sealed record SFTPLocation(String   Host,
+                                      IPPort   Port,
                                       String?  User,
                                       String   Path,
                                       String?  Fingerprint)
@@ -65,7 +66,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <summary>
         /// The SSH port where a URL names none.
         /// </summary>
-        public const UInt16  DefaultPort     = 22;
+        public readonly static IPPort DefaultPort = IPPort.SSH;
 
         /// <summary>
         /// The longest URL that is read at all.
@@ -105,7 +106,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// security event may say.
         /// </summary>
         public String   WithoutUserInfo
-            => $"sftp://{(Host.Contains(':') ? $"[{Host}]" : Host)}{(Port == DefaultPort ? "" : ":" + Port.ToString(CultureInfo.InvariantCulture))}{(IsHomeRelative ? "/" + Path : Path)}";
+            => $"sftp://{(Host.Contains(':') ? $"[{Host}]" : Host)}{(Port == DefaultPort ? "" : ":" + Port.ToUInt16().ToString(CultureInfo.InvariantCulture))}{(IsHomeRelative ? "/" + Path : Path)}";
 
         #endregion
 
@@ -119,7 +120,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <param name="Location">What it names.</param>
         /// <param name="Error">Why it names nothing. It never repeats a password.</param>
         public static Boolean TryParse(String?                                 Text,
-                                       [NotNullWhen(true)]  out SftpLocation?  Location,
+                                       [NotNullWhen(true)]  out SFTPLocation?  Location,
                                        [NotNullWhen(false)] out String?        Error)
         {
 
@@ -258,7 +259,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                     portText = after[1..];
                 }
 
-                if (!IPAddress.TryParse(hostText, out var v6) || v6.AddressFamily != AddressFamily.InterNetworkV6)
+                if (!System.Net.IPAddress.TryParse(hostText, out var v6) || v6.AddressFamily != AddressFamily.InterNetworkV6)
                 {
                     Error = "what the URL has in brackets is no IPv6 address";
                     return false;
@@ -278,8 +279,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             {
                 if (portText.Length is 0 or > 5 ||
                     !portText.All(Char.IsAsciiDigit) ||
-                    !UInt16.TryParse(portText, NumberStyles.None, CultureInfo.InvariantCulture, out port) ||
-                    port == 0)
+                    !IPPort.TryParse(portText, out port) ||
+                    port.ToUInt16() == 0)
                 {
                     Error = "the port of the URL is no port";
                     return false;
@@ -321,7 +322,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             #endregion
 
-            Location = new SftpLocation(host, port, user, path, fingerprint);
+            Location = new SFTPLocation(host, port, user, path, fingerprint);
             return true;
 
         }
@@ -355,7 +356,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             if (host.Contains(':') || (Char.IsAsciiDigit(host[^1]) && host.All(character => Char.IsAsciiDigit(character) || character == '.')))
             {
 
-                if (!IPAddress.TryParse(host, out var address))
+                if (!System.Net.IPAddress.TryParse(host, out var address))
                     return null;
 
                 // "1.2.3" is an address to the parser, and a mistake to everybody else.

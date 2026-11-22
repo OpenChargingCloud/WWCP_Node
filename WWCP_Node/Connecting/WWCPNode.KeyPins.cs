@@ -45,7 +45,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// Decided by WWCP_OCPP_Node's ServerKeyPinning, which a Local Controller
     /// uses for its line up to the CSMS as well; the station gives it its
     /// connections (ConnectionStore), its log, its security events and how a
-    /// connection's state is said, and dials.
+    /// connection's state is said, and connects.
     /// </para>
     /// <para>
     /// What an ssh:// connection does with the host key of its server, done for
@@ -101,7 +101,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (internal) KeyPinTrustOf(ConnectionId)
 
         /// <summary>
-        /// The trust the given connection was dialled with last, where it is
+        /// The trust the given connection was connected with last, where it is
         /// key-pinned: what its server showed, and the validator its WebSocket
         /// client asks.
         /// </summary>
@@ -114,7 +114,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) KeyPinTrustFor(Connection, out NotConnected)
 
         /// <summary>
-        /// The trust a wss:// connection is dialled with, where it is key-pinned;
+        /// The trust a wss:// connection is connected with, where it is key-pinned;
         /// null where it is checked by its CA, as it always was.
         /// </summary>
         /// <param name="Connection">The connection.</param>
@@ -126,7 +126,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) FollowKeyPins(Connection, Client, Trust, DialledURL, Connected)
+        #region (private) FollowKeyPins(Connection, Client, Trust, ConnectedURL, Connected)
 
         /// <summary>
         /// Follow a key-pinned connection beside what Follow says of it: a key
@@ -136,10 +136,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected void FollowKeyPins(ConnectionEntry    Connection,
                                    WebSocketClient    Client,
                                    ServerKeyPinTrust  Trust,
-                                   URL                DialledURL,
+                                   URL                ConnectedURL,
                                    Boolean            Connected)
 
-            => keyPinning.Follow(Connection, Client, Trust, DialledURL, Connected);
+            => keyPinning.Follow(Connection, Client, Trust, ConnectedURL, Connected);
 
         #endregion
 

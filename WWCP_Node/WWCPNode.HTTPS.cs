@@ -242,10 +242,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// nothing to anybody else - there is nothing they could do about it.
         /// </summary>
         /// <param name="Roles">The roles of whoever is signed in.</param>
-        public IReadOnlyList<String> NoticesFor(IEnumerable<String> Roles)
+        public IReadOnlyList<String> NoticesFor(IEnumerable<UserGroup_Id> Roles)
 
             => PlainHTTPWarning is String warning &&
-               Roles.Contains(AdminRole, StringComparer.OrdinalIgnoreCase)
+               Roles.Contains(AdminRole)
                    ? [ warning ]
                    : [];
 
@@ -279,7 +279,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// node speaks TLS, stands behind trusted proxies, or listens on the
         /// loopback alone.
         /// </summary>
-        private String? PlainHTTPWarningFor(IIPAddress  Address,
+        private String? PlainHTTPWarningFor(IPAddress  Address,
                                             IPPort      Port)
 
             => HTTPS || clientBehindProxies is not null || !ListensBeyondLoopback
@@ -300,7 +300,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Whether an address to listen on reaches beyond this machine: every
         /// address does, and every one that is not 127.0.0.0/8 or ::1.
         /// </summary>
-        private static Boolean IsBeyondLoopback(IIPAddress Address)
+        private static Boolean IsBeyondLoopback(IPAddress Address)
 
             => Address.IsAny ||
                !System.Net.IPAddress.TryParse(Address.ToString().Trim('[', ']'), out var address) ||
@@ -330,7 +330,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// there is nowhere to send it that it asked for.
         /// </para>
         /// </remarks>
-        private HTTPServer NewRedirectServer(IIPAddress  Address,
+        private HTTPServer NewRedirectServer(IPAddress  Address,
                                              IPPort      RedirectPort,
                                              IPPort      HTTPSPort,
                                              String      Product)

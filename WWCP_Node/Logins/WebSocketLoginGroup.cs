@@ -72,7 +72,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         Certificate,
 
         /// <summary>
-        /// An SSH public key of the charging station, for OCPP over SSH: the
+        /// An SSH public key of the charging station, for OCPP-over-SSH: the
         /// station signs in to this controller's SSH server under its
         /// identification.
         /// </summary>
@@ -203,7 +203,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public const String  NTSKE          = "ntske/1@open.charging.cloud";
 
         /// <summary>
-        /// DNS over SSH, of the white paper "DNS over SSH": a station has its
+        /// DNS-over-SSH, of the white paper "DNS-over-SSH": a station has its
         /// names over the SSH connection it has anyway.
         /// </summary>
         public const String  DNS            = "dns@open.charging.cloud";
@@ -258,7 +258,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         ///
         /// SSH keys among them, as everything else this controller accepts: a
         /// key does nothing until somebody gives a station one and switches
-        /// OCPP over SSH on. A default group that a file written before SSH
+        /// OCPP-over-SSH on. A default group that a file written before SSH
         /// keys existed holds is that file's, and stays without them until
         /// somebody adds them - the file said what it accepts.
         ///

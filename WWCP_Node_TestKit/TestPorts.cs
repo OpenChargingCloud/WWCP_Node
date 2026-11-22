@@ -21,6 +21,7 @@ using System.Net;
 using System.Net.Sockets;
 
 using NUnit.Framework;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -76,14 +77,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// safe from that for a while, since Windows hands out the ports after
         /// it first. Pointed out by the charging station.
         /// </remarks>
-        public const UInt16 LowestPortElsewhere   = 20000;
+        public static readonly IPPort LowestPortElsewhere   = IPPort.Parse(20000);
 
         /// <summary>
         /// The highest of the ports among which a port is looked for where the
         /// operating system offered one this test run has been handed already:
         /// the last one below Linux's dynamic ports.
         /// </summary>
-        public const UInt16 HighestPortElsewhere  = 32767;
+        public static readonly IPPort HighestPortElsewhere  = IPPort.Parse(32767);
 
         /// <summary>
         /// How often <see cref="StartedOnFreshPorts"/> makes and starts a node
@@ -100,7 +101,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <summary>
         /// Every port this test run has been handed, one way or another.
         /// </summary>
-        private static readonly HashSet<UInt16>  claimed  = [];
+        private static readonly HashSet<IPPort>  claimed  = [];
 
         private static readonly Lock             padlock  = new();
 
@@ -130,7 +131,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// to somebody else's on 0.0.0.0 - which the port's probe used to be.
         /// </remarks>
         /// <exception cref="InvalidOperationException">No port was found that this test run had not been handed and that nobody else held.</exception>
-        public static UInt16 Free()
+        public static IPPort Free()
 
             => Free(Holding:    port => ClosedPort.Bind(port, Exclusively: true),
                     Pause:      TimeSpan.FromMilliseconds(200),
@@ -143,17 +144,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <param name="Holding">A socket bound to the given port; at port 0, to one of the operating system's choice.</param>
         /// <param name="Pause">How long to wait before asking again the first time; the second waits twice as long, and so on.</param>
         /// <param name="Elsewhere">Where to look once the operating system offered a port handed out already; at random below the dynamic ports, where none is given.</param>
-        internal static UInt16 Free(Func<UInt16, Socket>  Holding,
+        internal static IPPort Free(Func<IPPort, Socket>  Holding,
                                     TimeSpan              Pause,
-                                    Func<UInt16>?         Elsewhere)
+                                    Func<IPPort>?         Elsewhere)
         {
 
             using var holder = Take(Bound:      port   => OnceThereIsRoom(() => Holding(port), Pause),
-                                    PortOf:     socket => (UInt16) ((IPEndPoint) socket.LocalEndPoint!).Port,
+                                    PortOf:     socket => IPPort.Parse(((IPEndPoint) socket.LocalEndPoint!).Port),
                                     LetGo:      socket => socket.Dispose(),
                                     Elsewhere:  Elsewhere);
 
-            return (UInt16) ((IPEndPoint) holder.LocalEndPoint!).Port;
+            return IPPort.Parse(((IPEndPoint) holder.LocalEndPoint!).Port);
 
         }
 
@@ -215,7 +216,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// when the operating system gave it a port that <see cref="Free()"/>
         /// has just handed out, to somebody who has not bound it yet.
         /// </remarks>
-        public static Boolean TryClaim(UInt16 Port)
+        public static Boolean TryClaim(IPPort Port)
         {
             lock (padlock)
                 return claimed.Add(Port);
@@ -326,7 +327,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <param name="Make">A new server on the given port, not started yet.</param>
         /// <param name="Start">What starts it.</param>
         /// <exception cref="SocketException">The port was taken <see cref="StartAttempts"/> times in a row.</exception>
-        public static async Task<TServer> StartedOnAFreshPort<TServer>(Func<UInt16, TServer>  Make,
+        public static async Task<TServer> StartedOnAFreshPort<TServer>(Func<IPPort, TServer>  Make,
                                                                        Func<TServer, Task>    Start)
 
             where TServer : IAsyncDisposable
@@ -403,8 +404,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// operating system's choice - that this test run has not been handed
         /// yet.
         /// </summary>
-        internal static UInt16 Take(Func<UInt16, UInt16>  Bound,
-                                    Func<UInt16>?         Elsewhere)
+        internal static IPPort Take(Func<IPPort, IPPort>  Bound,
+                                    Func<IPPort>?         Elsewhere)
 
             => Take(Bound,
                     PortOf:     port => port,
@@ -442,10 +443,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <param name="LetGo">What to do with one that is turned down, once something has been taken.</param>
         /// <param name="Elsewhere">The port to try next; at random below the dynamic ports, among those this test run has not been handed, where none is given.</param>
         /// <exception cref="InvalidOperationException">No port was found that this test run had not been handed and that nobody else held, in <see cref="MaxAttempts"/> attempts.</exception>
-        internal static T Take<T>(Func<UInt16, T>  Bound,
-                                  Func<T, UInt16>  PortOf,
+        internal static T Take<T>(Func<IPPort, T>  Bound,
+                                  Func<T, IPPort>  PortOf,
                                   Action<T>?       LetGo,
-                                  Func<UInt16>?    Elsewhere)
+                                  Func<IPPort>?    Elsewhere)
         {
 
             var turnedDown = new List<T>();
@@ -459,7 +460,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                     T offered;
 
                     if (attempt == 0)
-                        offered = Bound(0);
+                        offered = Bound(IPPort.Zero);
 
                     else
                     {
@@ -502,7 +503,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// which is turned down then as it is taken.
         /// </summary>
         /// <param name="Pick">A port, at each call.</param>
-        internal static UInt16 Unclaimed(Func<UInt16> Pick)
+        internal static IPPort Unclaimed(Func<IPPort> Pick)
         {
             lock (padlock)
             {
@@ -525,9 +526,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// A port below the dynamic ports, from <see cref="LowestPortElsewhere"/>
         /// to <see cref="HighestPortElsewhere"/>, at random.
         /// </summary>
-        internal static UInt16 APortElsewhere()
+        internal static IPPort APortElsewhere()
 
-            => (UInt16) Random.Shared.Next(LowestPortElsewhere, HighestPortElsewhere + 1);
+            => IPPort.Parse(Random.Shared.Next(LowestPortElsewhere.ToInt32(), HighestPortElsewhere.ToInt32() + 1));
 
         #endregion
 
@@ -537,7 +538,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// A port below the dynamic ports, at random, that this test run has not
         /// been handed.
         /// </summary>
-        private static UInt16 AnUnclaimedPortElsewhere()
+        private static IPPort AnUnclaimedPortElsewhere()
 
             => Unclaimed(APortElsewhere);
 
@@ -565,7 +566,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <summary>
         /// The port questions go unanswered on.
         /// </summary>
-        public UInt16 Port { get; }
+        public IPPort Port { get; }
 
         /// <summary>
         /// Hold a UDP port on the loopback address that nobody reads.
@@ -573,7 +574,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public SilentNameServer()
         {
             socket  = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
-            Port    = (UInt16) ((IPEndPoint) socket.Client.LocalEndPoint!).Port;
+            Port    = IPPort.Parse(((IPEndPoint) socket.Client.LocalEndPoint!).Port);
         }
 
         /// <summary>

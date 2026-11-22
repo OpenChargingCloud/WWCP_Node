@@ -53,7 +53,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
-    /// Dialling the back ends this station was told about.
+    /// Connecting to the back ends this station was told about.
     /// </summary>
     /// <remarks>
     /// Everything that decides how a connection is made is configuration - the
@@ -61,7 +61,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// drop - and this file is the only place that turns it into an actual
     /// call. What is configured lives in <see cref="ConnectionStore"/> and can
     /// be changed from the web interface while the station runs; what has been
-    /// dialled lives here.
+    /// connected to lives here.
     /// </remarks>
     public partial class WWCPNode
     {
@@ -71,7 +71,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// What became of each connection, by its identification.
         /// </summary>
-        protected readonly Dictionary<String, ConnectionState> dialled = [];
+        protected readonly Dictionary<String, ConnectionState> connectionStates = [];
 
         /// <summary>
         /// How long a connection test stays connected before closing again.
@@ -107,9 +107,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public const String TestAsksNothing   = "none";
 
         /// <summary>
-        /// One DialAgain at a time - see there.
+        /// One ConnectAgain at a time - see there.
         /// </summary>
-        protected readonly SemaphoreSlim dialAgainLock = new (1, 1);
+        protected readonly SemaphoreSlim connectAgainLock = new (1, 1);
 
         /// <summary>
         /// The SSH clients this station closed, or is closing: what they say
@@ -139,14 +139,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// How often a connection over SSH sends a PING, as a WebSocket of this
         /// station does: after three left without an answer, or without a word
-        /// at all from the server, the connection is taken for dead and dialled
-        /// again (white paper "OCPP over SSH", decision 11).
+        /// at all from the server, the connection is taken for dead and connected
+        /// again (white paper "OCPP-over-SSH", decision 11).
         /// </summary>
         public static readonly TimeSpan SshPingEvery       = TimeSpan.FromSeconds(30);
 
         // The connections whose server is believed by a key that was learned on
         // first use and no signed pin set confirmed yet - a host key over SSH, a
-        // key pin over a wss:// WebSocket - with what they were dialled for, those
+        // key pin over a wss:// WebSocket - with what they were connected for, those
         // whose server is not believed any more, and the clock of each probation:
         // what the gate of the OCPP nodes asks, one registry for both kinds
         // (WWCP_OCPP_Node's Probations).
@@ -172,32 +172,32 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// that somebody arriving at the station later can be told without
         /// having to find the moment it started in the log.
         /// </remarks>
-        public IReadOnlyDictionary<String, String> DialledConnections
+        public IReadOnlyDictionary<String, String> OutboundConnections
         {
             get
             {
-                lock (dialled)
-                    return dialled.ToDictionary(entry => entry.Key, entry => entry.Value.Said);
+                lock (connectionStates)
+                    return connectionStates.ToDictionary(entry => entry.Key, entry => entry.Value.Said);
             }
         }
 
         /// <summary>
-        /// Where each connection this station dialled stands, by
+        /// Where each connection this station made stands, by
         /// identification.
         /// </summary>
         /// <remarks>
-        /// The sentence of DialledConnections, and around it what the
+        /// The sentence of OutboundConnections, and around it what the
         /// Connections page says beside each connection: whether it is
-        /// connected, since when, what was dialled - a connection changed
-        /// is dialled as it was until the station has taken the change - and,
+        /// connected, since when, what was connected to - a connection changed
+        /// is connected as it was until the station has taken the change - and,
         /// while it is tried again, when the next attempt is.
         /// </remarks>
         public IReadOnlyDictionary<String, ConnectionState> ConnectionStates
         {
             get
             {
-                lock (dialled)
-                    return new Dictionary<String, ConnectionState>(dialled);
+                lock (connectionStates)
+                    return new Dictionary<String, ConnectionState>(connectionStates);
             }
         }
 
@@ -212,15 +212,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         public Int32 WebSocketClientCount
 
-            => DiallingNodes.Sum(node => node.WWCPWebSocketClients.Count());
+            => ConnectingNodes.Sum(node => node.WWCPWebSocketClients.Count());
 
         #endregion
 
 
-        #region (private) DialConfiguredConnections(CancellationToken = default)
+        #region (private) ConnectConfiguredConnections(CancellationToken = default)
 
         /// <summary>
-        /// Dial everything this station was told to dial.
+        /// Connect to everything this station was told to connect to.
         /// </summary>
         /// <remarks>
         /// After the servers are listening, and deliberately so: somebody
@@ -245,9 +245,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// by itself; every other one is registered with and answered, and told
         /// nothing by itself (see IsPrimary).
         /// </remarks>
-        protected Task DialConfiguredConnections(CancellationToken CancellationToken = default)
+        protected Task ConnectConfiguredConnections(CancellationToken CancellationToken = default)
 
-            => DialPeers(CancellationToken);
+            => ConnectToPeers(CancellationToken);
 
         #endregion
 
@@ -289,7 +289,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected Boolean WhatItProvesItselfWith(ConnectionEntry             Connection,
                                                out IHTTPAuthentication?    Basic,
                                                out TOTPConfig?             TOTP,
-                                               out String?                 TOTPLogin,
+                                               out User_Id?                TOTPLogin,
                                                out X509Certificate2[]?     Certificates,
                                                out String                  Says,
                                                out String?                 Error)
@@ -352,7 +352,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 // Who this node is as a client, from its certificate store:
-                // asked whenever it dials, so that an identity switched off
+                // asked whenever it connects, so that an identity switched off
                 // or taken out on the page next door is not shown again.
                 //
                 // One certificate is shown in a handshake: of the identities
@@ -454,13 +454,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) Dial(Connection, CancellationToken)
+        #region (private) ConnectTo(Connection, CancellationToken)
 
         /// <summary>
         /// One connection: what it proves itself with, and whether it got
         /// through.
         /// </summary>
-        protected async Task Dial(ConnectionEntry    Connection,
+        protected async Task ConnectTo(ConnectionEntry    Connection,
                                 CancellationToken  CancellationToken)
         {
 
@@ -469,7 +469,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                // The other end dials: there is nothing to dial, and it is
+                // The other end connects: there is nothing to connect to, and it is
                 // waited for.
                 if (Connection.Inbound)
                 {
@@ -488,7 +488,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (Connection.IsSSH)
                 {
-                    await DialOverSSH(Connection, where, CancellationToken);
+                    await ConnectOverSSH(Connection, where, CancellationToken);
                     return;
                 }
 
@@ -498,9 +498,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return;
                 }
 
-                // Where it went when it was dialled: a first key pin is written
+                // Where it went when it was connected to: a first key pin is written
                 // down for this one, and not for wherever it was changed to since.
-                var dialledURL  = Connection.URL;
+                var connectedURL  = Connection.URL;
 
                 // Its server known by the key pin of its key rather than by a
                 // CA: the key and nothing else is checked, at every handshake,
@@ -520,10 +520,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var validator   = keyPins is not null
                                       ? keyPins.Validator
                                       : Connection.IsSecure
-                                            ? JudgedAsAServer(Connection.Id, dialledURL)
+                                            ? JudgedAsAServer(Connection.Id, connectedURL)
                                             : null;
 
-                Log.Info($"Dialling {where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} " +
+                Log.Info($"Connecting to {where} as {Connection.Protocol} " +
                          $"{Connection.ConnectionType}" +
                          (keyPins is not null ? $"; {WhatItBelieves(keyPins)}" : "") +
                          (keyPins is null && Connection.Pins?.Text is String heldTo ? $"; its server is held to {heldTo}" : "") +
@@ -534,7 +534,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // of the overlay network by the name its far end answers to.
                 NamedOnTheWire(Connection);
 
-                var response = await ConnectOverWebSocket(Connection, basic, validator, certificates, totp, totpLogin, CancellationToken);
+                var response = await ConnectOverWebSocket(Connection, basic, validator, certificates, totp, totpLogin?.ToString(), CancellationToken);
 
                 // 101 and nothing else: an HTTP answer that is not an upgrade
                 // is a web server being polite, not a back end.
@@ -566,13 +566,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     SubprotocolInUseAt(Connection.URL) is String agreed)
                 {
                     Log.Info($"The connection to {where} agreed on {agreed}: its messages are " +
-                             (IsCBORSubprotocol(agreed) ? "CBOR" : "JSON") +
+                             (IsCBORSubprotocol(Connection, agreed) ? "CBOR" : "JSON") +
                              (Connection.Encoding == cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.Auto ? ", which its back end chose" : "") +
                              ".", "ocpp", "connections");
                 }
 
                 if (keyPins is not null && client is not null)
-                    FollowKeyPins(Connection, client, keyPins, dialledURL, response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols);
+                    FollowKeyPins(Connection, client, keyPins, connectedURL, response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols);
 
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
                 {
@@ -610,7 +610,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // that took the handshake without agreeing on the CBOR
                 // subprotocol is let go of before anything is said to it.
                 if (Connection.Encoding == cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.CBOR &&
-                    !IsCBORSubprotocol(SubprotocolInUseAt(Connection.URL)))
+                    !IsCBORSubprotocol(Connection, SubprotocolInUseAt(Connection.URL)))
                 {
 
                     await Disconnect(client, "No CBOR subprotocol was agreed on");
@@ -618,7 +618,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     Fail(Connection,
                          ConnectionStatus.Refused,
                          $"{where} took the connection without agreeing on {String.Join(", ", SubProtocolsOf(Connection))}: " +
-                         "it does not speak OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else; it is not tried again.");
+                         $"it does not speak {Connection.Use} as CBOR, and a connection that says \"cbor\" speaks nothing else; it is not tried again.");
 
                     return;
 
@@ -671,7 +671,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         /// <remarks>
         /// A connection that names the node at its other end - what a node
-        /// that dials downwards writes down, a CSMS dialling a charging
+        /// that connects downwards writes down, a CSMS connecting to a charging
         /// station - is routed by that name: the node speaks to it by it.
         /// </remarks>
         public static NetworkingNode_Id NextHopOf(ConnectionEntry Connection)
@@ -710,15 +710,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) NamedOnTheWire(Connection)
 
         /// <summary>
-        /// The routing of the node that dials the connection told what the far
-        /// end of its route answers to - see FarEndNameOf.
+        /// The routing of the node that makes the connection told what the far
+        /// end of its route answers to - see FarEndNameOf. Nothing of a
+        /// connection of OCPI: the overlay network is OCPP's.
         /// </summary>
         private void NamedOnTheWire(ConnectionEntry Connection)
+        {
 
-            => DiallingNodeOrNoneOf(Connection.OCPPVersion)?.Routing.SetNameOnTheWire(
-                   NextHopOf   (Connection),
-                   FarEndNameOf(Connection)
-               );
+            if (Connection.Use != ConnectionUse.OCPP)
+                return;
+
+            ConnectingNodeOrNoneOf(Connection)?.Routing.SetNameOnTheWire(
+                NextHopOf   (Connection),
+                FarEndNameOf(Connection)
+            );
+
+        }
 
         #endregion
 
@@ -726,22 +733,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Whether the connection leads to the back end in charge of its OCPP
-        /// node: the oldest connection of its version that dials by itself, or
-        /// another endpoint of the peer it belongs to - the one dialled where
+        /// node: the oldest connection of its version that connects by itself, or
+        /// another endpoint of the peer it belongs to - the one connected to where
         /// that cannot be reached.
         /// </summary>
         /// <remarks>
-        /// The oldest, because that is the one this station has always dialled
+        /// The oldest, because that is the one this station has always connected to
         /// first. Every other connection of the version leads to a back end the
         /// station registers with as well and answers, and tells nothing by
         /// itself. Which one is in charge is to be said by a switchover later;
         /// until then it is this one.
+        ///
+        /// A connection of OCPI leads to no back end in charge of anything, and
+        /// is never the primary - nor is one of OCPP passed over for it.
         /// </remarks>
         public Boolean IsPrimary(ConnectionEntry Connection)
         {
 
+            if (Connection.Use != ConnectionUse.OCPP)
+                return false;
+
             var oldest = Connections.Connections.
-                             Where  (one => one.AutoConnect && one.OCPPVersion == Connection.OCPPVersion).
+                             Where  (one => one.AutoConnect && one.Use == ConnectionUse.OCPP && one.OCPPVersion == Connection.OCPPVersion).
                              OrderBy(one => one.CreatedAt).
                              FirstOrDefault();
 
@@ -785,16 +798,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) ClientOf(Connection)
 
         /// <summary>
-        /// The client the node made for this connection when it was dialled.
+        /// The client the node made for this connection when it was opened.
         /// </summary>
         /// <remarks>
         /// Made inside the call and kept by the node, whether it got through or
-        /// not; the last one to the connection's address is the one this dial
+        /// not; the last one to the connection's address is the one this attempt
         /// made.
         /// </remarks>
         protected WebSocketClient? ClientOf(ConnectionEntry Connection)
 
-            => (DiallingNodeOrNoneOf(Connection.OCPPVersion)?.WWCPWebSocketClients ?? []).
+            => (ConnectingNodeOrNoneOf(Connection)?.WWCPWebSocketClients ?? []).
                OfType<WebSocketClient>().
                LastOrDefault(one => one.RemoteURL == Connection.URL);
 
@@ -808,7 +821,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public String? HTTPVersionInUseAt(URL URL)
 
-            => DiallingNodes.SelectMany(node => node.WWCPWebSocketClients).
+            => ConnectingNodes.SelectMany(node => node.WWCPWebSocketClients).
                     OfType<WebSocketClient>().
                     LastOrDefault(one => one.RemoteURL == URL) is { Connected: true, HTTPVersionInUse: HTTPVersion over }
 
@@ -826,7 +839,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         /// <remarks>
         /// Asked of the client that was made for the connection when it was
-        /// dialled. A WebSocket says it in its handshake, an ssh:// connection
+        /// opened. A WebSocket says it in its handshake, an ssh:// connection
         /// in the WELCOME its server answers the HELLO with.
         /// </remarks>
         public String? SubprotocolInUseOf(ConnectionEntry Connection)
@@ -841,7 +854,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               ? connection.Subprotocol
                               : null,
 
-                   // One that was dialled without a peer of its own.
+                   // One that was connected without a peer of its own.
                    _   => Connection.IsSSH
                               ? null
                               : SubprotocolInUseAt(Connection.URL)
@@ -858,7 +871,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public String? SubprotocolInUseAt(URL URL)
 
-            => DiallingNodes.SelectMany(node => node.WWCPWebSocketClients).
+            => ConnectingNodes.SelectMany(node => node.WWCPWebSocketClients).
                     OfType<WWCPWebSocketClient>().
                     LastOrDefault(one => one.RemoteURL == URL) is { Connected: true } client
 
@@ -874,7 +887,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// it believes.
         /// </summary>
         /// <remarks>
-        /// One place, for the same reason as WhatItProvesItselfWith: dialling
+        /// One place, for the same reason as WhatItProvesItselfWith: connecting
         /// and testing a connection have to agree about what it shows.
         ///
         /// The keys it names, or this station's own - or none, where it says
@@ -888,12 +901,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// or as a password, which every SSH server can be made to check and
         /// whoever the session ends at can read. Who signs in is the URL's
         /// login, or the credentials', or else the name of the OCPP node that
-        /// dials.
+        /// connects.
         /// </remarks>
         /// <param name="ForTest">Whether it is for a connection test: one that pins nothing believes the first host key shown, and writes nothing down.</param>
         protected Boolean SshLoginOf(ConnectionEntry                            Connection,
                                    ISshHostKey                                Key,
-                                   [NotNullWhen(true)]  out SshClientOptions? Login,
+                                   [NotNullWhen(true)]  out SSHClientOptions? Login,
                                    [NotNullWhen(true)]  out SshHostKeyTrust?  Trust,
                                    out String                                 Says,
                                    [NotNullWhen(false)] out String?           Error,
@@ -928,7 +941,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             String?     password       = null;
-            String?     passwordLogin  = null;
+            User_Id?    passwordLogin  = null;
             String?     passwordOf     = null;
             TOTPConfig? totp           = null;
             var         totpIsBound    = false;
@@ -987,7 +1000,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return false;
             }
 
-            var username  = urlLogin ?? passwordLogin ?? DiallingNodeOf(Connection.OCPPVersion).Id.ToString();
+            var username  = urlLogin ?? passwordLogin ?? User_Id.Parse(ConnectingNodeOf(Connection).Id.ToString());
 
             Trust  = new SshHostKeyTrust(
                          Connection.SshHostKeys,
@@ -1013,7 +1026,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             // A one-time password is worked out when it is asked for, and not
-            // when the connection is dialled: a server slow to answer is not
+            // when the connection is made: a server slow to answer is not
             // shown one that ran out on the way.
             String oneTimePassword()
                 => TOTPGenerator.GenerateTOTP(
@@ -1026,7 +1039,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        totp. HashAlgorithm
                    ).Current;
 
-            Login  = new SshClientOptions {
+            Login  = new SSHClientOptions {
                          Username           = username,
                          DNSClient          = DNSClient,
                          VerifyHostKey      = Trust.Verify,
@@ -1041,13 +1054,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                           challenge.Prompts.Select(prompt => oneTimePassword()).ToArray()
                                                       )
                                                     : null,
-                         SessionBoundTotp   = totp is not null
+                         SessionBoundTOTP   = totp is not null
                                                   ? sessionId => SshSessionBoundTotp.Generate(totp, sessionId, TimeProvider.GetUtcNow())
                                                   : null,
                          ConnectTimeout     = SshConnectTimeout,
                          KeepAliveInterval  = SshKeepAliveEvery,
                          // Terrapin (CVE-2023-48795): a server without strict KEX
-                         // is not signed in to (white paper "OCPP over SSH", decision 10).
+                         // is not signed in to (white paper "OCPP-over-SSH", decision 10).
                          RequireStrictKex   = true
                      };
 
@@ -1165,7 +1178,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) DialOverSSH(Connection, Where, CancellationToken)
+        #region (private) ConnectOverSSH(Connection, Where, CancellationToken)
 
         /// <summary>
         /// One ssh:// connection: who it signs in as, and whether it got
@@ -1178,12 +1191,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// take, the OCPP subsystem refused. Trying again would not change the
         /// answer, only fill the log with it.
         /// </remarks>
-        protected async Task DialOverSSH(ConnectionEntry    Connection,
+        protected async Task ConnectOverSSH(ConnectionEntry    Connection,
                                        String             Where,
                                        CancellationToken  CancellationToken)
         {
 
-            var node  = DiallingNodeOf(Connection.OCPPVersion);
+            var node  = ConnectingNodeOf(Connection);
             var key   = await SshKey.MakeIfNeeded(CancellationToken);
 
             if (!SshLoginOf(Connection, key, out var login, out var trust, out var says, out var wrong))
@@ -1192,11 +1205,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return;
             }
 
-            // Where it went when it was dialled: a first host key is written
+            // Where it went when it was connected to: a first host key is written
             // down for this one, and not for wherever it was changed to since.
-            var dialledURL = Connection.URL;
+            var connectedURL = Connection.URL;
 
-            Log.Info($"Dialling {Where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} {Connection.ConnectionType} over SSH, " +
+            Log.Info($"Connecting to {Where} as {Connection.Protocol} {Connection.ConnectionType} over SSH, " +
                      $"signing in with {says}; {WhatItBelieves(trust)}.",
                      "ocpp", "connections");
 
@@ -1213,7 +1226,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // else shares it may have had made before (WWCPNode.SSHPeerChannels.cs).
             var peer    = SshPeerFor(Connection, login, trust);
 
-            // Named as over a WebSocket - see Dial.
+            // Named as over a WebSocket - see ConnectTo.
             NamedOnTheWire(Connection);
 
             var result  = await ConnectOverSSH(Connection,
@@ -1258,7 +1271,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                 : "; it is not tried again."));
 
                 if (keepsTrying)
-                    FollowOverSSH(Connection, dialledURL, client!, trust, Connected: false);
+                    FollowOverSSH(Connection, connectedURL, client!, trust, Connected: false);
 
                 return;
 
@@ -1267,7 +1280,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // As over a WebSocket: a connection that says "cbor" speaks nothing else.
             if (Connection.Encoding == cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.CBOR &&
                 client is not null                                                 &&
-                !IsCBORSubprotocol(client.MessageClient.Connection?.Subprotocol))
+                !IsCBORSubprotocol(Connection, client.MessageClient.Connection?.Subprotocol))
             {
 
                 await LetGo(client, "No CBOR subprotocol was agreed on.");
@@ -1275,7 +1288,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 Fail(Connection,
                      ConnectionStatus.Refused,
                      $"{Where} took the connection without agreeing on {String.Join(", ", SubProtocolsOf(Connection))}: " +
-                     "it does not speak OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else; it is not tried again.");
+                     $"it does not speak {Connection.Use} as CBOR, and a connection that says \"cbor\" speaks nothing else; it is not tried again.");
 
                 return;
 
@@ -1286,7 +1299,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 client?.MessageClient.Connection?.Subprotocol is String agreed)
             {
                 Log.Info($"The connection to {Where} agreed on {agreed}: its messages are " +
-                         (IsCBORSubprotocol(agreed) ? "CBOR" : "JSON") +
+                         (IsCBORSubprotocol(Connection, agreed) ? "CBOR" : "JSON") +
                          (Connection.Encoding == cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.Auto ? ", which its server chose" : "") +
                          ".", "ocpp", "connections");
             }
@@ -1297,8 +1310,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (client is not null)
             {
-                LearnIfFirst(Connection, dialledURL, trust, client, client.MessageClient.Connection);
-                FollowOverSSH(Connection, dialledURL, client, trust, Connected: true);
+                LearnIfFirst(Connection, connectedURL, trust, client, client.MessageClient.Connection);
+                FollowOverSSH(Connection, connectedURL, client, trust, Connected: true);
             }
 
             else
@@ -1379,7 +1392,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        SshMessageRefusedException  => $"{Where} let this {NodeNoun} in, and refused it the OCPP subsystem: {error.Message}",
                        SshSubsystemRefusedException
                                                    => $"{Where} let this {NodeNoun} in, and refused it the OCPP subsystem: " +
-                                                       $"it serves no OCPP over SSH, or an access rule there denies it to this {NodeNoun}",
+                                                       $"it serves no OCPP-over-SSH, or an access rule there denies it to this {NodeNoun}",
                        null                        => $"{Where} could not be reached over SSH",
                        _                           => $"{Where} could not be reached over SSH: {ReasonOf(error)}"
                    };
@@ -1399,10 +1412,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) FollowOverSSH(Connection, DialledURL, Client, Trust, Connected)
+        #region (private) FollowOverSSH(Connection, ConnectedURL, Client, Trust, Connected)
 
         /// <summary>
-        /// Say what becomes of a connection dialled over SSH from here on - as
+        /// Say what becomes of a connection made over SSH from here on - as
         /// Follow does for one over a WebSocket.
         /// </summary>
         /// <remarks>
@@ -1414,7 +1427,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// is said once this station let go of it.
         /// </remarks>
         protected void FollowOverSSH(ConnectionEntry  Connection,
-                                   URL              DialledURL,
+                                   URL              ConnectedURL,
                                    WWCPSshClient    Client,
                                    SshHostKeyTrust  Trust,
                                    Boolean          Connected)
@@ -1427,7 +1440,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (IsLetGo(Client))
                     return Task.CompletedTask;
 
-                LearnIfFirst(Connection, DialledURL, Trust, Client, connection);
+                LearnIfFirst(Connection, ConnectedURL, Trust, Client, connection);
 
                 Note(Connection, connectedBefore
                                      ? "Connected again, and will come back by itself if it drops."
@@ -1509,12 +1522,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) LearnIfFirst(Connection, DialledURL, Trust, Client, Current)
+        #region (private) LearnIfFirst(Connection, ConnectedURL, Trust, Client, Current)
 
         /// <summary>
         /// Write down the host key a connection that trusts on first use
         /// learned, and keep the connection on probation while no signed pin
-        /// set confirmed it (white paper "OCPP over SSH", section 10.4).
+        /// set confirmed it (white paper "OCPP-over-SSH", section 10.4).
         /// </summary>
         /// <remarks>
         /// The connection made now is on probation before the host key is
@@ -1522,7 +1535,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         /// <param name="Current">The connection over SSH made now.</param>
         protected void LearnIfFirst(ConnectionEntry       Connection,
-                                  URL                   DialledURL,
+                                  URL                   ConnectedURL,
                                   SshHostKeyTrust       Trust,
                                   WWCPSshClient         Client,
                                   SshMessageConnection? Current)
@@ -1536,7 +1549,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Current is not null)
                 probations.Enter(Current, new Probation(Connection.Id, Client, Trust, () => Trust.OnProbation));
 
-            if (Connections.TryLearnHostKey(Connection.Id, DialledURL, learned, out var notWritten) &&
+            if (Connections.TryLearnHostKey(Connection.Id, ConnectedURL, learned, out var notWritten) &&
                 ReportedLearned(Connection, learned))
                 Log.Warning($"'{Connection.Description.FirstText()}' learned the host key {learned} on its first connection. It is on probation for " +
                             $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s): until a signed pin set confirms it, this {NodeNoun} " +
@@ -1558,7 +1571,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// The security event of an answer that is final: a host key not believed, or a server without
-        /// strict KEX (white paper "OCPP over SSH", section 9.4).
+        /// strict KEX (white paper "OCPP-over-SSH", section 9.4).
         /// </summary>
         protected void ReportFinal(ConnectionEntry  Connection,
                                  SshHostKeyTrust  Trust,
@@ -1795,7 +1808,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// A node keeps every client it made, closed or not, until it is told
         /// to let go of one: a station that went from endpoint to endpoint
         /// while none could be reached gathered a client for every one it
-        /// dialled. Closed for good: a WebSocket client without its reconnect
+        /// connected to. Closed for good: a WebSocket client without its reconnect
         /// policy, an SSH client told to connect no more.
         /// </remarks>
         /// <param name="Client">The client: a WebSocket or an SSH client.</param>
@@ -1836,14 +1849,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private) Follow(Connection, Client, Connected)
 
         /// <summary>
-        /// Say what becomes of a dialled connection from here on.
+        /// Say what becomes of a connection this node made from here on.
         /// </summary>
         /// <remarks>
         /// The client comes back by itself - after a drop, and until it gets
         /// through at all: the node gave it its policy before its first
         /// attempt, see BuildOCPPNodes. What becomes of it is said where what
-        /// happened when it was dialled is said, in the log and in
-        /// DialledConnections, which otherwise went on saying "Connected" of a
+        /// happened when it was connected is said, in the log and in
+        /// OutboundConnections, which otherwise went on saying "Connected" of a
         /// connection gone for an hour, and "did not become a WebSocket
         /// connection" of one made long since.
         ///
@@ -1855,7 +1868,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </remarks>
         /// <param name="Connection">The connection, as it is written down.</param>
         /// <param name="Client">The client the node made for it.</param>
-        /// <param name="Connected">Whether the dial got through, so that the next connection the client opens is "again".</param>
+        /// <param name="Connected">Whether the connection got through, so that the next connection the client opens is "again".</param>
         protected void Follow(ConnectionEntry  Connection,
                             WebSocketClient  Client,
                             Boolean          Connected)
@@ -2002,8 +2015,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected void Record(ConnectionEntry Connection, ConnectionStatus Status, String What)
         {
 
-            lock (dialled)
-                dialled[Connection.Id] = new ConnectionState(
+            lock (connectionStates)
+                connectionStates[Connection.Id] = new ConnectionState(
                                              Status,
                                              TimeProvider.GetUtcNow(),
                                              What,
@@ -2029,9 +2042,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected void NextAttempt(ConnectionEntry Connection, UInt32 Attempt, TimeSpan Delay)
         {
 
-            lock (dialled)
-                if (dialled.TryGetValue(Connection.Id, out var state))
-                    dialled[Connection.Id] = state with {
+            lock (connectionStates)
+                if (connectionStates.TryGetValue(Connection.Id, out var state))
+                    connectionStates[Connection.Id] = state with {
                                                  Attempt        = Attempt,
                                                  NextAttemptAt  = TimeProvider.GetUtcNow() + Delay
                                              };
@@ -2090,6 +2103,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="HTTPVersion">Which version of HTTP a WebSocket is opened over; nothing for what the server chooses.</param>
         /// <param name="OCPPRequest">What is asked in OCPP once it is connected: "heartbeat", which it is where nothing is said, or "none".</param>
         /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; nothing for "json".</param>
+        /// <param name="OCPIVersion">Which OCPI a connection to an EMSP or a CPO carries, and so which sub-protocols are offered; nothing for a connection of OCPP.</param>
         public async Task<JObject> TestConnection(I18NString?            Description,
                                                   String?                URL,
                                                   String?                ConnectionType,
@@ -2106,7 +2120,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                   String?                HTTPVersion           = null,
                                                   String?                OCPPRequest           = null,
                                                   String?                Encoding              = null,
-                                                  JToken?                Identities            = null)
+                                                  JToken?                Identities            = null,
+                                                  String?                OCPIVersion           = null)
         {
 
             var clock  = Stopwatch.StartNew();
@@ -2176,6 +2191,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // than fail at a socket with something less useful.
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out var notYet, NodeNoun) ||
+                !ConnectionEntry.ValidateOCPIVersion(type, OCPIVersion, out var ocpiVersion, out notYet, NodeNoun) ||
                 !ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out notYet) ||
                 !ConnectionEntry.TryParseEncoding(version, Encoding, out var encoding, out notYet) ||
                 !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet) ||
@@ -2210,6 +2226,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
+            // Nothing is asked in OCPP over a connection that carries OCPI.
+            if (ConnectionEntry.UseOf(type) != ConnectionUse.OCPP)
+                asked = null;
+
             // A throwaway, so that everything below reads one shape whether it
             // came from the store or from a form. Nothing writes it anywhere.
             var connection = ConnectionEntry.NotOfAStore(
@@ -2231,7 +2251,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                  ServerKeyPinProbationTime:  keyPinProbationTime,
                                  Pins:                       pins,
                                  HTTPVersion:                httpVersion ?? WebSocketHTTPVersion.Auto,
-                                 Encoding:                   encoding    ?? cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.JSON
+                                 Encoding:                   encoding    ?? cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.JSON,
+                                 OCPIVersion:                ocpiVersion
                              );
 
             // What it names as a list goes before the one certificate.
@@ -2254,12 +2275,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             #endregion
 
-            // There is nothing of it this node could try: the other end dials.
+            // There is nothing of it this node could try: the other end connects.
             if (connection.Inbound)
             {
 
-                Step("error", $"'{connection.Description.FirstText()}' is a connection the other end makes: '{connection.InboundName}' dials {connection.URL}. " +
-                              $"There is nothing this {NodeNoun} could dial to test it - what is said of it on the page is how it stands.");
+                Step("error", $"'{connection.Description.FirstText()}' is a connection the other end makes: '{connection.InboundName}' connects to {connection.URL}. " +
+                              $"There is nothing this {NodeNoun} could connect to for a test - what is said of it on the page is how it stands.");
 
                 return Done(connection, false);
 
@@ -2269,14 +2290,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             #region What is going to be tried
 
-            Step("info", $"{ConnectionEntry.AsText(connection.OCPPVersion)} to {connection.URL}, " +
+            Step("info", $"{connection.Protocol} to {connection.URL}, " +
                          $"written down as {connection.ConnectionType}.");
 
             IHTTPAuthentication?  basic         = null;
             TOTPConfig?           totp          = null;
-            String?               totpLogin     = null;
+            User_Id?              totpLogin     = null;
             X509Certificate2[]?   certificates  = null;
-            SshClientOptions?     sshLogin      = null;
+            SSHClientOptions?     sshLogin      = null;
             SshHostKeyTrust?      sshTrust      = null;
             ServerKeyPinTrust?    keyPins       = null;
             SslPolicyErrors?      caSaid        = null;
@@ -2284,7 +2305,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (connection.IsSSH)
             {
 
-                Step("info", $"The URL is an ssh:// one: OCPP goes over the SSH subsystem {SshSubsystem}, " +
+                Step("info", $"The URL is an ssh:// one: {connection.Use} goes over the SSH subsystem {SshSubsystemOf(connection)}, " +
                               "encrypted, and its server is known by its host key.");
 
                 // Made here where there is none yet: a test of an ssh://
@@ -2313,7 +2334,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                  "a test writes nothing down" +
                                  (connection.SshTrustOnFirstUse == SshTrustOnFirstUse.HostKey
                                       ? $", so the first connection this {NodeNoun} makes learns it, on probation."
-                                      : $", and without a pin or trust on first use the {NodeNoun} does not dial it."));
+                                      : $", and without a pin or trust on first use the {NodeNoun} does not connect to it."));
 
             }
             else
@@ -2322,7 +2343,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (connection.IsKeyPinned)
                 {
 
-                    // Held to what the form says, as the dialling would be: a
+                    // Held to what the form says, as the connecting would be: a
                     // test writes nothing down, so a key it learns is believed
                     // for the test only.
                     keyPins = new ServerKeyPinTrust(connection, () => connection);
@@ -2338,7 +2359,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     if (connection.RawPublicKeys != RawPublicKeyMode.Off)
                         Step("warning", connection.RawPublicKeys == RawPublicKeyMode.Require
                                             ? $"It requires raw public keys, which this {NodeNoun}'s TLS stack cannot offer yet: a certificate is refused, " +
-                                              $"and the {NodeNoun} does not dial it."
+                                              $"and the {NodeNoun} does not connect to it."
                                             : $"It prefers raw public keys, which this {NodeNoun}'s TLS stack cannot offer yet: the key is checked in the certificate.");
 
                 }
@@ -2370,7 +2391,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var host = connection.URL.Host.ToString();
 
-            // With this station's DNS client, as everything the station dials
+            // With this station's DNS client, as everything the station connects to
             // is: what it finds is what the probe below connects to. A name it
             // finds nothing for ends the test here - the connection itself
             // would not get further, and no other resolver is asked. The
@@ -2468,7 +2489,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 #region Open it
 
-                // Key-pinned, the key is checked as the dialling checks it. CA
+                // Key-pinned, the key is checked as the connecting checks it. CA
                 // checked, the answer is SslStream's own - no policy error, or no
                 // connection - and the key pin of the key is only looked at, for
                 // somebody who wants to pin it.
@@ -2485,7 +2506,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                           shownKeyPin  = certificate is not null ? KeyPin.FromCertificate(certificate) : null;
                                                                           caSaid       = policyErrors;
 
-                                                                          // As the dialling judges it, but only asked: a test
+                                                                          // As the connecting judges it, but only asked: a test
                                                                           // learns nothing, remembers nothing, and logs nothing
                                                                           // as the judgement of a connection in effect.
                                                                           judged       = JudgeServer(ConnectionEntry.PinsService,
@@ -2509,7 +2530,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              ClientCertificates:          CertificateShownAlone(certificates),
                              ClientCertificateChain:      CertificateWithItsChain(certificates),
                              TOTPConfig:                  totp,
-                             TOTPLogin:                   totpLogin,
+                             TOTPLogin:                   totpLogin?.ToString(),
                              DisableWebSocketPings:       true,
                              DisableLogging:              true
                          );
@@ -2527,7 +2548,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 client.OnBinaryMessageReceived += (timestamp, sender, conn, frame, tracking, message, token) => {
 
                     // What a connection that agreed on CBOR carries, shown as the JSON it stands for.
-                    if (speaksCBOR && TryCBORAsJSON(message, out var shown, out _))
+                    if (speaksCBOR && TryCBORAsJSON(connection, message, out var shown, out _))
                     {
 
                         var text = shown.ToString(Newtonsoft.Json.Formatting.None);
@@ -2549,7 +2570,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return Task.CompletedTask;
                 };
 
-                // As the dialling would: over the version of HTTP the form names.
+                // As the connecting would: over the version of HTTP the form names.
                 client.WebSocketOver = connection.HTTPVersion;
 
                 Step("info", $"Connecting, offering {String.Join(", ", SubProtocolsOf(connection))}" +
@@ -2657,17 +2678,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                    : "Connected, but the handshake named no sub-protocol. Whatever is there took the " +
                                      "connection without agreeing to speak OCPP.");
 
-                speaksCBOR = IsCBORSubprotocol(agreedOn);
+                speaksCBOR = IsCBORSubprotocol(connection, agreedOn);
 
                 if (speaksCBOR)
                     Step("info", "Its messages are CBOR in binary frames.");
 
-                // As the dialling would: a connection that says "cbor" speaks nothing else.
+                // As the connecting would: a connection that says "cbor" speaks nothing else.
                 else if (connection.Encoding == cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.CBOR)
                 {
 
                     Step("error", $"It did not agree on {String.Join(", ", SubProtocolsOf(connection))}: whatever is there does not speak " +
-                                  $"OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else. The {NodeNoun} would let go of it again.");
+                                  $"{connection.Use} as CBOR, and a connection that says \"cbor\" speaks nothing else. The {NodeNoun} would let go of it again.");
 
                     Log.Warning($"The connection test for '{connection.Description.FirstText()}' got through, and its back end does not speak CBOR.",
                                 "ocpp", "connections", "test");
@@ -2686,7 +2707,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var answered = asked is null ||
                                await asked.Ask(
                                          async text => speaksCBOR
-                                                           ? await client.SendBinaryMessage(CBORFrameOf(text), CancellationToken: CancellationToken) == SentStatus.Success
+                                                           ? await client.SendBinaryMessage(CBORFrameOf(connection, text), CancellationToken: CancellationToken) == SentStatus.Success
                                                            : await client.SendTextMessage  (text,              CancellationToken: CancellationToken) == SentStatus.Success,
                                          Step,
                                          TestAnswerWithin,
@@ -2973,7 +2994,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               Fields.Value<String>(ConnectionEntry.HTTPVersionKey),
                               Fields.Value<String>(TestRequestKey),
                               Fields.Value<String>(ConnectionEntry.EncodingKey),
-                              Fields["identities"]);
+                              Fields["identities"],
+                              Fields.Value<String>(ConnectionEntry.OCPIVersionKey));
 
         /// <summary>
         /// Under which name a test is told what to ask in OCPP: "ocppRequest".
@@ -2994,7 +3016,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// nothing it is told reaches them, and nothing of it is left behind.
         /// </remarks>
         protected async Task<JObject> TestOverSSH(ConnectionEntry                      Connection,
-                                                SshClientOptions                     Login,
+                                                SSHClientOptions                     Login,
                                                 SshHostKeyTrust                      Trust,
                                                 TestRequest?                         Asked,
                                                 Action<String, String>               Step,
@@ -3008,8 +3030,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var speaksCBOR    = false;
 
             var client        = new WWCPSshClient(
-                                    DiallingNodeOf(Connection.OCPPVersion),
-                                    WWCPSshClient.OptionsFrom(Connection.URL, Login, SshSubsystem, subprotocols, PingEvery: SshPingEvery),
+                                    ConnectingNodeOf(Connection),
+                                    WWCPSshClient.OptionsFrom(Connection.URL, Login, SshSubsystemOf(Connection) ?? "", subprotocols, PingEvery: SshPingEvery),
                                     ConnectAs: WWCPSshClient.ConnectAsFrom(Connection.URL)
                                 );
 
@@ -3023,7 +3045,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             client.MessageClient.OnBinaryMessageReceived += (timestamp, sender, connection, bytes, cancellationToken) => {
 
                 // What a connection that agreed on CBOR carries, shown as the JSON it stands for.
-                if (speaksCBOR && TryCBORAsJSON(bytes, out var shown, out _))
+                if (speaksCBOR && TryCBORAsJSON(Connection, bytes, out var shown, out _))
                 {
 
                     var text = shown.ToString(Newtonsoft.Json.Formatting.None);
@@ -3053,18 +3075,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                Step("info", $"Connecting as '{Login.Username}', asking for {SshSubsystem} " +
+                Step("info", $"Connecting as '{Login.Username}', asking for {SshSubsystemOf(Connection)} " +
                              $"and offering {String.Join(", ", subprotocols)} ...");
 
                 var connection = await client.Connect(CancellationToken);
 
-                speaksCBOR = IsCBORSubprotocol(connection.Subprotocol);
+                speaksCBOR = IsCBORSubprotocol(Connection, connection.Subprotocol);
 
-                // As the dialling would: a connection that says "cbor" speaks nothing else.
+                // As the connecting would: a connection that says "cbor" speaks nothing else.
                 if (!speaksCBOR && Connection.Encoding == cloud.charging.open.protocols.WWCP.WebSockets.MessageEncodings.CBOR)
                 {
 
-                    Step("error", $"The server did not take {String.Join(", ", subprotocols)}: it does not speak OCPP as CBOR, and a " +
+                    Step("error", $"The server did not take {String.Join(", ", subprotocols)}: it does not speak {Connection.Use} as CBOR, and a " +
                                   $"connection that says \"cbor\" speaks nothing else. The {NodeNoun} would let go of it again.");
 
                     Log.Warning($"The connection test for '{Connection.Description.FirstText()}' got through, and its back end does not speak CBOR.",
@@ -3092,7 +3114,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 var answered = Asked is null ||
                                await Asked.Ask(
                                          async text => (speaksCBOR
-                                                            ? await client.SendBinaryMessage(CBORFrameOf(text),
+                                                            ? await client.SendBinaryMessage(CBORFrameOf(Connection, text),
                                                                                              TimeProvider.GetUtcNow(),
                                                                                              org.GraphDefined.Vanaheimr.Illias.EventTracking_Id.New,
                                                                                              CancellationToken)
@@ -3155,7 +3177,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                       SshMessageRefusedException  => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: {error.Message}",
                                       SshSubsystemRefusedException
                                                                   => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: " +
-                                                                      $"it serves no OCPP over SSH, or an access rule there denies it to this {NodeNoun}.",
+                                                                      $"it serves no OCPP-over-SSH, or an access rule there denies it to this {NodeNoun}.",
                                       _                           => $"{error.GetType().Name}: {ReasonOf(error)}"
                                   });
 
@@ -3182,12 +3204,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) DialAgain(Old16, Old21, Because)
+        #region (private) ConnectAgain(Old16, Old21, Because)
 
         /// <summary>
         /// After a change of the EVSEs, or of what this station says it is, or
         /// after a restart: hang up what the OCPP nodes it replaced were connected to, stop
-        /// them, and dial again through the new ones what this station dials
+        /// them, and connect again through the new ones to what this station connects to
         /// at its start.
         /// </summary>
         /// <remarks>
@@ -3195,18 +3217,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// to another. Left where it was, the old node went on answering the
         /// CSMS with the EVSEs as they had been, and nothing this station said
         /// afterwards reached the CSMS: it went through the new nodes, which
-        /// had no connection. So it is hung up and dialled again, and the CSMS
+        /// had no connection. So it is hung up and connected again, and the CSMS
         /// sees the connection close and come back - and the new nodes'
         /// BootNotification, which says what this station is now.
         ///
-        /// Dialled again only where this station is started and the old nodes
-        /// had dialled something. One at a time, so that a second change does
-        /// not hang up what the first is still dialling, but after it: the
-        /// first one's dialling goes through the nodes the second one replaces.
+        /// Connected again only where this station is started and the old nodes
+        /// had connected to something. One at a time, so that a second change does
+        /// not hang up what the first is still connecting, but after it: the
+        /// first one's connecting goes through the nodes the second one replaces.
         /// </remarks>
         /// <param name="OldNodes">The networking nodes replaced.</param>
         /// <param name="Because">Why, as a sentence without its full stop: "The EVSEs of this charging station changed".</param>
-        protected internal async Task DialAgain(IEnumerable<AWWCPNetworkingNode?>  OldNodes,
+        protected internal async Task ConnectAgain(IEnumerable<AWWCPNetworkingNode?>  OldNodes,
                                      String                             Because)
         {
 
@@ -3215,7 +3237,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             EndRegistrations(oldNodes);
 
-            await dialAgainLock.WaitAsync();
+            await connectAgainLock.WaitAsync();
 
             try
             {
@@ -3263,16 +3285,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 {
 
                     Log.Notice($"{Because}, so what the OCPP nodes it replaced were connected to was hung up " +
-                               $"({clients.Length + sshClients.Length} connection(s)); it is dialled again.", "ocpp", "connections");
+                               $"({clients.Length + sshClients.Length} connection(s)); it is connected again.", "ocpp", "connections");
 
-                    await DialConfiguredConnections();
+                    await ConnectConfiguredConnections();
 
                 }
 
             }
             finally
             {
-                dialAgainLock.Release();
+                connectAgainLock.Release();
             }
 
         }
@@ -3288,18 +3310,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Closed rather than dropped, because a close that says so is a close
         /// that does not start a reconnect: the policy deliberately ignores a
         /// shutdown the application asked for. A station restarting would
-        /// otherwise spend its last second dialling.
+        /// otherwise spend its last second connecting.
         /// </remarks>
         protected async Task HangUp()
         {
 
-            // No peer goes on to another endpoint, nor is dialled again.
+            // No peer goes on to another endpoint, nor is connected again.
             LetGoOfPeers();
 
             // Nothing more is asked of a CSMS, nor waited for.
-            EndRegistrations([.. DiallingNodes]);
+            EndRegistrations([.. ConnectingNodes]);
 
-            foreach (var client in DiallingNodes.SelectMany(node => node.WWCPWebSocketClients).
+            foreach (var client in ConnectingNodes.SelectMany(node => node.WWCPWebSocketClients).
                                          OfType<WebSocketClient>().
                                          ToArray())
             {
@@ -3313,11 +3335,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 }
             }
 
-            foreach (var sshClient in DiallingNodes.SelectMany(node => node.WWCPSshClients).ToArray())
+            foreach (var sshClient in ConnectingNodes.SelectMany(node => node.WWCPSshClients).ToArray())
                 await LetGo(sshClient, $"This {NodeNoun} hangs up.");
 
-            lock (dialled)
-                dialled.Clear();
+            lock (connectionStates)
+                connectionStates.Clear();
 
         }
 

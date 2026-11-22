@@ -47,7 +47,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// </summary>
     /// <remarks>
     /// Recorded, not yet enforced: who is in charge is still decided per OCPP
-    /// version by the oldest connection that dials by itself, and the rights
+    /// version by the oldest connection that connects by itself, and the rights
     /// of a secondary are applied from work package P9 on.
     /// </remarks>
     public enum PeerRole
@@ -74,7 +74,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         EnergyManager,
 
         /// <summary>
-        /// Dialled on demand only: diagnostics, commissioning, a back end kept
+        /// Connected to on demand only: diagnostics, commissioning, a back end kept
         /// ready for the day somebody needs it.
         /// </summary>
         Service,
@@ -339,15 +339,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public static PeerKind KindOf(ConnectionType Type)
 
-            => Type == ConnectionType.LocalController
-                   ? PeerKind.LocalController
-                   : PeerKind.CSMS;
+            => Type switch {
+                   ConnectionType.LocalController  => PeerKind.LocalController,
+                   ConnectionType.EMSP or
+                   ConnectionType.CPO              => PeerKind.Service,
+                   _                               => PeerKind.CSMS
+               };
 
         /// <summary>
-        /// Whether a peer of this role is dialled by itself: every role but
+        /// Whether a peer of this role is connected to by itself: every role but
         /// Service.
         /// </summary>
-        public static Boolean IsDialledByItself(PeerRole Role)
+        public static Boolean IsConnectedByItself(PeerRole Role)
             => Role != PeerRole.Service;
 
         #endregion

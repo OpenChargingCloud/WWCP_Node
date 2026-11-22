@@ -39,7 +39,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// </para>
     /// <para>
     /// The node brings two, the name servers and the time servers it asks; a
-    /// kind of node may add its own - a backend it dials, the listeners it has.
+    /// kind of node may add its own - a backend it connects to, the listeners it has.
     /// And whoever looks after a node may mark a certificate with a usage
     /// nobody defined: a mark, which nothing in the node acts on until a
     /// configuration or code names it. Such a usage is known for as long as a

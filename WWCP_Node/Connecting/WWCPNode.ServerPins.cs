@@ -67,7 +67,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #endregion
 
 
-        #region (private) JudgedAsAServer(ConnectionId, DialledURL)
+        #region (private) JudgedAsAServer(ConnectionId, ConnectedURL)
 
         /// <summary>
         /// What the WebSocket client of a wss:// connection checked by its CA
@@ -76,13 +76,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// moment.
         /// </summary>
         /// <param name="ConnectionId">The connection.</param>
-        /// <param name="DialledURL">Where it went when it was dialled: what is learned on first use is written down for this one, and not for wherever it was changed to since.</param>
+        /// <param name="ConnectedURL">Where it went when it was connected to: what is learned on first use is written down for this one, and not for wherever it was changed to since.</param>
         protected RemoteTLSServerCertificateValidationHandler<IWebSocketClient> JudgedAsAServer(String  ConnectionId,
-                                                                                               URL     DialledURL)
+                                                                                               URL     ConnectedURL)
 
             => (sender, certificate, chain, client, policyErrors) => {
 
-                   var judgement = JudgeConnection(ConnectionId, DialledURL, certificate, chain, policyErrors);
+                   var judgement = JudgeConnection(ConnectionId, ConnectedURL, certificate, chain, policyErrors);
 
                    return judgement.Accepted
                               ? TLSValidationResult.Success()
@@ -92,36 +92,36 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (internal) JudgeConnection(ConnectionId, DialledURL, Certificate, Chain, PolicyErrors)
+        #region (internal) JudgeConnection(ConnectionId, ConnectedURL, Certificate, Chain, PolicyErrors)
 
         /// <summary>
         /// Whether to go ahead with the certificate the server of a wss://
         /// connection showed.
         /// </summary>
         public ServerJudgement JudgeConnection(String             ConnectionId,
-                                                 URL                DialledURL,
+                                                 URL                ConnectedURL,
                                                  X509Certificate2?  Certificate,
                                                  X509Chain?         Chain,
                                                  SslPolicyErrors    PolicyErrors)
         {
 
             // As it is written down now, so that a pin taken away or a root
-            // learned since it was dialled counts from this handshake on. Not
-            // where it goes elsewhere by now: that one is dialled anew, and
+            // learned since it was connected to counts from this handshake on. Not
+            // where it goes elsewhere by now: that one is connected to anew, and
             // this client is on its way out.
             var now   = Connections.CopyOf(ConnectionId);
-            var pins  = now is not null && now.URL == DialledURL && !now.IsKeyPinned
+            var pins  = now is not null && now.URL == ConnectedURL && !now.IsKeyPinned
                             ? now.Pins
                             : null;
 
             return JudgeServer(ConnectionsCertificateUsage,
-                               DialledURL.Host.ToString(),
+                               ConnectedURL.Host.ToString(),
                                pins,
                                Certificate,
                                Chain,
                                PolicyErrors,
                                Evidence:  false,
-                               Learn:     (what, fingerprint) => Connections.TryLearnPin(ConnectionId, DialledURL, what, fingerprint));
+                               Learn:     (what, fingerprint) => Connections.TryLearnPin(ConnectionId, ConnectedURL, what, fingerprint));
 
         }
 
@@ -164,7 +164,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// narrow what the CA check believes: the chain still has to end at a
         /// root this station trusts, and a root of the operator's own comes in
         /// through the certificate store, not through a pin. The connection is
-        /// dialled again, so that a server whose chain ends elsewhere is not
+        /// connected to again, so that a server whose chain ends elsewhere is not
         /// kept.
         /// </remarks>
         /// <param name="Connection">The connection, by its identification.</param>

@@ -31,7 +31,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 {
 
     /// <summary>
-    /// One connection on probation: the endpoint it was dialled for, the client that made it, and the
+    /// One connection on probation: the endpoint it was made for, the client that made it, and the
     /// trust that learned its server's key - the key pin of one over a wss:// WebSocket
     /// (<see cref="ServerKeyPinTrust"/>), or whatever another kind of connection learns its server by,
     /// the host key of one over SSH, say.
@@ -214,7 +214,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
             => [.. onProbation.Where(probation => ReferenceEquals(probation.Value.Trust, Trust)).Select(probation => probation.Key)];
 
         /// <summary>
-        /// The connections on probation that were dialled for the given endpoint.
+        /// The connections on probation that were made for the given endpoint.
         /// </summary>
         public IReadOnlyList<IMessageConnection> OfEndpoint(String EndpointId)
 

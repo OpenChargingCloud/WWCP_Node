@@ -31,6 +31,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH.SFTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
@@ -58,14 +59,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// The given account, let in with a key of its own, signed in over SSH,
         /// with an SFTP session open.
         /// </summary>
-        private async Task<(SshClient Client, SftpClient Sftp)> SftpAs(String Account)
+        private async Task<(SSHClient Client, SFTPClient Sftp)> SftpAs(String Account)
         {
 
-            var client = await SignedInOverSSHAs(Account);
+            var client = await SignedInOverSSHAs(User_Id.Parse(Account));
 
             try
             {
-                return (client, await client.OpenSftpClientAsync());
+                return (client, await client.OpenSFTPClient());
             }
             catch
             {
@@ -78,36 +79,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <summary>
         /// The given account, let in with a key of its own, signed in over SSH.
         /// </summary>
-        private async Task<SshClient> SignedInOverSSHAs(String Account)
+        private async Task<SSHClient> SignedInOverSSHAs(User_Id Account)
         {
 
             var key   = SshHostKey.GenerateEd25519();
 
-            var added = await Node.AuthorizeSSHKey(Account, SshPublicKey.FromHostKey(key).ToAuthorizedKeyLine());
+            var added = await Node.AuthorizeSSHKey(
+                                  Account,
+                                  SshPublicKey.FromHostKey(key).ToAuthorizedKeyLine()
+                              );
 
             Assert.That(added.IsAdded, Is.True, added.Reason);
 
-            return await SshClient.ConnectAsync("127.0.0.1",
-                                                Node.SSHPort!.Value.ToUInt16(),
-                                                new SshClientOptions {
-                                                    Username       = Account,
-                                                    VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
-                                                    Credentials    = [ key ]
-                                                });
+            return await SSHClient.Connect(
+                             "127.0.0.1",
+                             Node.SSHPort ?? IPPort.SSH,
+                             new SSHClientOptions {
+                                 Username       = Account,
+                                 VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
+                                 Credentials    = [ key ]
+                             }
+                         );
 
         }
 
         #endregion
 
-        #region (private) NamesIn(Sftp, Path) / DayFile(Day) / Refusal(Operation)
+        #region (private) NamesIn(SFTPClient, Path) / DayFile(Day) / Refusal(Operation)
 
         /// <summary>
         /// The names a folder lists, without "." and "..".
         /// </summary>
-        private static async Task<IReadOnlyList<String>> NamesIn(SftpClient  Sftp,
+        private static async Task<IReadOnlyList<String>> NamesIn(SFTPClient  SFTPClient,
                                                                  String      Path)
 
-            => [.. (await Sftp.ListDirectoryAsync(Path)).
+            => [.. (await SFTPClient.ListDirectoryAsync(Path)).
                        Select(entry => entry.Name).
                        Where (name  => name is not "." and not "..")];
 
@@ -141,7 +147,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// Whether the given SFTP session has ended within the given time:
         /// whether a request sent on it fails because its channel was closed.
         /// </summary>
-        private static async Task<Boolean> EndsWithin(SftpClient  Sftp,
+        private static async Task<Boolean> EndsWithin(SFTPClient  SFTPClient,
                                                       TimeSpan    Time)
         {
 
@@ -152,7 +158,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                 try
                 {
-                    await Sftp.RealPathAsync("/").AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+                    await SFTPClient.RealPathAsync("/").AsTask().WaitAsync(TimeSpan.FromSeconds(2));
                 }
                 catch (Exception problem) when (problem is SshChannelClosedException or IOException or ObjectDisposedException)
                 {
@@ -197,7 +203,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Assert.That(Node.SFTPEnabled, Is.False, "SFTP is on although the file does not say so");
 
-            Assert.That(async () => await client.OpenSftpClientAsync(), Throws.InstanceOf<SshWireException>(), "SFTP was served without the file saying so");
+            Assert.That(async () => await client.OpenSFTPClient(), Throws.InstanceOf<SshWireException>(), "SFTP was served without the file saying so");
 
             using var http          = await SignedIn();
 
@@ -206,7 +212,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             Assert.That(switchedOn,                       Is.EqualTo(HttpStatusCode.OK), on.ToString());
             Assert.That(on.Value<Boolean?>("sftp"),       Is.True);
 
-            await using var sftp    = await client.OpenSftpClientAsync();
+            await using var sftp    = await client.OpenSFTPClient();
 
             Assert.That(await NamesIn(sftp, "/"), Is.Not.Null, "the session SFTP was switched on for answers nothing");
 
@@ -218,7 +224,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             await Assert.MultipleAsync(async () => {
                 Assert.That(await NoSftpSessionWithin(TimeSpan.FromSeconds(3)), Is.True,  "the SFTP session went on after SFTP was switched off, until it would have been asked anything");
                 Assert.That(await EndsWithin(sftp, TimeSpan.FromSeconds(5)),     Is.True,  "the SFTP session's channel stayed open after SFTP was switched off");
-                Assert.That(async () => await client.OpenSftpClientAsync(),      Throws.InstanceOf<SshWireException>(), "SFTP was served after it was switched off");
+                Assert.That(async () => await client.OpenSFTPClient(),      Throws.InstanceOf<SshWireException>(), "SFTP was served after it was switched off");
                 Assert.That(Node.SSHEnabled,                                     Is.True,  "switching SFTP off took the SSH server along");
             });
 
@@ -266,7 +272,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task TheRootShowsTheAreasAndNothingElseOfTheMachine()
         {
 
-            var (client, sftp)  = await SftpAs(AdminLogin);
+            var (client, sftp)  = await SftpAs(AdminLogin.ToString());
 
             await using var _   = client;
             await using var __  = sftp;
@@ -304,7 +310,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task AnAccountReadsTheLogFilesExactlyWhereItMayReadTheLog()
         {
 
-            var account          = await AccountIn("supporter", "helpdesk", "Supporting-Only-1");
+            var account          = await AccountIn(User_Id.Parse("supporter"), "helpdesk", "Supporting-Only-1");
 
             var day              = DayFile("2026-01-02");
             var content          = $"2026-01-02T12:00:00.000Z [Info] The day {Guid.NewGuid():N} was logged.\n";
@@ -368,7 +374,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             var before           = System.IO.Directory.GetFiles(Node.LogPath!).Order().ToList();
 
-            var (client, sftp)   = await SftpAs(AdminLogin);
+            var (client, sftp)   = await SftpAs(AdminLogin.ToString());
 
             await using var _    = client;
             await using var __   = sftp;
@@ -411,7 +417,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Assert.That(File.Exists(Path.Combine(keys, LogSigner.KeyFileName)), Is.True, "the private key is not where this test expects it, and the test would prove nothing");
 
-            var (client, sftp)   = await SftpAs(AdminLogin);
+            var (client, sftp)   = await SftpAs(AdminLogin.ToString());
 
             await using var _    = client;
             await using var __   = sftp;
@@ -457,7 +463,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Node.SSHSessionRecheckEvery = TimeSpan.FromHours(1);
 
-            var account          = await AccountIn("deputy", WWCPNode.AdminRole, "Deputy-For-Now-1");
+            var account          = await AccountIn(User_Id.Parse("deputy"), WWCPNode.AdminRole.ToString(), "Deputy-For-Now-1");
 
             var day              = DayFile("2026-01-06");
 
@@ -499,14 +505,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Node.SSHSessionRecheckEvery = TimeSpan.FromMilliseconds(200);
 
-            var account          = await AccountIn("deputy", WWCPNode.AdminRole, "Deputy-For-Now-1");
+            var account          = await AccountIn(User_Id.Parse("deputy"), WWCPNode.AdminRole.ToString(), "Deputy-For-Now-1");
 
             var (client, sftp)   = await SftpAs("deputy");
 
             await using var _    = client;
             await using var __   = sftp;
 
-            Assert.That(Node.SSHSessions.Select(session => (session.Kind, session.Account)), Does.Contain((WWCPNode.SSHSession.SFTP, "deputy")));
+            Assert.That(Node.SSHSessions.Select(session => (session.Kind, session.Account)), Does.Contain((WWCPNode.SSHSession.SFTP, User_Id.Parse("deputy"))));
 
             await Node.ExtAPI.UpdateUser(account, user => user.IsDisabled = true, SkipUserUpdatedNotifications: true);
 
@@ -532,14 +538,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http       = await SignedIn();
 
-            var (client, sftp)   = await SftpAs(AdminLogin);
+            var (client, sftp)   = await SftpAs(AdminLogin.ToString());
 
             await using var _    = client;
 
             var shown            = (JArray) (await GetJSON(http, "api/v1/configuration/ssh"))["sessions"]!;
 
             Assert.That(shown.Select(session => (session.Value<String>("kind"), session.Value<String>("account"))),
-                        Does.Contain(("sftp", AdminLogin)), shown.ToString());
+                        Does.Contain(("sftp", AdminLogin.ToString())), shown.ToString());
 
             await sftp.DisposeAsync();
 

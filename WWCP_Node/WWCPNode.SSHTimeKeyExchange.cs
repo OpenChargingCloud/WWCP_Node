@@ -35,7 +35,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A charging station that runs OCPP over SSH gets its NTS keys and cookies
+    /// A charging station that runs OCPP-over-SSH gets its NTS keys and cookies
     /// over the connection it has anyway, as a further channel of it: with the
     /// key it signs in with for OCPP, against the host key it pins for OCPP -
     /// no certificate, no second key pair. A key exchange takes its keys from the

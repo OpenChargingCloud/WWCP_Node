@@ -114,7 +114,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 File.WriteAllText(configFile, $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "web": {{Web}} }""");
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(home, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(configFile),
                                         CertificatesPath:  Path.Combine(home, "certificates"),
@@ -172,7 +172,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     "ext/login",
                     Headers,
                     new FormUrlEncodedContent([
-                        new KeyValuePair<String, String>("login",     WWCPNode.DefaultAdminUser),
+                        new KeyValuePair<String, String>("login",     WWCPNode.DefaultAdminUser.ToString()),
                         new KeyValuePair<String, String>("password",  Node.GeneratedPassword!)
                     ]));
 
@@ -268,7 +268,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(password.StatusCode,             Is.EqualTo(HttpStatusCode.Forbidden));
                 Assert.That(apiKey.  StatusCode,             Is.EqualTo(HttpStatusCode.Forbidden));
                 Assert.That(read.    StatusCode,             Is.Not.EqualTo(HttpStatusCode.Forbidden), "a read is no change");
-                Assert.That(node.ExtAPI.VerifyPassword(User_Id.Parse(WWCPNode.DefaultAdminUser), node.GeneratedPassword!),  Is.True);
+                Assert.That(node.ExtAPI.VerifyPassword(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()), node.GeneratedPassword!),  Is.True);
             }
 
         }

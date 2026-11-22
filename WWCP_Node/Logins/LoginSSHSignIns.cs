@@ -19,6 +19,7 @@
 
 using System.Collections.Concurrent;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
@@ -36,7 +37,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// The charging stations, as logins of this local controller's SSH server:
     /// a station signs in under its identification with one of its SSH keys,
     /// with a one-time password of its TOTP secret that is bound to the SSH
-    /// session, or with its password, for OCPP over SSH and for what else a
+    /// session, or with its password, for OCPP-over-SSH and for what else a
     /// station has over its connection: its time and its names.
     /// </summary>
     /// <remarks>
@@ -76,7 +77,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// <b>Nothing else, and nothing while OCPP is switched off.</b> The node
     /// confines every such login to the subsystems named here - no terminal,
     /// no command line, no SFTP, and no subsystem the node serves to its
-    /// accounts - and none is named while OCPP over SSH is switched off, which
+    /// accounts - and none is named while OCPP-over-SSH is switched off, which
     /// is also when no station is let in at all. From where a station may
     /// have which of them is for the SSH access rules besides:
     /// "principal=station:* service=subsystem:...".
@@ -112,13 +113,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public const String NTSKE = WebSocketLoginGroup.NTSKE;
 
         /// <summary>
-        /// DNS over SSH: see <see cref="WebSocketLoginGroup.DNS"/>.
+        /// DNS-over-SSH: see <see cref="WebSocketLoginGroup.DNS"/>.
         /// </summary>
         public const String DNS   = WebSocketLoginGroup.DNS;
 
         private readonly WebSocketLogins                         logins;
         private readonly Func<Boolean>                                 served;
         private readonly Func<IEnumerable<String>>                     servedBesides;
+        private readonly Func<User_Id, String>?                        subsystemOf;
         private readonly TimeProvider                                  timeProvider;
         private readonly ConcurrentDictionary<String, DateTimeOffset>  said = [];
 
@@ -134,14 +136,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// every session is asked again then - before a new one can sign in
         /// with what they are now.
         /// </remarks>
-        private readonly ConcurrentDictionary<String, TOTPSettings>    letInWith = new (StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<User_Id, TOTPSettings>   letInWith = new ();
 
         /// <summary>
         /// The password that last let a station in: a session that came with
         /// it is held to it, as one that came with a one-time password is held
         /// to its secret.
         /// </summary>
-        private readonly ConcurrentDictionary<String, SecurePassword>  letInWithPassword = new (StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<User_Id, SecurePassword> letInWithPassword = new ();
 
         #endregion
 
@@ -178,21 +180,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// given subsystem.
         /// </summary>
         /// <param name="Logins">The station logins.</param>
-        /// <param name="Subsystem">The subsystem of OCPP over SSH.</param>
-        /// <param name="Served">Whether OCPP over SSH is served now.</param>
+        /// <param name="Subsystem">The subsystem of OCPP-over-SSH.</param>
+        /// <param name="Served">Whether OCPP-over-SSH is served now.</param>
         /// <param name="ServedBesides">The names of the subsystems the node serves now: of them a station gets those its login group gives it, and no other.</param>
         /// <param name="TimeProvider">The clock keys are held to.</param>
+        /// <param name="SubsystemOf">The subsystem the given login connects over, where it is not <paramref name="Subsystem"/>: that of the protocol of the connection it is written down as - OCPI's, for an EMSP that connects to a CSMS. The one or the other, and never both.</param>
         public LoginSSHSignIns(WebSocketLogins  Logins,
                                  String                 Subsystem,
                                  Func<Boolean>          Served,
                                  TimeProvider?          TimeProvider = null,
-                                 Func<IEnumerable<String>>? ServedBesides = null)
+                                 Func<IEnumerable<String>>? ServedBesides = null,
+                                 Func<User_Id, String>?     SubsystemOf   = null)
         {
 
             this.logins        = Logins;
             this.Subsystem     = Subsystem;
             this.served        = Served;
             this.servedBesides = ServedBesides ?? (() => []);
+            this.subsystemOf   = SubsystemOf;
             this.timeProvider  = TimeProvider ?? System.TimeProvider.System;
 
         }
@@ -206,7 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// Whether the name is a charging station that has an SSH key, a TOTP
         /// secret or a password.
         /// </summary>
-        public Boolean Knows(String Username)
+        public Boolean Knows(User_Id Username)
 
             => logins.TryGet(Username, out var login) &&
                (login.HasSSHKey || login.HasTOTP || login.HasPassword);
@@ -245,7 +250,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         /// <summary>
         /// Whether a station can sign in with a one-time password bound to
-        /// its SSH session now: while OCPP over SSH is served, and some
+        /// its SSH session now: while OCPP-over-SSH is served, and some
         /// station has a TOTP secret. The node offers the method then.
         /// </summary>
         public Boolean TakesSessionBoundTotp
@@ -264,7 +269,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// that showed the right one is turned away all the same is said in
         /// the log, as for a key.
         /// </remarks>
-        public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(String                 Username,
+        public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id                Username,
                                                                  String                 Totp,
                                                                  ReadOnlyMemory<Byte>   SessionId,
                                                                  System.Net.IPAddress?  Client,
@@ -317,7 +322,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// the right one is turned away all the same is said in the log, as for
         /// a key.
         /// </remarks>
-        public ValueTask<Boolean> AuthorizePasswordAsync(String                 Username,
+        public ValueTask<Boolean> AuthorizePasswordAsync(User_Id                Username,
                                                          String                 Password,
                                                          System.Net.IPAddress?  Client,
                                                          CancellationToken      CancellationToken = default)
@@ -344,17 +349,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         #region SubsystemsFor(Username) / GroupsOf(Username)
 
         /// <summary>
-        /// OCPP over SSH while it is served, with what the station's login
-        /// group gives it besides, where the node serves that; and nothing
-        /// otherwise.
+        /// OCPP-over-SSH while it is served - or the subsystem of the protocol
+        /// the login connects over, where the node says another -, with what the
+        /// station's login group gives it besides, where the node serves that;
+        /// and nothing otherwise.
         /// </summary>
-        public IReadOnlySet<String> SubsystemsFor(String Username)
+        public IReadOnlySet<String> SubsystemsFor(User_Id Username)
         {
 
             if (!served())
                 return new HashSet<String>(StringComparer.Ordinal);
 
-            var subsystems = new HashSet<String>(StringComparer.Ordinal) { Subsystem };
+            var subsystems = new HashSet<String>(StringComparer.Ordinal) { subsystemOf?.Invoke(Username) ?? Subsystem };
 
             if (logins.TryGet(Username, out var login) &&
                 logins.GroupOf(login) is WebSocketLoginGroup { Enabled: true, Channels.Count: > 0 } group)
@@ -377,7 +383,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// The login group of the station: what "group:..." in the SSH access
         /// rules means for a station.
         /// </summary>
-        public IReadOnlyList<String> GroupsOf(String Username)
+        public IReadOnlyList<String> GroupsOf(User_Id Username)
 
             => logins.TryGet(Username, out var login)
                    ? [ login.GroupId ]
@@ -436,42 +442,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
-        #region (private) WhyNotLetInWithTotp(Id, Saying)
+        #region (private) WhyNotLetInWithTotp(Login, Saying)
 
         /// <summary>
         /// Why the station may not sign in with a one-time password now, or
         /// null where it may - the password itself aside, which is checked
         /// where it is shown.
         /// </summary>
-        private String? WhyNotLetInWithTotp(String   Id,
+        private String? WhyNotLetInWithTotp(User_Id  Login,
                                             Boolean  Saying)
         {
 
             if (!served())
-                return "OCPP over SSH is switched off";
+                return "OCPP-over-SSH is switched off";
 
-            if (!logins.TryGet(Id, out var login))
-                return $"there is no charging station '{Id}' any more";
+            if (!logins.TryGet(Login, out var login))
+                return $"there is no charging station '{Login}' any more";
 
             String? why = null;
 
             if (!login.HasTOTP)
-                why = $"the charging station '{Id}' has no TOTP secret here any more";
+                why = $"the charging station '{Login}' has no TOTP secret here any more";
 
             else if (!login.Enabled)
-                why = $"the charging station '{Id}' is switched off here";
+                why = $"the charging station '{Login}' is switched off here";
 
             else if (logins.GroupOf(login) is not WebSocketLoginGroup group)
-                why = $"the charging station '{Id}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
+                why = $"the charging station '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
 
             else if (!group.Enabled)
-                why = $"the charging station '{Id}' is in the login group '{group.Id}', which is switched off";
+                why = $"the charging station '{Login}' is in the login group '{group.Id}', which is switched off";
 
             else if (!group.Allows(AuthMethod.TOTP))
-                why = $"the charging station '{Id}' is in the login group '{group.Id}', which does not accept one-time passwords";
+                why = $"the charging station '{Login}' is in the login group '{group.Id}', which does not accept one-time passwords";
 
             if (why is not null && Saying)
-                Say(Id, why, timeProvider.GetUtcNow());
+                Say(Login, why, timeProvider.GetUtcNow());
 
             return why;
 
@@ -480,42 +486,42 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         #endregion
 
 
-        #region (private) WhyNotLetInWithPassword(Id, Saying)
+        #region (private) WhyNotLetInWithPassword(Login, Saying)
 
         /// <summary>
         /// Why the station may not sign in with its password now, or null
         /// where it may - the password itself aside, which is checked where it
         /// is shown.
         /// </summary>
-        private String? WhyNotLetInWithPassword(String   Id,
+        private String? WhyNotLetInWithPassword(User_Id  Login,
                                                 Boolean  Saying)
         {
 
             if (!served())
-                return "OCPP over SSH is switched off";
+                return "OCPP-over-SSH is switched off";
 
-            if (!logins.TryGet(Id, out var login))
-                return $"there is no charging station '{Id}' any more";
+            if (!logins.TryGet(Login, out var login))
+                return $"there is no charging station '{Login}' any more";
 
             String? why = null;
 
             if (!login.HasPassword)
-                why = $"the charging station '{Id}' has no password here any more";
+                why = $"the charging station '{Login}' has no password here any more";
 
             else if (!login.Enabled)
-                why = $"the charging station '{Id}' is switched off here";
+                why = $"the charging station '{Login}' is switched off here";
 
             else if (logins.GroupOf(login) is not WebSocketLoginGroup group)
-                why = $"the charging station '{Id}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
+                why = $"the charging station '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
 
             else if (!group.Enabled)
-                why = $"the charging station '{Id}' is in the login group '{group.Id}', which is switched off";
+                why = $"the charging station '{Login}' is in the login group '{group.Id}', which is switched off";
 
             else if (!group.Allows(AuthMethod.Basic))
-                why = $"the charging station '{Id}' is in the login group '{group.Id}', which does not accept passwords";
+                why = $"the charging station '{Login}' is in the login group '{group.Id}', which does not accept passwords";
 
             if (why is not null && Saying)
-                Say(Id, why, timeProvider.GetUtcNow());
+                Say(Login, why, timeProvider.GetUtcNow());
 
             return why;
 
@@ -523,22 +529,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
-        #region (private) WhyNotLetIn(Id, PublicKeyBlob, Saying)
+        #region (private) WhyNotLetIn(Login, PublicKeyBlob, Saying)
 
         /// <summary>
         /// Why the station may not sign in with this key now, or null where it
         /// may.
         /// </summary>
-        private String? WhyNotLetIn(String   Id,
+        private String? WhyNotLetIn(User_Id  Login,
                                     Byte[]   PublicKeyBlob,
                                     Boolean  Saying)
         {
 
             if (!served())
-                return "OCPP over SSH is switched off";
+                return "OCPP-over-SSH is switched off";
 
-            if (!logins.TryGet(Id, out var login))
-                return $"there is no charging station '{Id}' any more";
+            if (!logins.TryGet(Login, out var login))
+                return $"there is no charging station '{Login}' any more";
 
             var now = timeProvider.GetUtcNow();
 
@@ -546,24 +552,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             // server's own line; a key of the station that is refused for what
             // somebody configured is worth saying why.
             if (login.FindSSHKey(PublicKeyBlob, now) is null)
-                return $"the key {SshFingerprint.Sha256(PublicKeyBlob)} is no longer one the charging station '{Id}' signs in with - taken out, switched off or expired";
+                return $"the key {SshFingerprint.Sha256(PublicKeyBlob)} is no longer one the charging station '{Login}' signs in with - taken out, switched off or expired";
 
             String? why = null;
 
             if (!login.Enabled)
-                why = $"the charging station '{Id}' is switched off here";
+                why = $"the charging station '{Login}' is switched off here";
 
             else if (logins.GroupOf(login) is not WebSocketLoginGroup group)
-                why = $"the charging station '{Id}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
+                why = $"the charging station '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
 
             else if (!group.Enabled)
-                why = $"the charging station '{Id}' is in the login group '{group.Id}', which is switched off";
+                why = $"the charging station '{Login}' is in the login group '{group.Id}', which is switched off";
 
             else if (!group.Allows(AuthMethod.SSHKey))
-                why = $"the charging station '{Id}' is in the login group '{group.Id}', which does not accept SSH keys";
+                why = $"the charging station '{Login}' is in the login group '{group.Id}', which does not accept SSH keys";
 
             if (why is not null && Saying)
-                Say(Id, why, now);
+                Say(Login, why, now);
 
             return why;
 
@@ -571,17 +577,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
-        #region (private) Say(Id, Why, Now)
+        #region (private) Say(Login, Why, Now)
 
         /// <summary>
         /// Say why a station was refused - once a minute at most: an SSH
         /// client asks with the same key more than once per sign-in, and a
         /// station tries again and again.
         /// </summary>
-        private void Say(String Id, String Why, DateTimeOffset Now)
+        private void Say(User_Id Login, String Why, DateTimeOffset Now)
         {
 
-            var key = $"{Id}\n{Why}";
+            var key = $"{Login}\n{Why}";
 
             if (said.TryGetValue(key, out var last) && Now - last < SayAgainAfter)
                 return;

@@ -72,7 +72,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// account is put in this role, and a file that took something away
         /// from it could leave nobody able to put that right.
         /// </remarks>
-        public static readonly Role  SystemAdmin  = new (WWCPNode.AdminRole,
+        public static readonly Role  SystemAdmin  = new (WWCPNode.AdminRole.ToString(),
                                                          [ Permission.Read(Permission.AnyResource),
                                                            Permission.Edit(Permission.AnyResource),
                                                            Permission.Run (Permission.AnyResource) ],
@@ -132,7 +132,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// Whether this is the administrators' role.
         /// </summary>
         public Boolean                     IsSystemAdmin
-            => String.Equals(Name, WWCPNode.AdminRole, StringComparison.OrdinalIgnoreCase);
+            => Name == WWCPNode.AdminRole.ToString();
 
         #endregion
 

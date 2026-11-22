@@ -22,8 +22,10 @@ using System.Text.RegularExpressions;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
@@ -111,8 +113,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="HostCAs">The SHA-256 fingerprints of the SSH CA keys that may sign its host certificate.</param>
     /// <param name="OnMismatch">What a host key comes to that is none of them.</param>
     /// <param name="Connection">Whether the key exchange has an SSH connection of its own, or shares the node's connection to the SSH peer the server's host is.</param>
-    public sealed record NTSServerSSH(UInt16?                 Port               = null,
-                                      String?                 User               = null,
+    public sealed record NTSServerSSH(IPPort?                 Port               = null,
+                                      User_Id?                User               = null,
                                       IReadOnlyList<String>?  HostKeyPins        = null,
                                       IReadOnlyList<String>?  HostCAs            = null,
                                       PinMismatch             OnMismatch         = PinMismatch.Refuse,
@@ -124,7 +126,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// <summary>
         /// The SSH port where an entry names none.
         /// </summary>
-        public const UInt16  DefaultPort      = 22;
+        public readonly static IPPort DefaultPort = IPPort.SSH;
 
         /// <summary>
         /// The user name where an entry names none, as section 7 of the white
@@ -164,14 +166,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// <summary>
         /// The SSH port it is asked on.
         /// </summary>
-        public UInt16                 PortOrDefault
+        public IPPort                 PortOrDefault
             => Port ?? DefaultPort;
 
         /// <summary>
         /// The user name it is signed in under.
         /// </summary>
-        public String                 UserOrDefault
-            => User ?? DefaultUser;
+        public User_Id                UserOrDefault
+            => User ?? User_Id.Parse(DefaultUser);
 
         /// <summary>
         /// The host keys it may show; none where it is held to none.
@@ -412,9 +414,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             }
 
             SSH = new NTSServerSSH(
-                      port?.ToUInt16(),
+                      port,
                       // The usual name is written as nothing, and read the same.
-                      user is not null && user != UsualUser ? user : null,
+                      user is not null && user != UsualUser ? User_Id.Parse(user) : null,
                       hostKeyPins.Count > 0 ? hostKeyPins : null,
                       hostCAs.    Count > 0 ? hostCAs     : null,
                       onMismatch
@@ -493,8 +495,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (IsShared)
                 return new JObject(new JProperty("connection", SSHConnection.Shared.AsText()));
 
-            if (Port.HasValue)                      json.Add("port",        Port.Value);
-            if (User is not null)                   json.Add("user",        User);
+            if (Port.HasValue)                      json.Add("port",        Port.Value.ToUInt16());
+            if (User is User_Id login)              json.Add("user",        login.ToString());
             if (Pins.Count > 0)                     json.Add("hostKeyPins", new JArray(Pins));
             if (CAs. Count > 0)                     json.Add("hostCAs",     new JArray(CAs));
             if (OnMismatch != PinMismatch.Refuse)   json.Add("onMismatch",  OnMismatch.AsText());

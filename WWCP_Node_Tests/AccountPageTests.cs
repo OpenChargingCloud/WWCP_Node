@@ -55,7 +55,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #region Data
 
-        private const    String          Kim        = "kimberly";
+        private static readonly User_Id Kim        = User_Id.Parse("kimberly");
         private const    String          KimsWord   = "Correct-Horse-1";
 
         private          String          directory  = "";
@@ -125,14 +125,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             // could bind it.
             var node = await TestPorts.StartedOnFreshPorts(() => {
 
-                           var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                           var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                                    AccountsPath:      Path.Combine(directory, "accounts"),
                                                    ConfigFile:        new WWCPConfigFile(configFile),
                                                    CertificatesPath:  Path.Combine(directory, "certificates"),
                                                    LogToConsole:      false,
                                                    BridgeDebugLog:    false,
                                                    SSH:               WithSSH
-                                                                          ? new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free()))
+                                                                          ? new SSHSettings(Enabled: true, Port: TestPorts.Free())
                                                                           : new SSHSettings(OnByDefault: false));
 
                            _ = new PageAPI(made);
@@ -154,14 +154,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A client of the node signed in as the given account, with HTTP Basic
         /// Auth, which the routes below /ext take as they take the page's session.
         /// </summary>
-        private HttpClient Client(WWCPNode Node, String Login = WWCPNode.DefaultAdminUser, String? Password = null)
+        private HttpClient Client(WWCPNode Node, User_Id? Login = null, String? Password = null)
         {
 
             var client = new HttpClient { BaseAddress = new Uri(Node.WebInterfaceURL.ToString()), Timeout = TimeSpan.FromSeconds(20) };
 
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                                                              "Basic",
-                                                             Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Login}:{Password ?? password}"))
+                                                             Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Login ?? WWCPNode.DefaultAdminUser}:{Password ?? password}"))
                                                          );
 
             return client;
@@ -207,11 +207,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// Sign in to the node over SSH as root, with the given key.
         /// </summary>
-        private static ValueTask<SshClient> SignIn(WWCPNode Node, ISshHostKey Key)
+        private static ValueTask<SSHClient> SignIn(WWCPNode Node, ISshHostKey Key)
 
-            => SshClient.ConnectAsync("127.0.0.1",
-                                      Node.SSHPort!.Value.ToUInt16(),
-                                      new SshClientOptions {
+            => SSHClient.Connect("127.0.0.1",
+                                      Node.SSHPort!.Value,
+                                      new SSHClientOptions {
                                           Username       = WWCPNode.DefaultAdminUser,
                                           VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                           Credentials    = [ Key ]
@@ -485,8 +485,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(organization, Is.Not.Null);
 
             var kim = await node.ExtAPI.CreateUser(
-                                User_Id.Parse(Kim),
-                                I18NString.Create(Kim),
+                                Kim,
+                                I18NString.Create(Kim.ToString()),
                                 SimpleEMailAddress.Parse($"{Kim}@example.test"),
                                 KimsWord,
                                 SkipDefaultNotifications:  true,

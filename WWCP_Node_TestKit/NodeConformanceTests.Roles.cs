@@ -23,6 +23,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 #endregion
@@ -106,8 +107,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task ARoleTheFileAddsMayDoWhatItSaysAndNothingElse()
         {
 
-            await AccountIn("supporter",   "helpdesk",   "Supporting-Only-1");
-            await AccountIn("timekeeper",  "timedesk",  "Keeping-Time-Only-1");
+            await AccountIn(User_Id.Parse("supporter"),   "helpdesk",   "Supporting-Only-1");
+            await AccountIn(User_Id.Parse("timekeeper"),  "timedesk",  "Keeping-Time-Only-1");
 
             using var supporter   = await SignedInAs("supporter",   "Supporting-Only-1");
             using var timekeeper  = await SignedInAs("timekeeper",  "Keeping-Time-Only-1");
@@ -153,7 +154,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task ARefusalNamesTheRolesTheFileAdds()
         {
 
-            await AccountIn("supporter", "helpdesk", "Supporting-Only-1");
+            await AccountIn(User_Id.Parse("supporter"), "helpdesk", "Supporting-Only-1");
 
             using var http          = await SignedInAs("supporter", "Supporting-Only-1");
 

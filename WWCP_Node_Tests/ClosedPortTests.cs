@@ -116,7 +116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// Handed over, the port takes a back end of the kind the suites start -
-        /// a WebSocket server, as a charging station dials, or an HTTP server
+        /// a WebSocket server, as a charging station connects to, or an HTTP server
         /// on 127.0.0.1, as the roaming partner of the CSMS's OCPI tests is -
         /// and a client reaches it. Taken back once that back end has stopped, a
         /// connection to it is refused again.
@@ -182,11 +182,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var port = new ClosedPort();
 
-            Assert.That(TestPorts.TryClaim(port.Number.ToUInt16()),  Is.False,  "a port held closed was claimed again");
+            Assert.That(TestPorts.TryClaim(port.Number),  Is.False,  "a port held closed was claimed again");
 
             port.Dispose();
 
-            Assert.That(TestPorts.TryClaim(port.Number.ToUInt16()),  Is.False,  "a port let go of was claimed again in the same test run");
+            Assert.That(TestPorts.TryClaim(port.Number),  Is.False,  "a port let go of was claimed again in the same test run");
 
         }
 

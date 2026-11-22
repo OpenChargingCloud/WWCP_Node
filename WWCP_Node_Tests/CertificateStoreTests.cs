@@ -978,7 +978,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// </summary>
         /// <remarks>
         /// What a kind of node gets that keeps no certificates here: a charging
-        /// station dials its back ends with keys of its own, and a gateway or a
+        /// station connects to its back ends with keys of its own, and a gateway or a
         /// meter has no ISO 15118 to speak of. The node made the vehicle's seven
         /// directories for every one of them, at every start, and said so in a
         /// line of its log.

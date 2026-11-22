@@ -341,7 +341,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// An SSH connection to the given time server for a key exchange: its
         /// host key judged, and this node signed in with its own key.
         /// </summary>
-        private async ValueTask<SshClient> ConnectToTimeServerOverSSH(DomainName         Hostname,
+        private async ValueTask<SSHClient> ConnectToTimeServerOverSSH(DomainName         Hostname,
                                                                       NTSServerSSH       SSH,
                                                                       CancellationToken  CancellationToken)
         {
@@ -349,10 +349,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var key = NTSKEClientKey
                           ?? throw new InvalidOperationException(ntskeClientKeyProblem ?? $"This {Kind.Name} has no key to sign in with.");
 
-            return await SshClient.ConnectAsync(
+            return await SSHClient.Connect(
                              Hostname.Trimmed,
                              SSH.PortOrDefault,
-                             new SshClientOptions {
+                             new SSHClientOptions {
                                  Username        = SSH.UserOrDefault,
                                  DNSClient       = dnsClient,
                                  Credentials     = [ key ],

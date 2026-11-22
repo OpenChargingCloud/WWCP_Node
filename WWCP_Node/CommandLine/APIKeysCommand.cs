@@ -132,8 +132,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             else
             {
 
-                if (User_Id.TryParse(rest[0]) is not User_Id userId ||
-                    !cli.Node.ExtAPI.TryGetUser(userId, out account) ||
+                if (User_Id.TryParse(rest[0]) is not User_Id login ||
+                    !cli.Node.ExtAPI.TryGetUser(login, out account) ||
                     account is null)
                 {
                     return [ $"'{rest[0]}' is no account of this {cli.Node.Kind.Name}." ];
@@ -225,7 +225,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <summary>
         /// ", only from 192.0.2.7, 2001:db8::7" for a key bound to addresses, nothing for one that is not.
         /// </summary>
-        private static String OnlyFrom(IEnumerable<IIPAddress> Addresses)
+        private static String OnlyFrom(IEnumerable<IPAddress> Addresses)
 
             => Addresses.Any()
                    ? $", only from {String.Join(", ", Addresses.Select(Shown))}"
@@ -236,7 +236,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// every one of its zeros, and some in brackets - "2001:0db8:0000:...",
         /// "[::1]" - where 2001:db8::7 and ::1 are what was typed.
         /// </summary>
-        private static String Shown(IIPAddress Address)
+        private static String Shown(IPAddress Address)
         {
             var text = Address.ToString() ?? "";
             return System.Net.IPAddress.TryParse(text.Trim('[', ']'), out var parsed)
@@ -262,7 +262,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
             }
 
             String?            given  = null;
-            List<IIPAddress>?  from   = null;
+            List<IPAddress>?  from   = null;
 
             // "key" and "from", each at most once and in either order, before
             // the description - which may say "key" or "from" itself further on.
@@ -392,7 +392,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// only - not "192.7", which System.Net's takes for 192.0.0.7.
         /// </remarks>
         public static Boolean TryParseAddresses(String                                      Text,
-                                                [NotNullWhen(true)]  out List<IIPAddress>?  Addresses,
+                                                [NotNullWhen(true)]  out List<IPAddress>?  Addresses,
                                                 [NotNullWhen(false)] out String?            Problem)
         {
 

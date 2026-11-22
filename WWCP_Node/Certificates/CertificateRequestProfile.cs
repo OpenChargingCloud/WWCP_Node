@@ -190,7 +190,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
                  KeyPurposeID.id_kp_clientAuth),
 
             new (ServerAuth,         "TLS server authentication",
-                 "For a key that is shown to whoever connects - a node that is dialled under the name it dials with.",
+                 "For a key that is shown to whoever connects - a node that is connected to under the name it connects with.",
                  KeyPurposeID.id_kp_serverAuth),
 
             new ("codeSigning",      "Code signing",

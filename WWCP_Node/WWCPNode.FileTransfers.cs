@@ -19,6 +19,7 @@
 
 using System.Net.Sockets;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
@@ -77,9 +78,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <param name="Shared">Whether it goes as one more channel of the node's connection to that peer.</param>
     public sealed record FileTransferJudgement(FileTransferRefusal  Refusal,
                                                String               Why,
-                                               SftpLocation?        Location  = null,
+                                               SFTPLocation?        Location  = null,
                                                SSHFileServer?       Server    = null,
-                                               String?              Login     = null,
+                                               User_Id?             Login     = null,
                                                Boolean              Shared    = false)
     {
 
@@ -295,7 +296,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// node, which is the login it has at its SSH peers.
         /// </summary>
         public String FileTransferIdentity
-            => DefaultSSHPeerUser;
+            => DefaultSSHPeerUser.ToString();
 
         #endregion
 
@@ -327,7 +328,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 try
                 {
 
-                    var root = Path.GetDirectoryName(Path.GetDirectoryName(FileTransferKeyPath("x", "x"))!)!;
+                    var root = Path.GetDirectoryName(Path.GetDirectoryName(FileTransferKeyPath("x", User_Id.Parse("x")))!)!;
 
                     if (!Directory.Exists(root))
                         return;
@@ -350,9 +351,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                         foreach (var file in Directory.GetFiles(directory, "*_ed25519_key"))
                         {
-                            var login = Path.GetFileName(file)[..^"_ed25519_key".Length];
-                            if (!logins.Contains(login, StringComparer.Ordinal))
+                            if (User_Id.TryParse(Path.GetFileName(file)[..^"_ed25519_key".Length]) is User_Id login &&
+                                !logins.Contains(login))
+                            {
                                 DeleteFileTransferKeys(id, login);
+                            }
                         }
 
                     }
@@ -375,13 +378,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// The login of a file server where a request names none.
         /// </summary>
-        private String LoginOf(SSHFileServer Server)
+        private User_Id LoginOf(SSHFileServer Server)
             => Server.User ?? DefaultSSHPeerUser;
 
         /// <summary>
         /// The logins this node may sign in under at a file server.
         /// </summary>
-        private IReadOnlyList<String> LoginsOf(SSHFileServer Server)
+        private IReadOnlyList<User_Id> LoginsOf(SSHFileServer Server)
             => Server.FileTransfers.Logins.Count > 0
                    ? Server.FileTransfers.Logins
                    : [ LoginOf(Server) ];
@@ -408,7 +411,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The logins this node may sign in under at the given file server; none
         /// where that is no file server of this node.
         /// </summary>
-        public IReadOnlyList<String> FileTransferLogins(String ServerId)
+        public IReadOnlyList<User_Id> FileTransferLogins(String ServerId)
             => FileServerOf(ServerId) is SSHFileServer server
                    ? LoginsOf(server)
                    : [];
@@ -424,9 +427,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// Where the key for the given login at the given file server is kept.
         /// </summary>
-        public String FileTransferKeyPath(String ServerId, String Login)
+        public String FileTransferKeyPath(String ServerId, User_Id Login)
             => Beside(ConfigFile.Path,
-                      Path.Combine(DefaultSSHDirectory, FileTransferKeysDirectory, ServerId.ToLowerInvariant(), Login + "_ed25519_key"));
+                      Path.Combine(DefaultSSHDirectory, FileTransferKeysDirectory, ServerId.ToLowerInvariant(), $"{Login}_ed25519_key"));
 
         /// <summary>
         /// The public key this node signs in with under the given login at the
@@ -435,9 +438,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// server, or the key can be neither read nor made, which the log says
         /// why. FileTransferPublicKey[login] of SSHPeerController.
         /// </summary>
-        public String? FileTransferPublicKey(String ServerId, String Login)
+        public String? FileTransferPublicKey(String ServerId, User_Id Login)
             => FileServerOf(ServerId) is SSHFileServer server                    &&
-               LoginsOf(server).Contains(Login, StringComparer.Ordinal)          &&
+               LoginsOf(server).Contains(Login)          &&
                FileTransferKey(server, Login, Make: true) is ISshHostKey key
                    ? SshPublicKey.FromHostKey(key, $"{Login}@{server.Id}").ToAuthorizedKeyLine()
                    : null;
@@ -447,7 +450,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// public half of the key for the given login: before that, the key is
         /// not used, as the server would refuse the login anyway.
         /// </summary>
-        public Boolean IsFileTransferKeyConfirmed(String ServerId, String Login)
+        public Boolean IsFileTransferKeyConfirmed(String ServerId, User_Id Login)
         {
 
             if (FileServerOf(ServerId) is not SSHFileServer server ||
@@ -476,13 +479,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         /// <param name="PublicKey">The key that was enrolled, as a line of authorized_keys or a SHA-256 fingerprint; null where whoever confirms saw the key on the node itself.</param>
         /// <returns>Why it is not confirmed, or null.</returns>
-        public String? ConfirmFileTransferKey(String ServerId, String Login, String? PublicKey = null)
+        public String? ConfirmFileTransferKey(String ServerId, User_Id Login, String? PublicKey = null)
         {
 
             if (FileServerOf(ServerId) is not SSHFileServer server)
                 return $"'{ServerId}' is no file server of this {Kind.Name}";
 
-            if (!LoginsOf(server).Contains(Login, StringComparer.Ordinal))
+            if (!LoginsOf(server).Contains(Login))
                 return $"'{Login}' is no login of the file server '{server.Id}'";
 
             if (FileTransferKey(server, Login, Make: false) is not ISshHostKey key)
@@ -526,7 +529,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The key for the given login at the given file server: read from its
         /// file, or made and written there; null where neither can be done.
         /// </summary>
-        private ISshHostKey? FileTransferKey(SSHFileServer Server, String Login, Boolean Make)
+        private ISshHostKey? FileTransferKey(SSHFileServer Server, User_Id Login, Boolean Make)
         {
 
             var path = FileTransferKeyPath(Server.Id, Login);
@@ -573,12 +576,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// Delete the keys of a file server: of one login, or of all of them.
         /// </summary>
-        private void DeleteFileTransferKeys(String ServerId, String? Login)
+        private void DeleteFileTransferKeys(String ServerId, User_Id? Login)
         {
             try
             {
 
-                var directory = Path.GetDirectoryName(FileTransferKeyPath(ServerId, "x"))!;
+                var directory = Path.GetDirectoryName(FileTransferKeyPath(ServerId, User_Id.Parse("x")))!;
 
                 if (!Directory.Exists(directory))
                     return;
@@ -586,7 +589,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (Login is null)
                     Directory.Delete(directory, recursive: true);
                 else
-                    foreach (var file in Directory.GetFiles(directory, Login + "_ed25519_key*"))
+                    foreach (var file in Directory.GetFiles(directory, $"{Login}_ed25519_key*"))
                         File.Delete(file);
 
                 Log.Notice(Login is null
@@ -645,10 +648,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return new (FileTransferRefusal.InvalidURL, "a transfer goes in one direction");
 
             // 1. The URL.
-            if (!SftpLocation.TryParse(URL, out var location, out var error))
+            if (!SFTPLocation.TryParse(URL, out var location, out var error))
                 return new (FileTransferRefusal.InvalidURL, error);
 
-            FileTransferJudgement No(String Why, SSHFileServer? Server = null, String? Login = null)
+            FileTransferJudgement No(String Why, SSHFileServer? Server = null, User_Id? Login = null)
                 => new (FileTransferRefusal.FileServerNotPermitted, Why, location, Server, Login);
 
             // 2. A peer of that host and port. Compared as text: a name is never resolved to compare it.
@@ -659,7 +662,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!server.FileTransfers.Allows(Direction))
                 return No($"the file server '{server.Id}' is not allowed {(Direction == FileTransferDirections.Upload ? "uploads" : "downloads")}", server);
 
-            var login = location.User ?? LoginOf(server);
+            // The login the URL names, or the file server's own one.
+            if ((location.User is String user ? User_Id.TryParse(user) : LoginOf(server)) is not User_Id login)
+                return No($"'{location.User}' is no login", server);
 
             if (!server.FileTransfers.AllowsLogin(login, LoginOf(server)))
                 return No($"'{login}' is no login this {Kind.Name} has at the file server '{server.Id}'", server, login);
@@ -725,11 +730,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!judgement.IsAllowed)
                 return new (FileTransferOutcome.Refused, judgement.Why, judgement);
 
-            if (!SftpLocation.IsFileName(FileName))
+            if (!SFTPLocation.IsFileName(FileName))
                 return new (FileTransferOutcome.Refused, $"'{FileName}' is no name of a file to upload", judgement);
 
             var remote = judgement.Location!.FileIn(FileName);
-            var part   = remote + SftpLocation.PartSuffix;
+            var part   = remote + SFTPLocation.PartSuffix;
 
             return await Transfer(judgement,
                                   remote,
@@ -842,7 +847,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
         }
 
-        private static async Task<Boolean> Exists(SftpClient Sftp, String Path, CancellationToken CancellationToken)
+        private static async Task<Boolean> Exists(SFTPClient Sftp, String Path, CancellationToken CancellationToken)
         {
             try
             {
@@ -862,12 +867,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         private async Task<FileTransferResult> Transfer(FileTransferJudgement                                       Judgement,
                                                         String                                                      RemotePath,
-                                                        Func<SftpClient, Action, CancellationToken, Task<Int64>>    Move,
+                                                        Func<SFTPClient, Action, CancellationToken, Task<Int64>>    Move,
                                                         CancellationToken                                           CancellationToken)
         {
 
             var server  = Judgement.Server!;
-            var login   = Judgement.Login!;
+            var login   = Judgement.Login!.Value;
             var what    = $"{Judgement.Location!.WithoutUserInfo} as '{login}'";
             String? shown = null;
 
@@ -892,13 +897,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
             using var idle    = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
             void StillAlive() { try { idle.CancelAfter(FileTransferIdleTimeout); } catch (ObjectDisposedException) { } }
 
-            SshClient?   own   = null;
-            SftpClient?  sftp  = null;
+            SSHClient?   own   = null;
+            SFTPClient?  sftp  = null;
 
             try
             {
 
-                SshClient client;
+                SSHClient client;
 
                 if (Judgement.Shared)
                 {
@@ -912,10 +917,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     var key = FileTransferKey(server, login, Make: false)
                                   ?? throw new InvalidOperationException($"There is no key for '{login}' at the file server '{server.Id}'.");
 
-                    own = client = await SshClient.ConnectAsync(
+                    own = client = await SSHClient.Connect(
                                              server.Host!,
                                              server.Port,
-                                             new SshClientOptions {
+                                             new SSHClientOptions {
                                                  Username          = login,
                                                  DNSClient         = dnsClient,
                                                  // This key and nothing else: no password, no other key of the node.
@@ -930,7 +935,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 }
 
-                sftp = await client.OpenSftpClientAsync(CancellationToken).ConfigureAwait(false);
+                sftp = await client.OpenSFTPClient(CancellationToken).ConfigureAwait(false);
 
                 StillAlive();
                 var bytes = await Move(sftp, StillAlive, idle.Token).ConfigureAwait(false);

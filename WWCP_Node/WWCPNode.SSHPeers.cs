@@ -118,7 +118,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Host">The host of the peer.</param>
         /// <param name="Subsystem">What the channel is for, e.g. "ntske/1@open.charging.cloud".</param>
         /// <exception cref="InvalidOperationException">The host is no SSH peer of this node, or the subsystem may not go over its connection now.</exception>
-        public async ValueTask<SshClient> SharedSSHConnectionTo(DomainName         Host,
+        public async ValueTask<SSHClient> SharedSSHConnectionTo(DomainName         Host,
                                                                 String             Subsystem,
                                                                 CancellationToken  CancellationToken = default)
         {

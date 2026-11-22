@@ -114,7 +114,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             File.WriteAllText(configuration, $$"""{ "dns": {{dns}}, "nts": {{nts}} }""");
 
             return new WWCPNode(
-                       HTTPPort:          Port ?? IPPort.Parse(TestPorts.Free()),
+                       HTTPPort:          Port ?? TestPorts.Free(),
                        AccountsPath:      Accounts ?? Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
                        Frontend:          Frontend,
@@ -664,10 +664,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             try
             {
 
-                var port  = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+                var port  = IPPort.Parse(((IPEndPoint) squatter.LocalEndpoint).Port);
                 var said  = new StringWriter();
 
-                await using var node = Node(IPPort.Parse(port));
+                await using var node = Node(port);
 
                 var exit = await node.Started(Verbose: false, Error: said);
 
@@ -741,10 +741,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             try
             {
 
-                var port  = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+                var port  = IPPort.Parse(((IPEndPoint) squatter.LocalEndpoint).Port);
                 var said  = new StringWriter();
 
-                await using var node = Node(IPPort.Parse(port));
+                await using var node = Node(port);
 
                 var exit  = await node.Started(Verbose: false, Error: said);
                 var text  = said.ToString();
@@ -806,8 +806,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var brief  = new StringWriter();
             var whole  = new StringWriter();
 
-            await using var node   = new NodeThatCannotListen(IPPort.Parse(TestPorts.Free()), Path.Combine(directory, "accounts"),       new WWCPConfigFile(configuration));
-            await using var again  = new NodeThatCannotListen(IPPort.Parse(TestPorts.Free()), Path.Combine(directory, "accounts-again"), new WWCPConfigFile(configuration));
+            await using var node   = new NodeThatCannotListen(TestPorts.Free(), Path.Combine(directory, "accounts"),       new WWCPConfigFile(configuration));
+            await using var again  = new NodeThatCannotListen(TestPorts.Free(), Path.Combine(directory, "accounts-again"), new WWCPConfigFile(configuration));
 
             var exit     = await node. Started(Verbose: false, Error: brief);
             var verbose  = await again.Started(Verbose: true,  Error: whole);
@@ -842,11 +842,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             try
             {
 
-                var port     = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+                var port     = IPPort.Parse(((IPEndPoint) squatter.LocalEndpoint).Port);
                 var said     = new StringWriter();
                 var command  = "  sudo setcap cap_net_bind_service=+ep /opt/somewhere/far/below/the/root/of/it/all/TestNodeCLI";
 
-                await using var node = Node(IPPort.Parse(port));
+                await using var node = Node(port);
 
                 await node.Started(Verbose: false, AdviceOfTheKind: _ => command, Error: said);
 
@@ -879,7 +879,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var said = new StringWriter();
 
-            await using var node = new NodeThatCannotListen(IPPort.Parse(TestPorts.Free()), Path.Combine(directory, "accounts"), new WWCPConfigFile(configuration));
+            await using var node = new NodeThatCannotListen(TestPorts.Free(), Path.Combine(directory, "accounts"), new WWCPConfigFile(configuration));
 
             await node.Started(Verbose: false, Error: said);
 
@@ -911,18 +911,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var modbus    = new NodePort("The Modbus/TLS server");
             var switchOf  = (PortUnavailableException problem) => problem.Whose == modbus ? "--port" : "--http-port";
 
-            PortUnavailableException Problem(UInt16 Port, SocketError Because, NodePort? Whose = null)
-                => new (IPPort.Parse(Port), new SocketException((Int32) Because), Whose);
+            PortUnavailableException Problem(IPPort Port, SocketError Because, NodePort? Whose = null)
+                => new (Port, new SocketException((Int32) Because), Whose);
 
             Assert.Multiple(() => {
-                Assert.That(NodeProgram.AdviceOn(kind, Problem(80,  SocketError.AccessDenied),         null, false, "/opt/meter/ModbusTLSEnergyMeterCLI", switchOf).Last(),
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(IPPort.Parse(80),  SocketError.AccessDenied),         null, false, "/opt/meter/ModbusTLSEnergyMeterCLI", switchOf).Last(),
                             Is.EqualTo("or pick a port above 1024 with --http-port."));
-                Assert.That(NodeProgram.AdviceOn(kind, Problem(802, SocketError.AccessDenied, modbus), null, false, "/opt/meter/ModbusTLSEnergyMeterCLI", switchOf).Last(),
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(IPPort.Parse(802), SocketError.AccessDenied, modbus), null, false, "/opt/meter/ModbusTLSEnergyMeterCLI", switchOf).Last(),
                             Is.EqualTo("or pick a port above 1024 with --port."));
-                Assert.That(NodeProgram.AdviceOn(kind, Problem(8080, SocketError.AddressAlreadyInUse), null, false, null, switchOf),
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(IPPort.Parse(8080), SocketError.AddressAlreadyInUse), null, false, null, switchOf),
                             Is.EqualTo(new[] { "Another copy of this energy meter already running is the usual answer. Stop it, " +
                                                "or give this one another port with --http-port <number>." }));
-                Assert.That(NodeProgram.AdviceOn(kind, Problem(802, SocketError.AccessDenied, modbus), null, false, "/opt/meter/ModbusTLSEnergyMeterCLI").Last(),
+                Assert.That(NodeProgram.AdviceOn(kind, Problem(IPPort.Parse(802), SocketError.AccessDenied, modbus), null, false, "/opt/meter/ModbusTLSEnergyMeterCLI").Last(),
                             Is.EqualTo("or pick a port above 1024."), "a port no switch is known to set");
             });
 

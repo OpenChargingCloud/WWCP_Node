@@ -23,6 +23,8 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
@@ -74,7 +76,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <param name="DownloadPaths">The directories a download may come from, each with everything below it; none: nowhere.</param>
     /// <param name="Connection">Whether a request under the login of the node's connection to the peer goes as one more channel of it.</param>
     public sealed record SSHFileTransfers(FileTransferDirections   Directions,
-                                          IReadOnlyList<String>?   Users          = null,
+                                          IReadOnlyList<User_Id>?  Users          = null,
                                           IReadOnlyList<String>?   UploadPaths    = null,
                                           IReadOnlyList<String>?   DownloadPaths  = null,
                                           SSHConnection            Connection     = SSHConnection.Dedicated)
@@ -112,7 +114,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <summary>
         /// The logins a request may name besides the login of the peer.
         /// </summary>
-        public IReadOnlyList<String>  Logins
+        public IReadOnlyList<User_Id> Logins
             => Users ?? [];
 
         /// <summary>
@@ -137,17 +139,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// Whether a request may name the given login: one of the logins, or -
         /// where there are none - the login of the peer.
         /// </summary>
-        public Boolean AllowsLogin(String Login, String LoginOfThePeer)
+        public Boolean AllowsLogin(User_Id Login, User_Id LoginOfThePeer)
             => Logins.Count == 0
-                   ? String.Equals(Login, LoginOfThePeer, StringComparison.Ordinal)
-                   : Logins.Contains(Login, StringComparer.Ordinal);
+                   ? Login == LoginOfThePeer
+                   : Logins.Contains(Login);
 
         /// <summary>
         /// Whether a file may go to, or come from, the given path: it lies in
         /// one of the directories of that direction.
         /// </summary>
         /// <param name="Direction">Upload: the path is the directory. Download: the path is the file.</param>
-        /// <param name="Path">The path as <see cref="SftpLocation.Path"/> has it: "/dir/file" or "~/dir/file".</param>
+        /// <param name="Path">The path as <see cref="SFTPLocation.Path"/> has it: "/dir/file" or "~/dir/file".</param>
         /// <param name="Identity">What <see cref="IdentityMark"/> stands for.</param>
         public Boolean AllowsPath(FileTransferDirections  Direction,
                                   String                  Path,
@@ -253,7 +255,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             FileTransfers = new SSHFileTransfers(
                                 directions,
-                                users is { Count: > 0 } ? [.. users.Distinct(StringComparer.Ordinal)] : null,
+                                users is { Count: > 0 } ? [.. users.Select(User_Id.Parse).Distinct()] : null,
                                 upload.  Count > 0 ? upload   : null,
                                 download.Count > 0 ? download : null,
                                 connection
@@ -325,7 +327,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             json.Add("directions", directions);
 
-            if (Logins.Count > 0)                  json.Add("users",         new JArray(Logins));
+            if (Logins.Count > 0)                  json.Add("users",         new JArray(Logins.Select(login => login.ToString())));
             if (UploadPaths   is { Count: > 0 })   json.Add("uploadPaths",   new JArray(UploadPaths));
             if (DownloadPaths is { Count: > 0 })   json.Add("downloadPaths", new JArray(DownloadPaths));
             if (IsShared)                          json.Add("connection",    Connection.AsText());
@@ -356,7 +358,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <param name="FileTransfers">What it may be used for.</param>
     public sealed record SSHFileServer(String            Id,
                                        String            Address,
-                                       String?           User,
+                                       User_Id?          User,
                                        NTSServerSSH      Trust,
                                        SSHFileTransfers  FileTransfers)
     {
@@ -368,12 +370,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// address is neither a DNS name nor an IP address.
         /// </summary>
         public String?  Host
-            => SftpLocation.NormalizeHost(Address);
+            => SFTPLocation.NormalizeHost(Address);
 
         /// <summary>
         /// Its SSH port.
         /// </summary>
-        public UInt16   Port
+        public IPPort   Port
             => Trust.PortOrDefault;
 
         /// <summary>

@@ -113,7 +113,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                               EventLog?     Log       = null)
         {
 
-            var node = new WWCPNode(HTTPPort:          HTTPPort ?? IPPort.Parse(TestPorts.Free()),
+            var node = new WWCPNode(HTTPPort:          HTTPPort ?? TestPorts.Free(),
                                     AccountsPath:      Path.Combine(directory, "accounts"),
                                     ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
                                     CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -136,21 +136,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // Made again on fresh ports where one was taken before the node
             // could bind it.
-            return await TestPorts.StartedOnFreshPorts(() => Node(new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free()), Authorize: Authorize), Log: Log));
+            return await TestPorts.StartedOnFreshPorts(() => Node(new SSHSettings(Enabled: true, Port: TestPorts.Free(), Authorize: Authorize), Log: Log));
 
         }
 
         /// <summary>
         /// Sign in to the given node over SSH.
         /// </summary>
-        private static ValueTask<SshClient> SignIn(WWCPNode     Node,
+        private static ValueTask<SSHClient> SignIn(WWCPNode     Node,
                                                    String       Account,
                                                    ISshHostKey  Key)
 
-            => SshClient.ConnectAsync("127.0.0.1",
-                                      Node.SSHPort!.Value.ToUInt16(),
-                                      new SshClientOptions {
-                                          Username       = Account,
+            => SSHClient.Connect("127.0.0.1",
+                                      Node.SSHPort!.Value,
+                                      new SSHClientOptions {
+                                          Username       = User_Id.Parse(Account),
                                           VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                           Credentials    = [ Key ]
                                       });
@@ -158,10 +158,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// Take every SSH key the given account has.
         /// </summary>
-        private static async Task RemoveEveryKeyOf(WWCPNode Node, String Account)
+        private static async Task RemoveEveryKeyOf(WWCPNode Node, User_Id Account)
         {
-            foreach (var key in Node.ExtAPI.GetSSHKeys(User_Id.Parse(Account)))
-                Assert.That(await Node.ExtAPI.RemoveSSHKey(User_Id.Parse(Account), key.Fingerprint), Is.True);
+            foreach (var key in Node.ExtAPI.GetSSHKeys(Account))
+                Assert.That(await Node.ExtAPI.RemoveSSHKey(Account, key.Fingerprint), Is.True);
         }
 
         private static String PublicKeyLine(ISshHostKey Key, String Comment = "tester")
@@ -171,17 +171,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// An account of the given name, in the group of the given role - or in none.
         /// </summary>
-        private static async Task AccountIn(WWCPNode Node, String Name, String? Role)
+        private static async Task AccountIn(WWCPNode Node, User_Id Name, String? Role)
         {
 
-            await Node.ExtAPI.AddUser(new User(User_Id.Parse(Name),
-                                               I18NString.Create(Languages.en, Name),
+            await Node.ExtAPI.AddUser(new User(Name,
+                                               I18NString.Create(Languages.en, Name.ToString()),
                                                SimpleEMailAddress.Parse($"{Name}@localhost")),
                                       SkipDefaultNotifications:  true,
                                       SkipNewUserEMail:          true,
                                       SkipNewUserNotifications:  true);
 
-            Assert.That(Node.ExtAPI.TryGetUser(User_Id.Parse(Name), out var stored) && stored is User, Is.True);
+            Assert.That(Node.ExtAPI.TryGetUser(Name, out var stored) && stored is User, Is.True);
 
             if (Role is not null)
             {
@@ -321,7 +321,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void AHostKeyThatCannotBeReadStopsTheStart()
         {
 
-            var node = Node(new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free())));
+            var node = Node(new SSHSettings(Enabled: true, Port: TestPorts.Free()));
 
             Directory.CreateDirectory(Path.GetDirectoryName(node.SSHHostKeyPath)!);
             File.WriteAllText(node.SSHHostKeyPath, "not a key at all");
@@ -359,9 +359,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(added.IsAdded, Is.True, added.Reason);
 
-            await using (await SignIn(node, WWCPNode.DefaultAdminUser, key)) { }
+            await using (await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), key)) { }
 
-            Assert.That(async () => await SignIn(node, WWCPNode.DefaultAdminUser, other),  Throws.InstanceOf<SshAuthenticationException>(), "another key");
+            Assert.That(async () => await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), other),  Throws.InstanceOf<SshAuthenticationException>(), "another key");
             Assert.That(async () => await SignIn(node, "nobody", key),                     Throws.InstanceOf<SshAuthenticationException>(), "no such account");
 
             var fingerprint = SshFingerprint.Sha256(key.PublicKeyBlob);
@@ -393,11 +393,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await node.AuthorizeSSHKey(WWCPNode.DefaultAdminUser, PublicKeyLine(key));
 
-            await using (await SignIn(node, WWCPNode.DefaultAdminUser, key)) { }
+            await using (await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), key)) { }
 
-            Assert.That(await node.ExtAPI.RemoveSSHKey(User_Id.Parse(WWCPNode.DefaultAdminUser), SshFingerprint.Sha256(key.PublicKeyBlob)), Is.True);
+            Assert.That(await node.ExtAPI.RemoveSSHKey(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()), SshFingerprint.Sha256(key.PublicKeyBlob)), Is.True);
 
-            Assert.That(async () => await SignIn(node, WWCPNode.DefaultAdminUser, key), Throws.InstanceOf<SshAuthenticationException>());
+            Assert.That(async () => await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), key), Throws.InstanceOf<SshAuthenticationException>());
 
         }
 
@@ -421,10 +421,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var escape = (Char) 0x1B;
             var name   = $"root\r\n00:00:00.000 critical forged{escape}[2J";
 
-            Assert.That(async () => await SshClient.ConnectAsync("127.0.0.1",
-                                                                 node.SSHPort!.Value.ToUInt16(),
-                                                                 new SshClientOptions {
-                                                                     Username       = name,
+            Assert.That(async () => await SSHClient.Connect("127.0.0.1",
+                                                                 node.SSHPort!.Value,
+                                                                 new SSHClientOptions {
+                                                                     Username       = User_Id.Parse(name),
                                                                      VerifyHostKey  = blob => node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                                                      Credentials    = [ SshHostKey.GenerateEd25519(), SshHostKey.GenerateEd25519() ]
                                                                  }),
@@ -463,11 +463,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var node = await Started();
             var key  = SshHostKey.GenerateEd25519();
 
-            await AccountIn(node, "nobodysrole", null);
-            await AccountIn(node, "anadmin",     WWCPNode.AdminRole);
+            await AccountIn(node, User_Id.Parse("nobodysrole"), null);
+            await AccountIn(node, User_Id.Parse("anadmin"),     WWCPNode.AdminRole.ToString());
 
-            await node.AuthorizeSSHKey("nobodysrole", PublicKeyLine(key));
-            await node.AuthorizeSSHKey("anadmin",     PublicKeyLine(key));
+            await node.AuthorizeSSHKey(User_Id.Parse("nobodysrole"), PublicKeyLine(key));
+            await node.AuthorizeSSHKey(User_Id.Parse("anadmin"),     PublicKeyLine(key));
 
             Assert.That(async () => await SignIn(node, "nobodysrole", key), Throws.InstanceOf<SshAuthenticationException>());
 
@@ -494,7 +494,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(added.IsAdded, Is.True, added.Reason);
 
-            Assert.That(async () => await (await SignIn(node, WWCPNode.DefaultAdminUser, key)).OpenShellAsync(),
+            Assert.That(async () => await (await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), key)).OpenShell(),
                         Throws.Exception);
 
         }
@@ -520,9 +520,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(a.IsAdded && b.IsAdded, Is.True, a.Reason ?? b.Reason);
 
-            await using (await SignIn(node, WWCPNode.DefaultAdminUser, current)) { }
+            await using (await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), current)) { }
 
-            Assert.That(async () => await SignIn(node, WWCPNode.DefaultAdminUser, expired), Throws.InstanceOf<SshAuthenticationException>());
+            Assert.That(async () => await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), expired), Throws.InstanceOf<SshAuthenticationException>());
 
         }
 
@@ -544,15 +544,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(file, PublicKeyLine(key));
 
-            var node = await Started(Authorize: [ (WWCPNode.DefaultAdminUser, file) ]);
+            var node = await Started(Authorize: [ (WWCPNode.DefaultAdminUser.ToString(), file) ]);
 
-            Assert.That(node.AccountsWithSSHKeys(), Is.EqualTo(new[] { WWCPNode.DefaultAdminUser }));
+            Assert.That(node.AccountsWithSSHKeys(), Is.EqualTo(new[] { WWCPNode.DefaultAdminUser.ToString() }));
 
-            await using (await SignIn(node, WWCPNode.DefaultAdminUser, key)) { }
+            await using (await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), key)) { }
 
             await node.DisposeAsync();
 
-            var refused = Node(new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free()), Authorize: [ ("somebodyelse", file) ]));
+            var refused = Node(new SSHSettings(Enabled: true, Port: TestPorts.Free(), Authorize: [ ("somebodyelse", file) ]));
 
             Assert.That(async () => await refused.Start(),
                         Throws.InvalidOperationException.With.Message.Contains("has no account 'somebodyelse'"));
@@ -575,7 +575,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await node.AuthorizeSSHKey(WWCPNode.DefaultAdminUser, PublicKeyLine(key));
 
-            await using var client = await SignIn(node, WWCPNode.DefaultAdminUser, key);
+            await using var client = await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), key);
 
             var exec = await client.Multiplexer.OpenChannelAsync("session");
             var sftp = await client.Multiplexer.OpenChannelAsync("session");
@@ -585,7 +585,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(sftp.SendRequestAsync("subsystem", true, SshSessionChannel.EncodeString("sftp")).AsTask().Result,     Is.False);
             });
 
-            Assert.That(async () => await client.OpenTcpStreamAsync("127.0.0.1", node.HTTPPort.ToUInt16()), Throws.TypeOf<SshChannelOpenException>());
+            Assert.That(async () => await client.OpenTCPStream("127.0.0.1", node.HTTPPort), Throws.TypeOf<SshChannelOpenException>());
 
         }
 
@@ -694,7 +694,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(AuthorizedKeysStore.IsAccountName("../root"), Is.False, "a path as an account");
 
-                Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser)).Select(entry => entry.Fingerprint),
+                Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString())).Select(entry => entry.Fingerprint),
                             Has.Member(SshFingerprint.Sha256(key.PublicKeyBlob)));
 
             });
@@ -813,16 +813,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     Assert.That(made.Account,      Is.EqualTo(WWCPNode.DefaultAdminUser));
                     Assert.That(made.Fingerprint,  Is.EqualTo(SshFingerprint.Sha256(key.PublicKeyBlob)));
                     Assert.That(made.PrivateKey,   Does.StartWith("-----BEGIN OPENSSH PRIVATE KEY-----"));
-                    Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser)).Count,                              Is.EqualTo(1));
-                    Assert.That(node.ExtAPI.FindSSHKey(User_Id.Parse(WWCPNode.DefaultAdminUser), key.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Not.Null, "the key made up is not let in");
-                    Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser))[0].CreatedBy,                       Is.EqualTo("the first start"));
+                    Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString())).Count,                              Is.EqualTo(1));
+                    Assert.That(node.ExtAPI.FindSSHKey(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()), key.PublicKeyBlob, DateTimeOffset.UtcNow), Is.Not.Null, "the key made up is not let in");
+                    Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()))[0].CreatedBy,                       Is.EqualTo("the first start"));
                     Assert.That(said,     Has.Some.Contains(made.Fingerprint), "the log does not name the key made up");
                     Assert.That(secret,   Is.Not.Empty);
                     Assert.That(secret,   Has.None.Matches<String>(line => line is not null && said.Any(message => message.Contains(line))), "the private key is in the log");
                     Assert.That(secret,   Has.None.Matches<String>(line => line is not null && written.Contains(line)),                       "the private key was written to disk");
                 });
 
-            await using (await SignIn(node, WWCPNode.DefaultAdminUser, key)) { }
+            await using (await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), key)) { }
 
         }
 
@@ -879,13 +879,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(file, PublicKeyLine(own));
 
-            var brought = await Started(Authorize: [ (WWCPNode.DefaultAdminUser, file) ]);
+            var brought = await Started(Authorize: [ (WWCPNode.DefaultAdminUser.ToString(), file) ]);
 
             Assert.Multiple(() => {
                 Assert.That(brought.GeneratedPassword,  Is.Not.Null, "not a first start");
                 Assert.That(brought.GeneratedSSHKey,    Is.Null,     "a key was made up beside the one brought");
-                Assert.That(brought.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser)).Count, Is.EqualTo(1));
-                Assert.That(brought.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser))[0].CreatedBy, Is.EqualTo("the command line"));
+                Assert.That(brought.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString())).Count, Is.EqualTo(1));
+                Assert.That(brought.ExtAPI.GetSSHKeys(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()))[0].CreatedBy, Is.EqualTo("the command line"));
                 Assert.That(brought.Banner(), Has.None.Contains("PRIVATE KEY"));
             });
 

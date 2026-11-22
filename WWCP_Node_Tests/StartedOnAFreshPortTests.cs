@@ -23,6 +23,7 @@ using System.Net.Sockets;
 using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -220,14 +221,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A port somebody listens on, claimed so that nothing of this run is
         /// handed it.
         /// </summary>
-        private UInt16 Squatted()
+        private IPPort Squatted()
         {
 
             var squatter = new TcpListener(IPAddress.Loopback, 0);
             squatter.Start();
             squatters.Add(squatter);
 
-            var port = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+            var port = IPPort.Parse(((IPEndPoint) squatter.LocalEndpoint).Port);
             TestPorts.TryClaim(port);
 
             return port;
@@ -238,7 +239,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #region (private static) Made(Made, Port)
 
-        private static Stub Made(List<Stub> Made, UInt16 Port)
+        private static Stub Made(List<Stub> Made, IPPort Port)
         {
             var stub = new Stub(Port);
             Made.Add(stub);
@@ -253,18 +254,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A stub of a peer: a listener on the loopback address, bound when it
         /// is started.
         /// </summary>
-        private sealed class Stub(UInt16 Port) : IAsyncDisposable
+        private sealed class Stub(IPPort Port) : IAsyncDisposable
         {
 
             private TcpListener? listener;
 
-            public UInt16   Port       { get; }  = Port;
+            public IPPort   Port       { get; }  = Port;
             public Boolean  Listening  => listener is not null;
             public Boolean  LetGo      { get; private set; }
 
             public Task Start()
             {
-                var started = new TcpListener(IPAddress.Loopback, Port);
+                var started = new TcpListener(IPAddress.Loopback, Port.ToInt32());
                 started.Start();
                 listener = started;
                 return Task.CompletedTask;

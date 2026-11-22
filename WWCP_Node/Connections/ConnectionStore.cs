@@ -52,7 +52,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
 
     /// <summary>
-    /// The places this charging station dials, and the credentials it proves
+    /// The places this charging station connects to, and the credentials it proves
     /// itself with when it gets there.
     /// </summary>
     /// <remarks>
@@ -82,7 +82,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region IPinnedTLSEndpoints
 
         // What the key-pin core of WWCP_OCPP_Node asks of the connections: the
-        // wss:// ones, a copy of one, and dialling one again - beside the
+        // wss:// ones, a copy of one, and connecting one again - beside the
         // writes, which are this store's own methods of the same names.
 
         IEnumerable<IPinnedTLSEndpoint> IPinnedTLSEndpoints.Secure
@@ -91,8 +91,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         IPinnedTLSEndpoint? IPinnedTLSEndpoints.CopyOf(String Id)
             => CopyOf(Id);
 
-        void IPinnedTLSEndpoints.DialAgain(String Id)
-            => DialAgain(Id);
+        void IPinnedTLSEndpoints.ConnectAgain(String Id)
+            => ConnectAgain(Id);
 
         #endregion
 
@@ -131,7 +131,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         private readonly Dictionary<String, AuthenticationEntry>  authentications  = [];
         private readonly Dictionary<String, ConnectionEntry>      connections      = [];
         private readonly Dictionary<String, PeerEntry>            peers            = [];
-        private readonly Dictionary<String, Int64>                dialRevisions    = [];
+        private readonly Dictionary<String, Int64>                connectionRevisions    = [];
 
         #endregion
 
@@ -174,7 +174,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// What this kind of node writes down as a connection, and what
-        /// not. Untold, everything a node that dials its back end does.
+        /// not. Untold, everything a node that connects to its back end does.
         /// </summary>
         public ConnectionRules                     Rules                     { get; set; } = new ();
 
@@ -190,7 +190,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         /// <summary>
         /// Why a connection can not lead to the node of the given name, or
-        /// null where it can: asked of a node that dials downwards and
+        /// null where it can: asked of a node that connects downwards and
         /// knows what is below it - a CSMS, whose charging stations and
         /// local controllers are written down with what they may do.
         /// </summary>
@@ -252,21 +252,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public PeerMigration? Migration { get; private set; }
 
         /// <summary>
-        /// How often the way the given connection is dialled was changed since
-        /// this store was made: its address, its version, whether it dials by
+        /// How often the way the given connection is made was changed since
+        /// this store was made: its address, its version, whether it connects by
         /// itself, the credentials it names or what they hold, its certificate,
         /// the host key somebody pinned and how it is trusted.
         /// </summary>
         /// <remarks>
-        /// What the station compares with the revision it dialled, to dial a
+        /// What the station compares with the revision it connected with, to connect a
         /// changed connection again at once. A description written anew, a host
         /// key learned on first use or a signed pin set taken are no change of
         /// it: the connection that is up stays up.
         /// </remarks>
-        public Int64 DialRevisionOf(String ConnectionId)
+        public Int64 ConnectionRevisionOf(String ConnectionId)
         {
             lock (updateLock)
-                return dialRevisions.GetValueOrDefault(ConnectionId);
+                return connectionRevisions.GetValueOrDefault(ConnectionId);
         }
 
         #endregion
@@ -696,7 +696,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Login">The name the other end knows this node by.</param>
         /// <param name="Password">The password.</param>
         /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
-        public Boolean TryAddPasswordAuthentication(String?                           Login,
+        public Boolean TryAddPasswordAuthentication(User_Id?                          Login,
                                                     String?                           Password,
                                                     I18NString?                       Description,
                                                     [NotNullWhen(true)]  out String?  Id,
@@ -720,7 +720,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Password">The password.</param>
         /// <param name="Description">What the credentials are for, e.g. "CSMS login".</param>
         /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about them was wrong, and they were not taken.</param>
-        public Boolean TryAddBasicAuthentication(String?                           Login,
+        public Boolean TryAddBasicAuthentication(User_Id?                          Login,
                                                  String?                           Password,
                                                  I18NString?                       Description,
                                                  [NotNullWhen(true)]  out String?  Id,
@@ -740,7 +740,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            if (!HTTPBasicAuthentication.TryCreate(Login!.Trim(), Password.Trim(), out var basic))
+            if (!HTTPBasicAuthentication.TryCreate(Login!.Value.ToString(), Password.Trim(), out var basic))
             {
                 Error = $"A login is needed: it is the name the other end knows this {NodeNoun} by.";
                 return false;
@@ -772,7 +772,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Alphabet">Which characters it is drawn from; none for the default.</param>
         /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
         /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none for unbound.</param>
-        public Boolean TryAddTOTPAuthentication(String?                           Login,
+        public Boolean TryAddTOTPAuthentication(User_Id?                          Login,
                                                 String?                           SharedSecret,
                                                 I18NString?                       Description,
                                                 [NotNullWhen(true)]  out String?  Id,
@@ -810,7 +810,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Alphabet">Which characters it is drawn from; none for the default.</param>
         /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
         /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none for unbound.</param>
-        public Boolean TryAddTOTPAuthentication(String?                           Login,
+        public Boolean TryAddTOTPAuthentication(User_Id?                          Login,
                                                 String?                           SharedSecret,
                                                 I18NString?                       Description,
                                                 [NotNullWhen(true)]  out String?  Id,
@@ -835,7 +835,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            if (!HTTPTOTPAuthentication.TryCreate(Login!.Trim(),
+            if (!HTTPTOTPAuthentication.TryCreate(Login!.Value.ToString(),
                                                   AuthenticationEntry.TOTPConfigOf(SharedSecret,
                                                                                    ValiditySeconds,
                                                                                    Length,
@@ -971,7 +971,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Password">The password; none to keep the one there is.</param>
         /// <param name="Description">What the credentials are for.</param>
         public Boolean TryUpdateBasicAuthentication(String?                           Id,
-                                                    String?                           Login,
+                                                    User_Id?                          Login,
                                                     String?                           Password,
                                                     I18NString?                       Description,
                                                     [NotNullWhen(false)] out String?  Error)
@@ -995,7 +995,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Description">What the credentials are for.</param>
         /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about the change was wrong, and they stay as they were.</param>
         public Boolean TryUpdateBasicAuthentication(String?                           Id,
-                                                    String?                           Login,
+                                                    User_Id?                          Login,
                                                     String?                           Password,
                                                     I18NString?                       Description,
                                                     [NotNullWhen(false)] out String?  Error,
@@ -1024,7 +1024,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                            }
 
                            error = null;
-                           return HTTPBasicAuthentication.Create(Login!.Trim(), password);
+                           return HTTPBasicAuthentication.Create(Login!.Value.ToString(), password);
 
                        },
                        out Error,
@@ -1052,7 +1052,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
         /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none to leave it as it is.</param>
         public Boolean TryUpdateTOTPAuthentication(String?                           Id,
-                                                   String?                           Login,
+                                                   User_Id?                          Login,
                                                    String?                           SharedSecret,
                                                    I18NString?                       Description,
                                                    [NotNullWhen(false)] out String?  Error,
@@ -1091,7 +1091,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="HashAlgorithm">"SHA256", "SHA384" or "SHA512"; none for HMAC-SHA256.</param>
         /// <param name="TLSChannelBinding">Whether the password is bound to the TLS session it is sent over; none to leave it as it is.</param>
         public Boolean TryUpdateTOTPAuthentication(String?                           Id,
-                                                   String?                           Login,
+                                                   User_Id?                          Login,
                                                    String?                           SharedSecret,
                                                    I18NString?                       Description,
                                                    [NotNullWhen(false)] out String?  Error,
@@ -1126,7 +1126,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                            error = null;
                            return HTTPTOTPAuthentication.Create(
-                                      Login!.Trim(),
+                                      Login!.Value.ToString(),
                                       AuthenticationEntry.TOTPConfigOf(
                                           sharedSecret,
                                           ValiditySeconds,
@@ -1271,11 +1271,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 Notice(LogLevel.Info, $"Credentials changed: {entry}.");
 
                 // What a connection proves itself with changed for every one
-                // that names them: they are dialled again with it.
+                // that names them: they are connected again with it.
                 var naming = connections.Values.Where(connection => connection.AuthenticationId == Id).ToArray();
 
                 foreach (var connection in naming)
-                    BumpDialRevision(connection.Id);
+                    BumpConnectionRevision(connection.Id);
 
                 if (naming.Length > 0 && OnConnectionsChanged is Action changed)
                     Task.Run(changed);
@@ -1326,7 +1326,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// Refused while a connection is using it, and the refusal names the
         /// connection. The alternative - removing it and leaving the
         /// connection pointing at nothing - turns one deliberate act into a
-        /// station that cannot dial home and gives nobody a reason why.
+        /// station that cannot connect home and gives nobody a reason why.
         /// </remarks>
         public Boolean TryRemoveAuthentication(String?                          Id,
                                                [NotNullWhen(false)] out String? Error)
@@ -1413,7 +1413,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                         String?                           SignatureFormats   = null,
                                         IEnumerable<ConnectionIdentity>?  Identities         = null,
                                         Boolean?                          Inbound            = null,
-                                        String?                           RemoteNodeId       = null)
+                                        String?                           RemoteNodeId       = null,
+                                        String?                           OCPIVersion        = null)
 
             => TryAddConnection(
                    Description,
@@ -1436,7 +1437,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    SignatureFormats,
                    Identities,
                    Inbound,
-                   RemoteNodeId
+                   RemoteNodeId,
+                   OCPIVersion
                );
 
 
@@ -1446,7 +1448,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         /// <param name="URL">Where it goes: ws://, wss:// or ssh://. Read a URL somebody typed with <see cref="ConnectionEntry.TryParseURL"/>, which says what is wrong with it.</param>
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about this one was wrong, and it was not taken.</param>
-        /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas; none where it is not dialled or learns one on first use.</param>
+        /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas; none where it is not connected to or learns one on first use.</param>
         /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins; none for no trust on first use, mismatches refused.</param>
         /// <param name="ServerKeyPins">The key pins of the keys the server of a wss:// connection may show, separated by commas; none where it is checked by its CA or learns one on first use.</param>
         /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and learns a key pin on first use, and how long that waits; none for neither.</param>
@@ -1454,8 +1456,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; none for "auto".</param>
         /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; none for "json".</param>
         /// <param name="SignatureFormats">Which signatures it writes - "jws", "cose" or "both"; none, or "policy", for what the signature policy says.</param>
-        /// <param name="Inbound">Whether the other end dials, see <see cref="ConnectionEntry.Inbound"/>; none for a connection this node dials.</param>
-        /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; none where this node dials its back end.</param>
+        /// <param name="Inbound">Whether the other end connects, see <see cref="ConnectionEntry.Inbound"/>; none for a connection this node makes.</param>
+        /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; none where this node connects to its back end.</param>
+        /// <param name="OCPIVersion">Which OCPI a connection to an EMSP or a CPO carries - "2.1.1", "2.2.1" or "2.3.0" -, see <see cref="ConnectionEntry.OCPIVersion"/>; none for a connection of OCPP.</param>
         public Boolean TryAddConnection(I18NString?                       Description,
                                         URL?                              URL,
                                         String?                           ConnectionType,
@@ -1476,7 +1479,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                         String?                           SignatureFormats   = null,
                                         IEnumerable<ConnectionIdentity>?  Identities         = null,
                                         Boolean?                          Inbound            = null,
-                                        String?                           RemoteNodeId       = null)
+                                        String?                           RemoteNodeId       = null,
+                                        String?                           OCPIVersion        = null)
         {
 
             Id        = null;
@@ -1484,6 +1488,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out Error, NodeNoun))
+                return false;
+
+            if (!ConnectionEntry.ValidateOCPIVersion(type, OCPIVersion, out var ocpiVersion, out Error, NodeNoun))
                 return false;
 
             if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
@@ -1528,7 +1535,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             if (!ConnectionEntry.ValidateRemoteNodeId(RemoteNodeId, out var remoteNodeId, out Error, NodeNoun))
                 return false;
 
-            // What dials in is named by its URL, and by nothing else.
+            // What connects is named by its URL, and by nothing else.
             if (inbound)
                 remoteNodeId = null;
 
@@ -1551,7 +1558,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                      out var authenticationId, out var identities, out Error))
                     return false;
 
-                if (inbound && !CheckInboundReferences(null, url, version, authenticationId, identities, out Error))
+                if (inbound && !CheckInboundReferences(null, url, ProtocolOf(type, version, ocpiVersion), authenticationId, identities, out Error))
                     return false;
 
                 var entry = new ConnectionEntry(
@@ -1562,6 +1569,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                 TimeProvider.GetUtcNow()
                             ) {
                                 OCPPVersion                = version,
+                                OCPIVersion                = ocpiVersion,
                                 AutoConnect                = AutoConnect ?? false,
                                 Inbound                    = inbound,
                                 RemoteNodeId               = remoteNodeId,
@@ -1586,12 +1594,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 connections[entry.Id] = entry;
 
                 // A peer of its own, with this one endpoint: the primary if it
-                // dials by itself and nothing else is in charge, an observer if
-                // it dials by itself, a service if not.
+                // connects by itself and nothing else is in charge, an observer if
+                // it connects by itself, a service if not. A connection of OCPI
+                // is in charge of nothing: an observer.
                 var peer = NewPeerOf(entry);
                 peer.Role = !entry.AutoConnect
                                 ? PeerRole.Service
-                                : peers.Values.Any(other => other.Role == PeerRole.Primary)
+                                : entry.Use != ConnectionUse.OCPP || peers.Values.Any(other => other.Role == PeerRole.Primary)
                                       ? PeerRole.Observer
                                       : PeerRole.Primary;
                 peers[peer.Id] = peer;
@@ -1645,12 +1654,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                            String?                          SignatureFormats       = null,
                                            IEnumerable<ConnectionIdentity>? Identities             = null,
                                            Boolean?                         Inbound                = null,
-                                           String?                          RemoteNodeId           = null)
+                                           String?                          RemoteNodeId           = null,
+                                           String?                          OCPIVersion            = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
                                    out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust,
                                    ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins, HTTPVersion, Encoding, SignatureFormats, Identities,
-                                   Inbound, RemoteNodeId);
+                                   Inbound, RemoteNodeId, OCPIVersion);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
@@ -1668,8 +1678,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; nothing to keep the one it has.</param>
         /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; nothing to keep what it says.</param>
         /// <param name="SignatureFormats">Which signatures it writes - "jws", "cose", "both", or "policy" for what the signature policy says; nothing to keep what it says.</param>
-        /// <param name="Inbound">Whether the other end dials, see <see cref="ConnectionEntry.Inbound"/>; nothing to keep what it says.</param>
+        /// <param name="Inbound">Whether the other end connects, see <see cref="ConnectionEntry.Inbound"/>; nothing to keep what it says.</param>
         /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; nothing to keep what it says, an empty text for none.</param>
+        /// <param name="OCPIVersion">Which OCPI a connection to an EMSP or a CPO carries, see <see cref="ConnectionEntry.OCPIVersion"/>; nothing to keep the one it has.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            I18NString?                      Description,
                                            URL?                             URL,
@@ -1692,7 +1703,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                            String?                          SignatureFormats       = null,
                                            IEnumerable<ConnectionIdentity>? Identities             = null,
                                            Boolean?                         Inbound                = null,
-                                           String?                          RemoteNodeId           = null)
+                                           String?                          RemoteNodeId           = null,
+                                           String?                          OCPIVersion            = null)
         {
 
             NotSaved = false;
@@ -1771,8 +1783,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 var inbound  = Inbound ?? entry.Inbound;
 
-                // Whether it is turned around: dialled by the other end where
-                // this node dialled, or the other way round. Then the key pins,
+                // Whether it is turned around: made by the other end where
+                // this node made it, or the other way round. Then the key pins,
                 // and what a certificate is held to, were about the other end in
                 // the other direction - the key of its server, or of its client
                 // certificate - and what was kept of them is not kept: only what
@@ -1846,7 +1858,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     !ConnectionEntry.ValidateRemoteNodeId(RemoteNodeId, out remoteNodeId, out Error, NodeNoun))
                     return false;
 
-                // What dials in is named by its URL, and by nothing else.
+                // What connects is named by its URL, and by nothing else.
                 if (inbound)
                     remoteNodeId = null;
 
@@ -1859,9 +1871,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     return false;
                 }
 
+                // Kept where the change does not say, and it carries OCPI still.
+                if (!ConnectionEntry.ValidateOCPIVersion(type,
+                                                         OCPIVersion ?? (ConnectionEntry.UseOf(type) == ConnectionUse.OCPI ? entry.OCPIVersion : null),
+                                                         out var ocpiVersion,
+                                                         out Error,
+                                                         NodeNoun))
+                    return false;
+
                 if (inbound &&
                     (!CheckInbound(url, hostKey, keyPins, rawPublicKeys, keyTrustOnFirstUse, pins, httpVersion ?? entry.HTTPVersion, out Error) ||
-                     !CheckInboundReferences(entry.Id, url, version, authenticationId, identities, out Error)))
+                     !CheckInboundReferences(entry.Id, url, ProtocolOf(type, version, ocpiVersion), authenticationId, identities, out Error)))
                     return false;
 
                 var peer = PeerOfUnlocked(entry.Id);
@@ -1880,6 +1900,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 entry.URL                 = url;
                 entry.ConnectionType      = type;
                 entry.OCPPVersion         = version;
+                entry.OCPIVersion         = ocpiVersion;
                 entry.AutoConnect  = AutoConnect ?? false;
                 entry.Inbound             = inbound;
                 entry.RemoteNodeId        = remoteNodeId;
@@ -1978,14 +1999,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 var notes = Normalize();
 
-                Int64? revisionWas = ChangesHowItIsDialled(was, entry) ? BumpDialRevision(Id) : null;
+                Int64? revisionWas = ChangesHowItIsConnected(was, entry) ? BumpConnectionRevision(Id) : null;
 
                 if (!TrySaveConnections(out Error))
                 {
                     connections[Id] = was;
                     RestorePeers(peersBefore);
                     if (revisionWas is Int64 revision)
-                        dialRevisions[Id] = revision;
+                        connectionRevisions[Id] = revision;
                     NotSaved = true;
                     return false;
                 }
@@ -2010,7 +2031,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// certificate a station asked its CSMS for has come.
         /// </summary>
         /// <remarks>
-        /// The connection is dialled again, as after a change of its
+        /// The connection is connected again, as after a change of its
         /// certificate by somebody's hand.
         /// </remarks>
         /// <param name="Id">The connection.</param>
@@ -2058,21 +2079,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 var was          = entry.Copy();
-                var revisionWas  = BumpDialRevision(Id);
+                var revisionWas  = BumpConnectionRevision(Id);
 
                 entry.Identities = shownNow;
 
                 if (!TrySaveConnections(out Error))
                 {
                     connections[Id]    = was;
-                    dialRevisions[Id]  = revisionWas;
+                    connectionRevisions[Id]  = revisionWas;
                     return false;
                 }
 
                 Notice(LogLevel.Notice,
                        $"'{entry.Description.FirstText()}' shows the certificate of the key {CertificateId} from now on" +
                        (was.CertificateId is not null ? $", and no longer that of {was.CertificateId}" : "") +
-                        ". It is dialled again.");
+                        ". It is connected again.");
 
                 Error = null;
                 return true;
@@ -2088,17 +2109,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// Write down the host key the first connection of an ssh:// connection
         /// that trusts on first use was shown: on probation, until a signed pin
-        /// set confirms it (white paper "OCPP over SSH", section 10.4).
+        /// set confirms it (white paper "OCPP-over-SSH", section 10.4).
         /// </summary>
         /// <remarks>
         /// Only where nothing changed meanwhile: the connection is still there,
-        /// still goes where it went when it was dialled, still trusts on first
+        /// still goes where it went when it was connected to, still trusts on first
         /// use, and pins and learned no host key yet. Written down rather than
         /// only remembered, so that a restart does not learn again from whoever
         /// answers first - and so that the probation runs on.
         /// </remarks>
         /// <param name="Id">The connection.</param>
-        /// <param name="URL">Where it went when it was dialled.</param>
+        /// <param name="URL">Where it went when it was connected to.</param>
         /// <param name="HostKey">The host key it was shown, as a fingerprint.</param>
         /// <param name="Error">Why it was not written down - nothing where it was not to be.</param>
         /// <returns>Whether it was written down.</returns>
@@ -2250,7 +2271,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// Take the host keys of a signed pin set as the connection's pins: only
         /// with a higher version than the one it holds, so that an older pin
-        /// set cannot be brought back (white paper "OCPP over SSH", section
+        /// set cannot be brought back (white paper "OCPP-over-SSH", section
         /// 10.4; "Key Pins and Raw Public Keys", section 5.7).
         /// </summary>
         /// <param name="Id">The connection.</param>
@@ -2342,13 +2363,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         /// <remarks>
         /// Only where nothing changed meanwhile: the connection is still there,
-        /// still goes where it went when it was dialled, still trusts on first
+        /// still goes where it went when it was connected to, still trusts on first
         /// use, and pins and learned no key yet. Written down rather than only
         /// remembered, so that a restart does not learn again from whoever
         /// answers first - and so that the probation runs on.
         /// </remarks>
         /// <param name="Id">The connection.</param>
-        /// <param name="URL">Where it went when it was dialled.</param>
+        /// <param name="URL">Where it went when it was connected to.</param>
         /// <param name="Pin">The key pin of the key it was shown.</param>
         /// <param name="Error">Why it was not written down - nothing where it was not to be.</param>
         /// <returns>Whether it was written down.</returns>
@@ -2492,7 +2513,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description.FirstText()}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to pin. " +
+                    Error = $"'{entry.Description.FirstText()}' is made by the other end, so this {NodeNoun} is its server and has no server of it to pin. " +
                              "The keys the other end signs in with are written down by hand.";
                     return false;
                 }
@@ -2562,12 +2583,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         /// <remarks>
         /// Only where nothing changed meanwhile: the connection is still there,
-        /// still goes where it went when it was dialled, still learns that, and
+        /// still goes where it went when it was connected to, still learns that, and
         /// is held to nothing of that kind yet. No probation, unlike a key
         /// learned on first use: the CA vouched for what is learned here.
         /// </remarks>
         /// <param name="Id">The connection.</param>
-        /// <param name="URL">Where it went when it was dialled.</param>
+        /// <param name="URL">Where it went when it was connected to.</param>
         /// <param name="What">What is learned: the root or the certificate.</param>
         /// <param name="Fingerprint">Its fingerprint.</param>
         /// <returns>Whether the server is held to it now.</returns>
@@ -2664,7 +2685,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description.FirstText()}' is dialled by the other end, so this {NodeNoun} is its server and has no server of it to hold to a root. " +
+                    Error = $"'{entry.Description.FirstText()}' is made by the other end, so this {NodeNoun} is its server and has no server of it to hold to a root. " +
                              "The roots the other end's certificate is held to are written down by hand.";
                     return false;
                 }
@@ -2713,7 +2734,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 }
 
                 var was         = entry.Copy();
-                var revisionWas = BumpDialRevision(Id);
+                var revisionWas = BumpConnectionRevision(Id);
 
                 entry.Pins         = (entry.Pins ?? ServerPins.None) with { Roots = roots };
                 entry.PinsVersion  = Version;
@@ -2721,13 +2742,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 if (!TrySaveConnections(out Error))
                 {
                     connections[Id]    = was;
-                    dialRevisions[Id]  = revisionWas;
+                    connectionRevisions[Id]  = revisionWas;
                     return false;
                 }
 
                 Notice(LogLevel.Notice,
                        $"'{entry.Description.FirstText()}' took the roots of the signed pin set of version {Version}: its chain may end at {String.Join(" or ", roots)}. " +
-                        "It is dialled again, held to them.");
+                        "It is connected again, held to them.");
 
                 Error = null;
                 return true;
@@ -2756,12 +2777,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// ends the probation that went with it.
         /// </para>
         /// <para>
-        /// Not dialled again here, even where the change makes a connection
+        /// Not connected again here, even where the change makes a connection
         /// key-pinned that was checked by its CA, or the other way round - whose
         /// client was made with the validator of the one or the other, and would
         /// go on with it until the next start. That is said in
-        /// <paramref name="KeyPinnedChanged"/>, and the caller dials it again
-        /// with <see cref="DialAgain"/> once it answered what asked for the
+        /// <paramref name="KeyPinnedChanged"/>, and the caller connects it again
+        /// with <see cref="ConnectAgain"/> once it answered what asked for the
         /// change, over the very connection that is hung up then. Every other
         /// change is read at the next handshake, as the key pins are, and drops
         /// nothing.
@@ -2770,7 +2791,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Id">The connection.</param>
         /// <param name="Settings">What changes: "Off", "Prefer" or "Require"; "None" or "Key"; seconds of probation.</param>
         /// <param name="Forgotten">The key pin learned on probation that went with trust on first use; null where none did.</param>
-        /// <param name="KeyPinnedChanged">Whether the connection is key-pinned now where it was not, or the other way round: it has to be dialled again.</param>
+        /// <param name="KeyPinnedChanged">Whether the connection is key-pinned now where it was not, or the other way round: it has to be connected again.</param>
         /// <param name="Error">Why nothing was changed.</param>
         public Boolean TryChangeKeyPinTrust(String                            Id,
                                             ServerKeyPinSettings              Settings,
@@ -2793,7 +2814,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 if (entry.Inbound)
                 {
-                    Error = $"'{entry.Description.FirstText()}' is dialled by the other end: raw public keys and learning a key on first use are for a server this {NodeNoun} dials.";
+                    Error = $"'{entry.Description.FirstText()}' is made by the other end: raw public keys and learning a key on first use are for a server this {NodeNoun} connects to.";
                     return false;
                 }
 
@@ -2848,19 +2869,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
-        #region (internal) DialAgain(Id)
+        #region (internal) ConnectAgain(Id)
 
         /// <summary>
-        /// Have the given connection dialled again, as after a change of how it
-        /// is dialled: the one made before is hung up.
+        /// Have the given connection connected again, as after a change of how it
+        /// is made: the one made before is hung up.
         /// </summary>
         /// <remarks>
-        /// For a change written before, whose dialling had to wait - see
+        /// For a change written before, whose connecting had to wait - see
         /// <see cref="TryChangeKeyPinTrust"/>. Its revision is raised, and whoever
         /// follows the connections is told, as after a change written down.
         /// </remarks>
         /// <param name="Id">The connection.</param>
-        public void DialAgain(String Id)
+        public void ConnectAgain(String Id)
         {
 
             lock (updateLock)
@@ -2869,7 +2890,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 if (!connections.ContainsKey(Id))
                     return;
 
-                BumpDialRevision(Id);
+                BumpConnectionRevision(Id);
 
             }
 
@@ -3010,28 +3031,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
-        #region (private) BumpDialRevision(Id) / ChangesHowItIsDialled(Was, Now)
+        #region (private) BumpConnectionRevision(Id) / ChangesHowItIsConnected(Was, Now)
 
         /// <summary>
-        /// The given connection is dialled differently now. Called under the
+        /// The given connection is made differently now. Called under the
         /// lock; says what the revision was, to put it back where the change
         /// could not be written.
         /// </summary>
-        private Int64 BumpDialRevision(String Id)
+        private Int64 BumpConnectionRevision(String Id)
         {
-            var was = dialRevisions.GetValueOrDefault(Id);
-            dialRevisions[Id] = was + 1;
+            var was = connectionRevisions.GetValueOrDefault(Id);
+            connectionRevisions[Id] = was + 1;
             return was;
         }
 
         /// <summary>
-        /// Whether a connection changed in a way that has to be dialled again.
+        /// Whether a connection changed in a way that has to be connected again.
         /// </summary>
-        private static Boolean ChangesHowItIsDialled(ConnectionEntry Was, ConnectionEntry Now)
+        private static Boolean ChangesHowItIsConnected(ConnectionEntry Was, ConnectionEntry Now)
 
             => Was.URL                 != Now.URL                 ||
                Was.RemoteNodeId        != Now.RemoteNodeId        ||
                Was.OCPPVersion         != Now.OCPPVersion         ||
+               Was.OCPIVersion         != Now.OCPIVersion         ||
                Was.AutoConnect         != Now.AutoConnect         ||
                Was.AuthenticationId    != Now.AuthenticationId    ||
                !Was.Identities.SequenceEqual(Now.Identities)      ||
@@ -3044,7 +3066,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                Was.SshProbationTime    != Now.SshProbationTime    ||
 
                // The key pins someone edits. Learning one and taking a signed
-               // pin set are no edit and dial nothing again: a rejected pin set
+               // pin set are no edit and connect nothing again: a rejected pin set
                // drops its connection by itself.
                !Was.ServerKeyPins.SequenceEqual(Now.ServerKeyPins)        ||
                Was.RawPublicKeys              != Now.RawPublicKeys              ||
@@ -3065,10 +3087,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// lock.
         /// </summary>
         /// <remarks>
-        /// Once peers.json is there, it is what this station dials, and
+        /// Once peers.json is there, it is what this station connects to, and
         /// connections.json beside it is not read again. A peers.json that
         /// cannot be read at all is ignored, as connections.json was: the
-        /// station dials nothing rather than something nobody wrote down any
+        /// station connects to nothing rather than something nobody wrote down any
         /// more.
         /// </remarks>
         private void ReadPeers()
@@ -3146,16 +3168,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// lock.
         /// </summary>
         /// <remarks>
-        /// Nothing is dialled differently. Every connection stays an endpoint
-        /// under its own id, and keeps whether it dials by itself; the roles are
+        /// Nothing is connected differently. Every connection stays an endpoint
+        /// under its own id, and keeps whether it connects by itself; the roles are
         /// written down, and what a role may do applies from work package P9
         /// on. Every connection becomes a peer of its own, but a CSMSBackup,
         /// which becomes the next endpoint of the one CSMS of its OCPP version,
-        /// where there is exactly one. The oldest connection that dials by
+        /// where there is exactly one. The oldest connection that connects by
         /// itself makes its peer the primary; the oldest of the other OCPP
         /// version makes its peer a successor, since the model has one back end
         /// in charge where there were two, one per OCPP node; every other peer
-        /// dialled by itself is an observer, and one that is not a service.
+        /// connected to by itself is an observer, and one that is not a service.
         ///
         /// connections.json is left as it was, for a station of an older
         /// version; it is not read again. The migration is told, line by line,
@@ -3199,21 +3221,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             }
 
             foreach (var peer in peers.Values)
-                peer.Role = IsDialled(peer) ? PeerRole.Observer : PeerRole.Service;
+                peer.Role = IsConnectedTo(peer) ? PeerRole.Observer : PeerRole.Service;
 
-            if (OldestDialled() is PeerEntry primary)
+            if (OldestConnected() is PeerEntry primary)
             {
 
                 primary.Role = PeerRole.Primary;
 
                 var otherVersion = primary.OCPPVersion == OCPPVersion.OCPP1_6 ? OCPPVersion.OCPP2_1 : OCPPVersion.OCPP1_6;
 
-                if (OldestDialled(otherVersion) is PeerEntry successor)
+                if (OldestConnected(otherVersion) is PeerEntry successor)
                 {
                     successor.Role = PeerRole.Successor;
                     notes.Add($"Peer {successor.Id} '{successor.Description.FirstText()}' was in charge of the {ConnectionEntry.AsText(otherVersion)} node, " +
                               $"as '{primary.Description.FirstText()}' was of the {ConnectionEntry.AsText(primary.OCPPVersion)} one. The {NodeNoun} has one primary now, " +
-                              $"so it is a successor: dialled and registered with as before, and held to a successor's rights once they apply.");
+                              $"so it is a successor: connected to and registered with as before, and held to a successor's rights once they apply.");
                 }
 
             }
@@ -3222,7 +3244,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                                                 $"{ConnectionEntry.AsText(peer.OCPPVersion)}, endpoint(s) {String.Join(", ", peer.EndpointIds)}."));
 
             notes.Insert(0, $"The {connections.Count} connection(s) of {ConnectionsFileName} are {peers.Count} peer(s) in {PeersFileName} now; " +
-                            $"nothing is dialled differently.");
+                            $"nothing is connected differently.");
 
             notes.AddRange(Normalize());
 
@@ -3242,9 +3264,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         /// <remarks>
         /// - Every connection is the endpoint of exactly one peer.
-        /// - A peer none of whose endpoints dials by itself is a service, and a
+        /// - A peer none of whose endpoints connects by itself is a service, and a
         ///   service one of whose endpoints does is not.
-        /// - At most one primary, and one as soon as a peer is dialled by
+        /// - At most one primary, and one as soon as a peer is connected to by
         ///   itself: the oldest such peer, where none is.
         /// - Rights are a secondary's; a primary has every right.
         /// </remarks>
@@ -3268,7 +3290,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             foreach (var entry in connections.Values.Where(entry => !owned.Contains(entry.Id)).OrderBy(entry => entry.CreatedAt).ToArray())
             {
                 var peer = NewPeerOf(entry);
-                peer.Role = IsDialled(peer) ? PeerRole.Observer : PeerRole.Service;
+                peer.Role = IsConnectedTo(peer) ? PeerRole.Observer : PeerRole.Service;
                 peers[peer.Id] = peer;
                 notes.Add($"Connection '{entry.Description.FirstText()}' ({entry.Id}) belonged to no peer and is peer {peer.Id} of its own now, a {peer.Role}.");
             }
@@ -3276,23 +3298,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             foreach (var peer in peers.Values)
             {
 
-                var dialled = IsDialled(peer);
+                var connectsByItself = IsConnectedTo(peer);
 
-                if (!dialled && peer.Role != PeerRole.Service)
+                if (!connectsByItself && peer.Role != PeerRole.Service)
                 {
-                    notes.Add($"None of the endpoints of peer {peer.Id} '{peer.Description.FirstText()}' dials by itself, so it is no {peer.Role} but a Service now.");
+                    notes.Add($"None of the endpoints of peer {peer.Id} '{peer.Description.FirstText()}' connects by itself, so it is no {peer.Role} but a Service now.");
                     peer.Role = PeerRole.Service;
                 }
 
-                else if (dialled && peer.Role == PeerRole.Service)
+                else if (connectsByItself && peer.Role == PeerRole.Service)
                 {
                     peer.Role = PeerRole.Observer;
-                    notes.Add($"An endpoint of peer {peer.Id} '{peer.Description.FirstText()}' dials by itself, so it is no Service but an Observer now.");
+                    notes.Add($"An endpoint of peer {peer.Id} '{peer.Description.FirstText()}' connects by itself, so it is no Service but an Observer now.");
                 }
 
             }
 
-            var primaries = peers.Values.Where(peer => peer.Role == PeerRole.Primary).OrderBy(FirstDialledAt).ToArray();
+            var primaries = peers.Values.Where(peer => peer.Role == PeerRole.Primary).OrderBy(FirstConnectedAt).ToArray();
 
             foreach (var extra in primaries.Skip(1))
             {
@@ -3300,9 +3322,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 notes.Add($"Peer {extra.Id} '{extra.Description.FirstText()}' was a second primary and is a Successor now: one back end is in charge.");
             }
 
-            if (primaries.Length == 0 && OldestDialled() is PeerEntry next)
+            if (primaries.Length == 0 && OldestConnected() is PeerEntry next)
             {
-                notes.Add($"Switchover: peer {next.Id} '{next.Description.FirstText()}' is the primary now, as the oldest peer dialled by itself; it was a {next.Role}.");
+                notes.Add($"Switchover: peer {next.Id} '{next.Description.FirstText()}' is the primary now, as the oldest peer connected to by itself; it was a {next.Role}.");
                 next.Role = PeerRole.Primary;
             }
 
@@ -3333,17 +3355,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         }
 
         /// <summary>
-        /// Whether one of the endpoints of the given peer dials by itself.
+        /// Whether one of the endpoints of the given peer connects by itself.
         /// </summary>
-        private Boolean IsDialled(PeerEntry Peer)
+        private Boolean IsConnectedTo(PeerEntry Peer)
 
             => Peer.EndpointIds.Any(id => connections.TryGetValue(id, out var entry) && entry.AutoConnect);
 
         /// <summary>
-        /// When the oldest of the endpoints of the given peer that dial by
+        /// Whether the endpoints of the given peer carry OCPP - or what they
+        /// carry is not known, as of a peer without endpoints.
+        /// </summary>
+        private Boolean CarriesOCPP(PeerEntry Peer)
+
+            => !Peer.EndpointIds.Any(id => connections.TryGetValue(id, out var entry) && entry.Use != ConnectionUse.OCPP);
+
+        /// <summary>
+        /// The protocol and version a connection to what is at the given end
+        /// carries: the given version of OCPP or of OCPI, as it says.
+        /// </summary>
+        private static ProtocolVersion ProtocolOf(ConnectionType  Type,
+                                                  OCPPVersion     OCPPVersion,
+                                                  String?         OCPIVersion)
+
+            => ConnectionEntry.UseOf(Type) == ConnectionUse.OCPI
+                   ? ProtocolVersion.OCPI(OCPIVersion ?? "")
+                   : OCPPVersion;
+
+        /// <summary>
+        /// When the oldest of the endpoints of the given peer that connect by
         /// themselves was written down; the end of time for a peer with none.
         /// </summary>
-        private DateTimeOffset FirstDialledAt(PeerEntry Peer)
+        private DateTimeOffset FirstConnectedAt(PeerEntry Peer)
 
             => Peer.EndpointIds.
                    Select (id => connections.TryGetValue(id, out var entry) && entry.AutoConnect ? entry.CreatedAt : DateTimeOffset.MaxValue).
@@ -3351,14 +3393,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    Min();
 
         /// <summary>
-        /// The peer this station has dialled first, of the given OCPP version
-        /// or of both.
+        /// The peer this station has connected to first, of the given OCPP version
+        /// or of both - of OCPP: a peer of OCPI is in charge of nothing.
         /// </summary>
-        private PeerEntry? OldestDialled(OCPPVersion? Version = null)
+        private PeerEntry? OldestConnected(OCPPVersion? Version = null)
 
             => peers.Values.
-                   Where  (peer => IsDialled(peer) && (Version is null || peer.OCPPVersion == Version)).
-                   OrderBy(FirstDialledAt).
+                   Where  (peer => IsConnectedTo(peer) && CarriesOCPP(peer) && (Version is null || peer.OCPPVersion == Version)).
+                   OrderBy(FirstConnectedAt).
                    ThenBy (peer => peer.Id, StringComparer.Ordinal).
                    FirstOrDefault();
 
@@ -3402,10 +3444,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// A peer made the primary takes over from the one that was: that one
         /// is a successor then, and the change is told as a switchover. The
         /// primary cannot be made anything else directly - the oldest peer
-        /// dialled by itself would be in charge again at once, often the same -
+        /// connected to by itself would be in charge again at once, often the same -
         /// so another one is made the primary instead. Whether a peer is a
-        /// service follows from its endpoints: one that dials by itself makes
-        /// its peer one that is dialled always.
+        /// service follows from its endpoints: one that connects by itself makes
+        /// its peer one that is connected to always.
         /// </remarks>
         public Boolean TryUpdatePeer(String?                          Id,
                                      I18NString?                      Description,
@@ -3485,15 +3527,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     return false;
                 }
 
-                if (newRole == PeerRole.Service && IsDialled(peer))
+                if (newRole == PeerRole.Service && IsConnectedTo(peer))
                 {
-                    Error = $"An endpoint of '{peer.Description.FirstText()}' dials by itself, and a service is dialled on demand only. Switch that off first.";
+                    Error = $"An endpoint of '{peer.Description.FirstText()}' connects by itself, and a service is connected to on demand only. Switch that off first.";
                     return false;
                 }
 
-                if (newRole != PeerRole.Service && !IsDialled(peer))
+                if (newRole != PeerRole.Service && !IsConnectedTo(peer))
                 {
-                    Error = $"None of the endpoints of '{peer.Description.FirstText()}' dials by itself, and a {newRole} is dialled always. Switch that on for one of them first.";
+                    Error = $"None of the endpoints of '{peer.Description.FirstText()}' connects by itself, and a {newRole} is connected to always. Switch that on for one of them first.";
                     return false;
                 }
 
@@ -3734,8 +3776,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region (private) CheckInbound(...) / CheckInboundReferences(...)
 
         /// <summary>
-        /// What a connection the other end dials can not say: what this node
-        /// holds a server to that it dials itself, and what the other end
+        /// What a connection the other end makes can not say: what this node
+        /// holds a server to that it connects to itself, and what the other end
         /// signs in with, which its WebSocket login says.
         /// </summary>
         /// <remarks>
@@ -3760,8 +3802,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (HostKey is not null || RawPublicKeys != RawPublicKeyMode.Off || TrustOnFirstUse != KeyTrustOnFirstUse.None)
             {
-                Error = $"Host keys, raw public keys and learning a key on first use are for a server this {NodeNoun} dials. " +
-                        $"Here the other end dials, and this {NodeNoun} is the server: leave them out.";
+                Error = $"Host keys, raw public keys and learning a key on first use are for a server this {NodeNoun} connects to. " +
+                        $"Here the other end connects, and this {NodeNoun} is the server: leave them out.";
                 return false;
             }
 
@@ -3774,7 +3816,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (HTTPVersion is not null && HTTPVersion != WebSocketHTTPVersion.Auto)
             {
-                Error = "Which version of HTTP the WebSocket is opened over is chosen by whoever dials - and here that is the other end.";
+                Error = "Which version of HTTP the WebSocket is opened over is chosen by whoever connects - and here that is the other end.";
                 return false;
             }
 
@@ -3783,11 +3825,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         }
 
         /// <summary>
-        /// What a connection the other end dials needs of the rest of the
+        /// What a connection the other end makes needs of the rest of the
         /// store: nothing it would sign in with of this node's - credentials,
         /// a client certificate -, which are what this node proves itself with
-        /// where it dials; and its name to itself, among the connections of its
-        /// OCPP version. Called under the lock.
+        /// where it connects; and its name to itself, among the connections of its
+        /// protocol and version. Called under the lock.
         /// </summary>
         /// <remarks>
         /// What the other end signs in with is its WebSocket login's, under
@@ -3795,7 +3837,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </remarks>
         private Boolean CheckInboundReferences(String?                               Id,
                                                URL                                   URL,
-                                               OCPPVersion                           Version,
+                                               ProtocolVersion                       Protocol,
                                                String?                               AuthenticationId,
                                                IReadOnlyList<ConnectionIdentity>     Identities,
                                                [NotNullWhen(false)] out String?      Error)
@@ -3805,14 +3847,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (Identities.Count > 0)
             {
-                Error = $"A client certificate of this {NodeNoun}'s store is what it shows where it dials. Here the other end dials: " +
+                Error = $"A client certificate of this {NodeNoun}'s store is what it shows where it connects. Here the other end connects: " +
                         $"leave it out - '{name}' signs in with its WebSocket login.";
                 return false;
             }
 
             if (AuthenticationId is not null)
             {
-                Error = $"Credentials of this {NodeNoun} are what it proves itself with where it dials. Here the other end dials, and " +
+                Error = $"Credentials of this {NodeNoun} are what it proves itself with where it connects. Here the other end connects, and " +
                         $"'{name}' signs in with its WebSocket login: give that login its password, one-time password, key pin or SSH key, " +
                          "and leave the credentials out.";
                 return false;
@@ -3820,10 +3862,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (connections.Values.FirstOrDefault(other => other.Inbound &&
                                                            other.Id          != Id &&
-                                                           other.OCPPVersion == Version &&
+                                                           other.Protocol    == Protocol &&
                                                            other.InboundName == name) is ConnectionEntry taken)
             {
-                Error = $"'{name}' is the name '{taken.Description.FirstText()}' comes under already, in {ConnectionEntry.AsText(Version)}. " +
+                Error = $"'{name}' is the name '{taken.Description.FirstText()}' comes under already, in {Protocol}. " +
                         "Two connections under one name could not be told apart at the door.";
                 return false;
             }
@@ -3854,7 +3896,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         private void CheckEntry(ConnectionEntry Entry)
         {
 
-            // Worked out aside and put in its place at once: the page, a test and the dialler read
+            // Worked out aside and put in its place at once: the page, a test and the connecting code read
             // the warnings while another thread works them out again.
             var warnings = new List<String>();
 
@@ -3887,7 +3929,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                       "that takes 'totp@open.charging.cloud' and to no other.");
 
                     if (Entry.IsSSH &&
-                        Entry.URL.Login is String login && credentials.Login is not null && login != credentials.Login)
+                        Entry.URL.Login is User_Id login && credentials.Login is User_Id credentialsLogin && login != credentialsLogin)
                         warnings.Add($"The URL signs in as '{login}' and '{credentials.Description.FirstText()}' as '{credentials.Login}'. " +
                                       "It is one login, so it is not connected until the two agree.");
 
@@ -3930,12 +3972,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 warnings.Add($"None of the identities this connection names is shown yet: the first from " +
                              $"{Entry.Identities.Min(identity => identity.From)!.Value.UtcDateTime:yyyy-MM-dd HH:mm} UTC. Until then it is not connected.");
 
-            // Over SSH this station always shows its own key; what dials in
+            // Over SSH this station always shows its own key; what connects
             // signs in with its WebSocket login.
             if (Entry.AuthenticationId is null && Entry.CertificateId is null && !Entry.IsSSH && !Entry.Inbound)
-                warnings.Add("This connection proves nothing about who is dialling. A back end that asks will refuse it.");
+                warnings.Add("This connection proves nothing about who is connecting. A back end that asks will refuse it.");
 
-            if (Entry.Inbound && !Entry.IsSecure)
+            if (Entry.Inbound && !Entry.IsSecure && !Entry.IsSSH)
                 warnings.Add("Without TLS the other end sends its password in the clear to anybody on the way, and shows no client certificate.");
 
             if (Entry.IsSSH)

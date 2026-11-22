@@ -112,7 +112,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// that would listen on the given address - not started by the node -
         /// with what it logs kept in <see cref="said"/>.
         /// </summary>
-        private WWCPNode Node(IIPAddress  Address,
+        private WWCPNode Node(IPAddress  Address,
                               String      Web = "{}")
         {
 
@@ -121,7 +121,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configFile, $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "web": {{Web}} }""");
 
-            var node = new WWCPNode(HTTPServer:        new HTTPServer(IPAddress: Address, TCPPort: IPPort.Parse(TestPorts.Free())),
+            var node = new WWCPNode(HTTPServer:        new HTTPServer(IPAddress: Address, TCPPort: TestPorts.Free()),
                                     AccountsPath:      Path.Combine(home, "accounts"),
                                     ConfigFile:        new WWCPConfigFile(configFile),
                                     CertificatesPath:  Path.Combine(home, "certificates"),
@@ -180,7 +180,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.ConfigurationJSON()["http"]?.Value<String>("warning"),  Is.EqualTo(node.PlainHTTPWarning));
 
                 Assert.That(node.NoticesFor([ WWCPNode.AdminRole ]),  Is.EqualTo(new[] { node.PlainHTTPWarning }));
-                Assert.That(node.NoticesFor([ "viewer" ]),            Is.Empty, "nothing a viewer could do about it");
+                Assert.That(node.NoticesFor([ UserGroup_Id.Parse("viewer") ]),            Is.Empty, "nothing a viewer could do about it");
 
             });
 
@@ -206,7 +206,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 File.WriteAllText(configFile, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(home, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(configFile),
                                         CertificatesPath:  Path.Combine(home, "certificates"),
@@ -235,7 +235,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(node.PlainHTTPWarning,                          Is.Null);
                 Assert.That(node.Banner(),                                  Has.None.Contains("plain HTTP"));
                 Assert.That(me["notices"],                                  Is.Null, "a notice where there is nothing to say");
-                Assert.That(me["roles"]?.Values<String>(),                  Does.Contain(WWCPNode.AdminRole));
+                Assert.That(me["roles"]?.Values<String>(),                  Does.Contain(WWCPNode.AdminRole.ToString()));
                 Assert.That(node.ConfigurationJSON()["http"]?["warning"]?.Type,  Is.EqualTo(JTokenType.Null));
             });
 
@@ -262,7 +262,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await behind.Start();
 
             var overTLS = new WWCPNode(HTTPHostname:      IPvXAddress.Any,
-                                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                       HTTPPort:          TestPorts.Free(),
                                        AccountsPath:      Path.Combine(directory, "tls", "accounts"),
                                        ConfigFile:        new WWCPConfigFile(Path.Combine(directory, "tls", WWCPConfigFile.DefaultFileName)),
                                        CertificatesPath:  Path.Combine(directory, "tls", "certificates"),

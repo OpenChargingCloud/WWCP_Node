@@ -370,12 +370,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             ShortHeartbeat();
 
-            var account       = await AccountIn("deputy", WWCPNode.AdminRole, "Deputy-For-Now-1");
+            var account       = await AccountIn(User_Id.Parse("deputy"), WWCPNode.AdminRole.ToString(), "Deputy-For-Now-1");
 
             using var http    = await SignedInAs("deputy", "Deputy-For-Now-1");
             using var stream  = await EventStream.OpenAndSettle(Node, http);
 
-            Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(WWCPNode.AdminRole), out var group) && group is UserGroup,
+            Assert.That(Node.ExtAPI.TryGetUserGroup(WWCPNode.AdminRole, out var group) && group is UserGroup,
                         Is.True);
 
             Assert.That((await Node.ExtAPI.RemoveUserFromUserGroup((User) account, (UserGroup) group!)).IsSuccess,
@@ -423,12 +423,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task WhoIsSignedInIsToldWhetherTheLogIsForThem()
         {
 
-            var account       = await AccountIn("deputy", WWCPNode.AdminRole, "Deputy-For-Now-1");
+            var account       = await AccountIn(User_Id.Parse("deputy"), WWCPNode.AdminRole.ToString(), "Deputy-For-Now-1");
 
             using var admin   = await SignedIn();
             using var nobody  = await SignedInAs("deputy", "Deputy-For-Now-1");
 
-            Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(WWCPNode.AdminRole), out var group) && group is UserGroup,
+            Assert.That(Node.ExtAPI.TryGetUserGroup(WWCPNode.AdminRole, out var group) && group is UserGroup,
                         Is.True);
 
             Assert.That((await Node.ExtAPI.RemoveUserFromUserGroup((User) account, (UserGroup) group!)).IsSuccess,
@@ -551,7 +551,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             // Kept as its SHA-256; the key itself goes into the header.
             var secret  = APIKey_Id.Parse("event-stream-" + Guid.NewGuid().ToString("N"));
             var key     = new APIKey(secret,
-                                     User_Id.Parse(AdminLogin),
+                                     User_Id.Parse(AdminLogin.ToString()),
                                      NotAfter: NotAfter).AsKept();
 
             await Node.ExtAPI.AddAPIKey(key);
@@ -655,7 +655,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             ShortHeartbeat();
 
             var password        = "A-Reader-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
-            var reader          = await AccountIn("reader1", Role.Viewer.Name, password);
+            var reader          = await AccountIn(User_Id.Parse("reader1"), Role.Viewer.Name, password);
 
             using var http      = WithPassword("reader1", password);
             using var stream    = await EventStream.OpenAndSettle(Node, http);
@@ -695,7 +695,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             var password        = "A-Reader-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
 
-            await AccountIn("reader2", Role.Viewer.Name, password);
+            await AccountIn(User_Id.Parse("reader2"), Role.Viewer.Name, password);
 
             using var http      = WithPassword("reader2", password);
             using var stream    = await EventStream.OpenAndSettle(Node, http);

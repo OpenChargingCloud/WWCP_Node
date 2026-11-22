@@ -41,13 +41,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     public class NotConnectedTests
     {
 
-        #region (class) ANodeThatMayNotDial
+        #region (class) ANodeThatMayNotConnect
 
         /// <summary>
         /// A node that says of every connection why it is not connected -
         /// or, with no reason, nothing.
         /// </summary>
-        private sealed class ANodeThatMayNotDial(String   Directory,
+        private sealed class ANodeThatMayNotConnect(String   Directory,
                                                  String?  Why)
 
             : WWCPNode(AccountsPath:      Path.Combine(Directory, "accounts"),
@@ -66,9 +66,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 return Why;
             }
 
-            public Task DialIt(ConnectionEntry Connection)
+            public Task ConnectToIt(ConnectionEntry Connection)
 
-                => Dial(Connection, CancellationToken.None);
+                => ConnectTo(Connection, CancellationToken.None);
 
             public void Keeps(ConnectionStore Store)
 
@@ -137,12 +137,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AConnectionNotConnectedOnPurpose_SaysSo()
         {
 
-            await using var node        = new ANodeThatMayNotDial(directory, "the login gw007 is marked as a local controller, not as a gateway");
+            await using var node        = new ANodeThatMayNotConnect(directory, "the login gw007 is marked as a local controller, not as a gateway");
             var             connection  = AConnection(out var url);
 
-            var dialling = node.DialIt(connection);
-            Assert.That(await Task.WhenAny(dialling, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(dialling), "Dialling did not end.");
-            await dialling;
+            var connecting = node.ConnectToIt(connection);
+            Assert.That(await Task.WhenAny(connecting, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(connecting), "Connecting did not end.");
+            await connecting;
 
             var state = node.ConnectionStates[connection.Id];
 
@@ -168,7 +168,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AConnectionMissingSomethingHere_SaysWhyTheSameWay()
         {
 
-            await using var node   = new ANodeThatMayNotDial(directory, null);
+            await using var node   = new ANodeThatMayNotConnect(directory, null);
             var             store  = new ConnectionStore(Path.Combine(directory, "conn"));
             var             url    = $"ws://127.0.0.1:{TestPorts.Free()}/cs001";
 
@@ -180,9 +180,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var connection = store.Connections.Single(one => one.Id == id);
             connection.AuthenticationId = "nobody";
 
-            var dialling = node.DialIt(connection);
-            Assert.That(await Task.WhenAny(dialling, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(dialling), "Dialling did not end.");
-            await dialling;
+            var connecting = node.ConnectToIt(connection);
+            Assert.That(await Task.WhenAny(connecting, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(connecting), "Connecting did not end.");
+            await connecting;
 
             var state = node.ConnectionStates[connection.Id];
 
@@ -195,23 +195,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region AConnectionWithNothingAgainstIt_IsDialled()
+        #region AConnectionWithNothingAgainstIt_IsConnected()
 
         /// <summary>
-        /// A connection the node has nothing against is dialled as before:
+        /// A connection the node has nothing against is connected as before:
         /// where nothing listens, it could not be reached - and is not said
         /// to be not connected.
         /// </summary>
         [Test]
-        public async Task AConnectionWithNothingAgainstIt_IsDialled()
+        public async Task AConnectionWithNothingAgainstIt_IsConnected()
         {
 
-            await using var node        = new ANodeThatMayNotDial(directory, null);
+            await using var node        = new ANodeThatMayNotConnect(directory, null);
             var             connection  = AConnection(out _);
 
-            var dialling = node.DialIt(connection);
-            Assert.That(await Task.WhenAny(dialling, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(dialling), "Dialling did not end.");
-            await dialling;
+            var connecting = node.ConnectToIt(connection);
+            Assert.That(await Task.WhenAny(connecting, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(connecting), "Connecting did not end.");
+            await connecting;
 
             var state = node.ConnectionStates[connection.Id];
 

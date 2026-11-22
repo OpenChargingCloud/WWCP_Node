@@ -18,6 +18,7 @@
 #region Usings
 
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
+using org.GraphDefined.Vanaheimr.Illias;
 
 #endregion
 
@@ -54,7 +55,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// node must not take for one of its accounts.
         /// </summary>
         /// <param name="Username">The login name, as the client sent it.</param>
-        Boolean                Knows(String Username);
+        Boolean                Knows(User_Id Username);
 
         /// <summary>
         /// Whether the given key lets the given login in now - asked before and after the signature is
@@ -95,7 +96,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <param name="SessionId">The session identifier it has to be bound to.</param>
         /// <param name="Client">The address of the client, or null where it can not be told.</param>
         /// <param name="CancellationToken">An optional token to cancel this request.</param>
-        ValueTask<Boolean>     AuthorizeSessionBoundTotpAsync(String                 Username,
+        ValueTask<Boolean>     AuthorizeSessionBoundTotpAsync(User_Id                Username,
                                                               String                 Totp,
                                                               ReadOnlyMemory<Byte>   SessionId,
                                                               System.Net.IPAddress?  Client,
@@ -124,7 +125,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <param name="Password">The password as it was sent.</param>
         /// <param name="Client">The address of the client, or null where it can not be told.</param>
         /// <param name="CancellationToken">An optional token to cancel this request.</param>
-        ValueTask<Boolean>     AuthorizePasswordAsync(String                 Username,
+        ValueTask<Boolean>     AuthorizePasswordAsync(User_Id                Username,
                                                       String                 Password,
                                                       System.Net.IPAddress?  Client,
                                                       CancellationToken      CancellationToken = default)
@@ -136,14 +137,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// where it may use none, which leaves it nothing to do once in.
         /// </summary>
         /// <param name="Username">The login name.</param>
-        IReadOnlySet<String>   SubsystemsFor(String Username);
+        IReadOnlySet<String>   SubsystemsFor(User_Id Username);
 
         /// <summary>
         /// The groups the given login is in, as the access rules' "group:" matches them - a station's
         /// login group, say.
         /// </summary>
         /// <param name="Username">The login name.</param>
-        IReadOnlyList<String>  GroupsOf(String Username);
+        IReadOnlyList<String>  GroupsOf(User_Id Username);
 
         /// <summary>
         /// Why the given session may not go on - the login gone or switched off, the key it came with

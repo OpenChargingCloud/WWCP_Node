@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 {
 
@@ -27,8 +29,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <param name="Account">The account it lets in.</param>
     /// <param name="Fingerprint">Its SHA-256 fingerprint, "SHA256:...".</param>
     /// <param name="PrivateKey">Its private key, from "-----BEGIN OPENSSH PRIVATE KEY-----" to "-----END OPENSSH PRIVATE KEY-----".</param>
-    public sealed record GeneratedSSHKey(String  Account,
-                                         String  Fingerprint,
-                                         String  PrivateKey);
+    public sealed record GeneratedSSHKey(User_Id  Account,
+                                         String   Fingerprint,
+                                         String   PrivateKey);
 
 }

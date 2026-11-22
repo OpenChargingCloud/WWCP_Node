@@ -80,7 +80,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// When each name that is an account and a kind's login as well was last warned about.
         /// </summary>
-        private readonly ConcurrentDictionary<String, DateTimeOffset>  sshClashesWarned          = new (StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<User_Id, DateTimeOffset> sshClashesWarned          = new ();
 
         private          Int64                                       lastSubsystemSession;
 
@@ -211,7 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// of two kinds, is let in as neither.
         /// </summary>
         /// <param name="Username">The login name, as the client sent it.</param>
-        public (ISSHSignIns? SignIns, String? Clash) SSHLoginOf(String Username)
+        public (ISSHSignIns? SignIns, String? Clash) SSHLoginOf(User_Id Login)
         {
 
             var knowers   = new List<ISSHSignIns>();
@@ -220,18 +220,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 try
                 {
-                    if (signIns.Knows(Username))
+                    if (signIns.Knows(Login))
                         knowers.Add(signIns);
                 }
                 catch (Exception problem)
                 {
                     // What can not be told is not let in as either.
-                    return (null, $"whether '{Username}' is a {signIns.PrincipalKind} of this {Kind.Name} could not be told: {problem.Message}");
+                    return (null, $"whether '{Login}' is a {signIns.PrincipalKind} of this {Kind.Name} could not be told: {problem.Message}");
                 }
             }
 
-            var isAccount = User_Id.TryParse(Username) is User_Id userId &&
-                            ExtAPI.TryGetUser(userId, out var user) && user is not null;
+            var isAccount = ExtAPI.TryGetUser(Login, out var user) && user is not null;
 
             if (knowers.Count + (isAccount ? 1 : 0) > 1)
             {
@@ -241,7 +240,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (isAccount)
                     what.Insert(0, "an account");
 
-                return (null, $"'{Username}' is {String.Join(" and ", what)} of this {Kind.Name}, and is let in over SSH as neither until one of them is renamed");
+                return (null, $"'{Login}' is {String.Join(" and ", what)} of this {Kind.Name}, and is let in over SSH as neither until one of them is renamed");
 
             }
 
@@ -256,8 +255,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// Say in the log, at most once a minute for each name, that a name is let in as neither.
         /// </summary>
-        internal void WarnOfSSHClash(String  Username,
-                                     String  Clash)
+        internal void WarnOfSSHClash(User_Id  Username,
+                                     String   Clash)
         {
 
             var now = TimeProvider.GetUtcNow();
@@ -285,8 +284,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return;
 
             foreach (var user in ExtAPI.Users)
-                if (SSHLoginOf(user.Id.ToString()).Clash is String clash)
-                    WarnOfSSHClash(user.Id.ToString(), clash);
+                if (SSHLoginOf(user.Id).Clash is String clash)
+                    WarnOfSSHClash(user.Id, clash);
 
         }
 
@@ -335,14 +334,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (internal static) SSHConfinementOf(SignIns, Username)
+        #region (internal static) SSHConfinementOf(SignIns, Login, Sftp = false)
 
         /// <summary>
         /// What a login of a kind is always confined to: the subsystems it may use, and of those never
-        /// SFTP; no terminal, no forwarding.
+        /// SFTP - but for a back end that connects to the node over SSH, which has a tree of its own there
+        /// (see GetsSftp); no terminal, no forwarding.
         /// </summary>
+        /// <param name="SignIns">The kind's logins it signed in as.</param>
+        /// <param name="Login">The login.</param>
+        /// <param name="Sftp">Whether it is a back end that connects to the node over SSH, and SFTP is served.</param>
         internal static SshSessionRestrictions SSHConfinementOf(ISSHSignIns?  SignIns,
-                                                                String        Username)
+                                                                User_Id       Login,
+                                                                Boolean       Sftp = false)
         {
 
             IReadOnlySet<String> subsystems;
@@ -350,7 +354,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
                 subsystems = SignIns is not null
-                                 ? new HashSet<String>(SignIns.SubsystemsFor(Username).Where(name => name != "sftp"), StringComparer.Ordinal)
+                                 ? new HashSet<String>(SignIns.SubsystemsFor(Login).Where(name => name != "sftp"), StringComparer.Ordinal)
                                  : new HashSet<String>(StringComparer.Ordinal);
             }
             catch (Exception)
@@ -358,9 +362,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 subsystems = new HashSet<String>(StringComparer.Ordinal);
             }
 
-            return new SshSessionRestrictions(AllowPty:             false,
-                                              AllowPortForwarding:  false,
-                                              PermittedSubsystems:  subsystems);
+            if (Sftp && SignIns is not null)
+                subsystems = new HashSet<String>(subsystems.Append("sftp"), StringComparer.Ordinal);
+
+            return new SshSessionRestrictions(
+                       AllowPty:             false,
+                       AllowPortForwarding:  false,
+                       PermittedSubsystems:  subsystems
+                   );
 
         }
 
@@ -475,8 +484,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 else
                 {
 
-                    if (User_Id.TryParse(Session.Username) is not User_Id userId ||
-                        !ExtAPI.TryGetUser(userId, out var account) || account is null)
+                    if (!ExtAPI.TryGetUser(Session.Username, out var account) || account is null)
                         return $"there is no account '{Session.Username}' on this {Kind.Name} any more";
 
                     if (Subsystem.ForAccounts is not Permission needed)

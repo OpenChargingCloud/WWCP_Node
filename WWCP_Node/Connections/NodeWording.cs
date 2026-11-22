@@ -19,7 +19,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 {
 
     /// <summary>
-    /// What the node that dials is called in what its connections say - in
+    /// What the node that connects is called in what its connections say - in
     /// their warnings, in the log, in the refusals of their stores: "this
     /// station cannot ...", "this local controller cannot ...".
     /// </summary>

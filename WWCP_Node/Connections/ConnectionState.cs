@@ -28,7 +28,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 {
 
     /// <summary>
-    /// Where a connection this station dialled stands.
+    /// Where a connection this station made stands.
     /// </summary>
     /// <remarks>
     /// Six and not two, because "not connected" is three different things to
@@ -68,14 +68,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         NotConnected,
 
         /// <summary>
-        /// Dialling it went wrong in a way that says nothing about what
+        /// Connecting it went wrong in a way that says nothing about what
         /// happens next.
         /// </summary>
         Failed,
 
         /// <summary>
         /// An endpoint of a back end that has more than one, in reserve: not
-        /// dialled while another endpoint of it is, and dialled when that one
+        /// connected to while another endpoint of it is, and connected to when that one
         /// cannot be reached.
         /// </summary>
         Standby,
@@ -83,7 +83,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// A connection the other end makes, and nothing is in over it: it is
         /// waited for, or nothing can come - switched off, or no server of
-        /// this node for it to dial.
+        /// this node for it to connect to.
         /// </summary>
         Waiting
 
@@ -91,21 +91,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
 
     /// <summary>
-    /// What became of one connection this station dialled, and since when.
+    /// What became of one connection this station made, and since when.
     /// </summary>
     /// <remarks>
-    /// It carries what was dialled as well as what came of it: a connection
-    /// changed on the page is still the one that was dialled for the moment
-    /// it takes the station to hang it up and dial it as it is now. A page
+    /// It carries what was connected to as well as what came of it: a connection
+    /// changed on the page is still the one that was connected for the moment
+    /// it takes the station to hang it up and connect it as it is now. A page
     /// comparing the two can say so; a state that forgot the address it was
     /// about could not.
     /// </remarks>
     /// <param name="Status">Where it stands.</param>
     /// <param name="Since">When it came to stand there.</param>
     /// <param name="Said">The sentence that went into the log when it did.</param>
-    /// <param name="Description">What the connection was called when it was dialled.</param>
-    /// <param name="URL">Where it was dialled.</param>
-    /// <param name="OCPPVersion">Which of the two nodes dialled it.</param>
+    /// <param name="Description">What the connection was called when it was made.</param>
+    /// <param name="URL">Where it connected to.</param>
+    /// <param name="OCPPVersion">Which of the two nodes made it.</param>
     /// <param name="Attempt">While it is tried again: which attempt comes next.</param>
     /// <param name="NextAttemptAt">While it is tried again: when that attempt is made.</param>
     public sealed record ConnectionState(ConnectionStatus  Status,

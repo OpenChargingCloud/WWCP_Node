@@ -30,7 +30,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 {
 
     /// <summary>
-    /// Whether a signer a node believes signed a pin set (white paper "OCPP over SSH", section 10.4;
+    /// Whether a signer a node believes signed a pin set (white paper "OCPP-over-SSH", section 10.4;
     /// "Key Pins and Raw Public Keys", section 5.7, way 1).
     /// </summary>
     public static class PinSetSignatures

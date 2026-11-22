@@ -27,6 +27,8 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH.SFTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
+using cloud.charging.open.protocols.WWCP.Node.Connections;
+using cloud.charging.open.protocols.WWCP.Node.Logins;
 
 #endregion
 
@@ -53,6 +55,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// who opened it from where, every file put up, removed or downloaded,
     /// and in one line what the session came to.
     /// </para>
+    /// <para>
+    /// A back end that connects to this node over SSH - its CSMS, written down as a
+    /// connection the other end makes under the login it signs in with - has
+    /// SFTP as well, and sees nothing of the areas: a tree of its own, its own
+    /// files and the node's log files to read (see BackEndSftpFileSystem).
+    /// Its files lie in a directory of its login beside the configuration
+    /// file, and stay there until it or the node takes them away.
+    /// </para>
     /// </remarks>
     public partial class WWCPNode
     {
@@ -68,6 +78,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// What the folder of the metrological log is called over SFTP.
         /// </summary>
         public const String  SftpMetrologicalLogArea   = "logs/metrological";
+
+        /// <summary>
+        /// The directory beside the configuration file the files of the back
+        /// ends that connect to this node over SSH lie in, one directory a login.
+        /// </summary>
+        public const String  SftpBackEndsDirectory     = "sftp";
 
         /// <summary>
         /// The areas the kind added, before the start.
@@ -183,6 +199,54 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region SftpDirectoryOf(Login) / BackEndThatConnectsOverSSH(Login) / (internal) GetsSftp(Login)
+
+        /// <summary>
+        /// The directory of the files of the back end that comes under the
+        /// given login over SSH - beside the configuration file, below
+        /// <see cref="SftpBackEndsDirectory"/>, its name the login with every
+        /// character but letters, digits, '-' and '_' written as its number.
+        /// </summary>
+        /// <param name="Login">The login the back end signs in to SSH with.</param>
+        public String SftpDirectoryOf(User_Id Login)
+
+            => Beside(ConfigFile.Path,
+                      Path.Combine(SftpBackEndsDirectory,
+                                   String.Concat(Login.ToString().Select(c => Char.IsAsciiLetterOrDigit(c) || c is '-' or '_'
+                                                                       ? c.ToString()
+                                                                       : $"%{(Int32) c:X4}"))));
+
+        /// <summary>
+        /// The connection the other end makes over SSH, switched on, that comes
+        /// under the given login - a back end that connects to this node, its CSMS -
+        /// or null.
+        /// </summary>
+        /// <param name="Login">The login a session signed in to SSH with.</param>
+        public ConnectionEntry? BackEndThatConnectsOverSSH(User_Id Login)
+
+            => Connections?.Connections.FirstOrDefault(entry => entry.Inbound     &&
+                                                                entry.AutoConnect &&
+                                                                entry.IsSSH       &&
+                                                                User_Id.TryParse(entry.InboundName) == Login);
+
+        /// <summary>
+        /// Whether a login of the kind's has SFTP: SFTP is served, and it is
+        /// the login of a back end that connects to this node over SSH.
+        /// </summary>
+        internal Boolean GetsSftp(User_Id Login)
+        {
+            try
+            {
+                return SFTPEnabled && BackEndThatConnectsOverSSH(Login) is not null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        #endregion
+
         #region (private) PrepareSftpAreas()
 
         /// <summary>
@@ -228,8 +292,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!SFTPEnabled)
                 return ValueTask.FromResult<SftpSessionOptions?>(null);
 
-            if (User_Id.TryParse(Session.Username) is not User_Id userId ||
-                !ExtAPI.TryGetUser(userId, out var found) ||
+            // A login of the kind's, and no account: a back end that connects to
+            // this node over SSH, with a tree of its own - or nobody.
+            if (SSHSignInsOf(Session) is not null)
+                return ValueTask.FromResult<SftpSessionOptions?>(BackEndSftpSessionFor(Session));
+
+            if (!ExtAPI.TryGetUser(Session.Username, out var found) ||
                 found is not IUser account)
             {
                 throw new InvalidOperationException($"there is no account '{Session.Username}' on this {Kind.Name} any more");
@@ -278,7 +346,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var watch      = TimeProvider.CreateTimer(_ => Recheck(), null, SSHSessionRecheckEvery, SSHSessionRecheckEvery);
 
-            sshSessions[id]          = new SSHSession(id, account.Id.ToString(), from, Session.PublicKeyFingerprint, since, SSHSession.SFTP);
+            sshSessions[id]          = new SSHSession(id, account.Id, from, Session.PublicKeyFingerprint, since, SSHSession.SFTP);
             sftpSessionRechecks[id]  = Recheck;
 
             Log.Info($"'{account.Id}' opened SFTP over SSH from {from}.", "ssh", "sftp");
@@ -316,6 +384,117 @@ namespace cloud.charging.open.protocols.WWCP.Node
             return ValueTask.FromResult<SftpSessionOptions?>(new SftpSessionOptions(files) {
                                                                  Ends = ends.Token
                                                              });
+
+        }
+
+        #endregion
+
+        #region (private) BackEndSftpSessionFor(Session)
+
+        /// <summary>
+        /// What a back end that connects to this node over SSH gets that asks for
+        /// SFTP: its own files and the node's log files to read - or a refusal
+        /// that says why, where it is no such back end or may not go on.
+        /// </summary>
+        private SftpSessionOptions BackEndSftpSessionFor(SshSessionInfo Session)
+        {
+
+            //var login = WebSocketLogins.LoginOf(Session.Username);
+            var login = Session.Username;
+
+            if (sshAuthenticator?.WhyNoLongerIn(Session) is String notIn)
+                throw new InvalidOperationException(notIn);
+
+            if (BackEndThatConnectsOverSSH(login) is not ConnectionEntry backEnd)
+                throw new InvalidOperationException($"'{login}' is no back end that connects to this {Kind.Name} over SSH - of the logins only those have SFTP");
+
+            if (SSHAccessRefusal(Session, "sftp") is String refused)
+                throw new InvalidOperationException(refused);
+
+            var id         = $"{Session.ConnectionId}/sftp-{Interlocked.Increment(ref lastSftpSession)}";
+            var since      = TimeProvider.GetUtcNow();
+            var from       = Session.Peer?.ToString() ?? "somewhere";
+            var ends       = new CancellationTokenSource();
+            String? signedOut = null;
+
+            // Ended where what let it in no longer does, it is no back end
+            // that connects any more, or SFTP was switched off.
+            String? Recheck()
+            {
+
+                if (Volatile.Read(ref signedOut) is String already)
+                    return already;
+
+                var why = !SFTPEnabled
+                              ? $"SFTP was switched off on this {Kind.Name}"
+                              : WhySSHSessionMayNotGoOn(Session, "sftp") ??
+                                (BackEndThatConnectsOverSSH(login) is null
+                                     ? $"'{login}' is no back end that connects to this {Kind.Name} over SSH any more"
+                                     : null);
+
+                if (why is null)
+                    return null;
+
+                if (Interlocked.CompareExchange(ref signedOut, why, null) is null)
+                {
+                    try
+                    {
+                        ends.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    { }
+                }
+
+                return Volatile.Read(ref signedOut);
+
+            }
+
+            var watch      = TimeProvider.CreateTimer(_ => Recheck(), null, SSHSessionRecheckEvery, SSHSessionRecheckEvery);
+
+            sshSessions[id]          = new SSHSession(id, login, from, Session.PublicKeyFingerprint, since, SSHSession.SFTP);
+            sftpSessionRechecks[id]  = Recheck;
+
+            // Its own, and nobody else's.
+            OwnerOnly.Directory(Beside(ConfigFile.Path, SftpBackEndsDirectory), problem => Log.Warning(problem, Kind.Tag, "ssh", "sftp", "security"));
+
+            var directory  = SftpDirectoryOf(login);
+            var logs       = fileLog as FileLog;
+
+            Log.Info($"The back end '{login}' of the connection '{backEnd.Id}' opened SFTP over SSH from {from}: its own files in '{directory}'" +
+                     (logs is not null ? ", and the log files to read." : "."),
+                     "ssh", "sftp");
+
+            BackEndSftpFileSystem? files = null;
+
+            files = new BackEndSftpFileSystem(directory,
+                                              logs?.Directory,
+                                              name => logs is not null && IsDayFile(name, logs.FilePrefix, ".log"),
+                                              Said:  what => Log.Info($"The back end '{login}' {what} over SFTP.", "ssh", "sftp"),
+                                              Ended: () => {
+
+                                                  watch.Dispose();
+
+                                                  sftpSessionRechecks.TryRemove(id, out _);
+                                                  sshSessions.        TryRemove(id, out _);
+
+                                                  ends.Dispose();
+
+                                                  var lasted  = Lasted(TimeProvider.GetUtcNow() - since);
+                                                  var moved   = $"{files?.FilesUp ?? 0} file(s) up, {files?.FilesDown ?? 0} file(s) down";
+
+                                                  if (Volatile.Read(ref signedOut) is String why)
+                                                      Log.Notice($"The back end '{login}' was signed out of SFTP over SSH from {from} after {lasted}: {why}. {moved[..1].ToUpperInvariant()}{moved[1..]}.",
+                                                                 "ssh", "sftp", "security");
+
+                                                  else
+                                                      Log.Info($"The back end '{login}' left SFTP after {lasted}: {moved}.",
+                                                               "ssh", "sftp");
+
+                                              });
+
+            return new SftpSessionOptions(files) {
+                       Ends = ends.Token
+                   };
 
         }
 

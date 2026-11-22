@@ -71,7 +71,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             {
 
                 Seen.Add((HTTPServer.IsRunning,
-                          ExtAPI.TryGetUser(User_Id.Parse(DefaultAdminUser), out _),
+                          ExtAPI.TryGetUser(User_Id.Parse(DefaultAdminUser.ToString()), out _),
                           [.. ExtAPI.UserGroups.Select(group => group.Id.ToString()).Order(StringComparer.Ordinal)]));
 
                 return Task.CompletedTask;
@@ -139,7 +139,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Directory.CreateDirectory(here);
                 File.Copy(Path.Combine(directory, WWCPConfigFile.DefaultFileName), Path.Combine(here, WWCPConfigFile.DefaultFileName));
 
-                await using var node = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(here, IPPort.Parse(TestPorts.Free())));
+                await using var node = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(here, TestPorts.Free()));
 
                 passwords.Add(node.GeneratedPassword ?? "");
 
@@ -167,21 +167,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AKindOfNodeSeesItsAccountsBeforeThePortOpens()
         {
 
-            await using (var node = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(directory, IPPort.Parse(TestPorts.Free()))))
+            await using (var node = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(directory, TestPorts.Free())))
             {
 
                 Assert.Multiple(() => {
                     Assert.That(node.Seen,               Has.Count.EqualTo(1));
                     Assert.That(node.Seen[0].Listening,  Is.False,  "the port was open before the accounts were ready");
                     Assert.That(node.Seen[0].RootIsThere, Is.True,  "the first account was not made yet");
-                    Assert.That(node.Seen[0].Groups,     Does.Contain(WWCPNode.AdminRole));
+                    Assert.That(node.Seen[0].Groups,     Does.Contain(WWCPNode.AdminRole.ToString()));
                 });
 
             }
 
             // And again at the next start, when the accounts are read rather
             // than made.
-            await using (var again = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(directory, IPPort.Parse(TestPorts.Free()))))
+            await using (var again = await TestPorts.StartedOnFreshPorts(() => new WatchingNode(directory, TestPorts.Free())))
             {
 
                 Assert.Multiple(() => {
@@ -205,7 +205,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task AClockNobodyCheckedIsNotSynchronised()
         {
 
-            await using var node = new WatchingNode(directory, IPPort.Parse(TestPorts.Free()));
+            await using var node = new WatchingNode(directory, TestPorts.Free());
 
             Assert.That(node.ClockIsSynchronised,  Is.False);
 

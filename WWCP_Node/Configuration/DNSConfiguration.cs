@@ -47,7 +47,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// the node was started with" - see <see cref="RemovesServers"/>.
     /// <para>
     /// A server with "transport": "SSH" is asked over the subsystem
-    /// "dns@open.charging.cloud" of the white paper "DNS over SSH", and says
+    /// "dns@open.charging.cloud" of the white paper "DNS-over-SSH", and says
     /// how in "ssh": { "port", "user", "hostKeyPins", "hostCAs", "onMismatch" }
     /// - or { "connection": "shared" } alone - in the words of a time server
     /// whose key exchange goes over SSH, see <see cref="NTSServerSSH"/>. It
@@ -424,7 +424,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// by. One with neither a host key, nor a CA, nor the connection to an
         /// SSH peer to share is refused: it would be asked the names this node
         /// reaches everything else by, and anybody at that address could
-        /// answer (white paper "DNS over SSH", section 7.2).
+        /// answer (white paper "DNS-over-SSH", section 7.2).
         /// </para>
         /// </remarks>
         /// <param name="JSON">The entry of the server.</param>
@@ -603,7 +603,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// Whether a name server asked over this transport is asked where
         /// nobody on the path reads or answers in its place: TLS and HTTPS,
         /// which show a certificate, and SSH, which shows a host key (white
-        /// paper "DNS over SSH", section 7.1).
+        /// paper "DNS-over-SSH", section 7.1).
         /// </summary>
         public static Boolean IsEncrypted(DNSTransport Transport)
 
@@ -669,7 +669,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// </summary>
         /// <remarks>
         /// A server on the connection of an SSH peer has no port of its own:
-        /// the connection is dialled as the peer says, and a "port" written
+        /// the connection is made as the peer says, and a "port" written
         /// here would be read as one this entry decides.
         /// </remarks>
         public static JObject ServerJSON(DNSServerConfig  Server,

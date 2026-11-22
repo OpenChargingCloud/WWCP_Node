@@ -329,7 +329,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #region AKindOfNodeMayAddAUsage()
 
         /// <summary>
-        /// A backend a kind of node dials is a usage of its own - and still one
+        /// A backend a kind of node connects to is a usage of its own - and still one
         /// of a closed list, so that a typo is refused where it is typed.
         /// </summary>
         [Test]

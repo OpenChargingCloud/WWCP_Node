@@ -47,7 +47,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// <summary>
         /// The first account, let in with a key of its own, signed in.
         /// </summary>
-        private async Task<SshClient> SignInOverSSH()
+        private async Task<SSHClient> SignInOverSSH()
         {
 
             var key = SshHostKey.GenerateEd25519();
@@ -56,9 +56,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             Assert.That(added.IsAdded, Is.True, added.Reason);
 
-            return await SshClient.ConnectAsync("127.0.0.1",
-                                                Node.SSHPort!.Value.ToUInt16(),
-                                                new SshClientOptions {
+            return await SSHClient.Connect("127.0.0.1",
+                                                Node.SSHPort!.Value,
+                                                new SSHClientOptions {
                                                     Username       = AdminLogin,
                                                     VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                                     Credentials    = [ key ]
@@ -109,7 +109,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         {
 
             await using var client  = await SignInOverSSH();
-            await using var shell   = await client.OpenShellAsync(new SshPty("xterm", new SshWindowSize(120, 40), new Dictionary<Byte, UInt32>()));
+            await using var shell   = await client.OpenShell(new SshPty("xterm", new SshWindowSize(120, 40), new Dictionary<Byte, UInt32>()));
 
             var received            = new StringBuilder();
 
@@ -137,7 +137,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         {
 
             await using var client  = await SignInOverSSH();
-            await using var shell   = await client.OpenShellAsync(new SshPty("xterm", new SshWindowSize(80, 24), new Dictionary<Byte, UInt32>()));
+            await using var shell   = await client.OpenShell(new SshPty("xterm", new SshWindowSize(80, 24), new Dictionary<Byte, UInt32>()));
 
             await ReadUntil(shell, new StringBuilder(), "> ");
 
@@ -172,7 +172,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 Assert.That(sftp.SendRequestAsync("subsystem", true, SshSessionChannel.EncodeString("sftp")).AsTask().Result,  Is.False, "sftp");
             });
 
-            Assert.That(async () => await client.OpenTcpStreamAsync("127.0.0.1", Node.HTTPPort.ToUInt16()),
+            Assert.That(async () => await client.OpenTCPStream("127.0.0.1", Node.HTTPPort),
                         Throws.TypeOf<SshChannelOpenException>(), "a tunnel");
 
         }

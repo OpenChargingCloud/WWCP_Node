@@ -145,14 +145,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// A name server that takes every question over UDP and answers none.
         /// </summary>
-        private UdpClient SilentNameServer(out UInt16 Port)
+        private UdpClient SilentNameServer(out IPPort Port)
         {
 
             var socket = new UdpClient(new IPEndPoint(System.Net.IPAddress.Loopback, 0));
 
             nameServers.Add(socket);
 
-            Port = (UInt16) ((IPEndPoint) socket.Client.LocalEndPoint!).Port;
+            Port = IPPort.Parse((UInt16) ((IPEndPoint) socket.Client.LocalEndPoint!).Port);
 
             return socket;
 

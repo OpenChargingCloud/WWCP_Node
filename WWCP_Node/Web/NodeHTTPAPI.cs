@@ -763,7 +763,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             // Last, and only where there is something to say: an answer that
             // has said the same five things for years keeps saying them.
-            var notices = Node.NoticesFor(roles);
+            var notices = Node.NoticesFor(roles.Select(UserGroup_Id.TryParse).Cast<UserGroup_Id>());
 
             if (notices.Count > 0)
                 me.Add(new JProperty("notices", new JArray(notices)));

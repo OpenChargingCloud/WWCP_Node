@@ -148,7 +148,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.Multiple(() => {
                     Assert.That(parsed.Problem,              Is.Null);
                     Assert.That(parsed.Port,                 Is.EqualTo(IPPort.Parse(8080)));
-                    Assert.That(parsed.HTTPHostname,         Is.EqualTo(IPvXAddress.Any));
+                    Assert.That(parsed.HTTPHostname,         Is.EqualTo((IPAddress) IPvXAddress.Any));
                     Assert.That(parsed.FrontendDirectory,    Is.EqualTo(frontend));
                     Assert.That(parsed.Frontend,             Is.Not.Null);
                     Assert.That(parsed.AccountsPath,         Is.EqualTo("people"));
@@ -190,7 +190,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.Multiple(() => {
                 Assert.That(parsed.Problem,                    Is.Null);
                 Assert.That(parsed.Port,                       Is.Null);
-                Assert.That(parsed.HTTPHostname,               Is.EqualTo(IPv4Address.Localhost));
+                Assert.That(parsed.HTTPHostname,               Is.EqualTo((IPAddress) IPv4Address.Localhost));
                 Assert.That(parsed.Frontend,                   Is.Null);
                 Assert.That(parsed.ConsoleLogLevel,            Is.EqualTo(LogLevel.Info));
                 Assert.That(parsed.AccountsPathBelow(root),    Is.EqualTo(Path.Combine(root, WWCPNode.DefaultAccountsPath)));

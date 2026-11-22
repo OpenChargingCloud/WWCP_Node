@@ -31,6 +31,7 @@ using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -110,7 +111,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             private readonly ConcurrentDictionary<String, Byte[]> served   = new ();
             private readonly ConcurrentDictionary<String, Byte>   hanging  = new ();
 
-            public Int32  Port  { get; }
+            public IPPort  Port  { get; }
 
             public Lists()
             {
@@ -118,7 +119,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 listener = new TcpListener(IPAddress.Loopback, 0);
                 listener.Start();
 
-                Port     = ((IPEndPoint) listener.LocalEndpoint).Port;
+                Port     = IPPort.Parse(((IPEndPoint) listener.LocalEndpoint).Port);
 
                 _ = Task.Run(Accept);
 
@@ -153,7 +154,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 var closed = new TcpListener(IPAddress.Loopback, 0);
                 closed.Start();
-                var port   = ((IPEndPoint) closed.LocalEndpoint).Port;
+                var port   = IPPort.Parse(((IPEndPoint) closed.LocalEndpoint).Port);
                 closed.Stop();
 
                 return $"http://127.0.0.1:{port}/{Guid.NewGuid():N}.crl";

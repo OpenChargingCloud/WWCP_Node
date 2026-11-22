@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 
@@ -38,59 +39,102 @@ namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
-    /// What the dialling asks beyond what is the same for every node: of the
-    /// protocol its connections speak (<see cref="Dialling"/>), and of the
-    /// node itself - nothing, unless it says otherwise.
+    /// What the connecting asks beyond what is the same for every node: of the
+    /// protocol a connection carries (<see cref="ConnectingOf(ConnectionEntry)"/>),
+    /// and of the node itself - nothing, unless it says otherwise.
     /// </summary>
+    /// <remarks>
+    /// A node has one <see cref="ConnectingProtocol"/> for each protocol its
+    /// connections carry - see <see cref="ConnectionUse"/>: OCPP's for what it
+    /// connects to over OCPP, OCPI's for an EMSP a CSMS connects to. Whatever is
+    /// asked of a connection is asked of the protocol of that connection, and of
+    /// no other.
+    /// </remarks>
     public partial class WWCPNode
     {
 
         #region Data
 
-        private DiallingProtocol? dialling;
+        /// <summary>
+        /// The protocols the connections of this node carry, by what they are
+        /// used for.
+        /// </summary>
+        private readonly ConcurrentDictionary<ConnectionUse, ConnectingProtocol> connectings = new ();
 
         #endregion
 
-        #region Dialling
+        #region Connecting / ConnectingOf(Use) / ConnectingOf(Connection) / SetConnectingOf(Use, Protocol)
 
         /// <summary>
-        /// What the protocol this node speaks over its connections says of
-        /// them. One that speaks none until a kind of node gives itself one -
-        /// OCPP's, where it dials over OCPP.
+        /// What OCPP says of the connections of this node that carry it. One
+        /// that speaks none until a kind of node gives itself one - OCPP's,
+        /// where it connects over OCPP.
         /// </summary>
-        public DiallingProtocol Dialling
+        public ConnectingProtocol Connecting
         {
-            get => dialling ??= new DiallingProtocol(this);
-            protected set => dialling = value;
+            get           => ConnectingOf(ConnectionUse.OCPP);
+            protected set => SetConnectingOf(ConnectionUse.OCPP, value);
         }
 
+        /// <summary>
+        /// What the protocol of the given use says of the connections that
+        /// carry it - one that speaks none, where this node was given none for it:
+        /// a connection of it is connected to nothing, and says so.
+        /// </summary>
+        /// <param name="Use">What the connections are used for: OCPP, OCPI.</param>
+        public ConnectingProtocol ConnectingOf(ConnectionUse Use)
+
+            => connectings.GetOrAdd(Use, _ => new ConnectingProtocol(this));
+
+        /// <summary>
+        /// What the protocol the given connection carries says of it.
+        /// </summary>
+        /// <param name="Connection">A connection.</param>
+        public ConnectingProtocol ConnectingOf(ConnectionEntry Connection)
+
+            => ConnectingOf(Connection.Use);
+
+        /// <summary>
+        /// Give this node the protocol of the given use: from now on, what is
+        /// asked of a connection that carries it is asked of that protocol.
+        /// </summary>
+        /// <param name="Use">What the connections are used for: OCPP, OCPI.</param>
+        /// <param name="Protocol">What the protocol says of them.</param>
+        protected void SetConnectingOf(ConnectionUse       Use,
+                                       ConnectingProtocol  Protocol)
+
+            => connectings[Use] = Protocol;
+
         #endregion
 
 
-        #region (protected internal virtual) DiallingNodes / DiallingNodeOrNoneOf(Version) / DiallingNodeOf(Version)
+        #region (protected internal virtual) ConnectingNodes / ConnectingNodeOrNoneOf(Connection) / ConnectingNodeOf(Connection)
 
         /// <summary>
-        /// The networking nodes this node dials with, as its protocol says.
+        /// The networking nodes this node connects with, as its protocols say:
+        /// those of every one of them.
         /// </summary>
-        protected internal virtual IEnumerable<AWWCPNetworkingNode> DiallingNodes
+        protected internal virtual IEnumerable<AWWCPNetworkingNode> ConnectingNodes
 
-            => Dialling.DiallingNodes;
+            => connectings.Values.
+                   SelectMany(protocol => protocol.ConnectingNodes).
+                   Distinct  ();
 
         /// <summary>
-        /// The networking node that dials a connection of the given version,
-        /// or none where this node does not speak it.
+        /// The networking node that makes the given connection, or none where
+        /// this node does not speak what it carries.
         /// </summary>
-        protected internal virtual AWWCPNetworkingNode? DiallingNodeOrNoneOf(OCPPVersion Version)
+        protected internal virtual AWWCPNetworkingNode? ConnectingNodeOrNoneOf(ConnectionEntry Connection)
 
-            => Dialling.DiallingNodeOrNoneOf(Version);
+            => ConnectingOf(Connection).ConnectingNodeOrNoneOf(Connection);
 
         /// <summary>
-        /// The networking node that dials a connection of the given version.
+        /// The networking node that makes the given connection.
         /// </summary>
-        protected internal AWWCPNetworkingNode DiallingNodeOf(OCPPVersion Version)
+        protected internal AWWCPNetworkingNode ConnectingNodeOf(ConnectionEntry Connection)
 
-            => DiallingNodeOrNoneOf(Version)
-                   ?? throw new InvalidOperationException($"This {NodeNoun} does not speak {ConnectionEntry.AsText(Version)}.");
+            => ConnectingNodeOrNoneOf(Connection)
+                   ?? throw new InvalidOperationException($"This {NodeNoun} does not speak {Connection.Protocol}.");
 
         #endregion
 
@@ -103,7 +147,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected internal virtual void SetSignatureFormatsOf(ConnectionEntry  Connection,
                                                               IWWCPClient      Client)
 
-            => Dialling.SetSignatureFormatsOf(Connection, Client);
+            => ConnectingOf(Connection).SetSignatureFormatsOf(Connection, Client);
 
         /// <summary>
         /// Which signatures the networking node of this node writes for the
@@ -111,7 +155,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public virtual SignatureFormats? SignatureFormatsOf(ConnectionEntry Connection)
 
-            => Dialling.SignatureFormatsOf(Connection);
+            => ConnectingOf(Connection).SignatureFormatsOf(Connection);
 
         #endregion
 
@@ -141,63 +185,68 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                            String?                                                         TOTPLogin,
                                                                            CancellationToken                                               CancellationToken)
 
-            => Dialling.ConnectOverWebSocket(Connection, Basic, Validator, Certificates, TOTP, TOTPLogin, CancellationToken);
+            => ConnectingOf(Connection).ConnectOverWebSocket(Connection, Basic, Validator, Certificates, TOTP, TOTPLogin, CancellationToken);
 
         #endregion
 
-        #region (protected internal virtual) SubProtocolsOf(Connection) / IsCBORSubprotocol(Subprotocol)
+        #region (protected internal virtual) SubProtocolsOf(Connection) / IsCBORSubprotocol(Connection, Subprotocol)
 
         /// <summary>
         /// The subprotocols the given connection offers, best first.
         /// </summary>
         protected internal virtual String[] SubProtocolsOf(ConnectionEntry Connection)
 
-            => Dialling.SubProtocolsOf(Connection);
+            => ConnectingOf(Connection).SubProtocolsOf(Connection);
 
         /// <summary>
-        /// Whether the given subprotocol has every message as CBOR in a binary frame.
+        /// Whether the given subprotocol of the given connection has every
+        /// message as CBOR in a binary frame.
         /// </summary>
-        protected internal virtual Boolean IsCBORSubprotocol(String? Subprotocol)
+        protected internal virtual Boolean IsCBORSubprotocol(ConnectionEntry  Connection,
+                                                             String?          Subprotocol)
 
-            => Dialling.IsCBORSubprotocol(Subprotocol);
+            => ConnectingOf(Connection).IsCBORSubprotocol(Subprotocol);
 
         #endregion
 
-        #region (protected internal virtual) CBORFrameOf(Text) / TryCBORAsJSON(Frame, out JSON, out Error)
+        #region (protected internal virtual) CBORFrameOf(Connection, Text) / TryCBORAsJSON(Connection, Frame, out JSON, out Error)
 
         /// <summary>
         /// The request of a connection test as the frame of a connection that
         /// agreed on CBOR.
         /// </summary>
-        protected internal virtual Byte[] CBORFrameOf(String Text)
+        protected internal virtual Byte[] CBORFrameOf(ConnectionEntry  Connection,
+                                                      String           Text)
 
-            => Dialling.CBORFrameOf(Text);
+            => ConnectingOf(Connection).CBORFrameOf(Text);
 
         /// <summary>
-        /// What the given CBOR frame stands for, as JSON.
+        /// What the given CBOR frame of the given connection stands for, as JSON.
         /// </summary>
-        protected internal virtual Boolean TryCBORAsJSON(Byte[]                                Frame,
+        protected internal virtual Boolean TryCBORAsJSON(ConnectionEntry                   Connection,
+                                                         Byte[]                            Frame,
                                                          [NotNullWhen(true)]  out JArray?  JSON,
                                                          [NotNullWhen(false)] out String?  Error)
 
-            => Dialling.TryCBORAsJSON(Frame, out JSON, out Error);
+            => ConnectingOf(Connection).TryCBORAsJSON(Frame, out JSON, out Error);
 
         #endregion
 
-        #region (protected internal virtual) SshSubsystem / ConnectOverSSH(Connection, NetworkingNode, Login, SshConnection, CancellationToken)
+        #region (protected internal virtual) SshSubsystemOf(Connection) / ConnectOverSSH(Connection, NetworkingNode, Login, SshConnection, CancellationToken)
 
         /// <summary>
-        /// The SSH subsystem the messages of a connection over ssh:// go over.
+        /// The SSH subsystem the messages of the given connection over ssh://
+        /// go over.
         /// </summary>
-        protected internal virtual String? SshSubsystem
+        protected internal virtual String? SshSubsystemOf(ConnectionEntry Connection)
 
-            => Dialling.SshSubsystem;
+            => ConnectingOf(Connection).SshSubsystem;
 
         /// <summary>
         /// Open the given connection over SSH, by the given networking node.
         /// </summary>
         /// <param name="Connection">The connection.</param>
-        /// <param name="NetworkingNode">The networking node that dials it.</param>
+        /// <param name="NetworkingNode">The networking node that makes it.</param>
         /// <param name="Login">How it signs in, and how the server is believed.</param>
         /// <param name="SshConnection">The SSH connection of the peer it is a channel of, where it shares one.</param>
         /// <param name="CancellationToken">Ends the attempt.</param>
@@ -205,11 +254,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             ConnectOverSSH(ConnectionEntry                                    Connection,
                            AWWCPNetworkingNode                                NetworkingNode,
-                           SshClientOptions                                   Login,
-                           Func<CancellationToken, ValueTask<SshClient>>?     SshConnection,
+                           SSHClientOptions                                   Login,
+                           Func<CancellationToken, ValueTask<SSHClient>>?     SshConnection,
                            CancellationToken                                  CancellationToken)
 
-            => Dialling.ConnectOverSSH(Connection, NetworkingNode, Login, SshConnection, CancellationToken);
+            => ConnectingOf(Connection).ConnectOverSSH(Connection, NetworkingNode, Login, SshConnection, CancellationToken);
 
         #endregion
 
@@ -217,13 +266,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Why the given request is not executed while the key pin of its
-        /// connection is on probation - or null, where it may be.
+        /// connection is on probation - or null, where it may be. Asked of
+        /// OCPP, whose messages the gate of a probation is in front of.
         /// </summary>
         protected internal virtual String? ProbationRules(Probation  Probation,
                                                           String     Action,
                                                           JObject?   Payload)
 
-            => Dialling.ProbationRules(Probation, Action, Payload);
+            => Connecting.ProbationRules(Probation, Action, Payload);
 
         #endregion
 
@@ -263,12 +313,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (protected internal virtual) NetworkingModeOf(Connection)
 
         /// <summary>
-        /// The networking mode the given connection is dialled in, or null
+        /// The networking mode the given connection is connected in, or null
         /// for what the networking node does where nothing is said: the plain
         /// frame of its protocol.
         /// </summary>
         /// <remarks>
-        /// A node that dials downwards says it by what is at the other end:
+        /// A node that connects downwards says it by what is at the other end:
         /// a local controller and a gateway are spoken to in the overlay
         /// network, so that the charging stations behind them are reached
         /// through them; a charging station in the plain frame.
@@ -279,23 +329,23 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (protected internal virtual) WhatItIsDialledOn(Connection)
+        #region (protected internal virtual) WhatItIsConnectedOn(Connection)
 
         /// <summary>
-        /// What the dialling of the given connection depends on beyond what
+        /// What the connecting of the given connection depends on beyond what
         /// is written of it, as a text that is another once it changed - or
         /// null, where it depends on nothing else.
         /// </summary>
         /// <remarks>
-        /// Asked when a connection is dialled and again whenever the
+        /// Asked when a connection is made and again whenever the
         /// connections are gone through (ApplyConnectionChanges): a
-        /// connection whose answer changed is let go of and dialled again,
-        /// as one that was written anew is. A node that dials downwards says
+        /// connection whose answer changed is let go of and connected again,
+        /// as one that was written anew is. A node that connects downwards says
         /// here what the login of the node at the other end says of it -
         /// switched off, a local controller or not - and goes through its
         /// connections when a login changes.
         /// </remarks>
-        protected internal virtual String? WhatItIsDialledOn(ConnectionEntry Connection)
+        protected internal virtual String? WhatItIsConnectedOn(ConnectionEntry Connection)
 
             => null;
 
@@ -311,9 +361,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Asked before anything of the connection is tried. A reason given
         /// leaves it not connected, with the reason beside it - a refusal of
         /// this node's own, not an end that could not be reached. A node that
-        /// dials downwards says here what the login of the node at the other
+        /// connects downwards says here what the login of the node at the other
         /// end says against it - switched off, or marked as another kind of
-        /// node than the connection says; WhatItIsDialledOn has it dialled
+        /// node than the connection says; WhatItIsConnectedOn has it connected
         /// again once that changes.
         /// </remarks>
         protected internal virtual String? WhyItIsNotConnected(ConnectionEntry Connection)
@@ -387,10 +437,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// What of this node uses an identity of its certificate store: the
-        /// connections that show it when they are dialled.
+        /// connections that show it when they are made.
         /// </summary>
         /// <remarks>
-        /// Deleted from under them, they would be dialled with an identity
+        /// Deleted from under them, they would be connected with an identity
         /// that is not there, and refused at the next handshake rather than
         /// here. Switching it off is what takes an identity out of service;
         /// choosing another one for its connections is what lets it go.
@@ -411,7 +461,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return (showing.Length == 1
                                 ? $"The connection '{showing[0]}' shows it"
                                 : $"{showing.Length} connections show it ({String.Join(", ", showing.Select(name => $"'{name}'"))})") +
-                           $" when this {NodeNoun} dials. Choose another identity on the Connections page first - or switch this one off, which keeps it.";
+                           $" when this {NodeNoun} connects. Choose another identity on the Connections page first - or switch this one off, which keeps it.";
 
             }
 

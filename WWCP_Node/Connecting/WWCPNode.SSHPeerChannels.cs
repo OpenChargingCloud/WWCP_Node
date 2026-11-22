@@ -19,6 +19,7 @@
 
 using System.Collections.Concurrent;
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
@@ -55,11 +56,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// connection of the station's own to it, made with the given login when
         /// the first one needs it. Null where that host is a peer already - of
         /// another connection of this station, with a login and a trust of its
-        /// own - or its name is none a peer goes by: that connection is dialled
+        /// own - or its name is none a peer goes by: that connection is made
         /// for OCPP alone, as before.
         /// </summary>
         protected SSHPeer? SshPeerFor(ConnectionEntry   Connection,
-                                    SshClientOptions  Login,
+                                    SSHClientOptions  Login,
                                     SshHostKeyTrust   Trust)
         {
 
@@ -69,7 +70,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (SSHPeerTo(host) is not null)
                 return null;
 
-            var port  = Connection.URL.Port?.ToUInt16() ?? 22;
+            var port  = Connection.URL.Port ?? IPPort.SSH;
 
             var peer  = new SSHPeer(
                             host,
@@ -79,10 +80,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                 port,
                                 Login with { DNSClient = Login.DNSClient ?? DNSClient }
                             ),
-                            WhyNot:     subsystem => subsystem == SshSubsystem
+                            WhyNot:     subsystem => subsystem == SshSubsystemOf(Connection)
                                                          ? null
                                                          : Trust.Pins.Count == 0
-                                                               ? "its host is held to no pinned host key yet, and nothing but what this node dials goes over it until a signed pin set says which it is."
+                                                               ? "its host is held to no pinned host key yet, and nothing but what this node connects to goes over it until a signed pin set says which it is."
                                                                : null,
                             PublicKey:  () => SshKey.PublicKeyLine
                         );
@@ -112,7 +113,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         protected async Task DropSshConnectionOf(WWCPSshClient Client)
         {
 
-            if (!sshPeerOf.TryGetValue(Client, out var peer) || peer.Connection.Current is not SshClient ssh)
+            if (!sshPeerOf.TryGetValue(Client, out var peer) || peer.Connection.Current is not SSHClient ssh)
                 return;
 
             try

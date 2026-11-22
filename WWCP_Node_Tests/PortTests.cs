@@ -168,10 +168,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var probe = new TcpListener(System.Net.IPAddress.Loopback, 0);
             probe.Start();
 
-            var port  = ((IPEndPoint) probe.LocalEndpoint).Port;
+            var port  = IPPort.Parse(((IPEndPoint) probe.LocalEndpoint).Port);
             probe.Stop();
 
-            return IPPort.Parse((UInt16) port);
+            return port;
 
         }
 

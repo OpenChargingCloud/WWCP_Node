@@ -112,7 +112,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
                 return new FailingToStop(
-                           HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                           HTTPPort:          TestPorts.Free(),
                            AccountsPath:      Path.Combine(here, "accounts"),
                            ConfigFile:        new WWCPConfigFile(configuration),
                            CertificatesPath:  Path.Combine(here, "certificates"),
@@ -159,14 +159,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             var node = await Started();
-            var port = node.HTTPPort.ToUInt16();
+            var port = node.HTTPPort;
 
             Assert.That(async () => await node.Stop(),
                         Throws.InstanceOf<InvalidOperationException>().With.Message.EqualTo(FailingToStop.Why));
 
             using var client  = new TcpClient();
 
-            var refused = await Assert.CatchAsync<SocketException>(async () => await client.ConnectAsync(System.Net.IPAddress.Loopback, port),
+            var refused = await Assert.CatchAsync<SocketException>(async () => await client.ConnectAsync(System.Net.IPAddress.Loopback, port.ToInt32()),
                                                               "the node still listens on its port");
 
             Assert.That(refused?.SocketErrorCode, Is.EqualTo(SocketError.ConnectionRefused));

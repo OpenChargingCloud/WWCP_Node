@@ -153,7 +153,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// Everything this node can be told, by whoever is trusted with all
         /// of it at once.
         /// </summary>
-        public static readonly UserRole  SystemAdmin  = new (WWCPNode.AdminRole,
+        public static readonly UserRole  SystemAdmin  = new (WWCPNode.AdminRole.ToString(),
                                                              Permissions.ReadConfiguration      |
                                                              Permissions.ChangeNetworkSettings  |
                                                              Permissions.RunDiagnostics         |

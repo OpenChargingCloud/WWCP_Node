@@ -23,7 +23,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// </summary>
     /// <remarks>
     /// What goes through here is what this node cannot let anybody else
-    /// read: the private keys it dials its back ends with, the credentials
+    /// read: the private keys it connects to its back ends with, the credentials
     /// that go alongside them, and the logins of the charging stations it
     /// serves. The accounts are not among them - the HTTPExt API keeps those,
     /// and their permissions with them.

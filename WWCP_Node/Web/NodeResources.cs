@@ -143,7 +143,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// <remarks>
         /// A resource of its own, and not a way of reading the others:
         /// somebody who is to see that an EVSE is faulted is not thereby
-        /// somebody who is to read where the node dials and whom it lets in.
+        /// somebody who is to read where the node connects to and whom it lets in.
         /// </remarks>
         public const String  State           = "state";
 

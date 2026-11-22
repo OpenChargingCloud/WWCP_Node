@@ -240,7 +240,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             return await TestPorts.StartedOnFreshPorts(() => {
 
-                var node = new TestNode(IPPort.Parse(TestPorts.Free()), directory, new WWCPConfigFile(configuration), Kinds);
+                var node = new TestNode(TestPorts.Free(), directory, new WWCPConfigFile(configuration), Kinds);
 
                 node.API = new TestAPI(node, Clock, Log);
 
@@ -299,7 +299,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// organization, so that it may sign in.
         /// </summary>
         private static async Task<IUser> AccountIn(WWCPNode  Node,
-                                                   String    Name,
+                                                   User_Id   Name,
                                                    String    Role,
                                                    String    Password)
         {
@@ -308,8 +308,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                         organization is Organization, Is.True, "the node's organization is not there");
 
             var account = await Node.ExtAPI.CreateUser(
-                                    User_Id.Parse(Name),
-                                    I18NString.Create(Languages.en, Name),
+                                    Name,
+                                    I18NString.Create(Languages.en, Name.ToString()),
                                     SimpleEMailAddress.Parse($"{Name}@localhost"),
                                     User2OrganizationEdgeLabel.IsMember,
                                     (Organization) organization!,
@@ -322,7 +322,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                 );
 
             Assert.That(account,                                                          Is.Not.Null, $"The account '{Name}' was not made.");
-            Assert.That(Node.ExtAPI.TryGetUser(User_Id.Parse(Name), out var stored),      Is.True);
+            Assert.That(Node.ExtAPI.TryGetUser(Name, out var stored),      Is.True);
             Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role), out var group) && group is UserGroup, Is.True, $"The node has no group '{Role}'.");
 
             await Node.ExtAPI.AddUserToUserGroup((User) stored!, User2UserGroupEdgeLabel.IsMember, (UserGroup) group!);
@@ -377,7 +377,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var password       = "A-Viewer-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
 
-            await AccountIn(node, "viewer1", "viewer", password);
+            await AccountIn(node, User_Id.Parse("viewer1"), "viewer", password);
 
             using var viewer   = Client(node, "viewer1", password);
             using var root     = Root(node);
@@ -422,7 +422,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var password       = "A-Viewer-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
 
-            await AccountIn(node, "viewer1", "viewer", password);
+            await AccountIn(node, User_Id.Parse("viewer1"), "viewer", password);
 
             using var viewer   = Client(node, "viewer1", password);
             using var root     = Root(node);

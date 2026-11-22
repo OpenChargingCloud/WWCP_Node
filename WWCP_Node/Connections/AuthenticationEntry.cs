@@ -196,11 +196,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// TOTP scheme says so in as many words, and HTTP Basic is used the
         /// same way here.
         /// </remarks>
-        public String?              Login
+        public User_Id?             Login
 
             => Authentication switch {
-                   HTTPBasicAuthentication  basic  => basic.Username,
-                   HTTPTOTPAuthentication   totp   => totp. Login,
+                   HTTPBasicAuthentication  basic  => User_Id.TryParse(basic.Username),
+                   HTTPTOTPAuthentication   totp   => User_Id.TryParse(totp. Login),
                    _                               => null
                };
 
@@ -397,7 +397,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// whether there was one before.
         /// </remarks>
         public static Boolean ValidateBasic(I18NString?                       Description,
-                                            String?                           Login,
+                                            User_Id?                          Login,
                                             String?                           Password,
                                             [NotNullWhen(false)] out String?  Error)
         {
@@ -428,7 +428,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// see <see cref="ValidateBasic"/>.
         /// </summary>
         public static Boolean ValidateTOTP(I18NString?                       Description,
-                                           String?                           Login,
+                                           User_Id?                          Login,
                                            String?                           SharedSecret,
                                            String?                           Alphabet,
                                            UInt32?                           Length,
@@ -532,14 +532,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #region (private static) ValidateLogin(Login, out Error)
 
-        private static Boolean ValidateLogin(String?                           Login,
+        private static Boolean ValidateLogin(User_Id?                          Login,
                                              [NotNullWhen(false)] out String?  Error,
                                              String?                           NodeNoun   = null)
         {
 
-            var login = (Login ?? "").Trim();
-
-            if (login.Length == 0)
+            if (Login is not User_Id login)
             {
                 Error = $"A login is needed: it is the name the other end knows this {NodeNoun ?? NodeWording.Noun} by.";
                 return false;
@@ -718,8 +716,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                            new JProperty("hasSecret",     HasSecret)
                        );
 
-            if (Login is not null)
-                json.Add(new JProperty("login", Login));
+            if (Login is User_Id login)
+                json.Add(new JProperty("login", login.ToString()));
 
             if (TOTPConfig is TOTPConfig totp)
             {

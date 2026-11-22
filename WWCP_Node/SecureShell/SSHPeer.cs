@@ -17,6 +17,7 @@
 
 #region Usings
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 
@@ -100,7 +101,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// </summary>
     /// <remarks>
     /// Who is believed to be that host, and who the node signs in as, is said by
-    /// whoever adds the peer, in how its connection is dialled.
+    /// whoever adds the peer, in how its connection is made.
     /// </remarks>
     /// <param name="Host">The host, as the entries that share its connection name it.</param>
     /// <param name="Port">Its SSH port.</param>
@@ -108,7 +109,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
     /// <param name="WhyNot">Why the given subsystem may not go over the connection now, or null where it may: a peer whose host key nobody vouched for yet carries what confirms it, and nothing else.</param>
     /// <param name="PublicKey">The public key the node signs in with there, as a line of an authorized_keys file; null where there is none.</param>
     public sealed record SSHPeer(DomainName               Host,
-                                 UInt16                   Port,
+                                 IPPort                   Port,
                                  SshSharedConnection      Connection,
                                  Func<String, String?>?   WhyNot     = null,
                                  Func<String?>?           PublicKey  = null);

@@ -166,7 +166,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 File.WriteAllText(configFile, $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "web": {{Web(redirect)}} }""");
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(home, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(configFile),
                                         Frontend:          new FileSystemContentSource(Path.Combine(directory, "frontend")),
@@ -392,7 +392,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var client   = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
             using var response = await client.PostAsync($"https://127.0.0.1:{node.HTTPPort}/ext/login",
                                                         new FormUrlEncodedContent([
-                                                            new KeyValuePair<String, String>("login",     WWCPNode.DefaultAdminUser),
+                                                            new KeyValuePair<String, String>("login",     WWCPNode.DefaultAdminUser.ToString()),
                                                             new KeyValuePair<String, String>("password",  node.GeneratedPassword!)
                                                         ]));
 

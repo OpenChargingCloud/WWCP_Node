@@ -204,7 +204,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// the node configured to use something that is not there, which is
         /// found out the next time it is used rather than here - and switching
         /// it off is mostly what somebody taking a certificate out of service
-        /// meant. By default the connections that show it when this node dials;
+        /// meant. By default the connections that show it when this node connects;
         /// a kind of node that chooses certificates for something else says what.
         /// </remarks>
         /// <param name="Handle">The handle the certificate is asked for by, as the store spells it: the first 16 digits of its fingerprint, in lower case.</param>

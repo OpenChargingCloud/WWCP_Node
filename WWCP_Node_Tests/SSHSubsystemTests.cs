@@ -86,29 +86,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             public String PrincipalKind
                 => "station";
 
-            public Boolean Knows(String Username)
-                => Logins.ContainsKey(Username);
+            public Boolean Knows(User_Id Username)
+                => Logins.ContainsKey(Username.ToString());
 
             public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest Request, CancellationToken CancellationToken = default)
-                => ValueTask.FromResult(Logins.TryGetValue(Request.Username, out var login) && login.Enabled && login.Key.AsSpan().SequenceEqual(Request.PublicKeyBlob));
+                => ValueTask.FromResult(Logins.TryGetValue(Request.Username.ToString(), out var login) && login.Enabled && login.Key.AsSpan().SequenceEqual(Request.PublicKeyBlob));
 
             public Boolean TakesSessionBoundTotp
                 => Logins.Values.Any(login => login.Secret is not null);
 
-            public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(String Username, String Totp, ReadOnlyMemory<Byte> SessionId, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
-                => ValueTask.FromResult(Logins.TryGetValue(Username, out var login) && login.Enabled && login.Secret is not null &&
+            public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id Username, String Totp, ReadOnlyMemory<Byte> SessionId, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
+                => ValueTask.FromResult(Logins.TryGetValue(Username.ToString(), out var login) && login.Enabled && login.Secret is not null &&
                                         SshSessionBoundTotp.Verify(login.Secret, Totp, SessionId.Span));
 
-            public IReadOnlySet<String> SubsystemsFor(String Username)
-                => Logins.TryGetValue(Username, out var login)
+            public IReadOnlySet<String> SubsystemsFor(User_Id Username)
+                => Logins.TryGetValue(Username.ToString(), out var login)
                        ? new HashSet<String>(login.Subsystems, StringComparer.Ordinal)
                        : new HashSet<String>(StringComparer.Ordinal);
 
-            public IReadOnlyList<String> GroupsOf(String Username)
-                => Logins.TryGetValue(Username, out var login) ? [ login.Group ] : [];
+            public IReadOnlyList<String> GroupsOf(User_Id Username)
+                => Logins.TryGetValue(Username.ToString(), out var login) ? [ login.Group ] : [];
 
             public String? WhyNoLongerIn(SshSessionInfo Session)
-                => !Logins.TryGetValue(Session.Username, out var login)                                    ? $"there is no station '{Session.Username}' any more"
+                => !Logins.TryGetValue(Session.Username.ToString(), out var login)                                    ? $"there is no station '{Session.Username}' any more"
                  : !login.Enabled                                                                          ? $"the station '{Session.Username}' was switched off"
                  : Session.Method == SshSessionBoundTotp.MethodName                                        ? (login.Secret is null ? "the station signs in with no one-time password any more" : null)
                  : Session.PublicKeyBlob is not Byte[] key || !key.AsSpan().SequenceEqual(login.Key)        ? $"the key is no longer the station's"
@@ -175,7 +175,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                   }
                                   """);
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(directory, "accounts"),
                                         Resources:         [ "echo" ],
                                         ConfigFile:        new WWCPConfigFile(ConfigPath),
@@ -204,7 +204,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// An account of the given name in the group of the given role, let in with the given key.
         /// </summary>
         private static async Task AccountIn(WWCPNode     Node,
-                                            String       Name,
+                                            User_Id      Name,
                                             String       Role,
                                             ISshHostKey  Key)
         {
@@ -212,8 +212,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(Node.ExtAPI.TryGetOrganization(Organization_Id.Parse(Node.Kind.Organization), out var organization) &&
                         organization is Organization, Is.True);
 
-            await Node.ExtAPI.CreateUser(User_Id.Parse(Name),
-                                         I18NString.Create(Languages.en, Name),
+            await Node.ExtAPI.CreateUser(Name,
+                                         I18NString.Create(Languages.en, Name.ToString()),
                                          SimpleEMailAddress.Parse($"{Name}@localhost"),
                                          User2OrganizationEdgeLabel.IsMember,
                                          (Organization) organization!,
@@ -224,7 +224,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                          AcceptedEULA:              DateTimeOffset.UtcNow.AddSeconds(-1),
                                          IsAuthenticated:           true);
 
-            Assert.That(Node.ExtAPI.TryGetUser(User_Id.Parse(Name), out var account) && account is User, Is.True);
+            Assert.That(Node.ExtAPI.TryGetUser(Name, out var account) && account is User, Is.True);
             Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role), out var group) && group is UserGroup, Is.True);
 
             await Node.ExtAPI.AddUserToUserGroup((User) account!, User2UserGroupEdgeLabel.IsMember, (UserGroup) group!);
@@ -234,14 +234,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         }
 
-        private static ValueTask<SshClient> SignIn(WWCPNode     Node,
+        private static ValueTask<SSHClient> SignIn(WWCPNode     Node,
                                                    String       Username,
                                                    ISshHostKey  Key)
 
-            => SshClient.ConnectAsync("127.0.0.1",
-                                      Node.SSHPort!.Value.ToUInt16(),
-                                      new SshClientOptions {
-                                          Username       = Username,
+            => SSHClient.Connect("127.0.0.1",
+                                      Node.SSHPort!.Value,
+                                      new SSHClientOptions {
+                                          Username       = User_Id.Parse(Username),
                                           VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                           Credentials    = [ Key ]
                                       });
@@ -348,12 +348,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// Whether the given subsystem is refused to the given client.
         /// </summary>
-        private static async Task<Boolean> Refused(SshClient  Client,
+        private static async Task<Boolean> Refused(SSHClient  Client,
                                                    String     Subsystem)
         {
             try
             {
-                var channel = await Client.OpenSubsystemAsync(Subsystem).AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+                var channel = await Client.OpenSubsystem(Subsystem).AsTask().WaitAsync(TimeSpan.FromSeconds(10));
                 await channel.CloseAsync();
                 return false;
             }
@@ -363,7 +363,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             }
         }
 
-        private static async Task<Boolean> Asks(SshClient Client, String Type, Byte[] Payload)
+        private static async Task<Boolean> Asks(SSHClient Client, String Type, Byte[] Payload)
         {
             var channel = await Client.Multiplexer.OpenChannelAsync("session");
             return await channel.SendRequestAsync(Type, true, Payload);
@@ -428,14 +428,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                              made.AddSSHSubsystem(new SSHSubsystem(Other, "Other", Echoing(served)));
                          });
 
-            await AccountIn(node, "tester",  "tester",  testerKey);
-            await AccountIn(node, "support", "support", supportKey);
+            await AccountIn(node, User_Id.Parse("tester"),  "tester",  testerKey);
+            await AccountIn(node, User_Id.Parse("support"), "support", supportKey);
 
             await using var tester   = await SignIn(node, "tester",  testerKey);
             await using var support  = await SignIn(node, "support", supportKey);
-            await using var root     = await SignIn(node, WWCPNode.DefaultAdminUser, rootKey);
+            await using var root     = await SignIn(node, WWCPNode.DefaultAdminUser.ToString(), rootKey);
 
-            var echo          = await tester.OpenSubsystemAsync(Echo, CancellationToken);
+            var echo          = await tester.OpenSubsystem(Echo, CancellationToken);
             var echoed        = await EchoOf(echo, "hello");
 
             var supportEcho   = await Refused(support, Echo);
@@ -481,7 +481,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var station = await SignIn(node, "cs001", cs001Key);
 
-            var echo     = await station.OpenSubsystemAsync(Echo, CancellationToken);
+            var echo     = await station.OpenSubsystem(Echo, CancellationToken);
             var echoed   = await EchoOf(echo, "BootNotification");
 
             var other    = await Refused(station, Other);
@@ -492,7 +492,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             try
             {
-                await using var files = await station.OpenSftpClientAsync(CancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+                await using var files = await station.OpenSFTPClient(CancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
             }
             catch (Exception exception) when (exception is not TimeoutException)
             {
@@ -544,14 +544,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var after    = door.OfferedMethods.ToArray();
 
-            ValueTask<SshClient> WithTotp(String Username, TOTPConfig Config)
-                => SshClient.ConnectAsync("127.0.0.1",
-                                          node.SSHPort!.Value.ToUInt16(),
-                                          new SshClientOptions {
-                                              Username          = Username,
+            ValueTask<SSHClient> WithTotp(String Username, TOTPConfig Config)
+                => SSHClient.Connect("127.0.0.1",
+                                          node.SSHPort!.Value,
+                                          new SSHClientOptions {
+                                              Username          = User_Id.Parse(Username),
                                               VerifyHostKey     = blob => node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                               Credentials       = [],
-                                              SessionBoundTotp  = sessionId => SshSessionBoundTotp.Generate(Config, sessionId)
+                                              SessionBoundTOTP  = sessionId => SshSessionBoundTotp.Generate(Config, sessionId)
                                           });
 
             async Task<Boolean> GetsInWithTotp(String Username, TOTPConfig Config)
@@ -569,18 +569,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var wrongSecret = await GetsInWithTotp("cs001", another);
             var noSecret    = await GetsInWithTotp("cs002", secret);
-            var account     = await GetsInWithTotp(WWCPNode.DefaultAdminUser, secret);
+            var account     = await GetsInWithTotp(WWCPNode.DefaultAdminUser.ToString(), secret);
 
             await using var station = await WithTotp("cs001", secret);
 
-            var echo        = await station.OpenSubsystemAsync(Echo, CancellationToken);
+            var echo        = await station.OpenSubsystem(Echo, CancellationToken);
             var echoed      = await EchoOf(echo, "BootNotification");
 
             var other       = await Refused(station, Other);
             var shell       = await Asks(station, "shell", []);
             var exec        = await Asks(station, "exec",  SshSessionChannel.EncodeString("who"));
 
-            var confined    = await door.GetRestrictionsAsync("cs001", SshSessionBoundTotp.MethodName, CancellationToken);
+            var confined    = await door.GetRestrictionsAsync(User_Id.Parse("cs001"), SshSessionBoundTotp.MethodName, CancellationToken);
             var unconfined  = await door.GetRestrictionsAsync(WWCPNode.DefaultAdminUser, "password", CancellationToken);
 
             // The secret taken away again: the session it let in ends.
@@ -624,10 +624,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var node     = await Started(Prepare: made => made.AddSSHSignIns(stations));
 
             var door     = new NodeSSHAuthenticator(node, Passwords: true);
-            var request  = new SshPublicKeyAuthRequest("cs001", "ssh-ed25519", cs001Key.PublicKeyBlob);
+            var request  = new SshPublicKeyAuthRequest(User_Id.Parse("cs001"), "ssh-ed25519", cs001Key.PublicKeyBlob);
 
             var confined = await door.GetRestrictionsAsync(request, CancellationToken);
-            var password = await door.AuthorizePasswordAsync("cs001", "anything", CancellationToken);
+            var password = await door.AuthorizePasswordAsync(User_Id.Parse("cs001"), "anything", CancellationToken);
 
             Assert.Multiple(() => {
                 Assert.That(confined.AllowPty,             Is.False);
@@ -648,15 +648,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             // "root" is the first account of every node - and here a station's name as well.
-            var stations = StationsWith((WWCPNode.DefaultAdminUser, cs001Key, [ Echo ], "north"));
+            var stations = StationsWith((WWCPNode.DefaultAdminUser.ToString(), cs001Key, [ Echo ], "north"));
 
             var node     = await Started(Prepare: made => {
                                made.AddSSHSubsystem(new SSHSubsystem(Echo, "Echo", Echoing(), UseEcho));
                                made.AddSSHSignIns(stations);
                            });
 
-            var asStation = await GetsIn(node, WWCPNode.DefaultAdminUser, cs001Key);
-            var asAccount = await GetsIn(node, WWCPNode.DefaultAdminUser, rootKey);
+            var asStation = await GetsIn(node, WWCPNode.DefaultAdminUser.ToString(), cs001Key);
+            var asAccount = await GetsIn(node, WWCPNode.DefaultAdminUser.ToString(), rootKey);
 
             Assert.Multiple(() => {
                 Assert.That(asStation, Is.False, "let in as the station");
@@ -724,7 +724,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var station = await SignIn(node, "cs001", cs001Key);
 
-            var echo    = await station.OpenSubsystemAsync(Echo, CancellationToken);
+            var echo    = await station.OpenSubsystem(Echo, CancellationToken);
 
             var shown   = await Task.Run(async () => {
                               for (var waited = 0; waited < 100 && !node.SSHSessions.Any(session => session.Kind == WWCPNode.SSHSession.Subsystem); waited++)
@@ -778,8 +778,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var station = await SignIn(node, "cs001", cs001Key);
 
-            var echo   = await station.OpenSubsystemAsync(Echo,  CancellationToken);
-            var other  = await station.OpenSubsystemAsync(Other, CancellationToken);
+            var echo   = await station.OpenSubsystem(Echo,  CancellationToken);
+            var other  = await station.OpenSubsystem(Other, CancellationToken);
 
             Assert.That(await EchoOf(echo,  "one"), Is.EqualTo("one"));
             Assert.That(await EchoOf(other, "two"), Is.EqualTo("two"));
@@ -819,7 +819,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var station = await SignIn(node, "cs001", cs001Key);
 
-            var echo     = await station.OpenSubsystemAsync(Echo, CancellationToken);
+            var echo     = await station.OpenSubsystem(Echo, CancellationToken);
             var before   = await EchoOf(echo, "Heartbeat");
 
             stations.Logins["cs001"] = stations.Logins["cs001"] with { Key = cs002Key.PublicKeyBlob };
@@ -848,11 +848,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             node.SSHSessionRecheckEvery = TimeSpan.FromMinutes(10);
 
-            await AccountIn(node, "tester", "tester", testerKey);
+            await AccountIn(node, User_Id.Parse("tester"), "tester", testerKey);
 
             await using var tester = await SignIn(node, "tester", testerKey);
 
-            var echo    = await tester.OpenSubsystemAsync(Echo, CancellationToken);
+            var echo    = await tester.OpenSubsystem(Echo, CancellationToken);
             var before  = await EchoOf(echo, "hello");
 
             var removed = node.RemoveSSHSubsystem(Echo);
@@ -890,7 +890,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var station = await SignIn(node, "cs001", cs001Key);
 
-            var echo     = await station.OpenSubsystemAsync(Echo, CancellationToken);
+            var echo     = await station.OpenSubsystem(Echo, CancellationToken);
             Assert.That(await EchoOf(echo, "hello"), Is.EqualTo("hello"));
 
             using var cli = new NodeCLI(node);
@@ -898,7 +898,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var who       = await cli.Execute("who");
             var page      = node.SSHConfigurationJSON()["sessions"] as JArray;
             var session   = page?.OfType<JObject>().SingleOrDefault(one => one["kind"]?.Value<String>() == WWCPNode.SSHSession.Subsystem);
-            var principal = node.SSHPrincipalFor(new SshSessionInfo("made-up", "cs001", "publickey", cs001Key.PublicKeyBlob, null, null, null, SshSessionRestrictions.None));
+            var principal = node.SSHPrincipalFor(new SshSessionInfo("made-up", User_Id.Parse("cs001"), "publickey", cs001Key.PublicKeyBlob, null, null, null, SshSessionRestrictions.None));
 
             Assert.Multiple(() => {
                 Assert.That(who.Any(line => Regex.IsMatch(line, @"^cs001 \(station\)\s+with Echo from 127\.0\.0\.1:\d+, since \d\d:\d\d, key SHA256:")), Is.True,
@@ -940,10 +940,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private sealed class AccountsAgain : ISSHSignIns
         {
             public String PrincipalKind => SSHPrincipal.Account;
-            public Boolean Knows(String Username) => false;
+            public Boolean Knows(User_Id Username) => false;
             public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest Request, CancellationToken CancellationToken = default) => ValueTask.FromResult(false);
-            public IReadOnlySet<String> SubsystemsFor(String Username) => new HashSet<String>();
-            public IReadOnlyList<String> GroupsOf(String Username) => [];
+            public IReadOnlySet<String> SubsystemsFor(User_Id Username) => new HashSet<String>();
+            public IReadOnlyList<String> GroupsOf(User_Id Username) => [];
             public String? WhyNoLongerIn(SshSessionInfo Session) => null;
         }
 

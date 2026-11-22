@@ -49,7 +49,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         private String     directory  = "";
         private DNSServer  nameServer = null!;
-        private UInt16     port;
+        private IPPort     port;
         private WWCPNode?  node;
 
         #endregion
@@ -83,7 +83,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await nameServer.Start();
 
-            port = nameServer.ActiveTCPUnicastSocket!.Value.Port.ToUInt16();
+            port = nameServer.ActiveTCPUnicastSocket!.Value.Port;
 
         }
 

@@ -53,7 +53,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #region Data
 
-        private const    String          Kim        = "kimberly";
+        private static readonly User_Id Kim        = User_Id.Parse("kimberly");
         private const    String          KimsWord   = "Correct-Horse-1";
 
         private          String          directory  = "";
@@ -85,7 +85,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                        var log = new EventLog();
                        log.OnLogged += entry => { lock (logged) logged.Add(entry); };
 
-                       return new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                       return new WWCPNode(HTTPPort:          TestPorts.Free(),
                                            AccountsPath:      Path.Combine(directory, "accounts"),
                                            ConfigFile:        new WWCPConfigFile(configFile),
                                            CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -120,14 +120,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #region (helpers) Client / Send / Said / Lines
 
-        private HttpClient Client(String Login = WWCPNode.DefaultAdminUser, String? Password = null)
+        private HttpClient Client(User_Id? Login = null, String? Password = null)
         {
 
             var client = new HttpClient { BaseAddress = new Uri(node!.WebInterfaceURL.ToString()), Timeout = TimeSpan.FromSeconds(20) };
 
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                                                              "Basic",
-                                                             Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Login}:{Password ?? password}"))
+                                                             Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Login ?? WWCPNode.DefaultAdminUser}:{Password ?? password}"))
                                                          );
 
             return client;
@@ -265,8 +265,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var organization = node!.ExtAPI.GetOrganization(Organization_Id.Parse(node.Kind.Organization));
 
-            var kim = await node.ExtAPI.CreateUser(User_Id.Parse(Kim),
-                                                   I18NString.Create(Kim),
+            var kim = await node.ExtAPI.CreateUser(Kim,
+                                                   I18NString.Create(Kim.ToString()),
                                                    SimpleEMailAddress.Parse($"{Kim}@example.test"),
                                                    KimsWord,
                                                    SkipDefaultNotifications:  true,

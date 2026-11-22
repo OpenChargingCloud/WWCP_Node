@@ -455,7 +455,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         private static String HostOf(DNSServerConfig Server)
         {
 
-            if (Server.IPAddress is IIPAddress address &&
+            if (Server.IPAddress is { } address &&
                 System.Net.IPAddress.TryParse(address.ToString(), out var ip))
             {
 
@@ -1312,7 +1312,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     // The shared connection, where the entry says so, goes on after
                     // the test; one of the test's own does not.
-                    SshClient? own = null;
+                    SSHClient? own = null;
 
                     try
                     {

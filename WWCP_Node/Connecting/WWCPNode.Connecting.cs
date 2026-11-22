@@ -29,8 +29,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 {
 
     /// <summary>
-    /// What a node dials, and the keys it signs in with where it gets there:
-    /// its connections over WebSockets and over SSH. A node that dials
+    /// What a node connects to, and the keys it signs in with where it gets there:
+    /// its connections over WebSockets and over SSH. A node that connects
     /// sets its connection store when it is made; one that does not has none.
     /// </summary>
     public partial class WWCPNode
@@ -38,7 +38,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #region Data
 
-        // The trust each connection over SSH was dialled with last: what its
+        // The trust each connection over SSH was connected with last: what its
         // server showed, and where a signed pin set puts its pins at once.
         protected internal readonly ConcurrentDictionary<String, SshHostKeyTrust>  sshTrusts  = new ();
 
@@ -47,13 +47,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region Properties
 
         /// <summary>
-        /// The places this node dials, and the credentials it proves itself
+        /// The places this node connects to, and the credentials it proves itself
         /// with when it gets there.
         /// </summary>
         public ConnectionStore         Connections           { get; protected set; } = default!;
 
         /// <summary>
-        /// The key this node signs in with when it dials an ssh://
+        /// The key this node signs in with when it connects to an ssh://
         /// connection - made the first time one needs it.
         /// </summary>
         public SshClientKey            SshKey                { get; protected set; } = default!;
@@ -99,13 +99,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (internal) SshSecurityEvent(Connection, Type, TechInfo)
 
         /// <summary>
-        /// Report a security event of the white paper "OCPP over SSH" (section 9.4) through the networking node
-        /// of the connection's version - or of every one, where it is the node's own.
+        /// Report a security event of the white paper "OCPP-over-SSH" (section 9.4) through the networking node
+        /// of the connection's version - or of every one, where it is the node's own. Not of a connection of
+        /// OCPI: a security event is OCPP's, and told to the CSMS.
         /// </summary>
         public void SshSecurityEvent(ConnectionEntry?  Connection,
                                        String            Type,
                                        String            TechInfo)
         {
+
+            if (Connection is not null && Connection.Use != ConnectionUse.OCPP)
+                return;
 
             try
             {

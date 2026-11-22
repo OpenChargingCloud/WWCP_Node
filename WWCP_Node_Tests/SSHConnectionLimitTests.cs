@@ -23,6 +23,7 @@ using NUnit.Framework;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
@@ -50,7 +51,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         private String                   directory  = "";
         private readonly List<WWCPNode>  nodes      = [];
-        private readonly List<SshClient> clients    = [];
+        private readonly List<SSHClient> clients    = [];
         private readonly List<String>    said       = [];
         private readonly ISshHostKey     rootKey    = SshHostKey.GenerateEd25519();
         private readonly ISshHostKey[]   keys       = [ SshHostKey.GenerateEd25519(), SshHostKey.GenerateEd25519(), SshHostKey.GenerateEd25519() ];
@@ -74,20 +75,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             public String PrincipalKind
                 => "station";
 
-            public Boolean Knows(String Username)
-                => logins.ContainsKey(Username);
+            public Boolean Knows(User_Id Username)
+                => logins.ContainsKey(Username.ToString());
 
             public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest Request, CancellationToken CancellationToken = default)
-                => ValueTask.FromResult(logins.TryGetValue(Request.Username, out var key) && key.AsSpan().SequenceEqual(Request.PublicKeyBlob));
+                => ValueTask.FromResult(logins.TryGetValue(Request.Username.ToString(), out var key) && key.AsSpan().SequenceEqual(Request.PublicKeyBlob));
 
-            public IReadOnlySet<String> SubsystemsFor(String Username)
+            public IReadOnlySet<String> SubsystemsFor(User_Id Username)
                 => new HashSet<String>(StringComparer.Ordinal);
 
-            public IReadOnlyList<String> GroupsOf(String Username)
+            public IReadOnlyList<String> GroupsOf(User_Id Username)
                 => [];
 
             public String? WhyNoLongerIn(SshSessionInfo Session)
-                => logins.ContainsKey(Session.Username) ? null : $"there is no station '{Session.Username}' any more";
+                => logins.ContainsKey(Session.Username.ToString()) ? null : $"there is no station '{Session.Username}' any more";
 
         }
 
@@ -174,7 +175,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                   }
                                   """);
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(directory, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(ConfigPath),
                                         CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -203,20 +204,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A connection of the given login with the given key that got in, kept open - or null where it
         /// was refused at the door: it then either can not connect or gets no channel.
         /// </summary>
-        private async Task<SshClient?> Held(WWCPNode     Node,
+        private async Task<SSHClient?> Held(WWCPNode     Node,
                                             String       Username,
                                             ISshHostKey  Key)
         {
 
-            SshClient? client = null;
+            SSHClient? client = null;
 
             try
             {
 
-                client = await SshClient.ConnectAsync("127.0.0.1",
-                                                      Node.SSHPort!.Value.ToUInt16(),
-                                                      new SshClientOptions {
-                                                          Username       = Username,
+                client = await SSHClient.Connect("127.0.0.1",
+                                                      Node.SSHPort!.Value,
+                                                      new SSHClientOptions {
+                                                          Username       = User_Id.Parse(Username),
                                                           VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                                           Credentials    = [ Key ]
                                                       }).AsTask().WaitAsync(TimeSpan.FromSeconds(10));

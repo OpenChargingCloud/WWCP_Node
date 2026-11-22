@@ -22,6 +22,7 @@ using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -38,26 +39,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
     /// <summary>
     /// What the protocol a node speaks over its connections says of them: by
-    /// which networking node they are dialled, which subprotocols they offer,
+    /// which networking node they are connected, which subprotocols they offer,
     /// how their messages are written, which SSH subsystem they go over, and
     /// what is executed while a learned key pin is on probation.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A node has one - <see cref="WWCPNode.Dialling"/> - and the dialling of
-    /// <see cref="WWCPNode"/> asks it whatever is a matter of the protocol
-    /// rather than of the node. This one speaks no protocol: a node that has
-    /// it dials nothing, and says so. A node that speaks one gives itself the
-    /// protocol's - OCPP's is OCPPDialling of WWCP_OCPP_Node.
+    /// A node has one for each protocol its connections carry - see
+    /// <see cref="WWCPNode.ConnectingOf(ConnectionEntry)"/> - and the connecting of
+    /// <see cref="WWCPNode"/> asks the one of a connection whatever is a matter
+    /// of the protocol rather than of the node. This one speaks no protocol: a
+    /// node that has it connects to nothing, and says so. A node that speaks one
+    /// gives itself the protocol's - OCPP's is OCPPConnecting of WWCP_OCPP_Node,
+    /// and one whose connections carry messages and nothing beside them is a
+    /// <see cref="MessageConnecting"/>, as OCPI's.
     /// </para>
     /// <para>
     /// What is the node's own - whether a connection that is up is told
-    /// anything, the networking mode it is dialled in, what it depends on -
+    /// anything, the networking mode it is connected in, what it depends on -
     /// stays with the node, as virtual members of <see cref="WWCPNode"/>.
     /// </para>
     /// </remarks>
     /// <param name="Node">The node whose connections these are.</param>
-    public class DiallingProtocol(WWCPNode Node)
+    public class ConnectingProtocol(WWCPNode Node)
     {
 
         #region Properties
@@ -70,20 +74,20 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #endregion
 
 
-        #region DiallingNodes / DiallingNodeOrNoneOf(Version)
+        #region ConnectingNodes / ConnectingNodeOrNoneOf(Connection)
 
         /// <summary>
-        /// The networking nodes the node dials with - none.
+        /// The networking nodes the node connects with - none.
         /// </summary>
-        public virtual IEnumerable<AWWCPNetworkingNode> DiallingNodes
+        public virtual IEnumerable<AWWCPNetworkingNode> ConnectingNodes
 
             => [];
 
         /// <summary>
-        /// The networking node that dials a connection of the given version,
-        /// or none where the node does not speak it - none.
+        /// The networking node that makes the given connection, or none where
+        /// the node does not speak what it carries - none.
         /// </summary>
-        public virtual AWWCPNetworkingNode? DiallingNodeOrNoneOf(OCPPVersion Version)
+        public virtual AWWCPNetworkingNode? ConnectingNodeOrNoneOf(ConnectionEntry Connection)
 
             => null;
 
@@ -113,7 +117,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Open the WebSocket of the given connection, by the networking node
-        /// that dials it: under a name of its own, and the primary under the
+        /// that makes it: under a name of its own, and the primary under the
         /// name of the node at the other end as well - see NextHopOf and CSMSNamesOf.
         /// </summary>
         /// <param name="Connection">The connection.</param>
@@ -131,7 +135,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                String?                                                         TOTPLogin,
                                                                CancellationToken                                               CancellationToken)
 
-            => WWCPNode.DiallingNodeOf(Connection.OCPPVersion).ConnectWebSocketClient(
+            => WWCPNode.ConnectingNodeOf(Connection).ConnectWebSocketClient(
                    RemoteURL:                   Connection.URL,
                    NetworkingMode:              WWCPNode.NetworkingModeOf(Connection),
                    NextHopNetworkingNodeId:     WWCPNode.NextHopOf(Connection),
@@ -208,7 +212,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// nothing goes over SSH.
         /// </summary>
         /// <param name="Connection">The connection.</param>
-        /// <param name="NetworkingNode">The networking node that dials it.</param>
+        /// <param name="NetworkingNode">The networking node that makes it.</param>
         /// <param name="Login">How it signs in, and how the server is believed.</param>
         /// <param name="SshConnection">The SSH connection of the peer it is a channel of, where it shares one.</param>
         /// <param name="CancellationToken">Ends the attempt.</param>
@@ -216,12 +220,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             ConnectOverSSH(ConnectionEntry                                    Connection,
                            AWWCPNetworkingNode                                NetworkingNode,
-                           SshClientOptions                                   Login,
-                           Func<CancellationToken, ValueTask<SshClient>>?     SshConnection,
+                           SSHClientOptions                                   Login,
+                           Func<CancellationToken, ValueTask<SSHClient>>?     SshConnection,
                            CancellationToken                                  CancellationToken)
 
             => Task.FromResult<(IWWCPClient?, Boolean, Exception?)>(
-                   (null, false, new NotSupportedException($"This {WWCPNode.NodeNoun} dials nothing over SSH."))
+                   (null, false, new NotSupportedException($"This {WWCPNode.NodeNoun} connects to nothing over SSH."))
                );
 
         #endregion
@@ -245,9 +249,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Whether the node signs in at its SSH peers with the key of its
-        /// connections (<see cref="WWCPNode.SshKey"/>), as a peer it dialled
+        /// connections (<see cref="WWCPNode.SshKey"/>), as a peer it connected to
         /// over ssh:// shares it - and names the hosts of those connections as
-        /// its peers to be. Not where it dials nothing: it signs in with a key
+        /// its peers to be. Not where it connects to nothing: it signs in with a key
         /// of its own.
         /// </summary>
         public virtual Boolean SignsInAtSSHPeersWithItsKey
@@ -258,7 +262,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The user the node signs in as at an SSH peer that says none - or
         /// null for the node's own default.
         /// </summary>
-        public virtual String? DefaultSSHPeerUser
+        public virtual User_Id? DefaultSSHPeerUser
 
             => null;
 

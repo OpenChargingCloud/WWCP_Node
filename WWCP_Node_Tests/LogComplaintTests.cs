@@ -330,7 +330,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             // Never started, so never listening - but a port nobody else has
             // all the same, in case that ever changes.
             node = new WWCPNode(
-                          HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                          HTTPPort:          TestPorts.Free(),
                           AccountsPath:      Path.Combine(directory, "accounts"),
                           ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
                           CertificatesPath:  Path.Combine(directory, "certificates"),

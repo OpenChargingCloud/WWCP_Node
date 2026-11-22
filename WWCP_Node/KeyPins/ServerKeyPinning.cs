@@ -33,7 +33,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 {
 
     /// <summary>
-    /// How a connection that is not believed stands, as whoever dials it says it.
+    /// How a connection that is not believed stands, as whoever connects to it says it.
     /// </summary>
     public enum PinnedConnectionStatus
     {
@@ -77,7 +77,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 
         #region Data
 
-        // The trust each key-pinned connection was dialled with last: what its
+        // The trust each key-pinned connection was connected with last: what its
         // server showed, and what its WebSocket client asks at every handshake.
         private readonly ConcurrentDictionary<String, ServerKeyPinTrust>  trusts  = new ();
 
@@ -148,7 +148,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         #region TrustOf(EndpointId)
 
         /// <summary>
-        /// The trust the given connection was dialled with last, where it is key-pinned: what its server
+        /// The trust the given connection was connected with last, where it is key-pinned: what its server
         /// showed, and the validator its WebSocket client asks.
         /// </summary>
         public ServerKeyPinTrust? TrustOf(String EndpointId)
@@ -162,11 +162,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         #region TrustFor(Endpoint, out NotConnected)
 
         /// <summary>
-        /// The trust a wss:// connection is dialled with, where it is key-pinned; null where it is checked
+        /// The trust a wss:// connection is connected with, where it is key-pinned; null where it is checked
         /// by its CA.
         /// </summary>
-        /// <param name="Endpoint">The connection, as it is dialled.</param>
-        /// <param name="NotConnected">Why it is not connected at all. Nothing any more: a connection that requires raw public keys (RFC 7250) is dialled, and offers them.</param>
+        /// <param name="Endpoint">The connection, as it is connected.</param>
+        /// <param name="NotConnected">Why it is not connected at all. Nothing any more: a connection that requires raw public keys (RFC 7250) is connected, and offers them.</param>
         public ServerKeyPinTrust? TrustFor(IPinnedTLSEndpoint  Endpoint,
                                            out String?         NotConnected)
         {
@@ -177,7 +177,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
                 return null;
 
             // A connection that prefers or requires raw public keys (RFC 7250)
-            // is dialled as every other: its WebSocket client offers them, as
+            // is connected as every other: its WebSocket client offers them, as
             // the validator of its trust says the key pins it checks. One that
             // requires them is turned away by a server that shows a certificate
             // alone, and says that this is why.
@@ -202,7 +202,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 
         #endregion
 
-        #region Follow(Endpoint, Client, Trust, DialledURL, Connected)
+        #region Follow(Endpoint, Client, Trust, ConnectedURL, Connected)
 
         /// <summary>
         /// Follow a key-pinned connection: a key pin learned on the connection made now and on every one
@@ -218,22 +218,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// <param name="Endpoint">The connection, as it is written down.</param>
         /// <param name="Client">The client made for it.</param>
         /// <param name="Trust">The trust its server is believed by.</param>
-        /// <param name="DialledURL">Where it went when it was dialled.</param>
-        /// <param name="Connected">Whether the dial got through: the connection made now is then on probation, where it learned its key pin.</param>
+        /// <param name="ConnectedURL">Where it went when it was connected to.</param>
+        /// <param name="Connected">Whether the connection got through: the connection made now is then on probation, where it learned its key pin.</param>
         public void Follow(IPinnedTLSEndpoint  Endpoint,
                            WebSocketClient     Client,
                            ServerKeyPinTrust   Trust,
-                           URL                 DialledURL,
+                           URL                 ConnectedURL,
                            Boolean             Connected)
         {
 
             if (Connected)
-                LearnIfFirst(Endpoint, DialledURL, Trust, Client, (Client as WWCPWebSocketClient)?.WebSocketClientConnection);
+                LearnIfFirst(Endpoint, ConnectedURL, Trust, Client, (Client as WWCPWebSocketClient)?.WebSocketClientConnection);
 
             Client.OnWebSocketConnectionAccepted += (timestamp, sender, connection, response, cancellationToken) => {
 
                 if (Client.ReconnectPolicy is not null)
-                    LearnIfFirst(Endpoint, DialledURL, Trust, Client, connection);
+                    LearnIfFirst(Endpoint, ConnectedURL, Trust, Client, connection);
 
                 return Task.CompletedTask;
 
@@ -274,7 +274,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 
         #endregion
 
-        #region LearnIfFirst(Endpoint, DialledURL, Trust, Client, Current)
+        #region LearnIfFirst(Endpoint, ConnectedURL, Trust, Client, Current)
 
         /// <summary>
         /// Write down the key pin a wss:// connection that trusts on first use learned, and keep the
@@ -286,12 +286,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// would let everything through that its server asks.
         /// </remarks>
         /// <param name="Endpoint">The connection, as it is written down.</param>
-        /// <param name="DialledURL">Where it went when it was dialled.</param>
+        /// <param name="ConnectedURL">Where it went when it was connected to.</param>
         /// <param name="Trust">The trust that learned the key pin.</param>
         /// <param name="Client">The client that made the connection.</param>
         /// <param name="Current">The connection made now.</param>
         public void LearnIfFirst(IPinnedTLSEndpoint   Endpoint,
-                                 URL                  DialledURL,
+                                 URL                  ConnectedURL,
                                  ServerKeyPinTrust    Trust,
                                  Object               Client,
                                  IMessageConnection?  Current)
@@ -303,10 +303,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
             if (Current is not null)
                 Probations.Enter(Current, new Probation(Endpoint.Id, Client, Trust, () => Trust.OnProbation));
 
-            if (Endpoints.TryLearnServerKeyPin(Endpoint.Id, DialledURL, learned, out var notWritten))
+            if (Endpoints.TryLearnServerKeyPin(Endpoint.Id, ConnectedURL, learned, out var notWritten))
             {
 
-                securityEvent(Endpoint, "KeyPinLearned", $"Key pin {learned} of endpoint '{Endpoint.Id}' ({DialledURL}) learned on first use, on probation");
+                securityEvent(Endpoint, "KeyPinLearned", $"Key pin {learned} of endpoint '{Endpoint.Id}' ({ConnectedURL}) learned on first use, on probation");
 
                 warning($"'{Endpoint.Description}' learned the key pin {learned} of its server's key on its first connection. It is on probation for " +
                         $"{Endpoint.ServerKeyPinProbationTime.TotalMinutes:0.#} minute(s): until a signed pin set confirms it, this {nodeName} " +
@@ -625,17 +625,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// A signed SetVariables changed how a wss:// connection believes its server beyond its pins. Where
         /// that forgot a key pin learned on probation - trust on first use switched off - the probation ends
         /// with it: nothing believes that key any more. Where the connection is key-pinned now and was not,
-        /// or the other way round, it is dialled again, once the answer is out.
+        /// or the other way round, it is connected again, once the answer is out.
         /// </summary>
         /// <remarks>
         /// A connection made with a key that is no longer believed is refused everything until it is hung
         /// up - the gate let nothing but a pin set through while it was on probation, and would let
-        /// everything through once it is not. It is hung up by being dialled again: as one that is no longer
+        /// everything through once it is not. It is hung up by being connected again: as one that is no longer
         /// key-pinned, it is checked by its CA.
         /// </remarks>
         /// <param name="EndpointId">The connection.</param>
         /// <param name="Forgotten">The key pin learned on probation that went with trust on first use; null where none did.</param>
-        /// <param name="KeyPinnedChanged">Whether it has to be dialled again.</param>
+        /// <param name="KeyPinnedChanged">Whether it has to be connected again.</param>
         /// <param name="Signer">Who signed the change, for the log.</param>
         /// <param name="AfterAnswer">Done once the answer to the change is out.</param>
         public void TrustChanged(String   EndpointId,
@@ -671,7 +671,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
             if (KeyPinnedChanged)
                 _ = Task.Run(async () => {
                         await AfterAnswer;
-                        Endpoints.DialAgain(EndpointId);
+                        Endpoints.ConnectAgain(EndpointId);
                     });
 
         }

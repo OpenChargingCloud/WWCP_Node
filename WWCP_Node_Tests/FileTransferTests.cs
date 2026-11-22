@@ -22,6 +22,7 @@ using System.Security.Cryptography;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
@@ -50,7 +51,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #region Data
 
-        private const String  Login = WWCPNode.DefaultAdminUser;
+        private static readonly User_Id Login = WWCPNode.DefaultAdminUser;
 
         private String     directory  = "";
         private String     uploads    = "";
@@ -120,7 +121,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                   }
                                   """);
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(home, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(Path.Combine(home, WWCPConfigFile.DefaultFileName)),
                                         CertificatesPath:  Path.Combine(home, "certificates"),
@@ -154,7 +155,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                               }
                               """);
 
-            node = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+            node = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                 AccountsPath:      Path.Combine(home, "accounts"),
                                 ConfigFile:        new WWCPConfigFile(Path.Combine(home, WWCPConfigFile.DefaultFileName)),
                                 CertificatesPath:  Path.Combine(home, "certificates"),
@@ -171,19 +172,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private String Pin
             => server!.SSHHostKey!.Split(' ')[1];
 
-        private UInt16 Port
-            => server!.SSHPort!.Value.ToUInt16();
+        private IPPort Port
+            => server!.SSHPort!.Value;
 
         private SSHFileServer FileServer(String?                  Pin            = null,
-                                         UInt16?                  Port           = null,
+                                         IPPort?                  Port           = null,
                                          FileTransferDirections   Directions     = FileTransferDirections.Upload | FileTransferDirections.Download,
-                                         String[]?                Users          = null,
+                                         User_Id[]?               Users          = null,
                                          SSHConnection            Connection     = SSHConnection.Dedicated,
-                                         String?                  User           = Login)
+                                         User_Id?                 User           = null)
 
             => new ("files",
                     "127.0.0.1",
-                    User,
+                    User ?? Login,
                     new NTSServerSSH(Port ?? this.Port, HostKeyPins: [ Pin ?? this.Pin ]),
                     new SSHFileTransfers(Directions,
                                          Users,
@@ -236,8 +237,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private async Task<String?> HoldJSON(String Peers)
             => (await node!.TryUpdateSSHPeers(peers => JArray.Parse(Peers))).Error;
 
-        private String URL(String Path, String? User = Login, UInt16? Port = null, String Host = "127.0.0.1")
-            => $"sftp://{(User is null ? "" : User + "@")}{Host}:{Port ?? this.Port}{Path}";
+        private String URL(String Path, User_Id? User = null, IPPort? Port = null, String Host = "127.0.0.1")
+            => $"sftp://{User ?? Login}@{Host}:{Port ?? this.Port}{Path}";
 
         #endregion
 
@@ -248,41 +249,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void AURLIsReadAsThePaperReadsIt()
         {
 
-            Assert.That(SftpLocation.TryParse("sftp://cs001@Logs.Example.ORG:2222/upload/cs001/", out var full, out _), Is.True);
+            Assert.That(SFTPLocation.TryParse("sftp://cs001@Logs.Example.ORG:2222/upload/cs001/", out var full, out _), Is.True);
             Assert.That(full!.Host,             Is.EqualTo("logs.example.org"));
-            Assert.That(full.Port,              Is.EqualTo(2222));
+            Assert.That(full.Port,              Is.EqualTo(IPPort.Parse(2222)));
             Assert.That(full.User,              Is.EqualTo("cs001"));
             Assert.That(full.Path,              Is.EqualTo("/upload/cs001/"));
             Assert.That(full.RemotePath,        Is.EqualTo("/upload/cs001/"));
             Assert.That(full.FileIn("a.log"),   Is.EqualTo("/upload/cs001/a.log"));
             Assert.That(full.WithoutUserInfo,   Is.EqualTo("sftp://logs.example.org:2222/upload/cs001/"));
 
-            Assert.That(SftpLocation.TryParse("SFTP://logs.example.org/firmware/image%20v2.bin", out var plain, out _), Is.True);
-            Assert.That(plain!.Port,            Is.EqualTo(22));
+            Assert.That(SFTPLocation.TryParse("SFTP://logs.example.org/firmware/image%20v2.bin", out var plain, out _), Is.True);
+            Assert.That(plain!.Port,            Is.EqualTo(IPPort.SSH));
             Assert.That(plain.User,             Is.Null);
             Assert.That(plain.Path,             Is.EqualTo("/firmware/image v2.bin"));
 
             // Decoded once: what is still encoded after that is a part of the name.
-            Assert.That(SftpLocation.TryParse("sftp://h.example/a%252Fb", out var once, out _), Is.True);
+            Assert.That(SFTPLocation.TryParse("sftp://h.example/a%252Fb", out var once, out _), Is.True);
             Assert.That(once!.Path,             Is.EqualTo("/a%2Fb"));
 
             // Relative to the home directory of the login.
-            Assert.That(SftpLocation.TryParse("sftp://cs001@h.example/~/upload", out var home, out _), Is.True);
+            Assert.That(SFTPLocation.TryParse("sftp://cs001@h.example/~/upload", out var home, out _), Is.True);
             Assert.That(home!.IsHomeRelative,   Is.True);
             Assert.That(home.RemotePath,        Is.EqualTo("upload"));
             Assert.That(home.FileIn("a.log"),   Is.EqualTo("upload/a.log"));
 
-            Assert.That(SftpLocation.TryParse("sftp://[2001:DB8::1]:2022/x", out var v6, out _), Is.True);
+            Assert.That(SFTPLocation.TryParse("sftp://[2001:DB8::1]:2022/x", out var v6, out _), Is.True);
             Assert.That(v6!.Host,               Is.EqualTo("2001:db8::1"));
-            Assert.That(v6.Port,                Is.EqualTo(2022));
+            Assert.That(v6.Port,                Is.EqualTo(IPPort.Parse(2022)));
             Assert.That(v6.WithoutUserInfo,     Is.EqualTo("sftp://[2001:db8::1]:2022/x"));
 
             // What the URL expects of the host key is kept, in SHA-256 only.
-            Assert.That(SftpLocation.TryParse("sftp://cs001;fingerprint=SHA256:hOEj1ea61PSArpO3%2Fqj2Drlp024D2eiJ7DJQNNLl+hU@h.example/x", out var expecting, out _), Is.True);
+            Assert.That(SFTPLocation.TryParse("sftp://cs001;fingerprint=SHA256:hOEj1ea61PSArpO3%2Fqj2Drlp024D2eiJ7DJQNNLl+hU@h.example/x", out var expecting, out _), Is.True);
             Assert.That(expecting!.User,        Is.EqualTo("cs001"));
             Assert.That(expecting.Fingerprint,  Is.EqualTo("SHA256:hOEj1ea61PSArpO3/qj2Drlp024D2eiJ7DJQNNLl+hU"));
 
-            Assert.That(SftpLocation.TryParse("sftp://cs001;fingerprint=ssh-dss-c1-b1-30-29-d7-b8-de-6c-97-77-10-d7-46-41-63-87@h.example/x", out var md5, out _), Is.True);
+            Assert.That(SFTPLocation.TryParse("sftp://cs001;fingerprint=ssh-dss-c1-b1-30-29-d7-b8-de-6c-97-77-10-d7-46-41-63-87@h.example/x", out var md5, out _), Is.True);
             Assert.That(md5!.Fingerprint,       Is.Null, "any other notation says nothing");
 
         }
@@ -314,7 +315,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void AURLThatIsNoLocationIsNotRepaired(String URL, String Says)
         {
 
-            Assert.That(SftpLocation.TryParse(URL, out var location, out var error), Is.False, URL);
+            Assert.That(SFTPLocation.TryParse(URL, out var location, out var error), Is.False, URL);
             Assert.That(location,  Is.Null);
             Assert.That(error,     Does.Contain(Says));
             Assert.That(error,     Does.Not.Contain("secret"), "an error never repeats a password");
@@ -329,16 +330,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void HostsAreComparedAsText()
         {
 
-            Assert.That(SftpLocation.NormalizeHost("LOGS.Example.org."),   Is.EqualTo("logs.example.org"));
-            Assert.That(SftpLocation.NormalizeHost("127.0.0.1"),           Is.EqualTo("127.0.0.1"));
-            Assert.That(SftpLocation.NormalizeHost("[::1]"),               Is.EqualTo("::1"));
-            Assert.That(SftpLocation.NormalizeHost("2001:0db8:0::0001"),   Is.EqualTo("2001:db8::1"));
-            Assert.That(SftpLocation.NormalizeHost("1.2.3"),               Is.Null);
-            Assert.That(SftpLocation.NormalizeHost("not a host"),          Is.Null);
-            Assert.That(SftpLocation.NormalizeHost(""),                    Is.Null);
+            Assert.That(SFTPLocation.NormalizeHost("LOGS.Example.org."),   Is.EqualTo("logs.example.org"));
+            Assert.That(SFTPLocation.NormalizeHost("127.0.0.1"),           Is.EqualTo("127.0.0.1"));
+            Assert.That(SFTPLocation.NormalizeHost("[::1]"),               Is.EqualTo("::1"));
+            Assert.That(SFTPLocation.NormalizeHost("2001:0db8:0::0001"),   Is.EqualTo("2001:db8::1"));
+            Assert.That(SFTPLocation.NormalizeHost("1.2.3"),               Is.Null);
+            Assert.That(SFTPLocation.NormalizeHost("not a host"),          Is.Null);
+            Assert.That(SFTPLocation.NormalizeHost(""),                    Is.Null);
 
             // A name is no address and an address no name, whatever DNS would say.
-            Assert.That(SftpLocation.NormalizeHost("localhost"),           Is.Not.EqualTo(SftpLocation.NormalizeHost("127.0.0.1")));
+            Assert.That(SFTPLocation.NormalizeHost("localhost"),           Is.Not.EqualTo(SFTPLocation.NormalizeHost("127.0.0.1")));
 
         }
 
@@ -367,8 +368,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(read.IsShared,                                   Is.True);
             Assert.That(read.UploadPaths,                                Is.EqualTo(new[] { "/upload/{id}/" }), "a directory ends with its slash");
 
-            Assert.That(read.AllowsLogin("cs001-fw", "cs001"),           Is.True);
-            Assert.That(read.AllowsLogin("root",     "cs001"),           Is.False);
+            Assert.That(read.AllowsLogin(User_Id.Parse("cs001-fw"), User_Id.Parse("cs001")),           Is.True);
+            Assert.That(read.AllowsLogin(User_Id.Parse("root"),     User_Id.Parse("cs001")),           Is.False);
 
             // An upload names the directory, with or without its slash; the identity stands for {id}.
             Assert.That(read.AllowsPath(FileTransferDirections.Upload,   "/upload/cs001",       "cs001"), Is.True);
@@ -389,8 +390,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // Without logins, only the login of the peer; without directories, nowhere.
             var bare = new SSHFileTransfers(FileTransferDirections.Upload);
-            Assert.That(bare.AllowsLogin("cs001", "cs001"),                                       Is.True);
-            Assert.That(bare.AllowsLogin("other", "cs001"),                                       Is.False);
+            Assert.That(bare.AllowsLogin(User_Id.Parse("cs001"), User_Id.Parse("cs001")),                                       Is.True);
+            Assert.That(bare.AllowsLogin(User_Id.Parse("other"), User_Id.Parse("cs001")),                                       Is.False);
             Assert.That(bare.AllowsPath(FileTransferDirections.Upload, "/upload/", "cs001"),      Is.False);
             Assert.That(bare.Allows(FileTransferDirections.Download),                             Is.False);
 
@@ -455,7 +456,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(await HoldJSON($$"""[ {{Peer("files", "LOGS.example.org", $"\"port\": 2222, \"hostKeyPins\": [ \"{pin}\" ], {uploads}")}} ]"""), Is.Null);
 
             Assert.That(node.FileServers.Select(fileServer => (fileServer.Id, fileServer.Host, fileServer.Port)),
-                        Is.EqualTo(new[] { ("files", "logs.example.org", (UInt16) 2222) }));
+                        Is.EqualTo(new[] { ("files", "logs.example.org", IPPort.Parse(2222)) }));
 
             Assert.That(node.ConfiguredSSHPeers[0].ToJSON()["fileTransfers"]!["uploadPaths"]!.Values<String>(), Is.EqualTo(new[] { "/upload/" }));
 
@@ -596,9 +597,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var cases = new (String What, FileTransferJudgement Judgement, String Says)[] {
                 ("another host",                   Upload(URL("/upload/", Host: "127.0.0.2")),                                         "is no file server"),
                 ("a name for the address",         Upload(URL("/upload/", Host: "localhost")),                                         "is no file server"),
-                ("the right host on another port", Upload(URL("/upload/", Port: (UInt16) (Port + 1))),                                 "is no file server"),
+                ("the right host on another port", Upload(URL("/upload/", Port: IPPort.Parse((UInt16) (Port.ToUInt16() + 1)))),                                 "is no file server"),
                 ("the other direction",            node!.JudgeFileTransfer(URL("/firmware/a.bin"), FileTransferDirections.Download),   "is not allowed downloads"),
-                ("a login that is not listed",     Upload(URL("/upload/", User: "somebody")),                                          "is no login"),
+                ("a login that is not listed",     Upload(URL("/upload/", User: User_Id.Parse("somebody"))),                                          "is no login"),
                 ("a path outside",                 Upload(URL("/firmware/")),                                                          "lies in no directory"),
                 ("a path that only starts alike",  Upload(URL("/upload2/")),                                                           "lies in no directory"),
                 ("another host key expected",      Upload($"sftp://{Login};fingerprint=SHA256:hOEj1ea61PSArpO3%2Fqj2Drlp024D2eiJ7DJQNNLl+hU@127.0.0.1:{Port}/upload/"), "expects the host key")
@@ -647,7 +648,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             // Another key than the node's own confirms nothing.
             var foreign = SshPublicKey.FromHostKey(SshHostKey.GenerateEd25519()).ToAuthorizedKeyLine();
             Assert.That(node.ConfirmFileTransferKey("files", Login, foreign),     Does.Contain("is not the key"));
-            Assert.That(node.ConfirmFileTransferKey("files", "somebody"),         Does.Contain("is no login"));
+            Assert.That(node.ConfirmFileTransferKey("files", User_Id.Parse("somebody")),         Does.Contain("is no login"));
             Assert.That(node.ConfirmFileTransferKey("nowhere", Login),            Does.Contain("is no file server"));
             Assert.That(node.IsFileTransferKeyConfirmed("files", Login),          Is.False);
 
@@ -668,36 +669,36 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             await TheServer();
             TheNode();
 
-            var both = FileServer(Users: [ "cs001", "cs001-fw" ]);
+            var both = FileServer(Users: [ User_Id.Parse("cs001"), User_Id.Parse("cs001-fw") ]);
             Assert.That(await Hold(both, both with { Id = "other", Address = "127.0.0.2" }), Is.Null);
 
-            var logs       = node.FileTransferPublicKey("files", "cs001");
-            var images     = node.FileTransferPublicKey("files", "cs001-fw");
-            var elsewhere  = node.FileTransferPublicKey("other", "cs001");
+            var logs       = node.FileTransferPublicKey("files", User_Id.Parse("cs001"));
+            var images     = node.FileTransferPublicKey("files", User_Id.Parse("cs001-fw"));
+            var elsewhere  = node.FileTransferPublicKey("other", User_Id.Parse("cs001"));
 
             Assert.That(new[] { logs, images, elsewhere }, Is.All.StartsWith("ssh-ed25519 "));
             Assert.That(new[] { logs, images, elsewhere }.Select(line => line!.Split(' ')[1]), Is.Unique, "one key per file server and login");
             Assert.That(logs,                                               Does.EndWith(" cs001@files"));
-            Assert.That(node.FileTransferPublicKey("files", "cs001"),       Is.EqualTo(logs), "and it stays that key");
+            Assert.That(node.FileTransferPublicKey("files", User_Id.Parse("cs001")),       Is.EqualTo(logs), "and it stays that key");
             Assert.That(node.FileTransferPublicKey("files", Login),         Is.Null, "no key for a login that is none");
-            Assert.That(node.FileTransferPublicKey("nowhere", "cs001"),     Is.Null);
+            Assert.That(node.FileTransferPublicKey("nowhere", User_Id.Parse("cs001")),     Is.Null);
 
-            Assert.That(node.ConfirmFileTransferKey("files", "cs001"),      Is.Null);
-            Assert.That(File.Exists(node.FileTransferKeyPath("files", "cs001")), Is.True);
-            Assert.That(File.Exists(node.FileTransferKeyPath("other", "cs001")), Is.True);
+            Assert.That(node.ConfirmFileTransferKey("files", User_Id.Parse("cs001")),      Is.Null);
+            Assert.That(File.Exists(node.FileTransferKeyPath("files", User_Id.Parse("cs001"))), Is.True);
+            Assert.That(File.Exists(node.FileTransferKeyPath("other", User_Id.Parse("cs001"))), Is.True);
 
             // A login that is one no longer has its key deleted; added again, it gets a new one, unconfirmed.
-            Assert.That(await Hold(FileServer(Users: [ "cs001-fw" ])), Is.Null);
+            Assert.That(await Hold(FileServer(Users: [ User_Id.Parse("cs001-fw") ])), Is.Null);
 
-            Assert.That(File.Exists(node.FileTransferKeyPath("files", "cs001")),     Is.False);
-            Assert.That(File.Exists(node.FileTransferKeyPath("files", "cs001-fw")),  Is.True,  "the key of the login that stayed is untouched");
-            Assert.That(File.Exists(node.FileTransferKeyPath("other", "cs001")),     Is.False, "and the keys of a file server that is none any more are gone");
-            Assert.That(node.FileTransferPublicKey("files", "cs001-fw"),             Is.EqualTo(images));
+            Assert.That(File.Exists(node.FileTransferKeyPath("files", User_Id.Parse("cs001"))),     Is.False);
+            Assert.That(File.Exists(node.FileTransferKeyPath("files", User_Id.Parse("cs001-fw"))),  Is.True,  "the key of the login that stayed is untouched");
+            Assert.That(File.Exists(node.FileTransferKeyPath("other", User_Id.Parse("cs001"))),     Is.False, "and the keys of a file server that is none any more are gone");
+            Assert.That(node.FileTransferPublicKey("files", User_Id.Parse("cs001-fw")),             Is.EqualTo(images));
 
             Assert.That(await Hold(both), Is.Null);
 
-            Assert.That(node.FileTransferPublicKey("files", "cs001"),          Is.Not.EqualTo(logs));
-            Assert.That(node.IsFileTransferKeyConfirmed("files", "cs001"),     Is.False);
+            Assert.That(node.FileTransferPublicKey("files", User_Id.Parse("cs001")),          Is.Not.EqualTo(logs));
+            Assert.That(node.IsFileTransferKeyConfirmed("files", User_Id.Parse("cs001")),     Is.False);
 
         }
 
@@ -775,7 +776,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             await using var connection = new SshSharedConnection("127.0.0.1",
                                                                  Port,
-                                                                 new SshClientOptions {
+                                                                 new SSHClientOptions {
                                                                      Username       = Login,
                                                                      Credentials    = [ stationKey ],
                                                                      VerifyHostKey  = blob => SshFingerprint.Sha256(blob) == serversKey

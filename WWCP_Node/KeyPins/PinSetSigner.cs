@@ -30,7 +30,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
     /// <summary>
     /// A key this station believes a pin set of: a signed SetVariables of
     /// SSHClientController is taken where one of these signed it (white paper
-    /// "OCPP over SSH", section 10.4; "Key Pins and Raw Public Keys", section
+    /// "OCPP-over-SSH", section 10.4; "Key Pins and Raw Public Keys", section
     /// 5.7, way 1). The CSMS's signing anchor, from commissioning.
     /// </summary>
     /// <param name="PublicKey">The public key, as the signatures of OCPP carry it in their keyId: the point of an elliptic curve, in base64.</param>

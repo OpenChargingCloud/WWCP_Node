@@ -135,7 +135,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>
         /// The account made at a first start.
         /// </summary>
-        public const            String          DefaultAdminUser              = "root";
+        public static readonly  User_Id         DefaultAdminUser              = User_Id.Parse("root");
 
         /// <summary>
         /// What the password of that account is made of: letters and digits,
@@ -161,7 +161,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// administrator - an account in "systemadmin" is an administrator of
         /// every one of them.
         /// </remarks>
-        public const            String          AdminRole                     = "systemadmin";
+        public static readonly  UserGroup_Id    AdminRole                     = UserGroup_Id.Parse("systemadmin");
 
 
         /// <summary>
@@ -653,9 +653,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Frontend">Where the web interface comes from, or null for a node that has none.</param>
         /// <param name="CertificatesPath">The directory the certificate store lives in between starts; what the file says, or "certificates" beside it, by default.</param>
         /// <param name="CertificateKinds">The kinds of certificate the store of this kind of node keeps; all of them by default. None, and there is no store directory at all.</param>
-        /// <param name="CertificateUsages">What a TLS root or a server certificate of the store may be told it is for, beside the node's own "dns" and "nts": a backend this kind of node dials, say.</param>
+        /// <param name="CertificateUsages">What a TLS root or a server certificate of the store may be told it is for, beside the node's own "dns" and "nts": a backend this kind of node connects to, say.</param>
         /// <param name="CertificateListeners">The listeners of this kind of node a TLS server identity of the store may be told it is shown on - a meter's "modbus" and "web"; none by default, which leaves every identity for every listener.</param>
-        /// <param name="CertificateRequestKinds">The kinds of certificate this kind of node makes keys and signing requests for - who it is to a server it dials, say; none by default.</param>
+        /// <param name="CertificateRequestKinds">The kinds of certificate this kind of node makes keys and signing requests for - who it is to a server it connects to, say; none by default.</param>
         /// <param name="Log">Where everything that happens is written, or null to make a log.</param>
         /// <param name="LogToConsole">Whether the log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">How much of it reaches the console.</param>
@@ -670,7 +670,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public WWCPNode(NodeKind?                                  Kind                             = null,
                         String?                                    Version                          = null,
                         IPPort?                                    HTTPPort                         = null,
-                        IIPAddress?                                HTTPHostname                     = null,
+                        IPAddress?                                HTTPHostname                     = null,
                         HTTPServer?                                HTTPServer                       = null,
                         ServerCertificateSelectorDelegate?         ServerCertificateSelector        = null,
                         ServerCertificateChainSelectorDelegate?    ServerCertificateChainSelector   = null,
@@ -1574,7 +1574,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
 
                 var password  = RandomNumberGenerator.GetString(PasswordCharacters, 24);
-                var userId    = User_Id.Parse(DefaultAdminUser);
+                var login     = DefaultAdminUser;
 
                 // CreateUser rather than AddUser: the password is set from
                 // inside the OnAdded callback, where the user already has its
@@ -1591,8 +1591,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     throw new InvalidOperationException($"The organization of this {Kind.Name} could not be created, and an account outside one cannot sign in.");
 
                 admin         = await ExtAPI.CreateUser(
-                                          userId,
-                                          I18NString.Create(Languages.en, DefaultAdminUser),
+                                          login,
+                                          I18NString.Create(Languages.en, DefaultAdminUser.ToString()),
                                           SimpleEMailAddress.Parse($"{DefaultAdminUser}@localhost"),
                                           User2OrganizationEdgeLabel.IsAdmin,
                                           nodeOrganization,
@@ -1675,8 +1675,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (admin is not null)
             {
 
-                if (!ExtAPI.TryGetUser     (admin.Id,                         out var storedAdmin) ||
-                    !ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(AdminRole),    out var adminGroup)  ||
+                if (!ExtAPI.TryGetUser     (admin.Id,  out var storedAdmin) ||
+                    !ExtAPI.TryGetUserGroup(AdminRole, out var adminGroup)  ||
                      storedAdmin is not User      user ||
                      adminGroup  is not UserGroup group)
                 {

@@ -265,8 +265,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             // An account's groups are its roles, as at sign-in.
             var groups  = kind == SSHPrincipal.Account &&
-                          User_Id.TryParse(name) is User_Id userId &&
-                          cli.Node.ExtAPI.TryGetUser(userId, out var user) && user is not null
+                          User_Id.TryParse(name) is User_Id login &&
+                          cli.Node.ExtAPI.TryGetUser(login, out var user) && user is not null
                               ? (IReadOnlyList<String>) [ .. cli.Node.RolesOf(user).Select(role => role.Name) ]
                               : [];
 

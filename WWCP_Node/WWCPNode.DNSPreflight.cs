@@ -93,9 +93,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// on a connection of this dry run's own - or on the one the node
         /// shares with an SSH peer, which stays. And such a server on a shared
         /// connection is not asked for the name of the host that connection is
-        /// dialled by: after the next reconnect that name would have to be
+        /// connected to by: after the next reconnect that name would have to be
         /// resolved before there is a connection to ask it over (white paper
-        /// "DNS over SSH", section 7.2). So a name that only such a server
+        /// "DNS-over-SSH", section 7.2). So a name that only such a server
         /// would resolve does not resolve here, although it does while the
         /// connection lasts.
         /// </para>
@@ -151,7 +151,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var judged   = new ConcurrentQueue<ServerJudgement>();
 
             // The servers on the connection of an SSH peer, by the host that
-            // connection is dialled by: none of them is asked for that name.
+            // connection is connected to by: none of them is asked for that name.
             Boolean CarriedBy(DNSServerConfig Server, String Name)
 
                 => overSSH.GetValueOrDefault(Server) is { IsShared: true } &&

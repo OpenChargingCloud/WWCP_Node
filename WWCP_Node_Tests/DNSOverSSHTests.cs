@@ -26,6 +26,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.Mail;
@@ -44,7 +45,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     /// <summary>
     /// "transport": "SSH" in the entry of a name server, and "ssh" beside it:
     /// asked over the subsystem "dns@open.charging.cloud" of the white paper
-    /// "DNS over SSH", the server held to its host key - as the file says it,
+    /// "DNS-over-SSH", the server held to its host key - as the file says it,
     /// reads it and writes it back.
     /// </summary>
     [TestFixture]
@@ -91,7 +92,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(server.Port.ToUInt16(),           Is.EqualTo(2222), "the SSH port is the server's port");
                 Assert.That(server.SSH,                       Is.Null,          "the file says what a server is held to; the node says how it is asked");
                 Assert.That(ssh.Port,                         Is.Null,          "the port, said twice");
-                Assert.That(ssh.User,                         Is.EqualTo("ntske"));
+                Assert.That(ssh.User,                         Is.EqualTo(User_Id.Parse("ntske")));
                 Assert.That(ssh.Pins,                         Is.EqualTo(new[] { pinA }), "the same pin twice, or with its padding");
                 Assert.That(ssh.CAs,                          Is.EqualTo(new[] { pinB }));
                 Assert.That(ssh.OnMismatch,                   Is.EqualTo(PinMismatch.Record));
@@ -248,7 +249,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     /// A node with a name server over SSH: an SSH server on the loopback
     /// interface that hands the subsystem "dns@open.charging.cloud" to a DNS
     /// server without a listener of its own, as a resolver behind OpenSSH
-    /// would (white paper "DNS over SSH", chapter 11: T5, T6, T7, T9, T11, T12,
+    /// would (white paper "DNS-over-SSH", chapter 11: T5, T6, T7, T9, T11, T12,
     /// T13, T18, T21).
     /// </summary>
     /// <remarks>
@@ -269,7 +270,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// A login the SSH server lets in, and does not offer the DNS subsystem to.
         /// </summary>
-        private const String OCPPOnly  = "ocpp-only";
+        private static readonly User_Id OCPPOnly  = User_Id.Parse("ocpp-only");
 
         private static readonly ISshHostKey  nodeKey   = SshHostKey.GenerateEd25519();
         private static readonly ISshHostKey  hostKey1  = SshHostKey.GenerateEd25519();
@@ -324,7 +325,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             private Int32 stopped;
 
             public CollectingAuditSink         Audit     { get; } = Audit;
-            public UInt16                      Port      => (UInt16) SSH.LocalEndPoint.Port.ToInt32();
+            public IPPort                      Port      => SSH.LocalEndPoint.Port;
 
             /// <summary>
             /// What the DNS server was asked.
@@ -397,7 +398,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <param name="Port">The port it listens on, where it takes the place of a server before it.</param>
         /// <param name="LetIn">The keys it lets in; the node's by default.</param>
         private async Task<Running> NameServer(ISshHostKey      HostKey,
-                                               UInt16?          Port    = null,
+                                               IPPort?          Port    = null,
                                                params Byte[][]  LetIn)
         {
 
@@ -454,7 +455,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             running = new Running(dns, ssh, audit);
 
-            await ssh.StartAsync(new IPSocket(IPv4Address.Localhost, Port.HasValue ? IPPort.Parse(Port.Value) : IPPort.Auto));
+            await ssh.StartAsync(new IPSocket(IPv4Address.Localhost, Port.HasValue ? Port.Value : IPPort.Auto));
 
             servers.Add(running);
 
@@ -593,7 +594,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(answer,                                                 Is.EqualTo(new[] { AddressOf(0) }));
                 Assert.That(server.Requests,                                        Has.Count.EqualTo(1));
-                Assert.That(server.Count<AuthenticationSucceededEvent>(login => login.Username == node.Kind.Tag), Is.EqualTo(1), "the login is the node's own name");
+                Assert.That(server.Count<AuthenticationSucceededEvent>(login => login.Username == User_Id.Parse(node.Kind.Tag)), Is.EqualTo(1), "the login is the node's own name");
 
                 Assert.That(shown["sshStatus"]?.Value<String>(),                    Is.EqualTo("Accepted"));
                 Assert.That(shown["sshHostKey"]?.Value<String>(),                   Is.EqualTo(print1));
@@ -637,11 +638,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             for (var attempt = 1; started is null; attempt++)
             {
 
-                var port = (UInt16) Random.Shared.Next(20000, 45000);
+                var port = IPPort.Parse(Random.Shared.Next(20000, 45000));
 
                 try
                 {
-                    listening = new UdpClient(new IPEndPoint(System.Net.IPAddress.Loopback, port));
+                    listening = new UdpClient(new IPEndPoint(System.Net.IPAddress.Loopback, port.ToInt32()));
                     started   = await NameServer(hostKey1, port);
                 }
                 catch (SocketException) when (attempt < 50)
@@ -664,7 +665,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // The control: the listener over UDP hears what is sent to it.
             using (var sender = new UdpClient())
-                await sender.SendAsync(new Byte[] { 1, 2, 3 }, new IPEndPoint(System.Net.IPAddress.Loopback, server.Port));
+                await sender.SendAsync(new Byte[] { 1, 2, 3 }, new IPEndPoint(System.Net.IPAddress.Loopback, server.Port.ToInt32()));
 
             using var soon   = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var heard        = await overUDP.ReceiveAsync(soon.Token);
@@ -786,16 +787,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
-        #region T7_AHostCertificateOfItsCAForTheAddressDialled_AndForAnother()
+        #region T7_AHostCertificateOfItsCAForTheAddressConnectedTo_AndForAnother()
 
         /// <summary>
         /// T7: a host certificate of a CA in "hostCAs", for the address
-        /// dialled: used. Then one of the same CA for another address: not
+        /// connected to: used. Then one of the same CA for another address: not
         /// used, SSHStatus Untrusted - and not PinMismatch, which is a key no
         /// CA of its vouches for at all.
         /// </summary>
         [Test]
-        public async Task T7_AHostCertificateOfItsCAForTheAddressDialled_AndForAnother()
+        public async Task T7_AHostCertificateOfItsCAForTheAddressConnectedTo_AndForAnother()
         {
 
             var ca       = SshHostKey.GenerateEd25519();
@@ -894,7 +895,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                     // It was reached, believed, and offered the node's key - and nothing else.
                     Assert.That(server.Count<KexCompletedEvent>(),                  Is.GreaterThanOrEqualTo(1), "the server was not believed");
-                    Assert.That(server.Count<AuthMethodFailedEvent>(attempt => attempt.Method == "publickey" && attempt.Username == "cs001"), Is.GreaterThanOrEqualTo(1), "the node did not offer its key");
+                    Assert.That(server.Count<AuthMethodFailedEvent>(attempt => attempt.Method == "publickey" && attempt.Username == User_Id.Parse("cs001")), Is.GreaterThanOrEqualTo(1), "the node did not offer its key");
                     Assert.That(server.Count<AuthMethodFailedEvent>(attempt => attempt.Method != "publickey" && attempt.Method != "none"),    Is.Zero, "the node tried something else than its key: a password, say");
                     Assert.That(server.Count<AuthenticationSucceededEvent>(),       Is.Zero);
 
@@ -981,7 +982,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             async Task<String> EchoOverThePeer()
             {
 
-                var channel = await (await node.SharedSSHConnectionTo(host, Echo)).OpenSubsystemAsync(Echo);
+                var channel = await (await node.SharedSSHConnectionTo(host, Echo)).OpenSubsystem(Echo);
 
                 using var within = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 var said         = new MemoryStream();
@@ -1035,7 +1036,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(peer!.Connection.Current,                               Is.SameAs(made), "the shared connection was closed, or made again");
                 Assert.That(peer.Connection.Made,                                   Is.EqualTo(1));
                 Assert.That(server.Count<AuthenticationSucceededEvent>(),           Is.EqualTo(1), "one SSH authentication for both");
-                Assert.That(server.Count<AuthenticationSucceededEvent>(login => login.Username == "cs001"), Is.EqualTo(1));
+                Assert.That(server.Count<AuthenticationSucceededEvent>(login => login.Username == User_Id.Parse("cs001")), Is.EqualTo(1));
 
                 Assert.That(File.Exists(node.DNSSSHClientKeyPath),                  Is.False, "a key of the node's own for name servers was made");
                 Assert.That(news,                                                   Is.Empty);
@@ -1050,7 +1051,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// T13: "connection": "shared" to an address that is no SSH peer of
-        /// the node. The server is not asked - not even dialled, though it is
+        /// the node. The server is not asked - not even connected to, though it is
         /// there - and SSHStatus says NoSSHPeer.
         /// </summary>
         [Test]
@@ -1070,13 +1071,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // The control: the server is there, and says so when somebody comes.
             using (var somebody = new TcpClient())
-                await somebody.ConnectAsync(System.Net.IPAddress.Loopback, server.Port);
+                await somebody.ConnectAsync(System.Net.IPAddress.Loopback, server.Port.ToInt32());
 
             await Eventually(() => server.Count<ConnectionOpenedEvent>() == 1, "The connection of the control");
 
             Assert.Multiple(() => {
                 Assert.That(answer,                                                 Is.Empty);
-                Assert.That(reached,                                                Is.Zero, "the server was dialled");
+                Assert.That(reached,                                                Is.Zero, "the server was connected to");
                 Assert.That(server.Requests,                                        Is.Empty);
                 Assert.That(shown["sshStatus"]?.Value<String>(),                    Is.EqualTo("NoSSHPeer"));
                 Assert.That(shown["sshJudgement"]?["why"]?.Value<String>(),         Does.Contain("127.0.0.1 is no SSH peer"));
@@ -1279,7 +1280,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         /// <summary>
         /// A server on a shared connection does not count for resolving the
-        /// name that connection is dialled by (section 7.2): a dry run does
+        /// name that connection is connected to by (section 7.2): a dry run does
         /// not ask it for that name, and asks it for every other.
         /// </summary>
         [Test]
@@ -1294,8 +1295,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             // The node's connection to the SSH peer "host03.example.org".
             await using var connection = new SshSharedConnection("127.0.0.1",
                                                                  server.Port,
-                                                                 new SshClientOptions {
-                                                                     Username       = "cs001",
+                                                                 new SSHClientOptions {
+                                                                     Username       = User_Id.Parse("cs001"),
                                                                      Credentials    = [ nodeKey ],
                                                                      VerifyHostKey  = blob => blob.AsSpan().SequenceEqual(hostKey1.PublicKeyBlob)
                                                                  });

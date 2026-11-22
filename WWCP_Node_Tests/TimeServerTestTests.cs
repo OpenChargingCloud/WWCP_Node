@@ -130,7 +130,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 await using var node = new WWCPNode(
                                            DNSClient:         dnsClient,
-                                           HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                           HTTPPort:          TestPorts.Free(),
                                            AccountsPath:      Path.Combine(directory, "accounts"),
                                            ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
                                            CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -207,7 +207,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 await using var node = new WWCPNode(
                                            DNSClient:         dnsClient,
-                                           HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                                           HTTPPort:          TestPorts.Free(),
                                            AccountsPath:      Path.Combine(directory, "accounts"),
                                            ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
                                            CertificatesPath:  Path.Combine(directory, "certificates"),

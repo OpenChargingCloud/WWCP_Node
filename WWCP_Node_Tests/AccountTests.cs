@@ -107,7 +107,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             return await TestPorts.StartedOnFreshPorts(() => new WWCPNode(
                            Kind:              Kind,
-                           HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                           HTTPPort:          TestPorts.Free(),
                            AccountsPath:      Path.Combine(directory, "accounts"),
                            Roles:             Roles,
                            ConfigFile:        new WWCPConfigFile(configuration),
@@ -138,8 +138,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// </summary>
         private static Boolean RootIsASystemAdmin(WWCPNode Node)
 
-            => Node.ExtAPI.TryGetUser(User_Id.Parse(WWCPNode.DefaultAdminUser), out var root) &&
-               Node.ExtAPI.IsMember(root, UserGroup_Id.Parse(WWCPNode.AdminRole));
+            => Node.ExtAPI.TryGetUser(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()), out var root) &&
+               Node.ExtAPI.IsMember(root, WWCPNode.AdminRole);
 
         #endregion
 

@@ -211,7 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// <summary>
         /// Where the web interface listens: every address with --any, 127.0.0.1 otherwise.
         /// </summary>
-        public IIPAddress  HTTPHostname
+        public IPAddress  HTTPHostname
             => AnyAddress
                    ? IPvXAddress.Any
                    : IPv4Address.Localhost;

@@ -115,14 +115,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A name server that takes every question over UDP and answers none,
         /// and the port it is on.
         /// </summary>
-        private UdpClient SilentNameServer(out UInt16 Port)
+        private UdpClient SilentNameServer(out IPPort Port)
         {
 
             var socket = new UdpClient(new IPEndPoint(System.Net.IPAddress.Loopback, 0));
 
             nameServers.Add(socket);
 
-            Port = (UInt16) ((IPEndPoint) socket.Client.LocalEndPoint!).Port;
+            Port = IPPort.Parse((UInt16) ((IPEndPoint) socket.Client.LocalEndPoint!).Port);
 
             return socket;
 
@@ -145,14 +145,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// 4.1.1; a server that knows no cookies answers without one, RFC 7873,
         /// section 5.2.1).
         /// </remarks>
-        private void AnsweringNameServer(out UInt16 Port)
+        private void AnsweringNameServer(out IPPort Port)
         {
 
             var socket = new UdpClient(new IPEndPoint(System.Net.IPAddress.Loopback, 0));
 
             nameServers.Add(socket);
 
-            Port = (UInt16) ((IPEndPoint) socket.Client.LocalEndPoint!).Port;
+            Port = IPPort.Parse((UInt16) ((IPEndPoint) socket.Client.LocalEndPoint!).Port);
 
             _ = Task.Run(async () => {
 
@@ -273,7 +273,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             File.WriteAllText(configuration, $$"""{ "dns": {{DNS}}, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             return new WWCPNode(
-                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                       HTTPPort:          TestPorts.Free(),
                        AccountsPath:      Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
                        CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -291,7 +291,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// One entry of the list of name servers, on the loopback address and
         /// with a timeout of its own: the one given, or else OwnTimeout.
         /// </summary>
-        private static String Server(UInt16 Port, String Transport = "UDP", TimeSpan? Timeout = null)
+        private static String Server(IPPort Port, String Transport = "UDP", TimeSpan? Timeout = null)
 
             => $$"""{ "address": "127.0.0.1", "port": {{Port}}, "transport": "{{Transport}}", "queryTimeoutSeconds": {{(Timeout ?? OwnTimeout).TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}} }""";
 
@@ -387,7 +387,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             try
             {
 
-                var port      = (UInt16) ((IPEndPoint) tcp.LocalEndpoint).Port;
+                var port      = IPPort.Parse(((IPEndPoint) tcp.LocalEndpoint).Port);
                 var connected = tcp.AcceptTcpClientAsync();
 
                 await using var node = Node($$"""{ "enabled": true, "servers": [ {{Server(port, "TCP")}} ], "maxRetries": 0 }""");

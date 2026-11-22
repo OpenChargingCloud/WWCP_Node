@@ -458,7 +458,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var silent    = new TcpListener(System.Net.IPAddress.Loopback, 0);
             silent.Start();
 
-            var port            = ((IPEndPoint) silent.LocalEndpoint).Port;
+            var port            = IPPort.Parse(((IPEndPoint) silent.LocalEndpoint).Port);
             var connected       = new TaskCompletionSource<Socket>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             _ = Task.Run(async () => {
@@ -530,7 +530,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var clock  = new CountingClock();
 
             var node   = await TestKit.TestPorts.StartedOnFreshPorts(() => new WWCPNode(
-                                 HTTPPort:          IPPort.Parse(TestKit.TestPorts.Free()),
+                                 HTTPPort:          TestKit.TestPorts.Free(),
                                  AccountsPath:      Path.Combine(directory, "accounts"),
                                  ConfigFile:        new WWCPConfigFile(ConfigurationPath),
                                  CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -590,7 +590,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var clock    = new CountingClock();
 
             var node     = await TestKit.TestPorts.StartedOnFreshPorts(() => new WWCPNode(
-                                   HTTPPort:          IPPort.Parse(TestKit.TestPorts.Free()),
+                                   HTTPPort:          TestKit.TestPorts.Free(),
                                    AccountsPath:      Path.Combine(directory, "accounts"),
                                    ConfigFile:        new WWCPConfigFile(ConfigurationPath),
                                    CertificatesPath:  Path.Combine(directory, "certificates"),

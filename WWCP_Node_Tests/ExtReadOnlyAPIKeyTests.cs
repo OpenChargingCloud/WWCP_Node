@@ -112,7 +112,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 File.WriteAllText(configFile, $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "web": {{Web}} }""");
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(home, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(configFile),
                                         CertificatesPath:  Path.Combine(home, "certificates"),
@@ -181,7 +181,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var key    = Guid.NewGuid().ToString("N");
 
             var added  = await Node.ExtAPI.AddAPIKey(new APIKey(APIKey_Id.Parse(key),
-                                                                User_Id.Parse(WWCPNode.DefaultAdminUser),
+                                                                User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()),
                                                                 AccessRights:  Rights,
                                                                 Created:       DateTimeOffset.UtcNow).AsKept());
 
@@ -212,7 +212,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             // A key that may write, which the read-only one would hand itself.
             var another    = new APIKey(APIKey_Id.Parse(Guid.NewGuid().ToString("N")),
-                                        User_Id.Parse(WWCPNode.DefaultAdminUser),
+                                        User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()),
                                         AccessRights:  APIKeyRights.ReadWrite,
                                         Created:       DateTimeOffset.UtcNow);
 

@@ -104,7 +104,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(made,                    Is.EqualTo(2),                "the node was not made again");
-                Assert.That(node.HTTPPort,           Is.Not.EqualTo(IPPort.Parse(taken)));
+                Assert.That(node.HTTPPort,           Is.Not.EqualTo(taken));
                 Assert.That(node.GeneratedPassword,  Is.Not.Null,
                             "the second start was no first start: the accounts of the one that failed were left behind");
             });
@@ -127,13 +127,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             for (var attempt = 0; attempt < TestPorts.StartAttempts; attempt++)
             {
-                taken.Add(TestPorts.Free());
-                await Squat(taken[^1]);
+                taken.Add(TestPorts.Free().ToUInt16());
+                await Squat(IPPort.Parse(taken[^1]));
             }
 
             var made = 0;
 
-            Assert.That(async () => await TestPorts.StartedOnFreshPorts(() => NodeOn(taken[made++], $"node{made}")),
+            Assert.That(async () => await TestPorts.StartedOnFreshPorts(() => NodeOn(IPPort.Parse(taken[made++]), $"node{made}")),
                         Throws.TypeOf<PortUnavailableException>());
 
             Assert.That(made, Is.EqualTo(TestPorts.StartAttempts));
@@ -188,13 +188,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             for (var attempt = 0; attempt < TestPorts.StartAttempts; attempt++)
             {
-                taken.Add(TestPorts.Free());
-                await Squat(taken[^1]);
+                taken.Add(TestPorts.Free().ToUInt16());
+                await Squat(IPPort.Parse(taken[^1]));
             }
 
             var made = new List<WatchedNode>();
 
-            Assert.That(async () => await TestPorts.StartedOnFreshPorts(() => Watched(made, taken[made.Count])),
+            Assert.That(async () => await TestPorts.StartedOnFreshPorts(() => Watched(made, IPPort.Parse(taken[made.Count]))),
                         Throws.TypeOf<PortUnavailableException>());
 
             Assert.That(made.Select(node => node.LetGo), Is.EqualTo(Enumerable.Repeat(true, TestPorts.StartAttempts)),
@@ -237,7 +237,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// A node of no particular kind on the given port, keeping what it keeps
         /// in a directory of that name below this test's.
         /// </summary>
-        private WWCPNode NodeOn(UInt16  Port,
+        private WWCPNode NodeOn(IPPort  Port,
                                 String  Name)
         {
 
@@ -248,7 +248,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             return new WWCPNode(
-                       HTTPPort:          IPPort.Parse(Port),
+                       HTTPPort:          Port,
                        AccountsPath:      Path.Combine(here, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
                        CertificatesPath:  Path.Combine(here, "certificates"),
@@ -266,7 +266,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// Another node on the port, started: the way another test run takes a
         /// port in the gap between its being handed out and its being bound.
         /// </summary>
-        private async Task Squat(UInt16 Port)
+        private async Task Squat(IPPort Port)
         {
 
             var squatter = NodeOn(Port, $"squatter{squatters.Count}");
@@ -288,7 +288,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// given.
         /// </summary>
         private WatchedNode Watched(List<WatchedNode>  Made,
-                                    UInt16             Port,
+                                    IPPort             Port,
                                     Exception?         FailsToListen   = null)
         {
 
@@ -299,7 +299,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             File.WriteAllText(configuration, """{ "dns": { "enabled": false }, "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             var node = new WatchedNode(
-                           HTTPPort:          IPPort.Parse(Port),
+                           HTTPPort:          Port,
                            AccountsPath:      Path.Combine(here, "accounts"),
                            ConfigFile:        new WWCPConfigFile(configuration),
                            CertificatesPath:  Path.Combine(here, "certificates"),

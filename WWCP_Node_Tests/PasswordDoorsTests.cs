@@ -116,7 +116,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 File.WriteAllText(configFile, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         AccountsPath:      Path.Combine(home, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(configFile),
                                         CertificatesPath:  Path.Combine(home, "certificates"),
@@ -173,7 +173,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                     "ext/login",
                     [],
                     new FormUrlEncodedContent([
-                        new KeyValuePair<String, String>("login",     WWCPNode.DefaultAdminUser),
+                        new KeyValuePair<String, String>("login",     WWCPNode.DefaultAdminUser.ToString()),
                         new KeyValuePair<String, String>("password",  Password)
                     ]));
 
@@ -241,7 +241,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var guesses = new List<Boolean>();
 
             for (var guess = 1; guess <= 10; guess++)
-                guesses.Add(await authenticator.AuthorizePasswordAsync("nobody", $"Not-The-Password-{guess}", IPAddress.Loopback));
+                guesses.Add(await authenticator.AuthorizePasswordAsync(User_Id.Parse("nobody"), $"Not-The-Password-{guess}", IPAddress.Loopback));
 
             var sshAfter     = await authenticator.AuthorizePasswordAsync(WWCPNode.DefaultAdminUser, node.GeneratedPassword!, IPAddress.Loopback);
             using var web    = await SignIn(node, node.GeneratedPassword!);
@@ -328,17 +328,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 var watch = Stopwatch.StartNew();
 
-                Assert.That(await authenticator.AuthorizePasswordAsync(Username, "Not-The-Password", IPAddress.Parse($"203.0.113.{Address}")), Is.False);
+                Assert.That(await authenticator.AuthorizePasswordAsync(User_Id.Parse(Username), "Not-The-Password", IPAddress.Parse($"203.0.113.{Address}")), Is.False);
 
                 return watch.Elapsed;
 
             }
 
             // One of each first, so that neither pays for warming up.
-            await Timed(WWCPNode.DefaultAdminUser, 1);
+            await Timed(WWCPNode.DefaultAdminUser.ToString(), 1);
             await Timed("nobody",                  2);
 
-            var known    = (await Timed(WWCPNode.DefaultAdminUser, 3)) + (await Timed(WWCPNode.DefaultAdminUser, 4)) + (await Timed(WWCPNode.DefaultAdminUser, 5));
+            var known    = (await Timed(WWCPNode.DefaultAdminUser.ToString(), 3)) + (await Timed(WWCPNode.DefaultAdminUser.ToString(), 4)) + (await Timed(WWCPNode.DefaultAdminUser.ToString(), 5));
             var unknown  = (await Timed("nobody",                  6)) + (await Timed("nobody",                  7)) + (await Timed("nobody",                  8));
 
             Assert.That(unknown, Is.GreaterThan(known / 4), $"an unknown name took {unknown.TotalMilliseconds:0} ms, a known one {known.TotalMilliseconds:0} ms");
@@ -376,7 +376,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             {
                 Assert.That(answers,                                                                            Has.All.EqualTo(HttpStatusCode.Forbidden));
                 Assert.That(right.StatusCode,                                                                   Is.EqualTo(HttpStatusCode.TooManyRequests));
-                Assert.That(node.ExtAPI.VerifyPassword(User_Id.Parse(WWCPNode.DefaultAdminUser), node.GeneratedPassword!),  Is.True, "the password was changed");
+                Assert.That(node.ExtAPI.VerifyPassword(User_Id.Parse(WWCPNode.DefaultAdminUser.ToString()), node.GeneratedPassword!),  Is.True, "the password was changed");
             }
 
         }
@@ -395,10 +395,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var node     = await Started();
             var session  = SessionOf(node, await SignIn(node, node.GeneratedPassword!));
-            var userId   = User_Id.Parse(WWCPNode.DefaultAdminUser);
+            var login   = User_Id.Parse(WWCPNode.DefaultAdminUser.ToString());
 
             using var wrong  = await SetPassword(node, session, "Not-The-Password", "Correct-Horse-Battery-Staple-9!");
-            var unchanged    = node.ExtAPI.VerifyPassword(userId, node.GeneratedPassword!);
+            var unchanged    = node.ExtAPI.VerifyPassword(login, node.GeneratedPassword!);
 
             using var right  = await SetPassword(node, session, node.GeneratedPassword!, "Correct-Horse-Battery-Staple-9!");
 
@@ -408,7 +408,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(await wrong.Content.ReadAsStringAsync(),                                Does.Contain("The password is wrong."));
                 Assert.That(unchanged,                                                              Is.True);
                 Assert.That(right.StatusCode,                                                       Is.EqualTo(HttpStatusCode.OK), await right.Content.ReadAsStringAsync());
-                Assert.That(node.ExtAPI.VerifyPassword(userId, "Correct-Horse-Battery-Staple-9!"),  Is.True);
+                Assert.That(node.ExtAPI.VerifyPassword(login, "Correct-Horse-Battery-Staple-9!"),  Is.True);
             }
 
         }

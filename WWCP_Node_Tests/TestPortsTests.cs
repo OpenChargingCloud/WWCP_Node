@@ -23,6 +23,7 @@ using System.Net.Sockets;
 using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -59,17 +60,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void APortIsHandedOutOnce()
         {
 
-            var elsewhere  = new Queue<UInt16>([ 5001 ]);
+            var elsewhere  = new Queue<IPPort>([ IPPort.Parse(5001) ]);
 
-            var first      = TestPorts.Take(Bound:      port => port is 0 ? (UInt16) 5000 : port,
+            var first      = TestPorts.Take(Bound:      port => port.IsZero ? IPPort.Parse(5000) : port,
                                             Elsewhere:  elsewhere.Dequeue);
 
-            var second     = TestPorts.Take(Bound:      port => port is 0 ? (UInt16) 5000 : port,
+            var second     = TestPorts.Take(Bound:      port => port.IsZero ? IPPort.Parse(5000) : port,
                                             Elsewhere:  elsewhere.Dequeue);
 
             Assert.Multiple(() => {
-                Assert.That(first,            Is.EqualTo(5000));
-                Assert.That(second,           Is.EqualTo(5001),  "5000 was handed out twice");
+                Assert.That(first,            Is.EqualTo(IPPort.Parse(5000)));
+                Assert.That(second,           Is.EqualTo(IPPort.Parse(5001)),  "5000 was handed out twice");
                 Assert.That(elsewhere.Count,  Is.Zero,           "the kit did not look elsewhere");
             });
 
@@ -108,10 +109,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var asked = 0;
 
-            Assert.That(TestPorts.Take(Bound: port => (UInt16) 5002, Elsewhere: () => 5002), Is.EqualTo(5002));
+            Assert.That(TestPorts.Take(Bound: port => IPPort.Parse(5002), Elsewhere: () => IPPort.Parse(5002)), Is.EqualTo(IPPort.Parse(5002)));
 
-            var problem = Assert.Throws<InvalidOperationException>(() => TestPorts.Take(Bound:      port => { asked++; return (UInt16) 5002; },
-                                                                                        Elsewhere:  () => 5002));
+            var problem = Assert.Throws<InvalidOperationException>(() => TestPorts.Take(Bound:      port => { asked++; return IPPort.Parse(5002); },
+                                                                                        Elsewhere:  () => IPPort.Parse(5002)));
 
             Assert.Multiple(() => {
                 Assert.That(asked,             Is.EqualTo(TestPorts.MaxAttempts));
@@ -133,9 +134,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void WhatIsTurnedDownIsHeldUntilSomethingIsTaken()
         {
 
-            Assert.That(TestPorts.TryClaim(5003), Is.True, "the test's own premise");
+            Assert.That(TestPorts.TryClaim(IPPort.Parse(5003)), Is.True, "the test's own premise");
 
-            var offered   = new Queue<(UInt16 Port, String Name)>([ (5003, "turned down"), (5004, "taken") ]);
+            var offered   = new Queue<(IPPort Port, String Name)>([ (IPPort.Parse(5003), "turned down"), (IPPort.Parse(5004), "taken") ]);
             var events    = new List<String>();
 
             var taken     = TestPorts.Take(Bound:      port => {
@@ -145,10 +146,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                        },
                                            PortOf:     offer => offer.Port,
                                            LetGo:      offer => events.Add($"let go of {offer.Name}"),
-                                           Elsewhere:  () => 5004);
+                                           Elsewhere:  () => IPPort.Parse(5004));
 
             Assert.Multiple(() => {
-                Assert.That(taken.Port,  Is.EqualTo(5004));
+                Assert.That(taken.Port,  Is.EqualTo(IPPort.Parse(5004)));
                 Assert.That(events,      Is.EqualTo(new[] { "offered turned down", "offered taken", "let go of turned down" }));
             });
 
@@ -170,15 +171,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             for (var port = 6000; port < 6000 + 2 * TestPorts.MaxAttempts; port++)
-                Assert.That(TestPorts.TryClaim((UInt16) port), Is.True, "the test's own premise");
+                Assert.That(TestPorts.TryClaim(IPPort.Parse(port)), Is.True, "the test's own premise");
 
-            var next   = (UInt16) 6000;
+            var next   = 6000;
 
-            var taken  = TestPorts.Take(Bound:      port => port is 0 ? next++ : port,
-                                        Elsewhere:  () => 7000);
+            var taken  = TestPorts.Take(Bound:      port => port.IsZero ? IPPort.Parse(next++) : port,
+                                        Elsewhere:  () => IPPort.Parse(7000));
 
             Assert.Multiple(() => {
-                Assert.That(taken,  Is.EqualTo(7000));
+                Assert.That(taken,  Is.EqualTo(IPPort.Parse(7000)));
                 Assert.That(next,   Is.EqualTo(6001),  "the operating system is asked once");
             });
 
@@ -197,12 +198,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void APortSomebodyElseHoldsIsPassedOver()
         {
 
-            Assert.That(TestPorts.TryClaim(5005), Is.True, "the test's own premise");
+            Assert.That(TestPorts.TryClaim(IPPort.Parse(5005)), Is.True, "the test's own premise");
 
-            var elsewhere  = new Queue<UInt16>([ 7001, 7002, 7003 ]);
+            var elsewhere  = new Queue<IPPort>([ IPPort.Parse(7001), IPPort.Parse(7002), IPPort.Parse(7003) ]);
 
-            var taken      = TestPorts.Take(Bound:      port => port switch {
-                                                                    0     => 5005,
+            var taken      = TestPorts.Take(Bound:      port => port.ToUInt16() switch {
+                                                                    0     => IPPort.Parse(5005),
                                                                     7001  => throw new SocketException((Int32) SocketError.AddressAlreadyInUse),
                                                                     7002  => throw new SocketException((Int32) SocketError.AccessDenied),
                                                                     _     => port
@@ -210,7 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                             Elsewhere:  elsewhere.Dequeue);
 
             Assert.Multiple(() => {
-                Assert.That(taken,            Is.EqualTo(7003));
+                Assert.That(taken,            Is.EqualTo(IPPort.Parse(7003)));
                 Assert.That(elsewhere.Count,  Is.Zero);
             });
 
@@ -228,12 +229,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void AnyOtherRefusalOfAPortElsewhereStands()
         {
 
-            Assert.That(TestPorts.TryClaim(5006), Is.True, "the test's own premise");
+            Assert.That(TestPorts.TryClaim(IPPort.Parse(5006)), Is.True, "the test's own premise");
 
-            var refused = Assert.Throws<SocketException>(() => TestPorts.Take(Bound:      port => port is 0
-                                                                                                      ? (UInt16) 5006
+            var refused = Assert.Throws<SocketException>(() => TestPorts.Take(Bound:      port => port.IsZero
+                                                                                                      ? IPPort.Parse(5006)
                                                                                                       : throw new SocketException((Int32) SocketError.AddressNotAvailable),
-                                                                              Elsewhere:  () => 7004));
+                                                                              Elsewhere:  () => IPPort.Parse(7004)));
 
             Assert.That(refused!.SocketErrorCode, Is.EqualTo(SocketError.AddressNotAvailable));
 
@@ -251,12 +252,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void ElsewhereIsAPortThisRunHasNotBeenHanded()
         {
 
-            Assert.That(TestPorts.TryClaim(5007), Is.True, "the test's own premise");
+            Assert.That(TestPorts.TryClaim(IPPort.Parse(5007)), Is.True, "the test's own premise");
 
-            var picks = new Queue<UInt16>([ 5007, 5008 ]);
+            var picks = new Queue<IPPort>([ IPPort.Parse(5007), IPPort.Parse(5008) ]);
 
             Assert.Multiple(() => {
-                Assert.That(TestPorts.Unclaimed(picks.Dequeue),  Is.EqualTo(5008));
+                Assert.That(TestPorts.Unclaimed(picks.Dequeue),  Is.EqualTo(IPPort.Parse(5008)));
                 Assert.That(picks.Count,                         Is.Zero);
             });
 
@@ -280,7 +281,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(picked,                          Is.All.InRange(TestPorts.LowestPortElsewhere, TestPorts.HighestPortElsewhere));
-                Assert.That(picked,                          Is.All.LessThan(32768));
+                Assert.That(picked,                          Is.All.LessThan(IPPort.Parse(32768)));
             });
 
         }
@@ -307,10 +308,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             try
             {
 
-                var held       = (UInt16) ((IPEndPoint) somebody.LocalEndpoint).Port;
-                var elsewhere  = new List<UInt16>();
+                var held       = IPPort.Parse(((IPEndPoint) somebody.LocalEndpoint).Port);
+                var elsewhere  = new List<IPPort>();
 
-                var port       = TestPorts.Free(Holding:    number => ClosedPort.Bind(number is 0 ? handedOut : number, Exclusively: true),
+                var port       = TestPorts.Free(Holding:    number => ClosedPort.Bind(number.IsZero ? handedOut : number, Exclusively: true),
                                                 Pause:      TimeSpan.Zero,
                                                 Elsewhere:  () => {
                                                                 var next = elsewhere.Count == 0
@@ -437,7 +438,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                        Elsewhere:  null);
 
             Assert.Multiple(() => {
-                Assert.That(port,                     Is.GreaterThan(0));
+                Assert.That(port.IsZero,              Is.False);
                 Assert.That(asked,                    Is.GreaterThanOrEqualTo(3));
                 Assert.That(TestPorts.TryClaim(port), Is.False, "handed out, and so claimed");
             });

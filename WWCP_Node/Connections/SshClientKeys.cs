@@ -65,7 +65,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
 
     /// <summary>
-    /// The keys a node signs in with when it dials an ssh:// connection.
+    /// The keys a node signs in with when it connects to an ssh:// connection.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -358,7 +358,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// What "keys.json" names, where the key it names is there and can be
         /// read. One that cannot is said and passed over: it is one key of
-        /// several, and the node dials with the others.
+        /// several, and the node connects with the others.
         /// </summary>
         private void Read()
         {

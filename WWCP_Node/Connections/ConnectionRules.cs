@@ -33,16 +33,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// <remarks>
     /// <para>
     /// One rule for every kind of node: a connection may lead to any kind of
-    /// node, over ws://, wss:// and ssh://, in OCPP 1.6 and 2.1, dialled by
+    /// node, over ws://, wss:// and ssh://, in OCPP 1.6 and 2.1, made by
     /// this node or by the other end. A connection that names the node at its
     /// other end is spoken to by that name - a node below, say, which this node
-    /// dials; one that names none leads to a back end, spoken to as that. A
-    /// charging station this node dials is reached by its name alone, and has
+    /// connects to; one that names none leads to a back end, spoken to as that. A
+    /// charging station this node connects to is reached by its name alone, and has
     /// to be named.
     /// </para>
     /// <para>
     /// What may be at the other end, and over what, can still be narrowed for
     /// a node - but no kind of node narrows it by itself.
+    /// </para>
+    /// <para>
+    /// An EMSP and a CPO are no kinds of node of the network of OCPP, and not
+    /// among <see cref="Every"/>: a node that speaks OCPI to them names them in
+    /// its <see cref="Types"/> - a CSMS that connects to an EMSP, an EMSP that
+    /// lets a CPO connect to it. A connection to them carries OCPI and names
+    /// no node at its other end: nothing is routed beyond it.
     /// </para>
     /// <para>
     /// Held against what is written, not against what is read: a file of
@@ -55,7 +62,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region Data
 
         /// <summary>
-        /// What a node that dials its back end has at the other end of a
+        /// What a node that connects to its back end has at the other end of a
         /// connection.
         /// </summary>
         public static readonly IReadOnlyList<ConnectionType> BackEnds = [
@@ -66,7 +73,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         ];
 
         /// <summary>
-        /// What a node that dials downwards has at the other end of a
+        /// What a node that connects downwards has at the other end of a
         /// connection.
         /// </summary>
         public static readonly IReadOnlyList<ConnectionType> NodesBelow = [
@@ -100,6 +107,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// Whether a connection may be one the other end makes.
         /// </summary>
         public Boolean                        Inbound                { get; init; } = true;
+
+        /// <summary>
+        /// Whether a connection may be one this node makes: no, for a node that
+        /// only lets the other end connect - an EMSP, which connects to nothing yet.
+        /// </summary>
+        public Boolean                        Outbound               { get; init; } = true;
 
         /// <summary>
         /// Whether a connection may go over ssh://.
@@ -150,11 +163,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (URL.Scheme == URIScheme.ssh && !SSH)
             {
-                Error = $"This {NodeNoun ?? NodeWording.Noun} dials over ws:// and wss://, and not over ssh://.";
+                Error = $"This {NodeNoun ?? NodeWording.Noun} connects over ws:// and wss://, and not over ssh://.";
                 return false;
             }
 
-            if (Version == OCPPVersion.OCPP1_6 && !OCPP1_6)
+            if (Version == OCPPVersion.OCPP1_6 && !OCPP1_6 && ConnectionEntry.UseOf(Type) == ConnectionUse.OCPP)
             {
                 Error = $"This {NodeNoun ?? NodeWording.Noun} speaks {ConnectionEntry.AsText(OCPPVersion.OCPP2_1)} on its connections, and no OCPP 1.6.";
                 return false;
@@ -162,21 +175,35 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (Inbound && !this.Inbound)
             {
-                Error = $"A connection of this {NodeNoun ?? NodeWording.Noun} is one it dials. What dials this {NodeNoun ?? NodeWording.Noun} comes in over its own server, " +
+                Error = $"A connection of this {NodeNoun ?? NodeWording.Noun} is one it makes. What connects to this {NodeNoun ?? NodeWording.Noun} comes in over its own server, " +
                         "and is written down there.";
+                return false;
+            }
+
+            if (!Inbound && !Outbound)
+            {
+                Error = $"A connection of this {NodeNoun ?? NodeWording.Noun} is one the other end makes: this {NodeNoun ?? NodeWording.Noun} connects to nothing itself.";
+                return false;
+            }
+
+            // Nothing is routed beyond a connection of OCPI: an EMSP, a CPO is
+            // the end of it.
+            if (ConnectionEntry.UseOf(Type) == ConnectionUse.OCPI && RemoteNodeId is not null)
+            {
+                Error = $"A connection to what is at the other end, '{Type}', carries OCPI, and names no node there: nothing is reached through it.";
                 return false;
             }
 
             if (!NamesTheNodeItLeadsTo && RemoteNodeId is not null)
             {
-                Error = $"What this {NodeNoun ?? NodeWording.Noun} dials is its back end, and is spoken to as that: a connection names no node at its other end.";
+                Error = $"What this {NodeNoun ?? NodeWording.Noun} connects to is its back end, and is spoken to as that: a connection names no node at its other end.";
                 return false;
             }
 
             // A charging station is nobody's back end: it is reached by its name.
             if (Type == ConnectionType.ChargingStation && !Inbound && RemoteNodeId is null)
             {
-                Error = "Say which charging station is at the other end - the name it is spoken to by, as a charging station that dials is known by the " +
+                Error = "Say which charging station is at the other end - the name it is spoken to by, as a charging station that connects is known by the " +
                         "name its URL ends with. Nothing in the URL of this connection says it: that ends with the name this " +
                         $"{NodeNoun ?? NodeWording.Noun} comes under.";
                 return false;

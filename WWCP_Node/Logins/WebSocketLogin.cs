@@ -58,11 +58,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// <param name="Enabled">Whether it may sign in at the moment.</param>
     /// <param name="AddedAt">When it was added.</param>
     /// <param name="Description">What it is, for whoever reads the list later - in as many languages as it is said in.</param>
-    /// <param name="SSHKeys">The SSH public keys it signs in with for OCPP over SSH, as authorized_keys lines; null or none when it has none.</param>
+    /// <param name="SSHKeys">The SSH public keys it signs in with for OCPP-over-SSH, as authorized_keys lines; null or none when it has none.</param>
     /// <param name="KeyPins">The key pins of the TLS client keys it signs in with; null or none when it has none.</param>
     /// <param name="LocalController">Whether it is a local controller's login: one that may send, in the overlay network, in the name of the charging stations behind it. Any other speaks for itself alone.</param>
     /// <param name="Gateway">Whether it is a gateway's login: one that, like a local controller's, may send in the overlay network in the name of the charging stations behind it. A login is a local controller's or a gateway's, not both.</param>
-    public sealed record WebSocketLogin(String                         Id,
+    public sealed record WebSocketLogin(User_Id                        Login,
                                               String                         GroupId,
                                               SecurePassword?                Password,
                                               TOTPSettings?                  TOTP,
@@ -251,11 +251,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             Login  = null;
             Error  = null;
 
-            var id = JSON.Value<String>("id")?.Trim() ?? "";
-
-            if (id.Length == 0)
+            if (User_Id.TryParse(JSON.Value<String>("login")) is not User_Id login)
             {
-                Error = "every charging station needs an 'id'.";
+                Error = "every charging station needs a 'login'.";
                 return false;
             }
 
@@ -270,7 +268,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (SecurePassword.TryParse(passwordText) is not SecurePassword parsed)
                 {
-                    Error = $"the password of '{id}' is not a hash this {NodeNoun ?? NodeWording.Noun} can read.";
+                    Error = $"the password of '{login}' is not a hash this {NodeNoun ?? NodeWording.Noun} can read.";
                     return false;
                 }
 
@@ -289,7 +287,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!TOTPSettings.TryParse(totpJSON, out totp, out var problem))
                 {
-                    Error = $"the TOTP configuration of '{id}': {problem}";
+                    Error = $"the TOTP configuration of '{login}': {problem}";
                     return false;
                 }
 
@@ -306,7 +304,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (keysToken is not JArray keyArray)
                 {
-                    Error = $"the 'sshKeys' of '{id}' must be a JSON array.";
+                    Error = $"the 'sshKeys' of '{login}' must be a JSON array.";
                     return false;
                 }
 
@@ -317,13 +315,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                     if (keyToken is not JObject keyJSON)
                     {
-                        Error = $"an SSH key of '{id}' is not a JSON object.";
+                        Error = $"an SSH key of '{login}' is not a JSON object.";
                         return false;
                     }
 
                     if (!UserSSHKey.TryParse(keyJSON, out var sshKey, out var problem))
                     {
-                        Error = $"an SSH key of '{id}' cannot be read: {problem}";
+                        Error = $"an SSH key of '{login}' cannot be read: {problem}";
                         return false;
                     }
 
@@ -331,7 +329,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     // same either way, and taking one away has to take it away.
                     if (sshKeys.Any(known => known.Fingerprint == sshKey.Fingerprint))
                     {
-                        Error = $"the SSH key {sshKey.Fingerprint} is listed twice for '{id}'.";
+                        Error = $"the SSH key {sshKey.Fingerprint} is listed twice for '{login}'.";
                         return false;
                     }
 
@@ -355,7 +353,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (pinsToken is not JArray pinArray)
                 {
-                    Error = $"the 'keyPins' of '{id}' must be a JSON array.";
+                    Error = $"the 'keyPins' of '{login}' must be a JSON array.";
                     return false;
                 }
 
@@ -366,19 +364,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                     if (pinToken is not JObject pinJSON)
                     {
-                        Error = $"a key pin of '{id}' is not a JSON object.";
+                        Error = $"a key pin of '{login}' is not a JSON object.";
                         return false;
                     }
 
                     if (!LoginKeyPin.TryParse(pinJSON, out var keyPin, out var problem))
                     {
-                        Error = $"a key pin of '{id}' cannot be read: {problem}";
+                        Error = $"a key pin of '{login}' cannot be read: {problem}";
                         return false;
                     }
 
                     if (keyPins.Any(known => known.Pin == keyPin.Pin))
                     {
-                        Error = $"the key pin {keyPin.Pin} is listed twice for '{id}'.";
+                        Error = $"the key pin {keyPin.Pin} is listed twice for '{login}'.";
                         return false;
                     }
 
@@ -388,7 +386,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (keyPins.Count > MaxKeyPins)
                 {
-                    Error = $"'{id}' has {keyPins.Count} key pins, and a charging station may have at most {MaxKeyPins}.";
+                    Error = $"'{login}' has {keyPins.Count} key pins, and a charging station may have at most {MaxKeyPins}.";
                     return false;
                 }
 
@@ -409,7 +407,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             var group = JSON.Value<String>("group")?.Trim().ToLowerInvariant();
 
             Login = new WebSocketLogin(
-                        id,
+                        login,
                         group is { Length: > 0 } ? group : WebSocketLoginGroup.DefaultId,
                         password,
                         totp,
@@ -446,7 +444,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         {
 
             var json = new JObject(
-                           new JProperty("id",           Id),
+                           new JProperty("login",        Login.ToString()),
                            new JProperty("group",        GroupId),
                            new JProperty("enabled",      Enabled),
                            new JProperty("addedAt",      AddedAt.ToString("o")),
@@ -485,7 +483,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         public override String ToString()
 
-            => $"{Id}{(Kind is String kind ? $" ({kind})" : "")} in '{GroupId}' ({(Enabled ? "on" : "off")}): " +
+            => $"{Login}{(Kind is String kind ? $" ({kind})" : "")} in '{GroupId}' ({(Enabled ? "on" : "off")}): " +
                $"{(HasPassword || HasTOTP || HasSSHKey || HasKeyPin ? String.Join(" and ", Credentials.Select(method => method.AsText())) : "no credentials")}";
 
         #endregion

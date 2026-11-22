@@ -22,6 +22,8 @@ using System.Text.RegularExpressions;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
@@ -58,7 +60,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Trust">Its port, and the host keys and CAs it is held to, with what a host key that is none of them comes to.</param>
     public sealed record SSHPeerConfiguration(String             Id,
                                               DomainName         Address,
-                                              String?            User,
+                                              User_Id?           User,
                                               NTSServerSSH       Trust,
                                               SSHFileTransfers?  FileTransfers   = null)
     {
@@ -83,9 +85,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         #region Properties
 
         /// <summary>
-        /// The SSH port it is dialled at.
+        /// The SSH port it is connected to at.
         /// </summary>
-        public UInt16 Port
+        public IPPort Port
             => Trust.PortOrDefault;
 
         #endregion
@@ -163,7 +165,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
-            Peer = new SSHPeerConfiguration(name, host, user, held, fileTransfers);
+            Peer = new SSHPeerConfiguration(name, host, User_Id.TryParse(user), held, fileTransfers);
 
             return true;
 
@@ -242,8 +244,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                            new JProperty("address",  Address.Trimmed)
                        );
 
-            if (User is not null)
-                json.Add("user", User);
+            if (User is User_Id login)
+                json.Add("user", login.ToString());
 
             foreach (var property in Trust.ToJSON().Properties())
                 json.Add(property.Name, property.Value);

@@ -115,7 +115,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             return new WWCPNode(
                        Kind:              Kind,
-                       HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                       HTTPPort:          TestPorts.Free(),
                        AccountsPath:      Path.Combine(directory, "accounts"),
                        ConfigFile:        new WWCPConfigFile(configuration),
                        Frontend:          Frontend,

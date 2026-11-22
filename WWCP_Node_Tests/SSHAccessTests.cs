@@ -100,7 +100,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// A node with SSH and SFTP on, the given rules in its file, root let in with a key.
         /// </summary>
-        private async Task<WWCPNode> Started(String Rules = "[]", IIPAddress? Listen = null)
+        private async Task<WWCPNode> Started(String Rules = "[]", IPAddress? Listen = null)
         {
 
             var node = await TestPorts.StartedOnFreshPorts(() => {
@@ -113,7 +113,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                   }
                                   """);
 
-                var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                         HTTPHostname:      Listen,
                                         AccountsPath:      Path.Combine(directory, "accounts"),
                                         ConfigFile:        new WWCPConfigFile(ConfigPath),
@@ -138,11 +138,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         }
 
-        private ValueTask<SshClient> SignIn(WWCPNode Node, String Address = "127.0.0.1")
+        private ValueTask<SSHClient> SignIn(WWCPNode Node, String Address = "127.0.0.1")
 
-            => SshClient.ConnectAsync(Address,
-                                      Node.SSHPort!.Value.ToUInt16(),
-                                      new SshClientOptions {
+            => SSHClient.Connect(Address,
+                                      Node.SSHPort!.Value,
+                                      new SSHClientOptions {
                                           Username       = WWCPNode.DefaultAdminUser,
                                           VerifyHostKey  = blob => Node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                           Credentials    = [ rootKey ]
@@ -158,7 +158,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// Whether a signed-in client gets a session at all: a node that refused it at the door has
         /// disconnected it, and opening anything fails.
         /// </summary>
-        private static async Task<Boolean> GetsASession(SshClient Client)
+        private static async Task<Boolean> GetsASession(SSHClient Client)
         {
             try
             {
@@ -175,10 +175,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// <summary>
         /// The command line's first words, or its refusal, and its exit status.
         /// </summary>
-        private static async Task<(String Text, Int32? Exit)> ShellOf(SshClient Client)
+        private static async Task<(String Text, Int32? Exit)> ShellOf(SSHClient Client)
         {
 
-            await using var shell = await Client.OpenShellAsync(Terminal);
+            await using var shell = await Client.OpenShell(Terminal);
 
             var text   = new StringBuilder();
             var buffer = new Byte[4096];
@@ -246,7 +246,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             var (text, exit) = await ShellOf(client);
 
-            await using var sftp = await client.OpenSftpClientAsync(CancellationToken);
+            await using var sftp = await client.OpenSFTPClient(CancellationToken);
             var listed           = await sftp.ListDirectoryAsync("/", CancellationToken);   // served: it does not throw
 
             Assert.Multiple(() => {
@@ -271,7 +271,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             node.SSHSessionRecheckEvery = TimeSpan.FromMinutes(10);   // so that nothing but the change can end it
 
             await using var client = await SignIn(node);
-            await using var sftp   = await client.OpenSftpClientAsync(CancellationToken);
+            await using var sftp   = await client.OpenSFTPClient(CancellationToken);
 
             Assert.That(await sftp.ListDirectoryAsync("/", CancellationToken), Is.Not.Null, "SFTP was not served before the rules changed");
 
@@ -306,7 +306,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             try
             {
-                await using var again = await client.OpenSftpClientAsync(CancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
+                await using var again = await client.OpenSFTPClient(CancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), CancellationToken);
             }
             catch (Exception exception) when (exception is not TimeoutException)
             {

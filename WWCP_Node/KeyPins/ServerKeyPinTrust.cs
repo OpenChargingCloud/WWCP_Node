@@ -72,12 +72,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
     /// </summary>
     /// <remarks>
     /// <para>
-    /// One per dialled connection, whose validator its WebSocket client asks at
+    /// One per connection this node makes, whose validator its WebSocket client asks at
     /// every handshake: the first connection, and every one after a drop. The
     /// key pins are read from the connection as it stands at that moment, so
     /// that a key pin learned, confirmed or changed applies from the next
-    /// handshake on. As it stands, where it still goes where it was dialled;
-    /// as it was dialled, where its URL was changed since - that one is dialled
+    /// handshake on. As it stands, where it still goes where it was connected to;
+    /// as it was connected to, where its URL was changed since - that one is connected to
     /// as it was until the next start.
     /// </para>
     /// <para>
@@ -85,7 +85,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
     /// KeyPinValidator ignores the policy errors of SslStream, and here is the
     /// only place they are ignored. A key that matches none of the pins is
     /// refused, and there is no way back to the CA. A connection that is no
-    /// longer key-pinned since it was dialled refuses every key: it cannot
+    /// longer key-pinned since it was connected refuses every key: it cannot
     /// become a CA-checked one on the way.
     /// </para>
     /// </remarks>
@@ -95,7 +95,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         #region Data
 
         private readonly Object                   lockObject  = new ();
-        private readonly IPinnedTLSEndpoint          dialled;
+        private readonly IPinnedTLSEndpoint          endpoint;
         private readonly Func<IPinnedTLSEndpoint?>   now;
         private          KeyPin?                  learned;
         private          KeyPinValidation?        last;
@@ -109,13 +109,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// The connection, by its identification.
         /// </summary>
         public String             ConnectionId
-            => dialled.Id;
+            => endpoint.Id;
 
         /// <summary>
-        /// Where it was dialled.
+        /// Where it was connected to.
         /// </summary>
         public URL                URL
-            => dialled.URL;
+            => endpoint.URL;
 
         /// <summary>
         /// The key pin learned on first use, which is on probation - or null.
@@ -248,12 +248,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// <summary>
         /// The trust of one connection.
         /// </summary>
-        /// <param name="Dialled">The connection as it was dialled: a copy, which nothing changes.</param>
+        /// <param name="Endpoint">The connection as it was connected: a copy, which nothing changes.</param>
         /// <param name="Now">The connection as it stands now, a copy as well; null where it is gone.</param>
-        public ServerKeyPinTrust(IPinnedTLSEndpoint         Dialled,
+        public ServerKeyPinTrust(IPinnedTLSEndpoint         Endpoint,
                                  Func<IPinnedTLSEndpoint?>  Now)
         {
-            this.dialled  = Dialled;
+            this.endpoint  = Endpoint;
             this.now      = Now;
         }
 
@@ -272,8 +272,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 
             var entry = now();
 
-            if (entry is null || entry.URL != dialled.URL)
-                entry = dialled;
+            if (entry is null || entry.URL != endpoint.URL)
+                entry = endpoint;
 
             if (!entry.IsKeyPinned)
                 return null;
@@ -318,8 +318,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
                 var refusal = new KeyPinValidation(KeyPinOutcome.Refused,
                                                    Certificate is not null ? KeyPin.FromCertificate(Certificate) : null,
                                                    TLSCertificateType.X509,
-                                                   "This connection is no longer key-pinned since it was dialled, and a connection dialled " +
-                                                   "key-pinned is not checked by a CA on the way: it is dialled anew at the next start.");
+                                                   "This connection is no longer key-pinned since it was connected, and a connection made " +
+                                                   "key-pinned is not checked by a CA on the way: it is connected anew at the next start.");
 
                 Told(refusal);
 

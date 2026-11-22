@@ -86,13 +86,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     groups = [];
                 }
 
-                return new SSHPrincipal(signIns.PrincipalKind, Session.Username, groups);
+                return new SSHPrincipal(signIns.PrincipalKind, Session.Username.ToString(), groups);
 
             }
 
-            return User_Id.TryParse(Session.Username) is User_Id userId && ExtAPI.TryGetUser(userId, out var user) && user is not null
+            return ExtAPI.TryGetUser(Session.Username, out var user) && user is not null
                        ? new SSHPrincipal(SSHPrincipal.Account, user.Id.ToString(), [ .. RolesOf(user).Select(role => role.Name) ])
-                       : new SSHPrincipal("unknown", Session.Username, []);
+                       : new SSHPrincipal("unknown", Session.Username.ToString(), []);
 
         }
 

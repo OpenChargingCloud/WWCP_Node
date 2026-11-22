@@ -21,6 +21,8 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
+using cloud.charging.open.protocols.WWCP.Node.Logins;
+
 #endregion
 
 namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
@@ -183,11 +185,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             if (signIns is not null)
                 return (await signIns.GetRestrictionsAsync(Request, CancellationToken)).
-                           And(WWCPNode.SSHConfinementOf(signIns, Request.Username));
+                           And(WWCPNode.SSHConfinementOf(signIns, Request.Username, node.GetsSftp(Request.Username)));
 
-            return (User_Id.TryParse(Request.Username) is User_Id userId
-                        ? node.ExtAPI.FindSSHKey(userId, Request.PublicKeyBlob, node.TimeProvider.GetUtcNow())?.Key.Restrictions
-                        : null)
+            return node.ExtAPI.FindSSHKey(Request.Username, Request.PublicKeyBlob, node.TimeProvider.GetUtcNow())?.Key.Restrictions
                        ?? SshSessionRestrictions.None;
 
         }
@@ -200,7 +200,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// Whether the given password opens the given account, guessed from an
         /// address nobody said: counted against the one ration of every such guess.
         /// </summary>
-        public ValueTask<Boolean> AuthorizePasswordAsync(String             Username,
+        public ValueTask<Boolean> AuthorizePasswordAsync(User_Id            Username,
                                                          String             Password,
                                                          CancellationToken  CancellationToken = default)
 
@@ -233,7 +233,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// <param name="Password">The password guessed.</param>
         /// <param name="Client">The address of the client, or null where it can not be told.</param>
         /// <param name="CancellationToken">An optional token to cancel the wait for a password verifier.</param>
-        public async ValueTask<Boolean> AuthorizePasswordAsync(String                 Username,
+        public async ValueTask<Boolean> AuthorizePasswordAsync(User_Id                Username,
                                                                String                 Password,
                                                                System.Net.IPAddress?  Client,
                                                                CancellationToken      CancellationToken = default)
@@ -258,7 +258,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             return await node.ExtAPI.VerifySignInPassword(
                              Client,
-                             Username,
+                             Username.ToString(),
                              user is not null && user.Use2AuthFactor == Use2AuthFactor.None
                                  ? user.Id
                                  : null,
@@ -278,7 +278,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// account signs in with its keys, or its password where the node says so - and no name that
         /// is both.
         /// </summary>
-        public async ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(String                 Username,
+        public async ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id                Username,
                                                                        String                 Totp,
                                                                        ReadOnlyMemory<Byte>   SessionId,
                                                                        System.Net.IPAddress?  Client,
@@ -337,7 +337,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// use - no terminal, no forwarding, no command line, no SFTP - as one a key let in; an account
         /// to nothing here, what it may do is what its roles say.
         /// </summary>
-        public ValueTask<SshSessionRestrictions> GetRestrictionsAsync(String             Username,
+        public ValueTask<SshSessionRestrictions> GetRestrictionsAsync(User_Id            Username,
                                                                       String             Method,
                                                                       CancellationToken  CancellationToken = default)
         {
@@ -346,7 +346,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
             return ValueTask.FromResult(
                        clash   is not null ? WWCPNode.SSHConfinementOf(null,    Username)
-                     : signIns is not null ? WWCPNode.SSHConfinementOf(signIns, Username)
+                     : signIns is not null ? WWCPNode.SSHConfinementOf(signIns, Username, node.GetsSftp(Username))
                      :                       SshSessionRestrictions.None
                    );
 
@@ -397,8 +397,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             if (now is not null)
                 return $"'{Session.Username}' is a {now.PrincipalKind} of this {node.Kind.Name} now, and no account";
 
-            if (User_Id.TryParse(Session.Username) is not User_Id userId ||
-                !node.ExtAPI.TryGetUser(userId, out var user) ||
+            if (!node.ExtAPI.TryGetUser(Session.Username, out var user) ||
                 user is null)
             {
                 return $"there is no account '{Session.Username}' any more";
@@ -429,12 +428,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// The account the given name signs in as, where it may sign in at all:
         /// it is there, it is not switched off, and it holds a role of this node.
         /// </summary>
-        private IUser? AccountMaySignIn(String Username)
+        private IUser? AccountMaySignIn(User_Id Username)
         {
 
-            if (!AuthorizedKeysStore.IsAccountName(Username) ||
-                User_Id.TryParse(Username) is not User_Id userId ||
-                !node.ExtAPI.TryGetUser(userId, out var user) ||
+            if (!AuthorizedKeysStore.IsAccountName(Username.ToString()) ||
+                !node.ExtAPI.TryGetUser(Username, out var user) ||
                 user is null ||
                 user.IsDisabled ||
                 node.RolesOf(user).Count == 0)

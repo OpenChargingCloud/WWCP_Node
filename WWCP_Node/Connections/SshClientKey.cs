@@ -30,18 +30,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 {
 
     /// <summary>
-    /// The key this charging station signs in with when it dials an ssh://
+    /// The key this charging station signs in with when it connects to an ssh://
     /// connection.
     /// </summary>
     /// <remarks>
     /// Its own, and not the host key of its SSH server: that one says which
-    /// machine this is to whoever dials it, this one says who is dialling. One
+    /// machine this is to whoever connects to it, this one says who is connecting. One
     /// key for both would make every back end that let this station in a back
     /// end that could pass for it.
     ///
     /// Made the first time it is needed - when an ssh:// connection is written
-    /// down, tested or dialled - and kept from then on, in a directory only
-    /// its owner may read. A station that never dials over SSH has none.
+    /// down, tested or connected - and kept from then on, in a directory only
+    /// its owner may read. A station that never connects over SSH has none.
     ///
     /// What the page shows is its public half, the line that goes into the
     /// back end's authorized_keys. The private half never leaves the file.
@@ -140,7 +140,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         /// <param name="Directory">The directory the key is kept in; it need not exist yet.</param>
         /// <param name="Comment">What the public half says about whose it is.</param>
-        /// <param name="KeyFileName">The file the key is kept in: one per purpose (white paper "OCPP over SSH", decision 9); <see cref="FileName"/> for OCPP.</param>
+        /// <param name="KeyFileName">The file the key is kept in: one per purpose (white paper "OCPP-over-SSH", decision 9); <see cref="FileName"/> for OCPP.</param>
         /// <exception cref="InvalidOperationException">There is a key, and it cannot be read.</exception>
         public SshClientKey(String   Directory,
                             String   Comment,
@@ -169,7 +169,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
-        #region Rotation (white paper "OCPP over SSH", section 10.3)
+        #region Rotation (white paper "OCPP-over-SSH", section 10.3)
 
         private ISshHostKey? pending;
 
@@ -372,7 +372,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 OnNotice?.Invoke(LogLevel.Notice,
                                  $"A key was made for this {NodeNoun} to sign in with over SSH: {newKey.AlgorithmNames[0]} " +
                                  $"{SshFingerprint.Sha256(newKey.PublicKeyBlob)}, kept in '{Path}'. " +
-                                 $"Its public half goes into the authorized_keys of every back end this {NodeNoun} dials over SSH.");
+                                 $"Its public half goes into the authorized_keys of every back end this {NodeNoun} connects to over SSH.");
 
                 return newKey;
 

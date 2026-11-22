@@ -799,7 +799,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await using var node = await TestKit.TestPorts.StartedOnFreshPorts(() => new WWCPNode(
-                                       HTTPPort:          IPPort.Parse(TestKit.TestPorts.Free()),
+                                       HTTPPort:          TestKit.TestPorts.Free(),
                                        AccountsPath:      Path.Combine(directory, "accounts"),
                                        ConfigFile:        new WWCPConfigFile(ConfigurationPath),
                                        CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -1246,7 +1246,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                         new JProperty("servers",  new JArray(
                                                             new JObject(
                                                                 new JProperty("hostname",   "127.0.0.1"),
-                                                                new JProperty("ntsKEPort",  TestKit.TestPorts.Free())
+                                                                new JProperty("ntsKEPort",  TestKit.TestPorts.Free().ToUInt16())
                                                             )
                                                         ))
                                                     ))

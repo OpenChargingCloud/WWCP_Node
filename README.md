@@ -131,7 +131,7 @@ Beyond the names, a kind of node adds to the node in eight places:
   directory at all: a store holding a vehicle's seven empty directories
   beside a node that keeps none of them was a promise nobody was keeping. And `CertificateUsages`, what a TLS root or a server
   certificate is offered beside the node's `dns` and `nts` - a backend it
-  dials, say - and `CertificateListeners`, which of its listeners a TLS
+  connects to, say - and `CertificateListeners`, which of its listeners a TLS
   server identity is offered. A kind of its own is a `CertificateKind.Define` of its
   own.
 * **Which keys it makes for itself:** `CertificateRequestKinds`, the kinds of
@@ -304,7 +304,7 @@ as the change would, and refuses what it would refuse.
 
 A name server reached over TLS or HTTPS shows a certificate, and is judged by
 it at every handshake the way a time server is at its key exchange - see
-below: issued for the address it is dialled at, chaining to a root this
+below: issued for the address it is connected to at, chaining to a root this
 machine trusts or to a TLS root of the node's store for `dns`, and, where its
 entry says so, one it is held to:
 
@@ -705,7 +705,7 @@ again, it moves nothing.
 
 A TLS root and a server certificate are told as well what they are for: the
 name servers, the time servers, both, or what a kind of node adds, such as a
-backend it dials. One root may vouch for several of them, which is why a
+backend it connects to. One root may vouch for several of them, which is why a
 certificate has any number of usages. A certificate never told is for every
 use, which is what every TLS root was before there were usages, and an index
 written then still means it. The time servers are anchored by the TLS roots
@@ -1956,7 +1956,7 @@ And not yet as general as its name. The certificate kinds are ISO 15118's
 and a vehicle's - they came here with the rest. The second kind, the charging station, has said what of
 it is every node's so far: the roles are the kind's, a node may listen on
 more than one port, and a clock check is counted for a screen rather than
-described to it. It has its own certificates for the back ends it dials, and
+described to it. It has its own certificates for the back ends it connects to, and
 keeps none in the store - which is why the kinds a store keeps are the kind's
 to say too, and why a node that keeps none says it in its own name rather
 than as "this node". The third, the local controller, has added that what is

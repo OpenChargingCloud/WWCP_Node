@@ -177,7 +177,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http = Anonymous();
 
-            var response = await http.PostAsync("api/v1/auth/login", SignInBody(AdminLogin, Password));
+            var response = await http.PostAsync("api/v1/auth/login", SignInBody(AdminLogin.ToString(), Password));
 
             Assert.Multiple(() => {
                 Assert.That(response.StatusCode,                              Is.EqualTo(HttpStatusCode.NotFound));
@@ -225,7 +225,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http = Anonymous();
 
-            var response = await http.PostAsync(SignInPath, SignInBody(AdminLogin, "not the password"));
+            var response = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(), "not the password"));
 
             Assert.Multiple(() => {
 
@@ -281,7 +281,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             using var http     = Anonymous();
 
             using var unknown  = await http.PostAsync(SignInPath, SignInBody("somebody-else", "Not-The-Password-1"));
-            using var wrong    = await http.PostAsync(SignInPath, SignInBody(AdminLogin,      "Not-The-Password-1"));
+            using var wrong    = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(),      "Not-The-Password-1"));
 
             var unknownSaid    = await unknown.Content.ReadAsStringAsync();
             var wrongSaid      = await wrong.  Content.ReadAsStringAsync();
@@ -314,8 +314,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             using var http      = Anonymous();
 
-            using var tooShort  = await http.PostAsync(SignInPath, SignInBody(AdminLogin, "not-it"));
-            using var wrong     = await http.PostAsync(SignInPath, SignInBody(AdminLogin, "Not-The-Password-1"));
+            using var tooShort  = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(), "not-it"));
+            using var wrong     = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(), "Not-The-Password-1"));
 
             var tooShortSaid    = await tooShort.Content.ReadAsStringAsync();
             var wrongSaid       = await wrong.   Content.ReadAsStringAsync();
@@ -342,7 +342,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             using var http      = Anonymous();
 
             using var tooShort  = await http.PostAsync(SignInPath, SignInBody("abc",      "Not-The-Password-1"));
-            using var wrong     = await http.PostAsync(SignInPath, SignInBody(AdminLogin, "Not-The-Password-1"));
+            using var wrong     = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(), "Not-The-Password-1"));
 
             var tooShortSaid    = await tooShort.Content.ReadAsStringAsync();
             var wrongSaid       = await wrong.   Content.ReadAsStringAsync();
@@ -374,16 +374,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task APasswordOpensTheAPIAsTheSameAccount()
         {
 
-            using var withPassword  = WithPassword(AdminLogin, Password);
+            using var withPassword  = WithPassword(AdminLogin.ToString(), Password);
             using var signedIn      = await SignedIn();
 
             var byPassword          = await GetJSON(withPassword, "api/v1/auth/me");
             var bySession           = await GetJSON(signedIn,     "api/v1/auth/me");
 
             Assert.Multiple(() => {
-                Assert.That(byPassword.Value<String>("username"),       Is.EqualTo(AdminLogin));
+                Assert.That(byPassword.Value<String>("username"),       Is.EqualTo(AdminLogin.ToString()));
                 Assert.That(byPassword["roles"]?.Values<String>(),      Is.EquivalentTo(bySession["roles"]?.Values<String>() ?? []));
-                Assert.That(byPassword["roles"]?.Values<String>(),      Does.Contain(WWCPNode.AdminRole));
+                Assert.That(byPassword["roles"]?.Values<String>(),      Does.Contain(WWCPNode.AdminRole.ToString()));
                 Assert.That(byPassword["permissions"]?.Values<String>(),Is.EquivalentTo(bySession["permissions"]?.Values<String>() ?? []));
             });
 
@@ -408,7 +408,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         public async Task APasswordSentWithEveryRequestIsNotRationedLikeAGuess()
         {
 
-            using var http = WithPassword(AdminLogin, Password);
+            using var http = WithPassword(AdminLogin.ToString(), Password);
 
             var answered = new List<HttpStatusCode>();
 
@@ -458,7 +458,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             for (var guess = 1; guess <= 40 && refusedFor is null; guess++)
             {
 
-                using var response = await http.PostAsync(SignInPath, SignInBody(AdminLogin, $"Not-The-Password-{guess}"));
+                using var response = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(), $"Not-The-Password-{guess}"));
 
                 if (response.StatusCode != HttpStatusCode.TooManyRequests)
                 {
@@ -478,7 +478,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             }
 
-            using var right     = await http.PostAsync(SignInPath, SignInBody(AdminLogin, Password));
+            using var right     = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(), Password));
             var said            = await right.Content.ReadAsStringAsync();
             var ration          = 10 + (Int32) Math.Floor((DateTimeOffset.UtcNow - started).TotalSeconds / 6) + 1;
 
@@ -515,7 +515,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             var me = await GetJSON(http, "api/v1/auth/me");
 
-            Assert.That(me.Value<String>("username"), Is.EqualTo(AdminLogin));
+            Assert.That(me.Value<String>("username"), Is.EqualTo(AdminLogin.ToString()));
 
         }
 
@@ -555,7 +555,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                 using var http   = ClientOf(BaseURLOf(again));
 
-                var       signIn = await http.PostAsync(SignInPath, SignInBody(AdminLogin, Password));
+                var       signIn = await http.PostAsync(SignInPath, SignInBody(AdminLogin.ToString(), Password));
 
                 Assert.That(signIn.IsSuccessStatusCode, Is.True,
                             $"The password from the first start no longer opens the {again.Kind.Name}.");
@@ -564,7 +564,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                 Assert.Multiple(() => {
                     Assert.That(again.ExtAPI.Users.Count(),          Is.EqualTo(users),  "the accounts of the first start, and no more");
-                    Assert.That(me["roles"]?.Values<String>(),       Does.Contain(WWCPNode.AdminRole));
+                    Assert.That(me["roles"]?.Values<String>(),       Does.Contain(WWCPNode.AdminRole.ToString()));
                 });
 
             }
@@ -598,7 +598,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             var permissions = me["permissions"]?.Values<String>().ToArray() ?? [];
 
             Assert.Multiple(() => {
-                Assert.That(roles,       Does.Contain(WWCPNode.AdminRole));
+                Assert.That(roles,       Does.Contain(WWCPNode.AdminRole.ToString()));
                 Assert.That(permissions, Is.EquivalentTo(from resource  in Node.Access.Resources
                                                          from operation in new[] { "read", "edit", "run" }
                                                          select $"{resource}:{operation}"));

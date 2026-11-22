@@ -21,6 +21,7 @@ using System.Collections.Concurrent;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
@@ -90,7 +91,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <summary>
     /// Which news an attempt to ask a name server over SSH is: what a CSMS is
     /// told without asking, in the security events of section 7.4 of the white
-    /// paper "DNS over SSH".
+    /// paper "DNS-over-SSH".
     /// </summary>
     public enum NameServerSSHNews
     {
@@ -173,7 +174,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
     /// <summary>
     /// Name servers asked over SSH - the subsystem "dns@open.charging.cloud" of
-    /// the white paper "DNS over SSH" - instead of UDP, TCP, TLS or HTTPS: the
+    /// the white paper "DNS-over-SSH" - instead of UDP, TCP, TLS or HTTPS: the
     /// transport SSH of DNSServerController in the OCPP Device Model.
     /// </summary>
     /// <remarks>
@@ -195,11 +196,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// </para>
     /// <para>
     /// Either way the connection is handed to Hermod's DNS client, which opens
-    /// its channel on it; the node dials it. That is what lets the node say
+    /// its channel on it; the node makes it. That is what lets the node say
     /// what an attempt came to. Hermod's client knows as much, in
     /// DNSSSHClient.LastConnectionError, but a DNSClient keeps the clients of
     /// its servers to itself - so the node goes by what it sees: its own
-    /// verdict on the host key, the exception of its own dial, and whether the
+    /// verdict on the host key, the exception of its own attempt, and whether the
     /// subsystem is granted on the connection it hands out, which it asks
     /// once per connection, on a channel it closes again at once.
     /// </para>
@@ -268,7 +269,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// says why.
         /// </summary>
         /// <remarks>
-        /// SSHClientPublicKey of section 7.1 of the white paper "DNS over SSH",
+        /// SSHClientPublicKey of section 7.1 of the white paper "DNS-over-SSH",
         /// and SSHClientController.ClientPublicKey[DNS] of its section 7.3: a
         /// CSMS reads it before it gives the node a name server over SSH, and
         /// enters it at that server.
@@ -349,17 +350,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// The user name this node signs in under at a name server over SSH
         /// whose entry names none: what it calls itself, as at its SSH peers -
         /// which views, limits and logs per node need (decision 5 of the white
-        /// paper "DNS over SSH").
+        /// paper "DNS-over-SSH").
         /// </summary>
-        protected virtual String DefaultNameServerSSHUser
+        protected virtual User_Id DefaultNameServerSSHUser
             => DefaultSSHPeerUser;
 
         /// <summary>
-        /// The hosts that become SSH peers of this node once something dials
+        /// The hosts that become SSH peers of this node once something connects to
         /// them, beside those that are peers already: none for a node, whose
         /// peers are those of its configuration from the moment it reads it. A
-        /// kind that makes a host a peer by dialling it - a charging station,
-        /// for a connection of OCPP over SSH - names them here, so that a name
+        /// kind that makes a host a peer by connecting to it - a charging station,
+        /// for a connection of OCPP-over-SSH - names them here, so that a name
         /// server can be given such a connection to share before it was made.
         /// </summary>
         protected virtual IEnumerable<String> SSHPeerHostsToBe
@@ -367,7 +368,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // Asked while the node is still being made, by what configures
             // its name servers: a node that has no connections yet has none
             // over SSH.
-            => Dialling.SignsInAtSSHPeersWithItsKey && Connections is not null
+            => Connecting.SignsInAtSSHPeersWithItsKey && Connections is not null
                    ? [.. Connections.Connections.Where (entry => entry.IsSSH).
                                                  Select(entry => entry.URL.Host.ToString())]
                    : [];
@@ -446,7 +447,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         #region (private static) SSHHostOf(Server) / SSHPeerHostOf(Server) / FingerprintOf(HostKeyBlob)
 
         /// <summary>
-        /// What a name server over SSH is dialled by, and what a host
+        /// What a name server over SSH is connected to by, and what a host
         /// certificate of its has to name: its address, or its name.
         /// </summary>
         private static String SSHHostOf(DNSServerConfig Server)
@@ -504,9 +505,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (Server.Transport != DNSTransport.SSH || Server.SSH is not null)
                 return Server;
 
-            Func<CancellationToken, ValueTask<SshClient>> connection = cancellationToken => NameServerSSHConnection(Server, cancellationToken);
+            Func<CancellationToken, ValueTask<SSHClient>> connection = cancellationToken => NameServerSSHConnection(Server, cancellationToken);
 
-            return Server.IPAddress is IIPAddress address
+            return Server.IPAddress is { } address
                        ? DNSServerConfig.OverSSH(address,            connection, Server.Port, Server.QueryTimeout)
                        : DNSServerConfig.OverSSH(Server.DomainName!, connection, Server.Port, Server.QueryTimeout);
 
@@ -656,14 +657,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// connection is asked here, on a channel that is closed again at once:
         /// the client would learn it at its own channel, and keep it to itself.
         /// </remarks>
-        private async ValueTask<SshClient> NameServerSSHConnection(DNSServerConfig    Server,
+        private async ValueTask<SSHClient> NameServerSSHConnection(DNSServerConfig    Server,
                                                                    CancellationToken  CancellationToken)
         {
 
             if (NameServerSSHOf(Server) is not NTSServerSSH entry)
                 throw new InvalidOperationException($"The name server {NameOf(Server)} is not asked over SSH any more.");
 
-            SshClient ssh;
+            SSHClient ssh;
 
             if (entry.IsShared)
             {
@@ -716,7 +717,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                var channel = await ssh.OpenSubsystemAsync(DNSServer.SSHSubsystemName, CancellationToken).ConfigureAwait(false);
+                var channel = await ssh.OpenSubsystem(DNSServer.SSHSubsystemName, CancellationToken).ConfigureAwait(false);
 
                 try   { await channel.CloseAsync(CancellationToken.None).ConfigureAwait(false); }
                 catch { }
@@ -748,7 +749,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// with that key and nothing else, so no password is ever sent - to a
         /// server that signals strict KEX.
         /// </summary>
-        private async ValueTask<SshClient> ConnectToNameServerOverSSH(DNSServerConfig    Server,
+        private async ValueTask<SSHClient> ConnectToNameServerOverSSH(DNSServerConfig    Server,
                                                                       CancellationToken  CancellationToken)
         {
 
@@ -758,10 +759,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var key = DNSSSHClientKey
                           ?? throw new InvalidOperationException(dnsSSHClientKeyProblem ?? $"This {Kind.Name} has no key to sign in with at its name servers.");
 
-            return await SshClient.ConnectAsync(
+            return await SSHClient.Connect(
                              SSHHostOf(Server),
-                             Server.Port.ToUInt16(),
-                             new SshClientOptions {
+                             Server.Port,
+                             new SSHClientOptions {
                                  Username          = entry.User ?? DefaultNameServerSSHUser,
                                  DNSClient         = dnsClient,
                                  Credentials       = [ key ],
@@ -1040,17 +1041,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (SSH.IsShared)
             {
 
-                Func<CancellationToken, ValueTask<SshClient>> shared = cancellationToken => SSHPeerHostOf(Server) is DomainName host
+                Func<CancellationToken, ValueTask<SSHClient>> shared = cancellationToken => SSHPeerHostOf(Server) is DomainName host
                                                                                                 ? SharedSSHConnectionTo(host, DNSServer.SSHSubsystemName, cancellationToken)
                                                                                                 : throw new InvalidOperationException($"{SSHHostOf(Server)} is no SSH peer of this {Kind.Name}.");
 
-                return Server.IPAddress is IIPAddress peer
+                return Server.IPAddress is { } peer
                            ? DNSServerConfig.OverSSH(peer,               shared, Server.Port, Server.QueryTimeout)
                            : DNSServerConfig.OverSSH(Server.DomainName!, shared, Server.Port, Server.QueryTimeout);
 
             }
 
-            var options = new SshClientOptions {
+            var options = new SSHClientOptions {
                               Username          = SSH.User ?? DefaultNameServerSSHUser,
                               DNSClient         = dnsClient,
                               Credentials       = DNSSSHClientKey is ISshHostKey key ? [ key ] : [],
@@ -1060,7 +1061,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               ConnectTimeout    = NameServerSSHConnectTimeout
                           };
 
-            return Server.IPAddress is IIPAddress address
+            return Server.IPAddress is { } address
                        ? DNSServerConfig.OverSSH(address,            options, Server.Port, Server.QueryTimeout)
                        : DNSServerConfig.OverSSH(Server.DomainName!, options, Server.Port, Server.QueryTimeout);
 

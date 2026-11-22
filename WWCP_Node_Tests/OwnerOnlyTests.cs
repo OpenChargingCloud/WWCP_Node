@@ -213,7 +213,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                            OpenToEverybody(accounts);
 
-                           return new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                           return new WWCPNode(HTTPPort:          TestPorts.Free(),
                                                AccountsPath:      accounts,
                                                ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
                                                CertificatesPath:  Path.Combine(directory, "certificates"),
@@ -221,7 +221,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                                LogToConsole:      false,
                                                BridgeDebugLog:    false,
                                                Log:               null,
-                                               SSH:               new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free())));
+                                               SSH:               new SSHSettings(Enabled: true, Port: TestPorts.Free()));
 
                        });
 
@@ -276,14 +276,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             async Task<WWCPNode> AStartedNode()
             {
 
-                var node = await TestPorts.StartedOnFreshPorts(() => new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                var node = await TestPorts.StartedOnFreshPorts(() => new WWCPNode(HTTPPort:          TestPorts.Free(),
                                                                                   AccountsPath:      kept[0],
                                                                                   ConfigFile:        new WWCPConfigFile(Path.Combine(directory, WWCPConfigFile.DefaultFileName)),
                                                                                   CertificatesPath:  kept[2],
                                                                                   LogPath:           kept[1],
                                                                                   LogToConsole:      false,
                                                                                   BridgeDebugLog:    false,
-                                                                                  SSH:               new SSHSettings(Enabled: true, Port: IPPort.Parse(TestPorts.Free()))));
+                                                                                  SSH:               new SSHSettings(Enabled: true, Port: TestPorts.Free())));
 
                 nodes.Add(node);
 

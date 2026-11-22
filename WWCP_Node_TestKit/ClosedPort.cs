@@ -42,7 +42,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
     /// the port the operating system had chosen, and stopping the listener
     /// again - see <see cref="TestPorts.Free()"/>. From then on the port was
     /// anybody's, and with other test runs on the same machine somebody took
-    /// it: a station dialling where nothing was meant to be found the
+    /// it: a station connecting where nothing was meant to be found the
     /// WebSocket server of another run, was answered 401, and said the
     /// connection was refused rather than not reached.
     ///
@@ -128,7 +128,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         {
 
             holder  = TestPorts.Take(Bound:      port   => Bind(port, Exclusively: true),
-                                     PortOf:     socket => (UInt16) ((IPEndPoint) socket.LocalEndPoint!).Port,
+                                     PortOf:     socket => IPPort.Parse(((IPEndPoint) socket.LocalEndPoint!).Port),
                                      LetGo:      socket => socket.Dispose(),
                                      Elsewhere:  null);
 
@@ -162,7 +162,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
             // At once, with nothing to wait for in between.
             try
             {
-                anchor = Bind(Number.ToUInt16(), Exclusively: false);
+                anchor = Bind(Number, Exclusively: false);
             }
             catch (SocketException e)
             {
@@ -191,7 +191,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
             try
             {
-                holder = Bind(Number.ToUInt16(), Exclusively: true);
+                holder = Bind(Number, Exclusively: true);
             }
             catch (SocketException e)
             {
@@ -211,7 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// otherwise the test's own server can, on 127.0.0.1 and [::1]. Port 0
         /// lets the operating system choose one.
         /// </summary>
-        internal static Socket Bind(UInt16   Port,
+        internal static Socket Bind(IPPort   Port,
                                     Boolean  Exclusively)
         {
 
@@ -232,7 +232,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                 socket.Bind(new IPEndPoint(dualMode
                                                ? System.Net.IPAddress.IPv6Any
                                                : System.Net.IPAddress.Any,
-                                           Port));
+                                           Port.ToInt32()));
 
                 // After Bind(), because Bind() is where .NET sets it.
                 if (Exclusively && !OperatingSystem.IsWindows())

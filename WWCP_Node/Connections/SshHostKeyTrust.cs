@@ -27,7 +27,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
     /// <summary>
     /// Whether an ssh:// connection learns the host key of its server at the
-    /// first handshake, where it pins none (white paper "OCPP over SSH",
+    /// first handshake, where it pins none (white paper "OCPP-over-SSH",
     /// decision 4).
     /// </summary>
     public enum SshTrustOnFirstUse
@@ -49,7 +49,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
     /// <summary>
     /// What a host key that matches none of the pins leads to (white paper
-    /// "OCPP over SSH", decision 15).
+    /// "OCPP-over-SSH", decision 15).
     /// </summary>
     public enum SshOnPinMismatch
     {
@@ -95,7 +95,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// </summary>
     /// <remarks>
     /// <para>
-    /// One per dialled connection, and handed to its client for every attempt
+    /// One per connection this node makes, and handed to its client for every attempt
     /// it makes: the first connection, and every one after a drop. What it was
     /// shown is kept, so that the station can say which key it was - on the
     /// page, after a test, and when it learns one.

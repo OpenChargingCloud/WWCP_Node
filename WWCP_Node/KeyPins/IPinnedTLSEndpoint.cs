@@ -32,7 +32,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
     /// for Local Controllers", sections 5.4 to 5.7): a copy of it as it stands, which nothing changes.
     /// </summary>
     /// <remarks>
-    /// A charging station has one for every wss:// connection it dials; a Local Controller has one,
+    /// A charging station has one for every wss:// connection it makes; a Local Controller has one,
     /// its line up to the CSMS. Whoever keeps the connection writes it down - see
     /// <see cref="IPinnedTLSEndpoints"/> - and hands out copies.
     /// </remarks>
@@ -143,10 +143,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 
         /// <summary>
         /// Write down the key pin a connection that trusts on first use learned at its first handshake,
-        /// where it still goes where it was dialled and has learned nothing yet.
+        /// where it still goes where it was connected to and has learned nothing yet.
         /// </summary>
         /// <param name="Id">The connection.</param>
-        /// <param name="URL">Where it went when it was dialled.</param>
+        /// <param name="URL">Where it went when it was connected to.</param>
         /// <param name="Pin">The key pin of the key it was shown.</param>
         /// <param name="NotWritten">Why it was not written down - nothing where it was not to be.</param>
         Boolean TryLearnServerKeyPin(String       Id,
@@ -184,7 +184,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// <param name="Id">The connection.</param>
         /// <param name="Settings">What changes.</param>
         /// <param name="Forgotten">The key pin learned on probation that went with trust on first use; null where none did.</param>
-        /// <param name="KeyPinnedChanged">Whether it is key-pinned now where it was not, or the other way round: it has to be dialled again.</param>
+        /// <param name="KeyPinnedChanged">Whether it is key-pinned now where it was not, or the other way round: it has to be connected again.</param>
         /// <param name="Error">Why nothing was changed.</param>
         Boolean TryChangeKeyPinTrust(String                            Id,
                                      ServerKeyPinSettings              Settings,
@@ -193,10 +193,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
                                      [NotNullWhen(false)] out String?  Error);
 
         /// <summary>
-        /// Hang the connection up and dial it again, as it is written down now.
+        /// Hang the connection up and connect it again, as it is written down now.
         /// </summary>
         /// <param name="Id">The connection.</param>
-        void DialAgain(String Id);
+        void ConnectAgain(String Id);
 
     }
 

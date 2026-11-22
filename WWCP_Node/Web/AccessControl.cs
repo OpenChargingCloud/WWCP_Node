@@ -185,7 +185,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
                 var trimmed = name?.Trim() ?? "";
 
-                if (String.Equals(trimmed, WWCPNode.AdminRole, StringComparison.OrdinalIgnoreCase) ||
+                if (String.Equals(trimmed, WWCPNode.AdminRole.ToString(), StringComparison.OrdinalIgnoreCase) ||
                     IndexOf(roles, trimmed) >= 0)
                 {
                     continue;

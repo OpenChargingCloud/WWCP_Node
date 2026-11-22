@@ -135,7 +135,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             // could bind it.
             var node = await TestPorts.StartedOnFreshPorts(() => {
 
-                           var made = new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                           var made = new WWCPNode(HTTPPort:          TestPorts.Free(),
                                                    AccountsPath:      Path.Combine(home, "accounts"),
                                                    ConfigFile:        new WWCPConfigFile(configFile),
                                                    CertificatesPath:  Path.Combine(home, "certificates"),
@@ -475,7 +475,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             File.WriteAllText(configFile, $$"""{ "nts": { "groups": { "legal": { "enabled": false } } }, "web": {{Section}} }""");
 
-            var refused = Assert.Throws<InvalidOperationException>(() => new WWCPNode(HTTPPort:          IPPort.Parse(TestPorts.Free()),
+            var refused = Assert.Throws<InvalidOperationException>(() => new WWCPNode(HTTPPort:          TestPorts.Free(),
                                                                                        AccountsPath:      Path.Combine(directory, "accounts"),
                                                                                        ConfigFile:        new WWCPConfigFile(configFile),
                                                                                        CertificatesPath:  Path.Combine(directory, "certificates"),

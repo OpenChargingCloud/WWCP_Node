@@ -28,6 +28,7 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.Mail;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -198,7 +199,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// The account the first start of a node makes, and signs its password
         /// out on the console: "root", unless the kind names it otherwise.
         /// </summary>
-        protected virtual String AdminLogin
+        protected virtual User_Id AdminLogin
             => WWCPNode.DefaultAdminUser;
 
         /// <summary>
@@ -379,7 +380,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                                new JProperty("servers",     new JArray(
                                                    new JObject(
                                                        new JProperty("address",              "127.0.0.1"),
-                                                       new JProperty("port",                 silentNameServer.Port),
+                                                       new JProperty("port",                 silentNameServer.Port.ToUInt16()),
                                                        new JProperty("transport",            "UDP"),
                                                        new JProperty("queryTimeoutSeconds",  1)
                                                    )
@@ -397,7 +398,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                     configuration["ssh"] = new JObject(
                                                new JProperty("enabled",  true),
-                                               new JProperty("port",     TestPorts.Free())
+                                               new JProperty("port",     TestPorts.Free().ToUInt16())
                                            );
                     break;
 
@@ -406,7 +407,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                     configuration["ssh"]   = new JObject(
                                                  new JProperty("enabled",  true),
-                                                 new JProperty("port",     TestPorts.Free()),
+                                                 new JProperty("port",     TestPorts.Free().ToUInt16()),
                                                  new JProperty("sftp",     true)
                                              );
 
@@ -420,8 +421,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                                    new JProperty("legal", new JObject(
                                                        new JProperty("enabled",    true),
                                                        new JProperty("hostname",   "127.0.0.1"),
-                                                       new JProperty("ntsKEPort",  TestPorts.Free()),
-                                                       new JProperty("ntpPort",    TestPorts.Free())
+                                                       new JProperty("ntsKEPort",  TestPorts.Free().ToUInt16()),
+                                                       new JProperty("ntpPort",    TestPorts.Free().ToUInt16())
                                                    ))
                                                ))
                                            );
@@ -431,7 +432,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
 
                     NameServerToLearn = new JObject(
                                             new JProperty("address",              "127.0.0.1"),
-                                            new JProperty("port",                 TestPorts.Free()),
+                                            new JProperty("port",                 TestPorts.Free().ToUInt16()),
                                             new JProperty("transport",            "TLS"),
                                             new JProperty("queryTimeoutSeconds",  1),
                                             new JProperty("trustOnFirstUse",      "root")
@@ -450,7 +451,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                                    NameServerToLearn,
                                                    new JObject(
                                                        new JProperty("address",              "127.0.0.1"),
-                                                       new JProperty("port",                 TestPorts.Free()),
+                                                       new JProperty("port",                 TestPorts.Free().ToUInt16()),
                                                        new JProperty("transport",            "UDP"),
                                                        new JProperty("queryTimeoutSeconds",  1)
                                                    )
@@ -473,7 +474,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// The port of the name server that never answers, in a test with
         /// <see cref="NodeSetup.SilentNameServer"/>.
         /// </summary>
-        protected UInt16 SilentNameServerPort
+        protected IPPort SilentNameServerPort
 
             => silentNameServer?.Port
                    ?? throw new InvalidOperationException("This test has no silent name server - it needs [WithNode(NodeSetup.SilentNameServer)].");
@@ -530,7 +531,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// </summary>
         protected Task<HttpClient> SignedIn()
 
-            => SignedInAs(AdminLogin, Password);
+            => SignedInAs(AdminLogin.ToString(), Password);
 
         /// <summary>
         /// A browser that has signed in as somebody in particular.
@@ -643,7 +644,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
         /// role - made the way the node makes its first one, in its
         /// organization, so that it may sign in.
         /// </summary>
-        protected async Task<IUser> AccountIn(String  Name,
+        protected async Task<IUser> AccountIn(User_Id Name,
                                               String  Role,
                                               String  Password)
         {
@@ -652,8 +653,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                         organization is Organization, Is.True, "the node's organization is not there");
 
             var account = await Node.ExtAPI.CreateUser(
-                                    User_Id.Parse(Name),
-                                    I18NString.Create(Languages.en, Name),
+                                    Name,
+                                    I18NString.Create(Languages.en, Name.ToString()),
                                     SimpleEMailAddress.Parse($"{Name}@localhost"),
                                     User2OrganizationEdgeLabel.IsMember,
                                     (Organization) organization!,
@@ -666,7 +667,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.TestKit
                                 );
 
             Assert.That(account,                                                          Is.Not.Null, $"The account '{Name}' was not made.");
-            Assert.That(Node.ExtAPI.TryGetUser(User_Id.Parse(Name), out var stored),      Is.True);
+            Assert.That(Node.ExtAPI.TryGetUser(Name, out var stored),      Is.True);
             Assert.That(Node.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role), out var group) && group is UserGroup,
                         Is.True, $"The {Node.Kind.Name} has no group '{Role}'.");
 

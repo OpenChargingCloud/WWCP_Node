@@ -101,7 +101,7 @@ jobs:
           repository: Vanaheimr/Urdr
           path: Urdr
 
-      # The connections every node dials are WWCPNode's, over the WebSocket
+      # The connections every node makes are WWCPNode's, over the WebSocket
       # and SSH clients of WWCP_CoreData.
       - uses: actions/checkout@v7
         with:

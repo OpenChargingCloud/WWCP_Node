@@ -79,7 +79,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
                 Assert.That(node.GeneratedPassword,      Is.Not.Null.And.Not.Empty);
                 Assert.That(node.ExtAPI.Users.Count(),   Is.EqualTo(1));
-                Assert.That(node.ExtAPI.Users.First().Id.ToString(),
+                Assert.That(node.ExtAPI.Users.First().Id,
                                                          Is.EqualTo(WWCPNode.DefaultAdminUser));
 
                 // The password is nowhere below the accounts directory, in any
