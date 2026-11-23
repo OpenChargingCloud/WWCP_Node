@@ -215,6 +215,43 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region GetOCSPResponse_CarriesDERInBase64()
+
+        /// <summary>
+        /// GetOCSPResponse carries an OCSP request and its answer as the DER in
+        /// Base64, and is refused what is no Base64 or too long.
+        /// </summary>
+        [Test]
+        public void GetOCSPResponse_CarriesDERInBase64()
+        {
+
+            var der       = new Byte[] { 0x30, 0x03, 0x02, 0x01, 0x07 };
+            var request   = GetOCSPResponseRequest.Parse(GetOCSPResponseRequest.Of(der).ToJSON());
+            var response  = GetOCSPResponseResponse.Parse(new GetOCSPResponseResponse(PKIStatus.Rejected, Convert.ToBase64String(der), new PKIStatusInfo("UnknownCA")).ToJSON());
+
+            Assert.Multiple(() => {
+
+                Assert.That(PKIActions.All,                Does.Contain(PKIActions.GetOCSPResponse));
+                Assert.That(request.DER,                   Is.EqualTo(der));
+                Assert.That(response.Status,               Is.EqualTo(PKIStatus.Rejected));
+                Assert.That(response.DER,                  Is.EqualTo(der));
+                Assert.That(response.StatusInfo?.ReasonCode, Is.EqualTo("UnknownCA"));
+
+                Assert.That(() => GetOCSPResponseRequest.Parse(new JObject(new JProperty("ocspRequest", "no base64!"))),
+                            Throws.TypeOf<PKIException>());
+                Assert.That(() => GetOCSPResponseRequest.Parse(new JObject(new JProperty("ocspRequest", new String('A', GetOCSPResponseRequest.MaxLength + 4)))),
+                            Throws.TypeOf<PKIException>());
+                Assert.That(() => GetOCSPResponseRequest.Parse(new JObject()),
+                            Throws.TypeOf<PKIException>());
+                Assert.That(() => GetOCSPResponseResponse.Parse(new JObject(new JProperty("status", "Accepted"), new JProperty("ocspResponse", "%%%"))),
+                            Throws.TypeOf<PKIException>());
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

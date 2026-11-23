@@ -54,8 +54,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <para>
     /// Over it this node asks: <see cref="SignCertificateAtThePKI"/> for the CSR
     /// of a charging station, <see cref="GetCACertificatesOfThePKI"/>,
-    /// <see cref="GetCertificateStatusAtThePKI"/>, <see cref="GetCRLOfThePKI"/>
-    /// and <see cref="RevokeCertificateAtThePKI"/> - or any action with
+    /// <see cref="GetCertificateStatusAtThePKI"/>, <see cref="GetCRLOfThePKI"/>,
+    /// <see cref="RevokeCertificateAtThePKI"/> and <see cref="GetOCSPResponseOfThePKI"/> - or any action with
     /// <see cref="AskThePKI"/>. A connection that drops is connected again after
     /// a while, as long as it is written down, switched on, and this node has
     /// not hung up.
@@ -165,7 +165,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region SignCertificateAtThePKI / GetCACertificatesOfThePKI / GetCertificateStatusAtThePKI / GetCRLOfThePKI / RevokeCertificateAtThePKI
+        #region SignCertificateAtThePKI / GetCACertificatesOfThePKI / GetCertificateStatusAtThePKI / GetCRLOfThePKI / RevokeCertificateAtThePKI / GetOCSPResponseOfThePKI
 
         /// <summary>
         /// Have the PKI of the given connection sign a CSR - of a charging
@@ -219,6 +219,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                                CancellationToken         CancellationToken  = default)
 
             => RevokeCertificateResponse.Parse(await AskThePKI(ConnectionId, PKIActions.RevokeCertificate, Request.ToJSON(), Timeout, CancellationToken));
+
+        /// <summary>
+        /// The answer of the OCSP responder of the PKI of the given connection
+        /// to an OCSP request - of a charging station, say.
+        /// </summary>
+        public async Task<GetOCSPResponseResponse> GetOCSPResponseOfThePKI(String                  ConnectionId,
+                                                                           GetOCSPResponseRequest  Request,
+                                                                           TimeSpan?               Timeout            = null,
+                                                                           CancellationToken       CancellationToken  = default)
+
+            => GetOCSPResponseResponse.Parse(await AskThePKI(ConnectionId, PKIActions.GetOCSPResponse, Request.ToJSON(), Timeout, CancellationToken));
 
         #endregion
 

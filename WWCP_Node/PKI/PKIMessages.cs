@@ -62,9 +62,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.PKI
         public const String RevokeCertificate     = "RevokeCertificate";
 
         /// <summary>
+        /// The answer of the PKI's OCSP responder to an OCSP request of RFC
+        /// 6960 - signed, for whoever it is handed on to, a station or an EV.
+        /// </summary>
+        public const String GetOCSPResponse       = "GetOCSPResponse";
+
+        /// <summary>
         /// Every one of them.
         /// </summary>
-        public static readonly IReadOnlyList<String> All = [ SignCertificate, GetCACertificates, GetCertificateStatus, GetCRL, RevokeCertificate ];
+        public static readonly IReadOnlyList<String> All = [ SignCertificate, GetCACertificates, GetCertificateStatus, GetCRL, RevokeCertificate, GetOCSPResponse ];
 
     }
 
@@ -572,6 +578,92 @@ namespace cloud.charging.open.protocols.WWCP.Node.PKI
 
         public static RevokeCertificateResponse Parse(JObject JSON)
             => new (PKIJSON.StatusOf(JSON), PKIStatusInfo.Parse(JSON["statusInfo"]));
+
+    }
+
+    #endregion
+
+    #region GetOCSPResponse
+
+    /// <summary>
+    /// An OCSP request of RFC 6960, its DER in Base64, as it would be POSTed to
+    /// the PKI's OCSP responder.
+    /// </summary>
+    public sealed record GetOCSPResponseRequest(String OCSPRequest)
+    {
+
+        /// <summary>
+        /// The longest an OCSP request may be, in characters of Base64: enough
+        /// for many certificates, far less than a message may be.
+        /// </summary>
+        public const Int32 MaxLength = 16384;
+
+        /// <summary>
+        /// The request as DER.
+        /// </summary>
+        public Byte[] DER
+            => Convert.FromBase64String(OCSPRequest);
+
+        public JObject ToJSON()
+            => new (new JProperty("ocspRequest", OCSPRequest));
+
+        public static GetOCSPResponseRequest Of(Byte[] DER)
+            => new (Convert.ToBase64String(DER));
+
+        public static GetOCSPResponseRequest Parse(JObject JSON)
+        {
+
+            var text = PKIJSON.Required(JSON, "ocspRequest");
+
+            if (text.Length > MaxLength)
+                throw new PKIException(PKIErrorCodes.FormatViolation, $"\"ocspRequest\" is longer than {MaxLength} characters.");
+
+            Span<Byte> buffer = new Byte[text.Length];
+
+            return Convert.TryFromBase64String(text, buffer, out _)
+                       ? new (text)
+                       : throw new PKIException(PKIErrorCodes.FormatViolation, "\"ocspRequest\" is the DER of an OCSP request in Base64.");
+
+        }
+
+    }
+
+    /// <summary>
+    /// The answer of the OCSP responder, its DER in Base64 - "Accepted" with
+    /// whatever the responder said, "unauthorized" for a CA it does not have
+    /// among them; the response status inside it says which.
+    /// </summary>
+    public sealed record GetOCSPResponseResponse(PKIStatus       Status,
+                                                 String?         OCSPResponse  = null,
+                                                 PKIStatusInfo?  StatusInfo    = null)
+    {
+
+        /// <summary>
+        /// The response as DER, or null.
+        /// </summary>
+        public Byte[]? DER
+            => OCSPResponse is null ? null : Convert.FromBase64String(OCSPResponse);
+
+        public JObject ToJSON()
+            => new JObject(new JProperty("status", Status.ToString())).
+                   With("ocspResponse",  OCSPResponse).
+                   With("statusInfo",    StatusInfo?.ToJSON());
+
+        public static GetOCSPResponseResponse Parse(JObject JSON)
+        {
+
+            var response = new GetOCSPResponseResponse(PKIJSON.StatusOf(JSON), PKIJSON.Optional(JSON, "ocspResponse"), PKIStatusInfo.Parse(JSON["statusInfo"]));
+
+            if (response.OCSPResponse is String text)
+            {
+                Span<Byte> buffer = new Byte[text.Length];
+                if (!Convert.TryFromBase64String(text, buffer, out _))
+                    throw new PKIException(PKIErrorCodes.FormatViolation, "\"ocspResponse\" is the DER of an OCSP response in Base64.");
+            }
+
+            return response;
+
+        }
 
     }
 
