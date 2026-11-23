@@ -25,6 +25,7 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Modbus;
+using cloud.charging.open.protocols.WWCP.Node.Streams;
 using cloud.charging.open.protocols.WWCP.Node.Connections;
 
 using ConnectionType = cloud.charging.open.protocols.WWCP.Node.Connections.ConnectionType;

@@ -1414,7 +1414,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                         IEnumerable<ConnectionIdentity>?  Identities         = null,
                                         Boolean?                          Inbound            = null,
                                         String?                           RemoteNodeId       = null,
-                                        String?                           OCPIVersion        = null)
+                                        String?                           OCPIVersion        = null,
+                                        String?                           OpenADRBinding     = null,
+                                        String?                           VEN                = null)
 
             => TryAddConnection(
                    Description,
@@ -1438,7 +1440,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    Identities,
                    Inbound,
                    RemoteNodeId,
-                   OCPIVersion
+                   OCPIVersion,
+                   OpenADRBinding,
+                   VEN
                );
 
 
@@ -1459,6 +1463,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Inbound">Whether the other end connects, see <see cref="ConnectionEntry.Inbound"/>; none for a connection this node makes.</param>
         /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; none where this node connects to its back end.</param>
         /// <param name="OCPIVersion">Which OCPI a connection to an EMSP or a CPO carries - "2.1.1", "2.2.1" or "2.3.0" -, see <see cref="ConnectionEntry.OCPIVersion"/>; none for a connection of OCPP.</param>
+        /// <param name="OpenADRBinding">How OpenADR goes over a connection to a grid operator or of a VEN - "messages" or "rest" -, see <see cref="ConnectionEntry.OpenADRBinding"/>; none for messages, and for a connection of anything else.</param>
+        /// <param name="VEN">The VEN a connection that a VEN makes to this grid operator is taken as, see <see cref="ConnectionEntry.VEN"/>; none for every other connection.</param>
         public Boolean TryAddConnection(I18NString?                       Description,
                                         URL?                              URL,
                                         String?                           ConnectionType,
@@ -1480,7 +1486,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                         IEnumerable<ConnectionIdentity>?  Identities         = null,
                                         Boolean?                          Inbound            = null,
                                         String?                           RemoteNodeId       = null,
-                                        String?                           OCPIVersion        = null)
+                                        String?                           OCPIVersion        = null,
+                                        String?                           OpenADRBinding     = null,
+                                        String?                           VEN                = null)
         {
 
             Id        = null;
@@ -1491,6 +1499,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
 
             if (!ConnectionEntry.ValidateOCPIVersion(type, OCPIVersion, out var ocpiVersion, out Error, NodeNoun))
+                return false;
+
+            if (!ConnectionEntry.ValidateOpenADR(type, Inbound ?? false, OpenADRBinding, VEN, out var openADRBinding, out var ven, out Error))
                 return false;
 
             if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
@@ -1558,7 +1569,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                      out var authenticationId, out var identities, out Error))
                     return false;
 
-                if (inbound && !CheckInboundReferences(null, url, ProtocolOf(type, version, ocpiVersion), authenticationId, identities, out Error))
+                if (inbound && !CheckInboundReferences(null, url, ProtocolOf(type, version, ocpiVersion, openADRBinding), authenticationId, identities, out Error))
                     return false;
 
                 var entry = new ConnectionEntry(
@@ -1570,6 +1581,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                             ) {
                                 OCPPVersion                = version,
                                 OCPIVersion                = ocpiVersion,
+                                OpenADRBinding             = openADRBinding,
+                                VEN                        = ven,
                                 AutoConnect                = AutoConnect ?? false,
                                 Inbound                    = inbound,
                                 RemoteNodeId               = remoteNodeId,
@@ -1655,12 +1668,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                            IEnumerable<ConnectionIdentity>? Identities             = null,
                                            Boolean?                         Inbound                = null,
                                            String?                          RemoteNodeId           = null,
-                                           String?                          OCPIVersion            = null)
+                                           String?                          OCPIVersion            = null,
+                                           String?                          OpenADRBinding         = null,
+                                           String?                          VEN                    = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
                                    out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust,
                                    ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins, HTTPVersion, Encoding, SignatureFormats, Identities,
-                                   Inbound, RemoteNodeId, OCPIVersion);
+                                   Inbound, RemoteNodeId, OCPIVersion, OpenADRBinding, VEN);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
@@ -1681,6 +1696,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="Inbound">Whether the other end connects, see <see cref="ConnectionEntry.Inbound"/>; nothing to keep what it says.</param>
         /// <param name="RemoteNodeId">The node at the other end, see <see cref="ConnectionEntry.RemoteNodeId"/>; nothing to keep what it says, an empty text for none.</param>
         /// <param name="OCPIVersion">Which OCPI a connection to an EMSP or a CPO carries, see <see cref="ConnectionEntry.OCPIVersion"/>; nothing to keep the one it has.</param>
+        /// <param name="OpenADRBinding">How OpenADR goes over a connection to a grid operator or of a VEN, see <see cref="ConnectionEntry.OpenADRBinding"/>; nothing to keep the one it has.</param>
+        /// <param name="VEN">The VEN a connection that a VEN makes to this grid operator is taken as, see <see cref="ConnectionEntry.VEN"/>; nothing to keep the one it has.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            I18NString?                      Description,
                                            URL?                             URL,
@@ -1704,7 +1721,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                            IEnumerable<ConnectionIdentity>? Identities             = null,
                                            Boolean?                         Inbound                = null,
                                            String?                          RemoteNodeId           = null,
-                                           String?                          OCPIVersion            = null)
+                                           String?                          OCPIVersion            = null,
+                                           String?                          OpenADRBinding         = null,
+                                           String?                          VEN                    = null)
         {
 
             NotSaved = false;
@@ -1879,9 +1898,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                                          NodeNoun))
                     return false;
 
+                // Kept where the change does not say, and it carries OpenADR still.
+                var openADRStill = ConnectionEntry.UseOf(type) == ConnectionUse.OpenADR && entry.Use == ConnectionUse.OpenADR;
+
+                if (!ConnectionEntry.ValidateOpenADR(type,
+                                                     inbound,
+                                                     OpenADRBinding ?? (openADRStill            ? ConnectionEntry.AsText(entry.OpenADRBinding) : null),
+                                                     VEN            ?? (openADRStill && inbound ? entry.VEN                                     : null),
+                                                     out var openADRBinding,
+                                                     out var ven,
+                                                     out Error))
+                    return false;
+
                 if (inbound &&
                     (!CheckInbound(url, hostKey, keyPins, rawPublicKeys, keyTrustOnFirstUse, pins, httpVersion ?? entry.HTTPVersion, out Error) ||
-                     !CheckInboundReferences(entry.Id, url, ProtocolOf(type, version, ocpiVersion), authenticationId, identities, out Error)))
+                     !CheckInboundReferences(entry.Id, url, ProtocolOf(type, version, ocpiVersion, openADRBinding), authenticationId, identities, out Error)))
                     return false;
 
                 var peer = PeerOfUnlocked(entry.Id);
@@ -1901,6 +1932,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 entry.ConnectionType      = type;
                 entry.OCPPVersion         = version;
                 entry.OCPIVersion         = ocpiVersion;
+                entry.OpenADRBinding      = openADRBinding;
+                entry.VEN                 = ven;
                 entry.AutoConnect  = AutoConnect ?? false;
                 entry.Inbound             = inbound;
                 entry.RemoteNodeId        = remoteNodeId;
@@ -3054,6 +3087,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                Was.RemoteNodeId        != Now.RemoteNodeId        ||
                Was.OCPPVersion         != Now.OCPPVersion         ||
                Was.OCPIVersion         != Now.OCPIVersion         ||
+               Was.OpenADRBinding      != Now.OpenADRBinding      ||
+               Was.VEN                 != Now.VEN                 ||
                Was.AutoConnect         != Now.AutoConnect         ||
                Was.AuthenticationId    != Now.AuthenticationId    ||
                !Was.Identities.SequenceEqual(Now.Identities)      ||
@@ -3375,12 +3410,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         private static ProtocolVersion ProtocolOf(ConnectionType  Type,
                                                   OCPPVersion     OCPPVersion,
-                                                  String?         OCPIVersion)
+                                                  String?         OCPIVersion,
+                                                  OpenADRBinding  OpenADRBinding)
 
             => ConnectionEntry.UseOf(Type) switch {
-                   ConnectionUse.OCPI    => ProtocolVersion.OCPI(OCPIVersion ?? ""),
-                   ConnectionUse.Modbus  => ProtocolVersion.Modbus,
-                   _                     => OCPPVersion
+                   ConnectionUse.OCPI     => ProtocolVersion.OCPI(OCPIVersion ?? ""),
+                   ConnectionUse.Modbus   => ProtocolVersion.Modbus,
+                   ConnectionUse.OpenADR  => ProtocolVersion.OpenADR(OpenADRBinding),
+                   ConnectionUse.PKI      => ProtocolVersion.PKI,
+                   _                      => OCPPVersion
                };
 
         /// <summary>

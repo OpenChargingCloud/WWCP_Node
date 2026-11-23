@@ -87,8 +87,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region Properties
 
         /// <summary>
-        /// Every kind of node a connection may lead to - an energy meter among
-        /// them, which a node connects to and which never connects to it.
+        /// Every kind of node a connection may lead to - an energy meter and a
+        /// grid operator among them, which a node connects to and which never
+        /// connect to it.
         /// </summary>
         public static readonly IReadOnlyList<ConnectionType> Every = [
             ConnectionType.CSMS,
@@ -96,7 +97,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             ConnectionType.LocalController,
             ConnectionType.Gateway,
             ConnectionType.ChargingStation,
-            ConnectionType.EnergyMeter
+            ConnectionType.EnergyMeter,
+            ConnectionType.GridOperator,
+            ConnectionType.PKI
         ];
 
         /// <summary>
@@ -188,8 +191,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
-            // Nothing is routed beyond a connection of OCPI or of Modbus: an EMSP,
-            // a CPO, an energy meter is the end of it.
+            // Nothing is routed beyond a connection of OCPI, of Modbus or of
+            // OpenADR: an EMSP, a CPO, an energy meter, a grid operator is the
+            // end of it.
             if (ConnectionEntry.UseOf(Type) != ConnectionUse.OCPP && RemoteNodeId is not null)
             {
                 Error = $"A connection to what is at the other end, '{Type}', carries {ConnectionEntry.UseOf(Type)}, and names no node there: nothing is reached through it.";
@@ -207,6 +211,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             if (Type == ConnectionType.MeterReader && !Inbound)
             {
                 Error = $"What reads an energy meter connects to it: a connection of a {ConnectionType.MeterReader} is one the other end makes.";
+                return false;
+            }
+
+            // A grid operator is connected to by its VENs, and connects to none
+            // of them: a VEN is what makes the connection.
+            if (Type == ConnectionType.GridOperator && Inbound)
+            {
+                Error = $"A grid operator connects to nothing: a connection to one is one this {NodeNoun ?? NodeWording.Noun} makes.";
+                return false;
+            }
+
+            if (Type == ConnectionType.VEN && !Inbound)
+            {
+                Error = $"A VEN connects to its grid operator: a connection of a {ConnectionType.VEN} is one the other end makes.";
+                return false;
+            }
+
+            // A PKI is connected to by its registration authorities, and connects
+            // to none of them: the one that asks to sign makes the connection.
+            if (Type == ConnectionType.PKI && Inbound)
+            {
+                Error = $"A PKI connects to nothing: a connection to one is one this {NodeNoun ?? NodeWording.Noun} makes.";
+                return false;
+            }
+
+            if (Type == ConnectionType.RegistrationAuthority && !Inbound)
+            {
+                Error = $"A registration authority connects to its PKI: a connection of a {ConnectionType.RegistrationAuthority} is one the other end makes.";
                 return false;
             }
 

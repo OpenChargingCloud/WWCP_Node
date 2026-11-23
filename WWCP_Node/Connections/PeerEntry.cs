@@ -344,7 +344,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    ConnectionType.EMSP        or
                    ConnectionType.CPO         or
                    ConnectionType.EnergyMeter or
-                   ConnectionType.MeterReader      => PeerKind.Service,
+                   ConnectionType.MeterReader or
+                   ConnectionType.GridOperator or
+                   ConnectionType.VEN         or
+                   ConnectionType.PKI         or
+                   ConnectionType.RegistrationAuthority
+                                                   => PeerKind.Service,
                    _                               => PeerKind.CSMS
                };
 

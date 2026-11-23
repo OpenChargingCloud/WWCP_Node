@@ -27,6 +27,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
 
 using cloud.charging.open.protocols.WWCP.Node.Modbus;
+using cloud.charging.open.protocols.WWCP.Node.Streams;
 using cloud.charging.open.protocols.WWCP.Node.Connections;
 
 using ModbusTCPClient = org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common.ModbusTCPClient;
@@ -296,8 +297,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             Log.Info($"Connecting to {Where} as an energy meter over Modbus, signing in with {says}.", "modbus", "connections");
 
-            var client      = new ModbusWebSocketClient(
+            var client      = new StreamWebSocketClient(
                                   Connection.URL,
+                                  ModbusWireNames.Subprotocol,
                                   basic,
                                   validator,
                                   CertificateShownAlone  (certificates),

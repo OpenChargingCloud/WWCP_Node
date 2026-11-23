@@ -21,7 +21,7 @@ using System.IO.Pipelines;
 
 #endregion
 
-namespace cloud.charging.open.protocols.WWCP.Node.Modbus
+namespace cloud.charging.open.protocols.WWCP.Node.Streams
 {
 
     /// <summary>
@@ -30,11 +30,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Modbus
     /// </summary>
     /// <remarks>
     /// <para>
-    /// What Modbus over a WebSocket needs, so that the very code that reads and
-    /// writes frames over a TCP connection, a TLS stream or an SSH channel reads
-    /// and writes them here as well. A frame is read across message boundaries
-    /// as over any stream; a frame is written in one write, by the Modbus client
-    /// and server alike, and so goes as one message.
+    /// What a protocol of streams over a WebSocket needs - Modbus, and the REST
+    /// API of OpenADR as HTTP/1.1 -, so that the very code that reads and writes
+    /// it over a TCP connection, a TLS stream or an SSH channel reads and writes
+    /// it here as well. What is read is read across message boundaries as over
+    /// any stream; one write goes as one message - a frame of Modbus, written in
+    /// one write by its client and server alike, as one message, and an HTTP
+    /// message in as many as it is written in.
     /// </para>
     /// <para>
     /// Ends - a read answers 0 - when the WebSocket is closed, from either end;

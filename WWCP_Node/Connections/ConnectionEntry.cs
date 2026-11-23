@@ -112,7 +112,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// as the meter has it at the other end: what connects to a meter. Spoken
         /// to in Modbus, not in OCPP - see <see cref="ConnectionUse.Modbus"/>.
         /// </summary>
-        MeterReader
+        MeterReader,
+
+        /// <summary>
+        /// A grid operator: the VTN of OpenADR 3 a local controller connects to,
+        /// to read the limits of its grid connection point and to report on
+        /// them. Spoken to in OpenADR, not in OCPP - see
+        /// <see cref="ConnectionUse.OpenADR"/>.
+        /// </summary>
+        GridOperator,
+
+        /// <summary>
+        /// A VEN of OpenADR 3 - a local controller - as the grid operator has it
+        /// at the other end: what connects to a grid operator. Spoken to in
+        /// OpenADR, not in OCPP - see <see cref="ConnectionUse.OpenADR"/>.
+        /// </summary>
+        VEN,
+
+        /// <summary>
+        /// A public key infrastructure: what a CSMS - or any other node - connects
+        /// to, to have the CSR of a charging station signed, to read its CA
+        /// certificates and its CRLs, to ask whether a certificate is revoked,
+        /// and to revoke one it had signed. Spoken to in the messages of the PKI,
+        /// not in OCPP - see <see cref="ConnectionUse.PKI"/>.
+        /// </summary>
+        PKI,
+
+        /// <summary>
+        /// A registration authority - a CSMS, say - as the PKI has it at the other
+        /// end: what connects to a PKI, and asks it to sign. Spoken to in the
+        /// messages of the PKI, not in OCPP - see <see cref="ConnectionUse.PKI"/>.
+        /// </summary>
+        RegistrationAuthority
 
     }
 
@@ -182,7 +213,48 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// "modbus" or over the SSH subsystem "modbus@open.charging.cloud" -
         /// see <c>Modbus.ModbusWireNames</c>. It has no version.
         /// </summary>
-        Modbus
+        Modbus,
+
+        /// <summary>
+        /// OpenADR 3, between a VEN and a VTN: in the binding of
+        /// <see cref="ConnectionEntry.OpenADRBinding"/> - its JSON messages, or
+        /// its REST API in a tunnel - see <c>OpenADR.OpenADRWireNames</c>.
+        /// </summary>
+        OpenADR,
+
+        /// <summary>
+        /// The messages of a PKI, between a registration authority and the PKI:
+        /// requests and responses as OCPP-J frames them, over a WebSocket of the
+        /// subprotocol "pki" or over the SSH subsystem "pki@open.charging.cloud"
+        /// - see <c>PKI.PKIWireNames</c>. It has no version.
+        /// </summary>
+        PKI
+
+    }
+
+
+    /// <summary>
+    /// How OpenADR 3 goes over a connection of <see cref="ConnectionUse.OpenADR"/>.
+    /// </summary>
+    /// <remarks>
+    /// Written down, as the version of OCPP is, because nothing else says it: the
+    /// URL is the same either way, and the binding is offered in the WebSocket
+    /// handshake as a subprotocol, or over SSH as the subsystem asked for.
+    /// </remarks>
+    public enum OpenADRBinding
+    {
+
+        /// <summary>
+        /// The JSON messages that carry OpenADR 3 as OCPP-J carries OCPP: a
+        /// request, a response or an error in one text message - "messages".
+        /// </summary>
+        Messages,
+
+        /// <summary>
+        /// The REST API of OpenADR 3, unchanged, as HTTP/1.1 in the stream of the
+        /// connection - "rest".
+        /// </summary>
+        REST
 
     }
 
@@ -360,6 +432,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public const String OCPIVersionKey       = "ocpiVersion";
 
         /// <summary>
+        /// The key the binding of a connection of OpenADR stands under:
+        /// "messages" or "rest". A connection of anything else has none.
+        /// </summary>
+        public const String OpenADRBindingKey    = "openADRBinding";
+
+        /// <summary>
+        /// The key a connection a VEN makes to a grid operator names its VEN
+        /// under: the VEN name its requests are taken as.
+        /// </summary>
+        public const String VENKey               = "ven";
+
+        /// <summary>
+        /// The longest a VEN name may be written, as a grid operator keeps it.
+        /// </summary>
+        public const Int32  MaxVENLength         = 64;
+
+        /// <summary>
         /// The longest the name of the node at the other end may be written.
         /// </summary>
         public const Int32  MaxRemoteNodeIdLength = 128;
@@ -423,15 +512,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public String?         OCPIVersion          { get; internal set; }
 
         /// <summary>
+        /// How OpenADR goes over the connection, where it carries OpenADR: its
+        /// JSON messages, or its REST API in a tunnel. Messages where nothing
+        /// says otherwise; said of nothing else.
+        /// </summary>
+        public OpenADRBinding  OpenADRBinding       { get; internal set; }
+
+        /// <summary>
+        /// The VEN a connection that a VEN makes to this grid operator is taken
+        /// as: every request that comes over it is a request of this VEN, as one
+        /// with a bearer token of it is over HTTPS. Null for every other
+        /// connection.
+        /// </summary>
+        /// <remarks>
+        /// Who signs in - the login - says which connection it is; the connection
+        /// says which VEN. Two logins of one local controller - its password and
+        /// its key, say - are two connections of the same VEN.
+        /// </remarks>
+        public String?         VEN                  { get; internal set; }
+
+        /// <summary>
         /// The protocol the connection carries, and its version: "OCPP2.1",
         /// "OCPI 2.2.1".
         /// </summary>
         public ProtocolVersion Protocol
 
             => Use switch {
-                   ConnectionUse.OCPI    => ProtocolVersion.OCPI(OCPIVersion ?? ""),
-                   ConnectionUse.Modbus  => ProtocolVersion.Modbus,
-                   _                     => OCPPVersion
+                   ConnectionUse.OCPI     => ProtocolVersion.OCPI(OCPIVersion ?? ""),
+                   ConnectionUse.Modbus   => ProtocolVersion.Modbus,
+                   ConnectionUse.OpenADR  => ProtocolVersion.OpenADR(OpenADRBinding),
+                   ConnectionUse.PKI      => ProtocolVersion.PKI,
+                   _                      => OCPPVersion
                };
 
         /// <summary>
@@ -897,15 +1008,131 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <summary>
         /// Which protocol a connection to what is at the given end carries:
         /// OCPI to an EMSP or a CPO, Modbus to an energy meter and to what reads
-        /// one, OCPP to everything else.
+        /// one, OpenADR to a grid operator and to a VEN, OCPP to everything else.
         /// </summary>
         public static ConnectionUse UseOf(ConnectionType Type)
 
             => Type switch {
-                   ConnectionType.EMSP        or ConnectionType.CPO          => ConnectionUse.OCPI,
-                   ConnectionType.EnergyMeter or ConnectionType.MeterReader  => ConnectionUse.Modbus,
-                   _                                                         => ConnectionUse.OCPP
+                   ConnectionType.EMSP         or ConnectionType.CPO          => ConnectionUse.OCPI,
+                   ConnectionType.EnergyMeter  or ConnectionType.MeterReader  => ConnectionUse.Modbus,
+                   ConnectionType.GridOperator or ConnectionType.VEN          => ConnectionUse.OpenADR,
+                   ConnectionType.PKI          or ConnectionType.RegistrationAuthority
+                                                                              => ConnectionUse.PKI,
+                   _                                                          => ConnectionUse.OCPP
                };
+
+        #endregion
+
+        #region (static) AsText(Binding) / ValidateOpenADR(Type, Inbound, BindingText, VENText, out Binding, out VEN, out Error)
+
+        /// <summary>
+        /// How a binding of OpenADR is written in the API and in the file:
+        /// "messages" or "rest".
+        /// </summary>
+        public static String AsText(OpenADRBinding Binding)
+
+            => Binding == OpenADRBinding.REST
+                   ? "rest"
+                   : "messages";
+
+        /// <summary>
+        /// The binding of OpenADR and the VEN of a connection to what is at the
+        /// given end: a binding - messages where none is said - for a connection
+        /// of OpenADR, and a VEN for one a VEN makes to this grid operator, which
+        /// has to say it; neither for anything else, which may not.
+        /// </summary>
+        /// <param name="Type">What is at the other end.</param>
+        /// <param name="Inbound">Whether the other end connects.</param>
+        /// <param name="BindingText">The binding as it was written, if at all.</param>
+        /// <param name="VENText">The VEN as it was written, if at all.</param>
+        /// <param name="Binding">The binding; messages for a connection of anything else.</param>
+        /// <param name="VEN">The VEN, or null.</param>
+        /// <param name="Error">What is wrong.</param>
+        public static Boolean ValidateOpenADR(ConnectionType                    Type,
+                                              Boolean                           Inbound,
+                                              String?                           BindingText,
+                                              String?                           VENText,
+                                              out OpenADRBinding                Binding,
+                                              out String?                       VEN,
+                                              [NotNullWhen(false)] out String?  Error)
+        {
+
+            Binding  = OpenADRBinding.Messages;
+            VEN      = null;
+            Error    = null;
+
+            var bindingText  = BindingText?.Trim();
+            var venText      = VENText?.    Trim();
+
+            if (UseOf(Type) != ConnectionUse.OpenADR)
+            {
+
+                if (!String.IsNullOrEmpty(bindingText))
+                {
+                    Error = $"A connection to a {Type} carries {UseOf(Type)}, and no binding of OpenADR: leave '{OpenADRBindingKey}' out.";
+                    return false;
+                }
+
+                if (!String.IsNullOrEmpty(venText))
+                {
+                    Error = $"A connection to a {Type} carries {UseOf(Type)}, and is taken as no VEN: leave '{VENKey}' out.";
+                    return false;
+                }
+
+                return true;
+
+            }
+
+            switch (bindingText?.ToLowerInvariant())
+            {
+
+                case null:
+                case "":
+                case "messages":
+                    Binding = OpenADRBinding.Messages;
+                    break;
+
+                case "rest":
+                    Binding = OpenADRBinding.REST;
+                    break;
+
+                default:
+                    Error = $"'{bindingText}' is no binding of OpenADR. It is 'messages' - its JSON messages, which it is where nothing is said - or 'rest' - its REST API in a tunnel.";
+                    return false;
+
+            }
+
+            // A VEN is named where one connects to this grid operator, and
+            // nowhere else: a local controller that connects is no VEN of itself.
+            if (Type == ConnectionType.VEN && Inbound)
+            {
+
+                if (String.IsNullOrEmpty(venText))
+                {
+                    Error = $"Say which VEN connects here, under '{VENKey}': the VEN name of a local controller of this grid operator, which its requests are taken as.";
+                    return false;
+                }
+
+                if (venText.Length > MaxVENLength || venText.Any(Char.IsWhiteSpace))
+                {
+                    Error = $"'{venText}' is no VEN name: one word of at most {MaxVENLength} characters.";
+                    return false;
+                }
+
+                VEN = venText;
+                return true;
+
+            }
+
+            if (!String.IsNullOrEmpty(venText))
+            {
+                Error = $"Only a connection a VEN makes to a grid operator names its VEN: leave '{VENKey}' out.";
+                return false;
+            }
+
+            return true;
+
+        }
 
         #endregion
 
@@ -1034,6 +1261,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 case "meterreader":
                     Type = ConnectionType.MeterReader;
+                    return true;
+
+                case "gridoperator":
+                    Type = ConnectionType.GridOperator;
+                    return true;
+
+                case "ven":
+                    Type = ConnectionType.VEN;
+                    return true;
+
+                case "pki":
+                    Type = ConnectionType.PKI;
+                    return true;
+
+                case "registrationauthority":
+                    Type = ConnectionType.RegistrationAuthority;
                     return true;
 
                 default:
@@ -2090,6 +2333,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 return false;
             }
 
+            if (!ValidateOpenADR(type, inbound, JSON.Value<String>(OpenADRBindingKey), JSON.Value<String>(VENKey), out var openADRBinding, out var ven, out var wrongOpenADR))
+            {
+                Error = $"connection '{id}': {wrongOpenADR}";
+                return false;
+            }
+
             Entry = new ConnectionEntry(
                         id,
                         Kept(DescriptionOf(JSON)!),
@@ -2099,6 +2348,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     ) {
                         OCPPVersion         = version,
                         OCPIVersion         = ocpiVersion,
+                        OpenADRBinding      = openADRBinding,
+                        VEN                 = ven,
                         AutoConnect  = JSON.Value<Boolean?>("autoConnect") ?? false,
                         Inbound             = inbound,
                         RemoteNodeId        = inbound ? null : remoteNodeId,
@@ -2174,6 +2425,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (RemoteNodeId is not null)
                 json.Add(new JProperty(RemoteNodeIdKey, RemoteNodeId));
+
+            if (Use == ConnectionUse.OpenADR)
+                json.Add(new JProperty(OpenADRBindingKey, AsText(OpenADRBinding)));
+
+            if (VEN is not null)
+                json.Add(new JProperty(VENKey, VEN));
 
             if (AuthenticationId is not null)  json.Add(new JProperty("authenticationId",  AuthenticationId));
             if (CertificateId    is not null)  json.Add(new JProperty("certificateId",     CertificateId));
@@ -2350,6 +2607,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             => new (Id, Description, URL, ConnectionType, CreatedAt) {
                    OCPPVersion       = OCPPVersion,
                    OCPIVersion       = OCPIVersion,
+                   OpenADRBinding    = OpenADRBinding,
+                   VEN               = VEN,
                    AutoConnect       = AutoConnect,
                    Inbound           = Inbound,
                    RemoteNodeId        = RemoteNodeId,

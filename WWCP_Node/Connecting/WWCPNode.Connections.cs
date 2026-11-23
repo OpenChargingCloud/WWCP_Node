@@ -485,6 +485,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return;
                 }
 
+                // A grid operator: spoken to in OpenADR, over a WebSocket or over
+                // SSH, and nothing of OCPP is asked of it either.
+                if (Connection.Use == ConnectionUse.OpenADR)
+                {
+                    await ConnectToTheGridOperator(Connection, where, CancellationToken);
+                    return;
+                }
+
+                // A PKI: asked in the messages of a PKI, over a WebSocket or over
+                // SSH, and nothing of OCPP is asked of it either.
+                if (Connection.Use == ConnectionUse.PKI)
+                {
+                    await ConnectToThePKI(Connection, where, CancellationToken);
+                    return;
+                }
+
                 // Not connected on purpose, for something the kind of node
                 // knows of it: said as that, and not as an end that could not
                 // be reached - nothing was tried.
@@ -3347,6 +3363,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 await LetGo(sshClient, $"This {NodeNoun} hangs up.");
 
             await HangUpOnTheMeters();
+            await HangUpOnTheGridOperators();
+            await HangUpOnThePKIs();
 
             lock (connectionStates)
                 connectionStates.Clear();

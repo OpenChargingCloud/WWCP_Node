@@ -62,6 +62,31 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
         #endregion
 
+        #region (static) PKI
+
+        /// <summary>
+        /// The messages of a PKI, which have no version: requests and responses
+        /// as OCPP-J frames them - see <c>PKI.PKIWireNames</c>.
+        /// </summary>
+        public static ProtocolVersion PKI { get; } = new (ConnectionUse.PKI, "");
+
+        #endregion
+
+        #region (static) OpenADR(Binding)
+
+        /// <summary>
+        /// OpenADR 3, in the given binding: its JSON messages, or its REST API
+        /// in a tunnel. The two are told apart as versions are, because a server
+        /// lets in the one it serves and not the other - see
+        /// <c>OpenADR.OpenADRWireNames</c>.
+        /// </summary>
+        /// <param name="Binding">How OpenADR goes over the connection.</param>
+        public static ProtocolVersion OpenADR(OpenADRBinding Binding)
+
+            => new (ConnectionUse.OpenADR, ConnectionEntry.AsText(Binding));
+
+        #endregion
+
         #region (implicit) ProtocolVersion(OCPPVersion)
 
         /// <summary>
@@ -89,6 +114,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             => Use switch {
                    ConnectionUse.OCPI    => $"OCPI {Version}",
                    ConnectionUse.Modbus  => "Modbus",
+                   ConnectionUse.PKI     => "PKI",
+                   ConnectionUse.OpenADR => Version == ConnectionEntry.AsText(OpenADRBinding.REST)
+                                                ? "OpenADR (REST)"
+                                                : "OpenADR",
                    _                     => $"OCPP{Version}"
                };
 
