@@ -38,8 +38,28 @@ const connectionTypeNames: Readonly<Record<string, string>> = {
     ChargingStation:  'Charging station',
     Gateway:          'Gateway',
     PKI:              'PKI',
-    RegistrationAuthority:  'Registration authority'
+    RegistrationAuthority:  'Registration authority',
+    EMSP:             'EMSP',
+    CPO:              'Charge point operator',
+    EnergyMeter:      'Energy meter',
+    MeterReader:      'Meter reader',
+    GridOperator:     'Grid operator',
+    VEN:              'Local controller (VEN)'
 };
+
+/** What a kind of connection carries - as the node's ConnectionEntry.UseOf says it. */
+export function useOf(connectionType: string): 'OCPP' | 'OCPI' | 'Modbus' | 'OpenADR' | 'PKI' {
+    switch (connectionType) {
+        case 'EMSP':          case 'CPO':                    return 'OCPI';
+        case 'EnergyMeter':   case 'MeterReader':            return 'Modbus';
+        case 'GridOperator':  case 'VEN':                    return 'OpenADR';
+        case 'PKI':           case 'RegistrationAuthority':  return 'PKI';
+        default:                                             return 'OCPP';
+    }
+}
+
+/** The versions of OCPI a connection of OCPI may speak - ConnectionEntry.OCPIVersions. */
+const ocpiVersions: ReadonlyArray<string> = [ '2.1.1', '2.2.1', '2.3.0' ];
 
 /** Which signatures a connection may write, as the station names them. */
 const signatureFormats: ReadonlyArray<readonly [SignatureFormatsOfAConnection, string]> = [
@@ -533,6 +553,7 @@ export const connectionsPage: Page = {
                         </span>
                     </label>
 
+                    ${state.connectionTypes.length > 0 && !state.connectionTypes.some(one => useOf(one) === 'OCPP') ? nothing : html`
                     <label>Which OCPP
                         <select name="ocppVersion" ?disabled=${!mayManage}>
                             ${state.ocppVersions.map(one => html`
@@ -547,6 +568,48 @@ export const connectionsPage: Page = {
                                   : 'A URL does not say which OCPP is spoken over it, so it is said here.'}
                         </span>
                     </label>
+                    `}
+
+                    ${state.connectionTypes.some(one => useOf(one) === 'OCPI') ? html`
+                    <label data-ocpi-version>Which OCPI
+                        <select name="ocpiVersion" ?disabled=${!mayManage}>
+                            ${ocpiVersions.map(one => html`
+                                <option value="${one}" ?selected=${one === (entry?.ocpiVersion ?? '2.3.0')}>
+                                    ${one}
+                                </option>
+                            `)}
+                        </select>
+                        <span class="hint">
+                            For an EMSP or a charge point operator: a URL does not say which OCPI is spoken over it,
+                            so it is said here. Of any other connection it is not asked.
+                        </span>
+                    </label>
+                    ` : nothing}
+
+                    ${state.connectionTypes.some(one => useOf(one) === 'OpenADR') ? html`
+                    <label data-openadr-binding>Which binding of OpenADR
+                        <select name="openADRBinding" ?disabled=${!mayManage}>
+                            <option value="messages" ?selected=${(entry?.openADRBinding ?? 'messages') === 'messages'}>its JSON messages</option>
+                            <option value="rest"     ?selected=${entry?.openADRBinding === 'rest'}>its REST API in a tunnel</option>
+                        </select>
+                        <span class="hint">
+                            For a grid operator or a VEN: whether OpenADR 3.1 goes in messages over the connection,
+                            or as its REST API in a tunnel through it.
+                        </span>
+                    </label>
+                    ` : nothing}
+
+                    ${state.connectionTypes.includes('VEN') ? html`
+                    <label data-ven>Which VEN
+                        <input type="text" name="ven" class="mono" maxlength="128"
+                               placeholder="ven-01" value="${entry?.ven ?? ''}"
+                               ?disabled=${!mayManage} />
+                        <span class="hint">
+                            For a local controller that connects here: the VEN name of a local controller of this
+                            ${nodeNoun()}, which its requests are taken as. Of any other connection it is not asked.
+                        </span>
+                    </label>
+                    ` : nothing}
 
                     <label>Which HTTP
                         <select name="httpVersion" ?disabled=${!mayManage}>
@@ -903,7 +966,10 @@ export const connectionsPage: Page = {
                             <span class="chip mono" data-remote-node="${entry.id}"
                                   title="The node at its other end, as this ${nodeNoun()} speaks to it">${entry.remoteNodeId}</span>
                         ` : nothing}
-                        <span class="chip">${entry.ocppVersion}</span>
+                        <span class="chip" data-carries="${entry.id}">${useOf(entry.connectionType) === 'OCPI'    ? `OCPI ${entry.ocpiVersion ?? ''}`.trim()
+                                           : useOf(entry.connectionType) === 'OpenADR' ? `OpenADR ${entry.openADRBinding ?? 'messages'}${entry.ven ? `, VEN ${entry.ven}` : ''}`
+                                           : useOf(entry.connectionType) === 'OCPP'    ? entry.ocppVersion
+                                           : useOf(entry.connectionType)}</span>
                         ${entry.httpVersionInUse ? html`
                             <span class="chip" data-http="${entry.id}"
                                   title="${(entry.httpVersion ?? 'auto') === 'auto'
@@ -1427,6 +1493,11 @@ export const connectionsPage: Page = {
                 autoConnect:  form.querySelector<HTMLInputElement>('[name="autoConnect"]')?.checked ?? false,
                 inbound,
                 ...(form.querySelector('[name="remoteNodeId"]') !== null ? { remoteNodeId: field(form, 'remoteNodeId') } : {}),
+                // Each only for the kind of connection that carries it: the node
+                // refuses an OCPI version, a binding or a VEN anywhere else.
+                ...(useOf(field(form, 'connectionType')) === 'OCPI'    && form.querySelector('[name="ocpiVersion"]')    !== null ? { ocpiVersion:    field(form, 'ocpiVersion')    } : {}),
+                ...(useOf(field(form, 'connectionType')) === 'OpenADR' && form.querySelector('[name="openADRBinding"]') !== null ? { openADRBinding: field(form, 'openADRBinding') as 'messages' | 'rest' } : {}),
+                ...(field(form, 'connectionType') === 'VEN' && inbound && form.querySelector('[name="ven"]') !== null ? { ven: field(form, 'ven') } : {}),
                 authenticationId:    proves.startsWith('auth:') ? proves.slice(5) : null,
                 certificateId:       null,
                 identities

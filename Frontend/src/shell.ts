@@ -1,4 +1,4 @@
-import { auth } from './auth';
+import { auth, holds } from './auth';
 import { toURL } from './basePath';
 import { config } from './config';
 import { must } from './html';
@@ -96,7 +96,7 @@ export function mayOpen(Entry: MenuEntry): boolean {
     // what a kind of node adds to them.
     const held = (auth.user?.permissions ?? []) as readonly string[];
 
-    return needs.some(permission => held.includes(permission));
+    return needs.some(permission => holds(held, permission));
 
 }
 

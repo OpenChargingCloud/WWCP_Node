@@ -17,7 +17,7 @@ import type { NodeMe }       from './api/client.ts';
     querySelector: (selector: string) => selector === 'meta[name="base"]' ? { content: '/EV' } : null
 };
 
-const { auth }     = await import('./auth.ts');
+const { auth, holds } = await import('./auth.ts');
 const { request }  = await import('./api/client.ts');
 
 
@@ -74,6 +74,16 @@ describe('what somebody may do', () => {
         auth.set(null);
 
         assert.equal(auth.can('dns', 'read'), false, 'nobody signed in may do something');
+
+    });
+
+    it('is asked of a resource without regard to case, as the node takes it', () => {
+
+        // The node says "registrationauthorities:read" of the resource a PKI
+        // calls "registrationAuthorities".
+        assert.equal(holds([ 'registrationauthorities:read' ], 'registrationAuthorities:read'), true);
+        assert.equal(holds([ 'registrationauthorities:read' ], 'registrationAuthorities:edit'), false);
+        assert.equal(holds(undefined,                          'dns:read'),                      false);
 
     });
 

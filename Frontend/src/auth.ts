@@ -83,7 +83,7 @@ export class AuthState<M extends NodeMe<string> = NodeMe, R extends string = Nod
      * a button that answers 403 rather than one that works.
      */
     can(resource: R, operation: Operation): boolean {
-        return (this.user?.permissions as string[] | undefined)?.includes(`${resource}:${operation}`) ?? false;
+        return holds(this.user?.permissions as readonly string[] | undefined, `${resource}:${operation}`);
     }
 
     /** Router guard: the sign-in page with a way back, or null when signed in. */
@@ -101,6 +101,17 @@ export class AuthState<M extends NodeMe<string> = NodeMe, R extends string = Nod
             this.set(null);
     };
 
+}
+
+/**
+ * Whether the permissions a node said hold the given one. Without regard to
+ * case, as the node takes a resource: it says "registrationauthorities:read"
+ * of the resource a PKI calls "registrationAuthorities", and a page asks for it
+ * by that name.
+ */
+export function holds(permissions: readonly string[] | undefined, permission: string): boolean {
+    const wanted = permission.toLowerCase();
+    return permissions?.some(one => one.toLowerCase() === wanted) ?? false;
 }
 
 export const auth = new AuthState();

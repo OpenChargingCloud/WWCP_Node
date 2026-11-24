@@ -96,14 +96,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// <param name="LogTags">What the log says of each change, beside "auth" and "web".</param>
     /// <param name="LoginRemoved">What else is forgotten with a login, said as the end of a sentence; null for nothing.</param>
     /// <param name="Marks">What a login may be marked as beside its group, of which a login is one at most; null for nothing.</param>
+    /// <param name="WhyGroupStays">Why a group of the given id may not be removed - the groups a node lives by, a meter's SunSpec roles, say -, or null where it may; null for every group.</param>
     public sealed record WebSocketLoginRoutes(HTTPPath                             Root,
                                               Func<WebSocketLogins>                Logins,
                                               Func<ClientTrustStore>               Trust,
                                               String                               Resource,
                                               String                               LoginNoun,
                                               IReadOnlyList<String>                LogTags,
-                                              Func<User_Id, String>?               LoginRemoved  = null,
-                                              IReadOnlyList<WebSocketLoginMark>?   Marks         = null);
+                                              Func<User_Id, String>?               LoginRemoved   = null,
+                                              IReadOnlyList<WebSocketLoginMark>?   Marks          = null,
+                                              Func<String, String?>?               WhyGroupStays  = null);
 
     #endregion
 
@@ -945,6 +947,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             if (!TryIdOfPath(Request, out var id, out var badRequest))
                 return Task.FromResult(badRequest);
+
+            // A group the node lives by stays: refused here rather than made
+            // again behind the request, which would answer that it is gone.
+            if (Routes.WhyGroupStays?.Invoke(id) is String stays)
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.Conflict, stays, false));
 
             if (!Routes.Logins().TryRemoveGroup(id, out var error, out var notSaved))
                 return Task.FromResult(NotChanged(Request, HTTPStatusCode.Conflict, error, notSaved));

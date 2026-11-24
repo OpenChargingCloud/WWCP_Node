@@ -752,4 +752,77 @@ describe('the Connections page', () => {
 
     });
 
+    it('asks an EMSP which OCPI a charge point operator speaks, and nothing of OCPP or OpenADR', async () => {
+
+        const root = await opened(() => {
+            const station = aStation();
+            return { ...station,
+                     connectionTypes: [ 'CPO' ],
+                     connections:     [ { ...station.connections[0]!, connectionType: 'CPO', ocpiVersion: '2.2.1' }, station.connections[1]! ] };
+        });
+
+        // The option the page marks: happy-dom does not choose it, Chrome does.
+        const marked = (form: string, name: string): string | undefined =>
+            root.querySelector<HTMLOptionElement>(`${form} select[name="${name}"] option[selected]`)?.value;
+
+        assert.equal(root.querySelector('#add-form select[name="ocppVersion"]'),    null, 'an EMSP is asked which OCPP');
+        assert.equal(root.querySelector('#add-form select[name="openADRBinding"]'), null, 'an EMSP is asked which binding of OpenADR');
+        assert.equal(root.querySelector('#add-form [name="ven"]'),                  null, 'an EMSP is asked which VEN');
+        assert.equal(marked('form[data-edit="c1"]', 'ocpiVersion'), '2.2.1');
+        assert.equal(marked('#add-form',            'ocpiVersion'), '2.3.0');
+        assert.equal(root.querySelector('[data-carries="c1"]')?.textContent?.trim(), 'OCPI 2.2.1');
+
+        field(root, '#add-form', 'description').value = 'a CPO';
+        field(root, '#add-form', 'url').value         = 'wss://emsp.example.org:2359/cpo-01';
+        root.querySelector<HTMLSelectElement>('#add-form select[name="ocpiVersion"]')!.value = '2.1.1';
+
+        submit(root, '#add-form');
+        await until(() => lastAdded !== null, 'the connection was not written down');
+
+        assert.equal(lastAdded!.connectionType, 'CPO');
+        assert.equal(lastAdded!.ocpiVersion,    '2.1.1');
+        assert.equal(lastAdded!.openADRBinding, undefined);
+        assert.equal(lastAdded!.ven,            undefined);
+
+    });
+
+    it('asks a grid operator which VEN connects, and the binding of OpenADR, and sends the VEN only for one that connects', async () => {
+
+        const root = await opened(() => {
+            const station = aStation();
+            return { ...station,
+                     connectionTypes: [ 'VEN' ],
+                     connections:     [ { ...station.connections[0]!, connectionType: 'VEN', inbound: true, inboundName: 'lc-01',
+                                          openADRBinding: 'rest' as const, ven: 'ven-01' }, station.connections[1]! ] };
+        });
+
+        assert.equal(root.querySelector('#add-form select[name="ocpiVersion"]'), null, 'a grid operator is asked which OCPI');
+        assert.equal(root.querySelector<HTMLOptionElement>('form[data-edit="c1"] select[name="openADRBinding"] option[selected]')?.value, 'rest');
+        assert.equal(field(root, 'form[data-edit="c1"]', 'ven').value, 'ven-01');
+        assert.equal(root.querySelector('[data-carries="c1"]')?.textContent?.trim(), 'OpenADR rest, VEN ven-01');
+
+        field(root, '#add-form', 'description').value = 'a local controller';
+        field(root, '#add-form', 'url').value         = 'wss://go.example.org:2362/lc-02';
+        field(root, '#add-form', 'ven').value         = 'ven-02';
+        root.querySelector<HTMLSelectElement>('#add-form select[name="openADRBinding"]')!.value = 'messages';
+        root.querySelector<HTMLInputElement>('#add-form [name="inbound"]')!.checked = true;
+
+        submit(root, '#add-form');
+        await until(() => lastAdded !== null, 'the connection was not written down');
+
+        assert.equal(lastAdded!.connectionType, 'VEN');
+        assert.equal(lastAdded!.openADRBinding, 'messages');
+        assert.equal(lastAdded!.ven,            'ven-02');
+        assert.equal(lastAdded!.ocpiVersion,    undefined);
+
+        // One the grid operator would connect to itself names no VEN.
+        lastSaved = null;
+        root.querySelector<HTMLInputElement>('form[data-edit="c1"] [name="inbound"]')!.checked = false;
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.equal(lastSaved!.ven, undefined);
+
+    });
+
 });

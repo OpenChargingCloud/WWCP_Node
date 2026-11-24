@@ -70,6 +70,12 @@ export interface StationConnection {
     inboundName?: string;
     /** The node at its other end, by the name it is spoken to: where this node connects downwards, and so routes by it. */
     remoteNodeId?: string;
+    /** Which OCPI is spoken here: of a connection to an EMSP or a charge point operator only. */
+    ocpiVersion?:     string;
+    /** How OpenADR goes over it: of a connection to a grid operator or of a VEN only. */
+    openADRBinding?:  'messages' | 'rest';
+    /** The VEN a local controller that connects to this grid operator is taken as. */
+    ven?:             string;
     /** Whether the URL makes a TLS connection, which decides what the rest can mean. */
     secure:              boolean;
     /** Over an HTTP WebSocket, or over the SSH subsystem ocpp@open.charging.cloud. */
@@ -191,6 +197,12 @@ export interface ConnectionToSave {
     inbound?:     boolean;
     /** The node at its other end; left out, it stays as it is. */
     remoteNodeId?: string;
+    /** Which OCPI: for an EMSP or a charge point operator, and sent for nothing else. */
+    ocpiVersion?:     string;
+    /** How OpenADR goes over it: for a grid operator or a VEN, and sent for nothing else. */
+    openADRBinding?:  'messages' | 'rest';
+    /** Which VEN a local controller that connects here is: sent for that alone. */
+    ven?:             string;
     authenticationId:    string | null;
     certificateId:       string | null;
     /** The identities it names; where they are sent, they go before "certificateId". */

@@ -357,6 +357,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                                                        json["identities"] is null ? null : identities,
                                                        json.Value<Boolean?>(ConnectionEntry.InboundKey),
                                                        json.Value<String>(ConnectionEntry.RemoteNodeIdKey),
+                                                       OCPIVersion:     json.Value<String>(ConnectionEntry.OCPIVersionKey),
                                                        OpenADRBinding:  json.Value<String>(ConnectionEntry.OpenADRBindingKey),
                                                        VEN:             json.Value<String>(ConnectionEntry.VENKey)))
             {
@@ -427,6 +428,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                                                           json["identities"] is null ? null : identities,
                                                           json.Value<Boolean?>(ConnectionEntry.InboundKey),
                                                           json.Value<String>(ConnectionEntry.RemoteNodeIdKey),
+                                                          OCPIVersion:     json.Value<String>(ConnectionEntry.OCPIVersionKey),
                                                           OpenADRBinding:  json.Value<String>(ConnectionEntry.OpenADRBindingKey),
                                                           VEN:             json.Value<String>(ConnectionEntry.VENKey)))
             {
