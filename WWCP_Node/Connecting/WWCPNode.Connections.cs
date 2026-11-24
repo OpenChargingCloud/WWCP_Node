@@ -2021,6 +2021,41 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         }
 
+        #region (protected static) TurnedAwayForNow(Response, Otherwise)
+
+        /// <summary>
+        /// The longest a Retry-After of an answer that turned a connection
+        /// away for now is waited for.
+        /// </summary>
+        public static TimeSpan MaxRetryAfter { get; set; } = TimeSpan.FromMinutes(5);
+
+        /// <summary>
+        /// When to try again, where the given answer to the handshake of a
+        /// WebSocket turned it away for now rather than said no - 408, 429 or
+        /// a 5xx, as Hermod's reconnect policy tells them apart, and among them
+        /// the 503 of a door whose connection is switched off: after its
+        /// Retry-After, up to <see cref="MaxRetryAfter"/>, and not before the
+        /// given while. Null for an answer that is final - and for an attempt
+        /// that reached nobody, which is no answer.
+        /// </summary>
+        /// <param name="Response">The answer to the handshake.</param>
+        /// <param name="Otherwise">How long to wait where it says nothing, and at least.</param>
+        protected static TimeSpan? TurnedAwayForNow(HTTPResponse  Response,
+                                                    TimeSpan      Otherwise)
+        {
+
+            if (Response.HTTPRequest is null ||
+                Response.HTTPStatusCode.Code is not (408 or 429 or (>= 500 and <= 599)))
+                return null;
+
+            return WebSocketClientReconnectPolicy.RetryAfter(Response.RetryAfter, Response.Date ?? Timestamp.Now) is TimeSpan asked && asked > Otherwise
+                       ? (asked < MaxRetryAfter ? asked : MaxRetryAfter)
+                       : Otherwise;
+
+        }
+
+        #endregion
+
         /// <summary>
         /// Say that the connection is not, and how it stands.
         /// </summary>

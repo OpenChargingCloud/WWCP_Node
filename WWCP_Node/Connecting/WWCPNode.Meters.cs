@@ -316,21 +316,29 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 var unreached = response.HTTPRequest is null;
 
+                // Turned away for now - a 503 of a door whose connection is
+                // switched off, a server not up yet -: tried again then.
+                var again     = keyPins?.Refused == true ? null : TurnedAwayForNow(response, MeterConnectAgainAfter);
+
                 await DisposeQuietly(client);
 
                 Fail(Connection,
-                     unreached ? ConnectionStatus.Trying : ConnectionStatus.Refused,
+                     unreached || again is not null ? ConnectionStatus.Trying : ConnectionStatus.Refused,
                      (keyPins?.Refused == true
                           ? $"{Where} was not believed: {keyPins.WhyRefused()}"
                           : unreached
                                 ? $"{Where} could not be reached: the attempt ended before anything could be asked of it"
-                                : $"{Where} did not become a WebSocket connection: {response.HTTPStatusCode}") +
+                                : again is not null
+                                      ? $"{Where} turned it away for now: {response.HTTPStatusCode}"
+                                      : $"{Where} did not become a WebSocket connection: {response.HTTPStatusCode}") +
                      (unreached
                           ? "; it is tried again by itself."
-                          : "; that answer is final, and it is not tried again."));
+                          : again is TimeSpan then
+                                ? $"; it is tried again in {(Int64) Math.Ceiling(then.TotalSeconds)} s."
+                                : "; that answer is final, and it is not tried again."));
 
-                if (unreached)
-                    ConnectToTheMeterAgain(Connection.Id);
+                if (unreached || again is not null)
+                    ConnectToTheMeterAgain(Connection.Id, again);
 
                 return null;
 
@@ -475,14 +483,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         }
 
         /// <summary>
-        /// Connect to the meter of the given connection again after a while -
-        /// as it is written down then, if it is written down and switched on still.
+        /// Connect to the meter of the given connection again after the given
+        /// while, or <see cref="MeterConnectAgainAfter"/> - as it is written down
+        /// then, if it is written down and switched on still.
         /// </summary>
-        private void ConnectToTheMeterAgain(String ConnectionId)
+        private void ConnectToTheMeterAgain(String     ConnectionId,
+                                            TimeSpan?  After   = null)
 
             => _ = Task.Run(async () => {
 
-                       await Task.Delay(MeterConnectAgainAfter);
+                       await Task.Delay(After ?? MeterConnectAgainAfter);
 
                        if (hungUpOnTheMeters || meterLinks.ContainsKey(ConnectionId))
                            return;

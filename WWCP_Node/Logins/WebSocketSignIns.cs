@@ -102,6 +102,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         #region Properties
 
         /// <summary>
+        /// How long a back end that signed in rightly, as a connection that is
+        /// switched off, is asked to wait before it tries again: the answer it
+        /// gets is 503 with a Retry-After of this, and not the 401 of a wrong
+        /// password - switched off is for now, and its back end comes back by
+        /// itself once it is on again.
+        /// </summary>
+        public static TimeSpan       ASwitchedOffConnectionTriesAgainAfter    { get; set; } = TimeSpan.FromSeconds(60);
+
+        /// <summary>
         /// Which logins may sign in, and with what.
         /// </summary>
         public WebSocketLogins       Logins         { get; }
@@ -709,8 +718,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                         return Refuse(Connection, $"'{LoginId}' is a back end that connects to this {NodeNoun}, and asked to connect as " +
                                                   (path is null ? "nobody in particular" : $"'{path}'"));
 
+                    // Signed in rightly, as a connection switched off: not a
+                    // no, a not now - so that it comes back by itself once it
+                    // is switched on again.
                     if (!backEnd.AutoConnect)
-                        return Refuse(Connection, $"'{LoginId}' is the name '{backEnd.Description.FirstText()}' comes under, a connection that is switched off");
+                        return TurnAwayForNow(Connection, $"'{LoginId}' is the name '{backEnd.Description.FirstText()}' comes under, a connection that is switched off");
 
                     letInAsInbound(Connection, backEnd);
 
@@ -773,6 +785,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 }
 
                 return true;
+
+            }
+
+            #endregion
+
+
+            #region (local) TurnAwayForNow(Connection, Because)
+
+            // Turn away what signed in rightly, for now: 503 with a Retry-After,
+            // which a client takes as "try again then" - and nothing counted
+            // against its address, as it guessed nothing.
+            Task<HTTPResponse?> TurnAwayForNow(WebSocketServerConnection Connection, String Because)
+            {
+
+                if (saysSignIns())
+                    log.Info($"{Words.Who} at {Connection.RemoteSocket} was turned away for now: {Because}; it is asked to try again in {(Int64) Math.Ceiling(ASwitchedOffConnectionTriesAgainAfter.TotalSeconds)} s.",
+                             InboundAuthTags);
+
+                if (Connection.HTTPRequest is null)
+                    throw new InvalidOperationException(
+                              $"A connection reached the door of {Words.Port} without an HTTP request; refusing it."
+                          );
+
+                return Task.FromResult<HTTPResponse?>(
+                           new HTTPResponse.Builder(Connection.HTTPRequest) {
+                               HTTPStatusCode  = HTTPStatusCode.ServiceUnavailable,
+                               Server          = Server.HTTPServiceName,
+                               RetryAfter      = ((Int64) Math.Ceiling(ASwitchedOffConnectionTriesAgainAfter.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                               Connection      = org.GraphDefined.Vanaheimr.Hermod.HTTP.ConnectionType.Close
+                           }.AsImmutable
+                       );
 
             }
 
