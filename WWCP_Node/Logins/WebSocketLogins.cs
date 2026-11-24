@@ -242,19 +242,41 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
+        #region LoginNoun
+
+        /// <summary>
+        /// Who a login is, in what this store and the SSH logins made of it
+        /// say: "the charging station 'cs001' may now sign in" - or, at a
+        /// grid operator, "the local controller 'lc-1'".
+        /// </summary>
+        public String LoginNoun { get; }
+
+        /// <summary>
+        /// Who a login is where nothing says otherwise.
+        /// </summary>
+        public const String DefaultLoginNoun = "charging station";
+
+        #endregion
+
         #region Constructor(s)
 
         /// <summary>
         /// The logins in the given file; it need not exist yet.
         /// </summary>
+        /// <param name="Path">The file; it need not exist yet.</param>
+        /// <param name="TimeProvider">What says the time.</param>
+        /// <param name="NodeNoun">What the node calls itself.</param>
+        /// <param name="LoginNoun">Who a login is: "charging station", where nothing says otherwise.</param>
         public WebSocketLogins(String?        Path          = null,
                                      TimeProvider?  TimeProvider  = null,
-                                     String?        NodeNoun      = null)
+                                     String?        NodeNoun      = null,
+                                     String?        LoginNoun     = null)
         {
 
             this.Path          = System.IO.Path.GetFullPath(Path ?? DefaultFileName);
             this.TimeProvider  = TimeProvider ?? System.TimeProvider.System;
             this.nodeNoun      = NodeNoun;
+            this.LoginNoun     = String.IsNullOrWhiteSpace(LoginNoun) ? DefaultLoginNoun : LoginNoun.Trim();
 
             // Before anything is read, so that a controller with no file at all
             // still has the group every login falls back to.
@@ -429,7 +451,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                     if (!groups.ContainsKey(login.GroupId))
                     {
-                        Error = $"'{Path}': the charging station '{login.Login}' belongs to the group '{login.GroupId}', which is not in this file.";
+                        Error = $"'{Path}': the {LoginNoun} '{login.Login}' belongs to the group '{login.GroupId}', which is not in this file.";
                         return false;
                     }
 
@@ -437,7 +459,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     // CSMS nobody chose for this station.
                     if (login.Target is String targetId && !targets.ContainsKey(targetId))
                     {
-                        Error = $"'{Path}': the charging station '{login.Login}' is forwarded to the target '{targetId}', which is not in this file.";
+                        Error = $"'{Path}': the {LoginNoun} '{login.Login}' is forwarded to the target '{targetId}', which is not in this file.";
                         return false;
                     }
 
@@ -446,7 +468,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     foreach (var key in login.Keys)
                         if (logins.Values.FirstOrDefault(other => other.Keys.Any(known => known.Fingerprint == key.Fingerprint)) is WebSocketLogin holder)
                         {
-                            Error = $"'{Path}': the SSH key {key.Fingerprint} is listed for the charging stations '{holder.Login}' and '{login.Login}'; one key is one charging station.";
+                            Error = $"'{Path}': the SSH key {key.Fingerprint} is listed for the {LoginNoun}s '{holder.Login}' and '{login.Login}'; one key is one {LoginNoun}.";
                             return false;
                         }
 
@@ -456,7 +478,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     foreach (var keyPin in login.Pins)
                         if (logins.Values.FirstOrDefault(other => other.FindKeyPin(keyPin.Pin) is not null) is WebSocketLogin holder)
                         {
-                            Error = $"'{Path}': the key pin {keyPin.Pin} is listed for the charging stations '{holder.Login}' and '{login.Login}'; one key is one charging station.";
+                            Error = $"'{Path}': the key pin {keyPin.Pin} is listed for the {LoginNoun}s '{holder.Login}' and '{login.Login}'; one key is one {LoginNoun}.";
                             return false;
                         }
 
@@ -652,7 +674,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (members > 0)
                 {
-                    Error = $"The login group '{id}' still holds {members} charging station(s). Move them to another group first.";
+                    Error = $"The login group '{id}' still holds {members} {LoginNoun}(s). Move them to another group first.";
                     return false;
                 }
 
@@ -712,7 +734,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -734,7 +756,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice, $"The charging station '{Login}' is now in the login group '{groupId}'.");
+                OnNotice?.Invoke(LogLevel.Notice, $"The {LoginNoun} '{Login}' is now in the login group '{groupId}'.");
 
             }
 
@@ -806,19 +828,19 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
             if (password.Length == 0)
             {
-                Error = $"A charging station password must be at least {MinPasswordLength} characters long!";
+                Error = $"A {LoginNoun} password must be at least {MinPasswordLength} characters long!";
                 return false;
             }
 
             if (password.Length < MinPasswordLength)
             {
-                Error = $"A charging station password must be at least {MinPasswordLength} characters long; OCPP asks for that much.";
+                Error = $"A {LoginNoun} password must be at least {MinPasswordLength} characters long{(LoginNoun == DefaultLoginNoun ? "; OCPP asks for that much" : "")}.";
                 return false;
             }
 
             if (password.Length > MaxPasswordLength)
             {
-                Error = $"A charging station password may be at most {MaxPasswordLength} characters long.";
+                Error = $"A {LoginNoun} password may be at most {MaxPasswordLength} characters long.";
                 return false;
             }
 
@@ -828,8 +850,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                        GroupId,
                        login   => login with { Password = SecurePassword.Create(password) },
                        existed => existed
-                                      ? $"The password of the charging station '{login}' was changed."
-                                      : $"The charging station '{login}' may now sign in to this {NodeNoun}.",
+                                      ? $"The password of the {LoginNoun} '{login}' was changed."
+                                      : $"The {LoginNoun} '{login}' may now sign in to this {NodeNoun}.",
                        out Error,
                        out NotSaved
                    );
@@ -921,8 +943,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                      // quietly.
                      login => login with { TOTP = settings with { TLSChannelBinding = login.TOTP?.TLSChannelBinding ?? false } },
                      existed => existed
-                                    ? $"The TOTP configuration of the charging station '{login}' was changed: {settings}."
-                                    : $"The charging station '{login}' may now sign in to this {NodeNoun} with a one-time token.",
+                                    ? $"The TOTP configuration of the {LoginNoun} '{login}' was changed: {settings}."
+                                    : $"The {LoginNoun} '{login}' may now sign in to this {NodeNoun} with a one-time token.",
                      out Error,
                      out NotSaved
                ))
@@ -964,9 +986,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                         login => login.HasTOTP,
                         login => login with { TOTP = login.TOTP! with { TLSChannelBinding = Bound } },
                         Bound
-                            ? $"The one-time token of the charging station '{Login}' has to be bound to the TLS session of its connection from now on: it signs in over HTTP/3 only."
-                            : $"The one-time token of the charging station '{Login}' need no longer be bound to the TLS session of its connection.",
-                        $"The charging station '{Login}' has no TOTP configuration to bind.",
+                            ? $"The one-time token of the {LoginNoun} '{Login}' has to be bound to the TLS session of its connection from now on: it signs in over HTTP/3 only."
+                            : $"The one-time token of the {LoginNoun} '{Login}' need no longer be bound to the TLS session of its connection.",
+                        $"The {LoginNoun} '{Login}' has no TOTP configuration to bind.",
                         out Error,
                         out NotSaved);
 
@@ -995,8 +1017,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             => TryClear(Login,
                         login => login.HasPassword,
                         login => login with { Password = null },
-                        $"The charging station '{Login}' can no longer sign in with a password.",
-                        $"The charging station '{Login}' has no password to take away.",
+                        $"The {LoginNoun} '{Login}' can no longer sign in with a password.",
+                        $"The {LoginNoun} '{Login}' has no password to take away.",
                         out Error,
                         out NotSaved);
 
@@ -1021,8 +1043,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             => TryClear(Login,
                         login => login.HasTOTP,
                         login => login with { TOTP = null },
-                        $"The charging station '{Login}' can no longer sign in with a one-time token.",
-                        $"The charging station '{Login}' has no TOTP configuration to take away.",
+                        $"The {LoginNoun} '{Login}' can no longer sign in with a one-time token.",
+                        $"The {LoginNoun} '{Login}' has no TOTP configuration to take away.",
                         out Error,
                         out NotSaved);
 
@@ -1123,7 +1145,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             if (key.Key.IsCertAuthority)
             {
                 Error = "That is a cert-authority line, which vouches for SSH certificates rather than signing in itself. " +
-                        "A charging station signs in with a key of its own: give its public key.";
+                        $"A {LoginNoun} signs in with a key of its own: give its public key.";
                 return false;
             }
 
@@ -1134,7 +1156,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (existing is null && logins.Count >= MaxStations)
                 {
-                    Error = $"At most {MaxStations} charging stations may be listed here.";
+                    Error = $"At most {MaxStations} {LoginNoun}s may be listed here.";
                     return false;
                 }
 
@@ -1152,9 +1174,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 {
 
                     Error = holder.Login == Login
-                                ? $"The charging station '{Login}' has the SSH key {key.Fingerprint} already."
-                                : $"The SSH key {key.Fingerprint} already lets the charging station '{holder.Login}' in. " +
-                                   "One key is one charging station: give this one a key of its own.";
+                                ? $"The {LoginNoun} '{Login}' has the SSH key {key.Fingerprint} already."
+                                : $"The SSH key {key.Fingerprint} already lets the {LoginNoun} '{holder.Login}' in. " +
+                                   $"One key is one {LoginNoun}: give this one a key of its own.";
 
                     return false;
 
@@ -1162,7 +1184,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (existing is not null && existing.Keys.Count >= WebSocketLogin.MaxSSHKeys)
                 {
-                    Error = $"A charging station may have at most {WebSocketLogin.MaxSSHKeys} SSH keys; take an old one away first.";
+                    Error = $"A {LoginNoun} may have at most {WebSocketLogin.MaxSSHKeys} SSH keys; take an old one away first.";
                     return false;
                 }
 
@@ -1197,8 +1219,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 OnNotice?.Invoke(
                     LogLevel.Notice,
                     existing is not null
-                        ? $"The charging station '{Login}' may now sign in with the SSH key {key}."
-                        : $"The charging station '{Login}' may now sign in to this {NodeNoun}, with the SSH key {key}."
+                        ? $"The {LoginNoun} '{Login}' may now sign in with the SSH key {key}."
+                        : $"The {LoginNoun} '{Login}' may now sign in to this {NodeNoun}, with the SSH key {key}."
                 );
 
             }
@@ -1249,7 +1271,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -1257,7 +1279,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (key is null)
                 {
-                    Error = $"The charging station '{Login}' has no SSH key {Fingerprint}.";
+                    Error = $"The {LoginNoun} '{Login}' has no SSH key {Fingerprint}.";
                     return false;
                 }
 
@@ -1272,7 +1294,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice, $"The charging station '{Login}' can no longer sign in with the SSH key {key}.");
+                OnNotice?.Invoke(LogLevel.Notice, $"The {LoginNoun} '{Login}' can no longer sign in with the SSH key {key}.");
 
             }
 
@@ -1347,7 +1369,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (existing is null && logins.Count >= MaxStations)
                 {
-                    Error = $"At most {MaxStations} charging stations may be listed here.";
+                    Error = $"At most {MaxStations} {LoginNoun}s may be listed here.";
                     return false;
                 }
 
@@ -1364,15 +1386,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 if (logins.Values.FirstOrDefault(login => login.FindKeyPin(keyPin.Pin) is not null) is WebSocketLogin holder)
                 {
                     Error = holder.Login == Login
-                                ? $"The charging station '{Login}' has the key pin {keyPin.Pin} already."
-                                : $"The key pin {keyPin.Pin} already lets the charging station '{holder.Login}' in. " +
-                                   "One key is one charging station: give this one a key of its own.";
+                                ? $"The {LoginNoun} '{Login}' has the key pin {keyPin.Pin} already."
+                                : $"The key pin {keyPin.Pin} already lets the {LoginNoun} '{holder.Login}' in. " +
+                                   $"One key is one {LoginNoun}: give this one a key of its own.";
                     return false;
                 }
 
                 if (existing is not null && existing.Pins.Count >= WebSocketLogin.MaxKeyPins)
                 {
-                    Error = $"A charging station may have at most {WebSocketLogin.MaxKeyPins} key pins; take an old one away first.";
+                    Error = $"A {LoginNoun} may have at most {WebSocketLogin.MaxKeyPins} key pins; take an old one away first.";
                     return false;
                 }
 
@@ -1409,8 +1431,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 OnNotice?.Invoke(
                     LogLevel.Notice,
                     existing is not null
-                        ? $"The charging station '{Login}' may now sign in with the key pin {keyPin}."
-                        : $"The charging station '{Login}' may now sign in to this {NodeNoun}, with the key pin {keyPin}."
+                        ? $"The {LoginNoun} '{Login}' may now sign in with the key pin {keyPin}."
+                        : $"The {LoginNoun} '{Login}' may now sign in to this {NodeNoun}, with the key pin {keyPin}."
                 );
 
             }
@@ -1468,7 +1490,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -1476,7 +1498,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (keyPin is null)
                 {
-                    Error = $"The charging station '{Login}' has no key pin {pin}.";
+                    Error = $"The {LoginNoun} '{Login}' has no key pin {pin}.";
                     return false;
                 }
 
@@ -1491,7 +1513,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice, $"The charging station '{Login}' can no longer sign in with the key pin {keyPin}.");
+                OnNotice?.Invoke(LogLevel.Notice, $"The {LoginNoun} '{Login}' can no longer sign in with the key pin {keyPin}.");
 
             }
 
@@ -1534,7 +1556,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -1553,8 +1575,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 OnNotice?.Invoke(
                     LogLevel.Notice,
                     Enabled
-                        ? $"The charging station '{Login}' may sign in again."
-                        : $"The charging station '{Login}' may no longer sign in."
+                        ? $"The {LoginNoun} '{Login}' may sign in again."
+                        : $"The {LoginNoun} '{Login}' may no longer sign in."
                 );
 
             }
@@ -1605,7 +1627,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -1691,7 +1713,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -1971,7 +1993,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -1996,8 +2018,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 OnNotice?.Invoke(
                     LogLevel.Notice,
                     targetId is not null
-                        ? $"What the charging station '{Login}' sends up goes to the target '{targetId}' now."
-                        : $"What the charging station '{Login}' sends up goes to the back end in charge of this {NodeNoun} now."
+                        ? $"What the {LoginNoun} '{Login}' sends up goes to the target '{targetId}' now."
+                        : $"What the {LoginNoun} '{Login}' sends up goes to the back end in charge of this {NodeNoun} now."
                 );
 
             }
@@ -2074,7 +2096,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -2087,7 +2109,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice, $"The charging station '{Login}' was removed; it can no longer sign in.");
+                OnNotice?.Invoke(LogLevel.Notice, $"The {LoginNoun} '{Login}' was removed; it can no longer sign in.");
 
             }
 
@@ -2401,11 +2423,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// <summary>
         /// What every way of adding a charging station has to check first.
         /// </summary>
-        private static Boolean TryCheckLoginAndDescription(User_Id                           Login,
-                                                           I18NString?                       Description,
-                                                           out User_Id                       CheckedLogin,
-                                                           out I18NString?                   CheckedDescription,
-                                                           [NotNullWhen(false)] out String?  Error)
+        private Boolean TryCheckLoginAndDescription(User_Id                           Login,
+                                                    I18NString?                       Description,
+                                                    out User_Id                       CheckedLogin,
+                                                    out I18NString?                   CheckedDescription,
+                                                    [NotNullWhen(false)] out String?  Error)
         {
 
             CheckedLogin        = Login;
@@ -2414,13 +2436,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
             if (CheckedLogin.Length == 0)
             {
-                Error = "A charging station needs a login it signs in with.";
+                Error = $"A {LoginNoun} needs a login it signs in with.";
                 return false;
             }
 
             if (CheckedLogin.Length > MaxIdLength)
             {
-                Error = $"A charging station login may be at most {MaxIdLength} characters long.";
+                Error = $"A {LoginNoun} login may be at most {MaxIdLength} characters long.";
                 return false;
             }
 
@@ -2452,7 +2474,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.ContainsKey(Login) && logins.Count >= MaxStations)
                 {
-                    Error = $"At most {MaxStations} charging stations may be listed here.";
+                    Error = $"At most {MaxStations} {LoginNoun}s may be listed here.";
                     return false;
                 }
 
@@ -2527,7 +2549,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.TryGetValue(Login, out var login))
                 {
-                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    Error = $"This {NodeNoun} has never heard of a {LoginNoun} called '{Login}'.";
                     return false;
                 }
 
@@ -2626,7 +2648,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public override String ToString()
         {
             lock (updateLock)
-                return $"{logins.Values.Count(login => login.Enabled)} of {logins.Count} charging station(s) " +
+                return $"{logins.Values.Count(login => login.Enabled)} of {logins.Count} {LoginNoun}(s) " +
                        $"in {groups.Count} group(s) may sign in";
         }
 

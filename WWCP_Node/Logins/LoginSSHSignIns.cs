@@ -415,7 +415,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     !letInWithPassword.TryGetValue(Session.Username, out var cameWithPassword) ||
                     !password.Equals(cameWithPassword))
                 {
-                    return $"the password the charging station '{Session.Username}' signed in with is no longer the one it has here - changed or taken away";
+                    return $"the password the {logins.LoginNoun} '{Session.Username}' signed in with is no longer the one it has here - changed or taken away";
                 }
 
                 return null;
@@ -423,7 +423,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             }
 
             if (Session.Method != SshSessionBoundTotp.MethodName)
-                return $"the charging station '{Session.Username}' signed in with neither an SSH key, a one-time password of its session nor its password";
+                return $"the {logins.LoginNoun} '{Session.Username}' signed in with neither an SSH key, a one-time password of its session nor its password";
 
             if (WhyNotLetInWithTotp(Session.Username, Saying: false) is String why)
                 return why;
@@ -433,7 +433,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 !letInWith.TryGetValue(Session.Username, out var cameWith) ||
                 login.TOTP != cameWith)
             {
-                return $"the TOTP secret the charging station '{Session.Username}' signed in with is no longer the one it has here - changed or taken away";
+                return $"the TOTP secret the {logins.LoginNoun} '{Session.Username}' signed in with is no longer the one it has here - changed or taken away";
             }
 
             return null;
@@ -457,24 +457,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 return "OCPP-over-SSH is switched off";
 
             if (!logins.TryGet(Login, out var login))
-                return $"there is no charging station '{Login}' any more";
+                return $"there is no {logins.LoginNoun} '{Login}' any more";
 
             String? why = null;
 
             if (!login.HasTOTP)
-                why = $"the charging station '{Login}' has no TOTP secret here any more";
+                why = $"the {logins.LoginNoun} '{Login}' has no TOTP secret here any more";
 
             else if (!login.Enabled)
-                why = $"the charging station '{Login}' is switched off here";
+                why = $"the {logins.LoginNoun} '{Login}' is switched off here";
 
             else if (logins.GroupOf(login) is not WebSocketLoginGroup group)
-                why = $"the charging station '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
+                why = $"the {logins.LoginNoun} '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
 
             else if (!group.Enabled)
-                why = $"the charging station '{Login}' is in the login group '{group.Id}', which is switched off";
+                why = $"the {logins.LoginNoun} '{Login}' is in the login group '{group.Id}', which is switched off";
 
             else if (!group.Allows(AuthMethod.TOTP))
-                why = $"the charging station '{Login}' is in the login group '{group.Id}', which does not accept one-time passwords";
+                why = $"the {logins.LoginNoun} '{Login}' is in the login group '{group.Id}', which does not accept one-time passwords";
 
             if (why is not null && Saying)
                 Say(Login, why, timeProvider.GetUtcNow());
@@ -501,24 +501,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 return "OCPP-over-SSH is switched off";
 
             if (!logins.TryGet(Login, out var login))
-                return $"there is no charging station '{Login}' any more";
+                return $"there is no {logins.LoginNoun} '{Login}' any more";
 
             String? why = null;
 
             if (!login.HasPassword)
-                why = $"the charging station '{Login}' has no password here any more";
+                why = $"the {logins.LoginNoun} '{Login}' has no password here any more";
 
             else if (!login.Enabled)
-                why = $"the charging station '{Login}' is switched off here";
+                why = $"the {logins.LoginNoun} '{Login}' is switched off here";
 
             else if (logins.GroupOf(login) is not WebSocketLoginGroup group)
-                why = $"the charging station '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
+                why = $"the {logins.LoginNoun} '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
 
             else if (!group.Enabled)
-                why = $"the charging station '{Login}' is in the login group '{group.Id}', which is switched off";
+                why = $"the {logins.LoginNoun} '{Login}' is in the login group '{group.Id}', which is switched off";
 
             else if (!group.Allows(AuthMethod.Basic))
-                why = $"the charging station '{Login}' is in the login group '{group.Id}', which does not accept passwords";
+                why = $"the {logins.LoginNoun} '{Login}' is in the login group '{group.Id}', which does not accept passwords";
 
             if (why is not null && Saying)
                 Say(Login, why, timeProvider.GetUtcNow());
@@ -544,7 +544,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 return "OCPP-over-SSH is switched off";
 
             if (!logins.TryGet(Login, out var login))
-                return $"there is no charging station '{Login}' any more";
+                return $"there is no {logins.LoginNoun} '{Login}' any more";
 
             var now = timeProvider.GetUtcNow();
 
@@ -552,21 +552,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
             // server's own line; a key of the station that is refused for what
             // somebody configured is worth saying why.
             if (login.FindSSHKey(PublicKeyBlob, now) is null)
-                return $"the key {SshFingerprint.Sha256(PublicKeyBlob)} is no longer one the charging station '{Login}' signs in with - taken out, switched off or expired";
+                return $"the key {SshFingerprint.Sha256(PublicKeyBlob)} is no longer one the {logins.LoginNoun} '{Login}' signs in with - taken out, switched off or expired";
 
             String? why = null;
 
             if (!login.Enabled)
-                why = $"the charging station '{Login}' is switched off here";
+                why = $"the {logins.LoginNoun} '{Login}' is switched off here";
 
             else if (logins.GroupOf(login) is not WebSocketLoginGroup group)
-                why = $"the charging station '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
+                why = $"the {logins.LoginNoun} '{Login}' belongs to the login group '{login.GroupId}', which this {logins.NodeNoun} does not have";
 
             else if (!group.Enabled)
-                why = $"the charging station '{Login}' is in the login group '{group.Id}', which is switched off";
+                why = $"the {logins.LoginNoun} '{Login}' is in the login group '{group.Id}', which is switched off";
 
             else if (!group.Allows(AuthMethod.SSHKey))
-                why = $"the charging station '{Login}' is in the login group '{group.Id}', which does not accept SSH keys";
+                why = $"the {logins.LoginNoun} '{Login}' is in the login group '{group.Id}', which does not accept SSH keys";
 
             if (why is not null && Saying)
                 Say(Login, why, now);
@@ -594,7 +594,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
             said[key] = Now;
 
-            OnNotice?.Invoke(LogLevel.Warning, $"A charging station signing in over SSH was turned away: {Why}.");
+            OnNotice?.Invoke(LogLevel.Warning, $"A {logins.LoginNoun} signing in over SSH was turned away: {Why}.");
 
         }
 
