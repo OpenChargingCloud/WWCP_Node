@@ -218,6 +218,9 @@ export const connectionsPage: Page = {
          */
         const types     = new Map<string, string>();
 
+        /** Whether the other end connects, as ticked in a form and not saved yet, by the form: a VEN is asked of one that does. */
+        const inbounds  = new Map<string, boolean>();
+
         // What the certificate store keeps for the servers of the OCPP
         // connections: the roots and certificates a pin can be picked from.
         let offers: StoreOffers | null = null;
@@ -411,7 +414,8 @@ export const connectionsPage: Page = {
                 <label class="checkbox" data-inbound>
                     <input type="checkbox" name="inbound"
                            ?checked=${entry?.inbound ?? false}
-                           ?disabled=${!mayManage} />
+                           ?disabled=${!mayManage}
+                           @change=${(event: Event) => tickInbound(id, (event.target as HTMLInputElement).checked)} />
                     The other end connects - it comes to this ${nodeNoun()}'s OCPP server
                     <span class="hint">
                         For a CSMS or a local controller this ${nodeNoun()} cannot reach, and that can reach it.
@@ -607,15 +611,14 @@ export const connectionsPage: Page = {
                     </label>
                     `}
 
-                    ${type !== 'VEN' ? nothing : html`
+                    ${type !== 'VEN' || !inboundIn(id, entry) ? nothing : html`
                     <label data-ven>Which VEN
                         <input type="text" name="ven" class="mono" maxlength="128"
                                placeholder="ven-01" value="${entry?.ven ?? ''}"
                                ?disabled=${!mayManage} />
                         <span class="hint">
-                            Where the local controller connects here: the VEN name of a local controller of this
-                            ${nodeNoun()}, which its requests are taken as. Where this ${nodeNoun()} would connect
-                            to it, nothing is sent of it.
+                            The VEN name of a local controller of this ${nodeNoun()}, which the requests of the one
+                            that connects here are taken as.
                         </span>
                     </label>
                     `}
@@ -716,6 +719,17 @@ export const connectionsPage: Page = {
         /** A kind of connection was picked: what is asked of it follows. */
         function pickType(id: string, type: string): void {
             types.set(id, type);
+            draw();
+        }
+
+        /** Whether the other end of a form connects: as ticked, or as written down. */
+        function inboundIn(id: string, entry: StationConnection | null): boolean {
+            return inbounds.get(id) ?? entry?.inbound ?? false;
+        }
+
+        /** Ticked whether the other end connects, or not: what is asked of it follows. */
+        function tickInbound(id: string, inbound: boolean): void {
+            inbounds.set(id, inbound);
             draw();
         }
 
@@ -1585,6 +1599,7 @@ export const connectionsPage: Page = {
             typedURLs.delete(id);
             ways.     delete(id);
             types.    delete(id);
+            inbounds. delete(id);
         }
 
         async function add(event: SubmitEvent): Promise<void> {
@@ -1861,6 +1876,7 @@ export const connectionsPage: Page = {
             typedURLs.clear();
             ways.     clear();
             types.    clear();
+            inbounds. clear();
             await load();
             if (!cancelled) {
                 content.querySelectorAll('form').forEach(form => form.reset());

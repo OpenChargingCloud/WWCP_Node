@@ -803,9 +803,12 @@ describe('the Connections page', () => {
 
         field(root, '#add-form', 'description').value = 'a local controller';
         field(root, '#add-form', 'url').value         = 'wss://go.example.org:2362/lc-02';
-        field(root, '#add-form', 'ven').value         = 'ven-02';
         root.querySelector<HTMLSelectElement>('#add-form select[name="openADRBinding"]')!.value = 'messages';
-        root.querySelector<HTMLInputElement>('#add-form [name="inbound"]')!.checked = true;
+
+        // A VEN is asked of a local controller that connects here, and only then.
+        assert.equal(root.querySelector('#add-form [name="ven"]'), null, 'a VEN is asked of one this node would connect to');
+        change(root.querySelector<HTMLInputElement>('#add-form [name="inbound"]')!, true);
+        field(root, '#add-form', 'ven').value         = 'ven-02';
 
         submit(root, '#add-form');
         await until(() => lastAdded !== null, 'the connection was not written down');
@@ -817,7 +820,8 @@ describe('the Connections page', () => {
 
         // One the grid operator would connect to itself names no VEN.
         lastSaved = null;
-        root.querySelector<HTMLInputElement>('form[data-edit="c1"] [name="inbound"]')!.checked = false;
+        change(root.querySelector<HTMLInputElement>('form[data-edit="c1"] [name="inbound"]')!, false);
+        assert.equal(root.querySelector('form[data-edit="c1"] [name="ven"]'), null, 'the VEN stays asked once the box is cleared');
         submit(root, 'form[data-edit="c1"]');
         await until(() => lastSaved !== null, 'the connection was not saved');
 
@@ -849,15 +853,17 @@ describe('the Connections page', () => {
         assert.deepEqual(asked('#add-form'), [ 'ocpiVersion' ]);
 
         change(root.querySelector<HTMLSelectElement>('#add-form select[name="connectionType"]')!, 'VEN');
-        assert.deepEqual(asked('#add-form'), [ 'openADRBinding', 'ven' ]);
+        assert.deepEqual(asked('#add-form'), [ 'openADRBinding' ], 'a VEN is asked before the box says it connects');
         assert.deepEqual(asked('form[data-edit="c1"]'), [ 'ocpiVersion' ], 'another form follows what was picked in this one');
 
         assert.equal(field(root, '#add-form', 'description').value, 'a local controller', 'what was typed is gone');
         assert.equal(field(root, '#add-form', 'url').value,         'wss://go.example.org:2362/lc-02');
 
-        field(root, '#add-form', 'ven').value = 'ven-02';
         root.querySelector<HTMLSelectElement>('#add-form select[name="openADRBinding"]')!.value = 'rest';
-        root.querySelector<HTMLInputElement>('#add-form [name="inbound"]')!.checked = true;
+        change(root.querySelector<HTMLInputElement>('#add-form [name="inbound"]')!, true);
+        assert.deepEqual(asked('#add-form'), [ 'openADRBinding', 'ven' ]);
+        assert.equal(field(root, '#add-form', 'url').value, 'wss://go.example.org:2362/lc-02', 'what was typed is gone');
+        field(root, '#add-form', 'ven').value = 'ven-02';
 
         submit(root, '#add-form');
         await until(() => lastAdded !== null, 'the connection was not written down');
