@@ -76,12 +76,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <param name="Server">The file server it goes to.</param>
     /// <param name="Login">The login it is signed in under.</param>
     /// <param name="Shared">Whether it goes as one more channel of the node's connection to that peer.</param>
+    /// <param name="HTTPLocation">What an "http://" or "https://" URL names, where it could be read and is allowed.</param>
+    /// <param name="HTTPServer">The HTTP file server it goes to.</param>
     public sealed record FileTransferJudgement(FileTransferRefusal  Refusal,
                                                String               Why,
-                                               SFTPLocation?        Location  = null,
-                                               SSHFileServer?       Server    = null,
-                                               User_Id?             Login     = null,
-                                               Boolean              Shared    = false)
+                                               SFTPLocation?        Location      = null,
+                                               SSHFileServer?       Server        = null,
+                                               User_Id?             Login         = null,
+                                               Boolean              Shared        = false,
+                                               Uri?                 HTTPLocation  = null,
+                                               HTTPFileServer?      HTTPServer    = null)
     {
 
         /// <summary>
@@ -140,7 +144,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         Failed,
 
         /// <summary>The transfer was cancelled.</summary>
-        Cancelled
+        Cancelled,
+
+        /// <summary>An HTTP file server showed a TLS certificate the node does not believe. Never tried again.</summary>
+        CertificateRefused,
+
+        /// <summary>An HTTP file server does not take a PUT there: 405 or 501. Not tried again.</summary>
+        MethodNotAllowed,
+
+        /// <summary>An HTTP file server answered with another status that says the request was wrong: a redirect, 400, 409, ... Not tried again.</summary>
+        RejectedByServer
 
     }
 
