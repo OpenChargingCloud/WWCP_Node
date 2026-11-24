@@ -18,7 +18,7 @@
  * Run with `npm test`.
  */
 
-import { field, leave, open, refused, submit, until, type Asked } from '../../../test/node.ts';
+import { change, field, leave, open, refused, submit, until, type Asked } from '../../../test/node.ts';
 import { chromeTakesTheFocus } from '../../../test/dom.ts';
 
 import { strict as assert }     from 'node:assert';
@@ -822,6 +822,54 @@ describe('the Connections page', () => {
         await until(() => lastSaved !== null, 'the connection was not saved');
 
         assert.equal(lastSaved!.ven, undefined);
+
+    });
+
+    it('asks what the kind of connection picked carries, as soon as it is picked, and keeps what was typed', async () => {
+
+        // A node with connections of OCPP, OCPI and OpenADR alike.
+        const root = await opened(() => {
+            const station = aStation();
+            return { ...station,
+                     connectionTypes: [ 'CSMS', 'CPO', 'VEN' ],
+                     connections:     [ { ...station.connections[0]!, connectionType: 'CPO', ocpiVersion: '2.2.1' }, station.connections[1]! ] };
+        });
+
+        const asked = (form: string): string[] =>
+            [ 'ocppVersion', 'ocpiVersion', 'openADRBinding', 'ven' ].filter(name => root.querySelector(`${form} [name="${name}"]`) !== null);
+
+        assert.deepEqual(asked('#add-form'),            [ 'ocppVersion' ],  'a CSMS, the first kind, is asked its OCPP alone');
+        assert.deepEqual(asked('form[data-edit="c1"]'), [ 'ocpiVersion' ],  'a CPO written down is asked its OCPI alone');
+        assert.deepEqual(asked('form[data-edit="c2"]'), [ 'ocppVersion' ]);
+
+        field(root, '#add-form', 'description').value = 'a local controller';
+        field(root, '#add-form', 'url').value         = 'wss://go.example.org:2362/lc-02';
+
+        change(root.querySelector<HTMLSelectElement>('#add-form select[name="connectionType"]')!, 'CPO');
+        assert.deepEqual(asked('#add-form'), [ 'ocpiVersion' ]);
+
+        change(root.querySelector<HTMLSelectElement>('#add-form select[name="connectionType"]')!, 'VEN');
+        assert.deepEqual(asked('#add-form'), [ 'openADRBinding', 'ven' ]);
+        assert.deepEqual(asked('form[data-edit="c1"]'), [ 'ocpiVersion' ], 'another form follows what was picked in this one');
+
+        assert.equal(field(root, '#add-form', 'description').value, 'a local controller', 'what was typed is gone');
+        assert.equal(field(root, '#add-form', 'url').value,         'wss://go.example.org:2362/lc-02');
+
+        field(root, '#add-form', 'ven').value = 'ven-02';
+        root.querySelector<HTMLSelectElement>('#add-form select[name="openADRBinding"]')!.value = 'rest';
+        root.querySelector<HTMLInputElement>('#add-form [name="inbound"]')!.checked = true;
+
+        submit(root, '#add-form');
+        await until(() => lastAdded !== null, 'the connection was not written down');
+
+        assert.equal(lastAdded!.connectionType, 'VEN');
+        assert.equal(lastAdded!.ocppVersion,    '', 'a VEN is sent an OCPP version');
+        assert.equal(lastAdded!.openADRBinding, 'rest');
+        assert.equal(lastAdded!.ven,            'ven-02');
+
+        // Written down, the form is empty again, and asks of the first kind.
+        await until(() => root.querySelector('#add-note')?.textContent === 'Written down.', 'the connection was not written down');
+        assert.deepEqual(asked('#add-form'), [ 'ocppVersion' ]);
 
     });
 

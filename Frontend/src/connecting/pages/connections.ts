@@ -211,6 +211,13 @@ export const connectionsPage: Page = {
         /** The way picked in a form and not saved yet, by the form: what is shown below the choice follows it at once. */
         const ways      = new Map<string, string>();
 
+        /**
+         * The kind of connection picked in a form and not saved yet, by the
+         * form: what is asked of it - the version of OCPP or of OCPI, the
+         * binding of OpenADR, the VEN - follows it at once.
+         */
+        const types     = new Map<string, string>();
+
         // What the certificate store keeps for the servers of the OCPP
         // connections: the roots and certificates a pin can be picked from.
         let offers: StoreOffers | null = null;
@@ -357,6 +364,7 @@ export const connectionsPage: Page = {
         function theFields(id: string, entry: StationConnection | null, state: StationConnections): TemplateResult {
 
             const chosen = chosenOf(entry);
+            const type   = typeIn(id, entry, state);
 
             return html`
 
@@ -536,9 +544,10 @@ export const connectionsPage: Page = {
                 <div class="form-row">
 
                     <label>What is at the other end
-                        <select name="connectionType" ?disabled=${!mayManage}>
+                        <select name="connectionType" ?disabled=${!mayManage}
+                                @change=${(event: Event) => pickType(id, (event.target as HTMLSelectElement).value)}>
                             ${state.connectionTypes.map(one => html`
-                                <option value="${one}" ?selected=${one === (entry?.connectionType ?? state.connectionTypes[0] ?? 'CSMS')}>
+                                <option value="${one}" ?selected=${one === type}>
                                     ${connectionTypeNames[one] ?? one}
                                 </option>
                             `)}
@@ -553,8 +562,8 @@ export const connectionsPage: Page = {
                         </span>
                     </label>
 
-                    ${state.connectionTypes.length > 0 && !state.connectionTypes.some(one => useOf(one) === 'OCPP') ? nothing : html`
-                    <label>Which OCPP
+                    ${useOf(type) !== 'OCPP' ? nothing : html`
+                    <label data-ocpp-version>Which OCPP
                         <select name="ocppVersion" ?disabled=${!mayManage}>
                             ${state.ocppVersions.map(one => html`
                                 <option value="${one}" ?selected=${one === (entry?.ocppVersion ?? 'OCPP2.1')}>
@@ -570,7 +579,7 @@ export const connectionsPage: Page = {
                     </label>
                     `}
 
-                    ${state.connectionTypes.some(one => useOf(one) === 'OCPI') ? html`
+                    ${useOf(type) !== 'OCPI' ? nothing : html`
                     <label data-ocpi-version>Which OCPI
                         <select name="ocpiVersion" ?disabled=${!mayManage}>
                             ${ocpiVersions.map(one => html`
@@ -580,36 +589,36 @@ export const connectionsPage: Page = {
                             `)}
                         </select>
                         <span class="hint">
-                            For an EMSP or a charge point operator: a URL does not say which OCPI is spoken over it,
-                            so it is said here. Of any other connection it is not asked.
+                            A URL does not say which OCPI is spoken over it, so it is said here.
                         </span>
                     </label>
-                    ` : nothing}
+                    `}
 
-                    ${state.connectionTypes.some(one => useOf(one) === 'OpenADR') ? html`
+                    ${useOf(type) !== 'OpenADR' ? nothing : html`
                     <label data-openadr-binding>Which binding of OpenADR
                         <select name="openADRBinding" ?disabled=${!mayManage}>
                             <option value="messages" ?selected=${(entry?.openADRBinding ?? 'messages') === 'messages'}>its JSON messages</option>
                             <option value="rest"     ?selected=${entry?.openADRBinding === 'rest'}>its REST API in a tunnel</option>
                         </select>
                         <span class="hint">
-                            For a grid operator or a VEN: whether OpenADR 3.1 goes in messages over the connection,
-                            or as its REST API in a tunnel through it.
+                            Whether OpenADR 3.1 goes in messages over the connection, or as its REST API in a tunnel
+                            through it.
                         </span>
                     </label>
-                    ` : nothing}
+                    `}
 
-                    ${state.connectionTypes.includes('VEN') ? html`
+                    ${type !== 'VEN' ? nothing : html`
                     <label data-ven>Which VEN
                         <input type="text" name="ven" class="mono" maxlength="128"
                                placeholder="ven-01" value="${entry?.ven ?? ''}"
                                ?disabled=${!mayManage} />
                         <span class="hint">
-                            For a local controller that connects here: the VEN name of a local controller of this
-                            ${nodeNoun()}, which its requests are taken as. Of any other connection it is not asked.
+                            Where the local controller connects here: the VEN name of a local controller of this
+                            ${nodeNoun()}, which its requests are taken as. Where this ${nodeNoun()} would connect
+                            to it, nothing is sent of it.
                         </span>
                     </label>
-                    ` : nothing}
+                    `}
 
                     <label>Which HTTP
                         <select name="httpVersion" ?disabled=${!mayManage}>
@@ -696,6 +705,17 @@ export const connectionsPage: Page = {
         /** A way was picked: what is asked below it follows. */
         function pickWay(id: string, way: string): void {
             ways.set(id, way);
+            draw();
+        }
+
+        /** The kind of connection a form says: as picked, as written down, or the first this node has. */
+        function typeIn(id: string, entry: StationConnection | null, state: StationConnections): string {
+            return types.get(id) ?? entry?.connectionType ?? state.connectionTypes[0] ?? 'CSMS';
+        }
+
+        /** A kind of connection was picked: what is asked of it follows. */
+        function pickType(id: string, type: string): void {
+            types.set(id, type);
             draw();
         }
 
@@ -1564,6 +1584,7 @@ export const connectionsPage: Page = {
         function settled(id: string): void {
             typedURLs.delete(id);
             ways.     delete(id);
+            types.    delete(id);
         }
 
         async function add(event: SubmitEvent): Promise<void> {
@@ -1839,6 +1860,7 @@ export const connectionsPage: Page = {
         async function reload(): Promise<void> {
             typedURLs.clear();
             ways.     clear();
+            types.    clear();
             await load();
             if (!cancelled) {
                 content.querySelectorAll('form').forEach(form => form.reset());
