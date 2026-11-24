@@ -201,10 +201,11 @@ export function numbersReadAsZeroWhenEmptied(Page: Page): string[] {
  * form anew from what the node said: what somebody had typed into one and not
  * saved yet was gone, without a word. Saving the connection took the
  * credentials typed below it with it, and removing an entry the address typed
- * beside the list (on the local controller).
+ * beside the list (on the local controller). From a page further down -
+ * connecting/pages - view.ts is two directories up.
  */
 export function drawsByComparing(Page: Page): boolean {
-    return /\bfrom\s+'(@node|\.\.?)\/view'/.test(Page.source);
+    return /\bfrom\s+'(@node|\.\.?(\/\.\.)*)\/view'/.test(Page.source);
 }
 
 /**
