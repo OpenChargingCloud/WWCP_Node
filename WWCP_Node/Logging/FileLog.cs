@@ -228,8 +228,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
         #region (private static) WriteEntry(Writer, Entry)
 
         /// <summary>
-        /// One entry, on one line.
+        /// One entry, on one line: its time, its level, its tags in brackets,
+        /// its message - and, behind a tab, what else belongs to it as JSON,
+        /// where there is anything.
         /// </summary>
+        /// <remarks>
+        /// A message without tags that begins with a bracket of its own is
+        /// written behind empty brackets, so that it is never read back as
+        /// tags. A message holds no tab - the log writes one as "\t" - so that
+        /// the data behind one is never read as a part of it.
+        /// </remarks>
         private static void WriteEntry(StreamWriter  Writer,
                                        LogEntry      Entry)
         {
@@ -245,7 +253,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
                 Writer.Write("] ");
             }
 
-            Writer.WriteLine(Entry.Message);
+            else if (Entry.Message.StartsWith('['))
+                Writer.Write("[] ");
+
+            Writer.Write    (Entry.Message);
+
+            if (Entry.Data is not null)
+            {
+                Writer.Write('\t');
+                Writer.Write(Entry.Data.ToString(Newtonsoft.Json.Formatting.None));
+            }
+
+            Writer.WriteLine();
 
         }
 
@@ -363,9 +382,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
         /// <summary>
         /// One line of a file read back into the entry it was written of: its
-        /// time, its level, its tags and its message. What the file never had -
-        /// the number the entry had in the log, its data - it has not either:
-        /// its number is 0.
+        /// time, its level, its tags, its message and its data. The number the
+        /// entry had in the log the file never had: its number is 0.
         /// </summary>
         public static Boolean TryParseLine(String?                                                         Line,
                                            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out LogEntry?  Entry)
@@ -388,16 +406,37 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
             var rest  = Line[33..];
             var tags  = Array.Empty<String>();
 
-            // Tags are lower case: a message without any that begins with a
-            // bracket of its own is a message.
-            if (rest.StartsWith('[') && rest.IndexOf("] ", StringComparison.Ordinal) is var end && end > 1 &&
-                rest[1..end].All(character => character is (>= 'a' and <= 'z') or (>= '0' and <= '9') or ' ' or '-' or '_' or '.' or ':' or '/'))
+            // Empty brackets: no tags, and a message that begins with a bracket.
+            if (rest.StartsWith("[] ", StringComparison.Ordinal))
+                rest = rest[3..];
+
+            // Tags are lower case - and a file written before the empty brackets
+            // were may hold a message without any that begins with a bracket.
+            else if (rest.StartsWith('[') && rest.IndexOf("] ", StringComparison.Ordinal) is var end && end > 1 &&
+                     rest[1..end].All(character => character is (>= 'a' and <= 'z') or (>= '0' and <= '9') or ' ' or '-' or '_' or '.' or ':' or '/'))
             {
                 tags  = rest[1..end].Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 rest  = rest[(end + 2)..];
             }
 
-            Entry = new LogEntry(0, timestamp, level, tags, rest);
+            // What else belongs to it, behind a tab.
+            Newtonsoft.Json.Linq.JObject? data = null;
+
+            if (rest.IndexOf('\t') is var tab && tab >= 0)
+            {
+
+                try
+                {
+                    data = Newtonsoft.Json.Linq.JObject.Parse(rest[(tab + 1)..]);
+                }
+                catch (Newtonsoft.Json.JsonException)
+                { }
+
+                rest = rest[..tab];
+
+            }
+
+            Entry = new LogEntry(0, timestamp, level, tags, rest, data);
             return true;
 
         }

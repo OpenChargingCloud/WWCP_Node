@@ -568,16 +568,34 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             using var resumed = new MemoryStream();
             resumed.Write(image, 0, 50_000);
 
-            var rest = await node.DownloadFileAsync(URL("/firmware/station-4.2.1.bin"), resumed, Offset: 50_000);
+            var rest = await node.DownloadFileAsync(URL("/firmware/station-4.2.1.bin"), resumed, Offset: 50_000, Validator: result.Validator);
 
+            Assert.That(result.Validator,   Does.StartWith($"sftp:{image.Length}:"), "The size and the time the file said were not learned.");
             Assert.That(rest.Outcome,       Is.EqualTo(FileTransferOutcome.Done), rest.Why);
             Assert.That(rest.Bytes,         Is.EqualTo(image.Length - 50_000));
             Assert.That(resumed.ToArray(),  Is.EqualTo(image));
 
-            // The area told its owner of both: the whole file, and the rest from byte 50000 on.
+            // Another file of the same name since: what the attempt before brought is cut away, and the new one read whole.
+            var newer = RandomNumberGenerator.GetBytes(image.Length);
+            File.WriteAllBytes(Path.Combine(firmware, "station-4.2.1.bin"), newer);
+            File.SetLastWriteTimeUtc(Path.Combine(firmware, "station-4.2.1.bin"), DateTime.UtcNow.AddMinutes(5));
+
+            using var changed = new MemoryStream();
+            changed.Write(image, 0, 50_000);
+
+            var anew = await node.DownloadFileAsync(URL("/firmware/station-4.2.1.bin"), changed, Offset: 50_000, Validator: result.Validator);
+
+            Assert.That(anew.Outcome,       Is.EqualTo(FileTransferOutcome.Done), anew.Why);
+            Assert.That(changed.ToArray(),  Is.EqualTo(newer), "The new file is not there whole, or a part of the old one is left.");
+            Assert.That(anew.Validator,     Is.Not.EqualTo(result.Validator));
+
+            File.WriteAllBytes(Path.Combine(firmware, "station-4.2.1.bin"), image);
+
+            // The area told its owner of all three: the whole file, the rest from byte 50000 on, and the new file whole.
             Assert.That(downloaded.Select(read => (read.Name, read.FirstByte, read.BytesRead, read.Length, read.Account.Id)),
                         Is.EqualTo(new[] { ("station-4.2.1.bin", 0L,      (Int64) image.Length,          (Int64) image.Length, Login),
-                                           ("station-4.2.1.bin", 50_000L, (Int64) image.Length - 50_000, (Int64) image.Length, Login) }));
+                                           ("station-4.2.1.bin", 50_000L, (Int64) image.Length - 50_000, (Int64) image.Length, Login),
+                                           ("station-4.2.1.bin", 0L,      (Int64) image.Length,          (Int64) image.Length, Login) }));
 
             // Larger than allowed: refused before a byte of it is read.
             using var none = new MemoryStream();

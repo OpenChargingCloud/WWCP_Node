@@ -815,20 +815,32 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Download the file an "sftp://" URL names into a stream: one attempt,
         /// which may take up where the one before stopped.
         /// </summary>
+        /// <param name="URL">The file.</param>
+        /// <param name="Destination">Where its bytes go, in order: from its current position on, the bytes the attempt before brought just in front of it.</param>
+        /// <param name="Offset">The first byte to read: what an attempt before brought already.</param>
+        /// <param name="MaxSize">The most the whole file may have; a larger one is refused before a byte of it is read.</param>
+        /// <param name="Validator">What the attempt before learned the file was - its size and the time it was last written (<see cref="FileTransferResult.Validator"/>) -, to be sure the rest is of the same file; null where it learned nothing.</param>
+        /// <param name="Progress">Told the position in the remote file reached so far.</param>
         /// <remarks>
+        /// <para>
         /// The host key says who the server is, not what the file is: whether a
         /// firmware image is genuine and may be installed is decided after the
         /// download, by its signature, in the logic above.
+        /// </para>
+        /// <para>
+        /// Before a byte is read, the file is asked for its size and the time
+        /// it was last written. Where an attempt before brought its beginning,
+        /// and the file says another size or time now, it is another file:
+        /// what the attempt before brought is cut away from the destination and
+        /// the file read from its first byte - or, where the destination cannot
+        /// be cut back, Changed, for the caller to start anew.
+        /// </para>
         /// </remarks>
-        /// <param name="URL">The file.</param>
-        /// <param name="Destination">Where its bytes go, in order.</param>
-        /// <param name="Offset">The first byte to read: what an attempt before brought already.</param>
-        /// <param name="MaxSize">The most the whole file may have; a larger one is refused before a byte of it is read.</param>
-        /// <param name="Progress">Told the position in the remote file reached so far.</param>
         public async Task<FileTransferResult> DownloadFileAsync(String?            URL,
                                                                 Stream             Destination,
                                                                 Int64              Offset             = 0,
                                                                 Int64?             MaxSize            = null,
+                                                                String?            Validator          = null,
                                                                 IProgress<Int64>?  Progress           = null,
                                                                 CancellationToken  CancellationToken  = default)
         {
@@ -838,15 +850,55 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!judgement.IsAllowed)
                 return new (FileTransferOutcome.Refused, judgement.Why, judgement);
 
-            var remote = judgement.Location!.RemotePath;
+            var remote   = judgement.Location!.RemotePath;
+            String? learned = null;
 
-            return await Transfer(judgement,
-                                  remote,
-                                  (sftp, alive, cancellationToken) =>
-                                      sftp.DownloadAsync(remote, Destination, Offset, MaxSize, Alive(Progress, alive), cancellationToken).AsTask(),
-                                  CancellationToken).ConfigureAwait(false);
+            var result   = await Transfer(judgement,
+                                          remote,
+                                          async (sftp, alive, cancellationToken) => {
+
+                                              var attributes  = await sftp.StatAsync(remote, cancellationToken).ConfigureAwait(false);
+                                              var offset      = Offset;
+
+                                              learned = attributes.Size is Int64 size
+                                                            ? $"sftp:{size}:{attributes.ModifyTime?.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "-"}"
+                                                            : null;
+
+                                              // Another file than the one begun: begun anew.
+                                              if (offset > 0 && Validator is not null && learned != Validator)
+                                              {
+
+                                                  if (!Destination.CanSeek)
+                                                      throw new FileChangedException(remote, Validator, learned);
+
+                                                  var start = Destination.Position - offset;
+
+                                                  Destination.SetLength(start);
+                                                  Destination.Position = start;
+
+                                                  Log.Info($"'{remote}' changed since the attempt before ({Validator}, now {learned ?? "unknown"}): it is fetched anew from its first byte.",
+                                                           Kind.Tag, "sftp", "filetransfer");
+
+                                                  offset = 0;
+
+                                              }
+
+                                              return await sftp.DownloadAsync(remote, Destination, offset, MaxSize, Alive(Progress, alive), cancellationToken).ConfigureAwait(false);
+
+                                          },
+                                          CancellationToken).ConfigureAwait(false);
+
+            return result with { Validator = learned };
 
         }
+
+        /// <summary>
+        /// The file to download is another one than the attempt before began,
+        /// and the destination cannot be cut back.
+        /// </summary>
+        private sealed class FileChangedException(String Path, String Before, String? Now)
+            : Exception($"'{Path}' changed since the attempt before ({Before}, now {Now ?? "unknown"}), and what it brought is no part of it")
+        { }
 
         #endregion
 
@@ -1004,6 +1056,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             catch (FileIsThereException problem)
             {
                 return Ended(FileTransferOutcome.FileExists, problem.Message + ".");
+            }
+            catch (FileChangedException problem)
+            {
+                return Ended(FileTransferOutcome.Changed, problem.Message + ".");
             }
             catch (SftpFileTooLargeException problem)
             {

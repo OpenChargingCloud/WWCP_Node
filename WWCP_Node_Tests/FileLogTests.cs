@@ -233,16 +233,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 log.Critical("Critical, with no room for a space before its tags.", "test", "security");
 
                 clock.Now = new DateTimeOffset(2026, 9, 24, 8, 0, 0, 5, TimeSpan.Zero);
-                log.Info("[Not a tag] but a message.");
+                log.Info("[not a tag] but a message, lower case as tags are.");
 
                 clock.Now = new DateTimeOffset(2026, 9, 25, 8, 0, 0, 0, TimeSpan.Zero);
-                log.Warning("The third day.", "ocpp");
+                log.Log(LogLevel.Warning, "The third day, with data.", new JObject(new JProperty("station", "CS001"), new JProperty("tries", 3)), "ocpp");
 
             }
 
+            Assert.That(File.ReadAllLines(Path.Combine(directory, "node-2026-09-24.log")),
+                        Is.EqualTo(new[] { "2026-09-24T08:00:00.005Z info    [] [not a tag] but a message, lower case as tags are." }),
+                        "A message without tags that begins with a bracket is not written behind empty brackets.");
+
+            Assert.That(File.ReadAllLines(Path.Combine(directory, "node-2026-09-25.log")),
+                        Is.EqualTo(new[] { "2026-09-25T08:00:00.000Z warning [ocpp] The third day, with data.\t{\"station\":\"CS001\",\"tries\":3}" }),
+                        "The data is not written behind a tab.");
+
             File.WriteAllText(Path.Combine(directory, "node-yesterday.log"),  "not a day\n");
             File.WriteAllText(Path.Combine(directory, "other-2026-09-24.log"), "another prefix\n");
-            File.AppendAllText(Path.Combine(directory, "node-2026-09-24.log"), "no line of a log\n");
+            File.AppendAllText(Path.Combine(directory, "node-2026-09-24.log"), "no line of a log\n" +
+                                                                               "2026-09-24T09:00:00.000Z info    [Written before the empty brackets] and still a message.\n");
 
             var all   = FileLog.FilesIn(directory, "node");
             var some  = FileLog.FilesIn(directory, "node", From: new DateOnly(2026, 9, 24), To: new DateOnly(2026, 9, 24));
@@ -252,11 +261,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(all. Select(file => file.Day), Is.EqualTo(new[] { new DateOnly(2026, 9, 23), new DateOnly(2026, 9, 24), new DateOnly(2026, 9, 25) }));
                 Assert.That(some.Select(file => file.Day), Is.EqualTo(new[] { new DateOnly(2026, 9, 24) }));
 
-                Assert.That(all.SelectMany(file => FileLog.Read(file.Path)).Select(entry => (entry.Timestamp, entry.Level, String.Join(",", entry.Tags), entry.Message)),
+                Assert.That(all.SelectMany(file => FileLog.Read(file.Path)).Select(entry => (entry.Timestamp, entry.Level, String.Join(",", entry.Tags), entry.Message, entry.Data?.ToString(Newtonsoft.Json.Formatting.None))),
                             Is.EqualTo(new[] {
-                                (Afternoon,                                                      LogLevel.Critical, "test,security", "Critical, with no room for a space before its tags."),
-                                (new DateTimeOffset(2026, 9, 24, 8, 0, 0, 5, TimeSpan.Zero),     LogLevel.Info,     "",              "[Not a tag] but a message."),
-                                (new DateTimeOffset(2026, 9, 25, 8, 0, 0, 0, TimeSpan.Zero),     LogLevel.Warning,  "ocpp",          "The third day.")
+                                (Afternoon,                                                      LogLevel.Critical, "test,security", "Critical, with no room for a space before its tags.",              (String?) null),
+                                (new DateTimeOffset(2026, 9, 24, 8, 0, 0, 5, TimeSpan.Zero),     LogLevel.Info,     "",              "[not a tag] but a message, lower case as tags are.",               null),
+                                (new DateTimeOffset(2026, 9, 24, 9, 0, 0, 0, TimeSpan.Zero),     LogLevel.Info,     "",              "[Written before the empty brackets] and still a message.",         null),
+                                (new DateTimeOffset(2026, 9, 25, 8, 0, 0, 0, TimeSpan.Zero),     LogLevel.Warning,  "ocpp",          "The third day, with data.",                                        "{\"station\":\"CS001\",\"tries\":3}")
                             }));
 
             });

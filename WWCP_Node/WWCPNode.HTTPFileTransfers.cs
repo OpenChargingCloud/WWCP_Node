@@ -650,7 +650,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// If-Range, so that a server whose file changed meanwhile sends the
         /// new one whole rather than the rest of it. A server that answers with
         /// the whole file - 200 - sends the same file where it says the same
-        /// validator, and is read from the offset on, what came before being
+        /// validator. A server that says neither an entity tag nor a time is
+        /// asked no If-Range; the length of the file stands in for them, and a
+        /// rest of a file of another length is not taken but the file asked
+        /// for whole once more. The same file is read from the offset on, what came before being
         /// passed over; where it says another, or none while the attempt
         /// before had one, the file changed: what the attempt before brought is
         /// cut away from the destination, and the new file read from its first
@@ -705,22 +708,46 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              () => written,
                              async (client, stillAlive, redirected, cancellationToken) => {
 
-                                 var hop       = judgement;
-                                 var location  = target;
+                                 var hop        = judgement;
+                                 var location   = target;
+                                 var offset     = Offset;
+                                 var asked      = Validator;
+                                 var restarted  = false;
+
+                                 // What the attempt before brought is cut away from the
+                                 // destination: the file is another one now.
+                                 void CutBack(String Why)
+                                 {
+
+                                     var start = Destination.Position - offset;
+
+                                     Destination.SetLength(start);
+                                     Destination.Position = start;
+
+                                     Log.Info($"The file at {Shown(location.ToString())} changed since the attempt before ({Why}): it is fetched anew from its first byte.",
+                                              Kind.Tag, "http", "filetransfer");
+
+                                     offset     = 0;
+                                     asked      = null;
+                                     restarted  = true;
+
+                                 }
 
                                  for (var redirects = 0; ; redirects++)
                                  {
 
                                      using var request = new HttpRequestMessage(HttpMethod.Get, location);
 
-                                     if (Offset > 0)
+                                     if (offset > 0)
                                      {
 
-                                         request.Headers.Range = new RangeHeaderValue(Offset, null);
+                                         request.Headers.Range = new RangeHeaderValue(offset, null);
 
-                                         // Only the rest of the same file, or else the new file whole.
-                                         if (Validator is not null)
-                                             request.Headers.TryAddWithoutValidation("If-Range", Validator);
+                                         // Only the rest of the same file, or else the new file whole -
+                                         // where the server said what would tell: a length tells
+                                         // nothing an If-Range could name.
+                                         if (asked is not null && !asked.StartsWith(LengthValidator, StringComparison.Ordinal))
+                                             request.Headers.TryAddWithoutValidation("If-Range", asked);
 
                                      }
 
@@ -767,61 +794,68 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                      #endregion
 
                                      var range  = response.Content.Headers.ContentRange;
-                                     var shown  = ValidatorOf(response);
 
                                      // Nothing was left to fetch.
-                                     if (status == 416 && Offset > 0 && range?.Length == Offset)
+                                     if (status == 416 && offset > 0 && range?.Length == offset)
                                      {
-                                         learned = Validator;
+                                         learned = asked;
                                          return (FileTransferOutcome.Done, "");
                                      }
 
                                      if (status is not (200 or 206))
                                          return Failed(response, hop);
 
-                                     learned = shown;
-
-                                     Int64? total;
+                                     Int64? total     = status == 206
+                                                            ? range?.Length ?? (response.Content.Headers.ContentLength is Int64 length ? offset + length : null)
+                                                            : response.Content.Headers.ContentLength;
+                                     var    shown     = ValidatorOf(response, total);
                                      var    skip      = 0L;
-                                     var    position  = Offset;
+                                     var    position  = offset;
+
+                                     learned = shown;
 
                                      if (status == 206)
                                      {
 
-                                         if (range?.From != Offset)
-                                             return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: the server sent the file from byte {range?.From}, and not from {Offset}.");
+                                         if (range?.From != offset)
+                                             return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: the server sent the file from byte {range?.From}, and not from {offset}.");
 
-                                         total = range.Length ?? (response.Content.Headers.ContentLength is Int64 length ? Offset + length : null);
+                                         // The rest of a file of another length - where only its length
+                                         // told what it was, which no If-Range could ask: not the rest
+                                         // of the one begun. Asked for whole, once.
+                                         if (asked is not null && asked.StartsWith(LengthValidator, StringComparison.Ordinal) && shown != asked)
+                                         {
+
+                                             if (!Destination.CanSeek || restarted)
+                                                 return (FileTransferOutcome.Changed, $"{Said(response)}: the file changed since the attempt before ({asked}, now {shown ?? "unknown"}), and what it brought is no part of it.");
+
+                                             CutBack($"{asked}, now {shown}");
+
+                                             continue;
+
+                                         }
 
                                      }
 
-                                     else if (Offset > 0 && Validator is not null && shown != Validator)
+                                     else if (offset > 0 && asked is not null && shown != asked)
                                      {
 
                                          // Another file than the one the attempt before brought the
                                          // beginning of: that beginning is cut away, and this one read
                                          // from its first byte.
                                          if (!Destination.CanSeek)
-                                             return (FileTransferOutcome.Changed, $"{Said(response)}: the file changed since the attempt before ({Validator}, now {shown ?? "unknown"}), and what it brought is no part of it.");
+                                             return (FileTransferOutcome.Changed, $"{Said(response)}: the file changed since the attempt before ({asked}, now {shown ?? "unknown"}), and what it brought is no part of it.");
 
-                                         var start = Destination.Position - Offset;
+                                         CutBack($"{asked}, now {shown ?? "unknown"}");
 
-                                         Destination.SetLength(start);
-                                         Destination.Position = start;
-
-                                         Log.Info($"The file at {Shown(location.ToString())} changed since the attempt before ({Validator}, now {shown ?? "unknown"}): it is fetched anew from its first byte.",
-                                                  Kind.Tag, "http", "filetransfer");
-
-                                         total     = response.Content.Headers.ContentLength;
-                                         position  = 0;
+                                         position = 0;
 
                                      }
 
                                      else
                                      {
                                          // The whole file, the same one: what an attempt before brought is passed over.
-                                         total = response.Content.Headers.ContentLength;
-                                         skip  = Offset;
+                                         skip = offset;
                                      }
 
                                      if (MaxSize is Int64 max && total > max)
@@ -917,19 +951,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
                A.Port == B.Port;
 
         /// <summary>
-        /// What an answer says the file it carries is, as an If-Range may name
-        /// it again (RFC 9110, Section 13.1.5): its entity tag where it is a
-        /// strong one, or else the time it was last written; null where it
-        /// says neither.
+        /// What a validator begins with that is only the length of the file:
+        /// "length:300000".
         /// </summary>
-        private static String? ValidatorOf(HttpResponseMessage Response)
+        public const String LengthValidator = "length:";
+
+        /// <summary>
+        /// What an answer says the file it carries is: as an If-Range may name
+        /// it again (RFC 9110, Section 13.1.5), its entity tag where it is a
+        /// strong one, or else the time it was last written; where it says
+        /// neither, its length - which tells a file of another length from
+        /// this one, and no If-Range can name; null where it says not even
+        /// that.
+        /// </summary>
+        private static String? ValidatorOf(HttpResponseMessage  Response,
+                                           Int64?               Length)
         {
 
             if (Response.Headers.ETag is EntityTagHeaderValue tag && !tag.IsWeak)
                 return tag.Tag;
 
-            return Response.Content.Headers.LastModified is DateTimeOffset written
-                       ? written.ToUniversalTime().ToString("r", System.Globalization.CultureInfo.InvariantCulture)
+            if (Response.Content.Headers.LastModified is DateTimeOffset written)
+                return written.ToUniversalTime().ToString("r", System.Globalization.CultureInfo.InvariantCulture);
+
+            return Length is Int64 length
+                       ? $"{LengthValidator}{length}"
                        : null;
 
         }
