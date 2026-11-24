@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
 using NUnit.Framework;
@@ -62,6 +63,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         private readonly List<(FileTransferJudgement Judgement, FileTransferDirections Direction)>  refused    = [];
         private readonly List<(SSHFileServer Server, String Shown)>                                 foreignKeys = [];
 
+        /// <summary>
+        /// What the server's /firmware said was read of it.
+        /// </summary>
+        private readonly ConcurrentQueue<SftpAreaDownloaded>                                        downloaded  = new();
+
         #endregion
 
         #region Setup / TearDown
@@ -77,6 +83,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Directory.CreateDirectory(Path.Combine(directory, "node"));
             refused.    Clear();
             foreignKeys.Clear();
+            downloaded. Clear();
         }
 
         [TearDown]
@@ -129,7 +136,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                         BridgeDebugLog:    false);
 
                 made.AddSftpArea(new SftpArea("upload",   uploads,  name => true, Read: Permission.Read("upload"),   Write: Permission.Edit("upload")));
-                made.AddSftpArea(new SftpArea("firmware", firmware, name => true, Read: Permission.Read("firmware"), Write: Permission.Edit("firmware")));
+                var area = new SftpArea("firmware", firmware, name => true, Read: Permission.Read("firmware"), Write: Permission.Edit("firmware"));
+
+                area.Downloaded += downloaded.Enqueue;
+
+                made.AddSftpArea(area);
 
                 return made;
 
@@ -562,6 +573,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(rest.Outcome,       Is.EqualTo(FileTransferOutcome.Done), rest.Why);
             Assert.That(rest.Bytes,         Is.EqualTo(image.Length - 50_000));
             Assert.That(resumed.ToArray(),  Is.EqualTo(image));
+
+            // The area told its owner of both: the whole file, and the rest from byte 50000 on.
+            Assert.That(downloaded.Select(read => (read.Name, read.FirstByte, read.BytesRead, read.Length, read.Account.Id)),
+                        Is.EqualTo(new[] { ("station-4.2.1.bin", 0L,      (Int64) image.Length,          (Int64) image.Length, Login),
+                                           ("station-4.2.1.bin", 50_000L, (Int64) image.Length - 50_000, (Int64) image.Length, Login) }));
 
             // Larger than allowed: refused before a byte of it is read.
             using var none = new MemoryStream();

@@ -62,6 +62,26 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
 
     /// <summary>
+    /// A file of an area read over SFTP and closed, and by whom: from which
+    /// byte on, how much of it, and how large it was.
+    /// </summary>
+    /// <param name="Area">The area.</param>
+    /// <param name="Name">The file's name in it.</param>
+    /// <param name="Account">Who read it.</param>
+    /// <param name="From">From where.</param>
+    /// <param name="FirstByte">The first byte read: 0, or where a download that takes up where another stopped begins.</param>
+    /// <param name="BytesRead">How many bytes were read.</param>
+    /// <param name="Length">How large the file was when it was closed.</param>
+    public sealed record SftpAreaDownloaded(SftpArea  Area,
+                                            String    Name,
+                                            IUser     Account,
+                                            String    From,
+                                            Int64     FirstByte,
+                                            Int64     BytesRead,
+                                            Int64     Length);
+
+
+    /// <summary>
     /// A folder of a node's SFTP tree: one directory on the disk, the names in
     /// it that are shown, and what reading and writing it needs.
     /// </summary>
@@ -200,6 +220,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// </summary>
         public event Action<SftpAreaChanged>?      Changed;
 
+        /// <summary>
+        /// Raised after a file was read over SFTP and closed - a download, or
+        /// the part of one: not for a file opened and closed without a byte
+        /// read, unless it is empty.
+        /// </summary>
+        public event Action<SftpAreaDownloaded>?   Downloaded;
+
         #endregion
 
         #region Constructor(s)
@@ -336,6 +363,32 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                 catch (Exception problem)
                 {
                     OnProblem($"Whoever listens to the SFTP area '/{Path}' failed over '{Changed.Name}': {problem.Message}");
+                }
+            }
+
+        }
+
+        #endregion
+
+        #region (internal) RaiseDownloaded(Downloaded, OnProblem)
+
+        /// <summary>
+        /// Tell whoever listens that a file was read - each of them, whatever
+        /// another one did.
+        /// </summary>
+        internal void RaiseDownloaded(SftpAreaDownloaded  Downloaded,
+                                      Action<String>      OnProblem)
+        {
+
+            foreach (var listener in this.Downloaded?.GetInvocationList().Cast<Action<SftpAreaDownloaded>>() ?? [])
+            {
+                try
+                {
+                    listener(Downloaded);
+                }
+                catch (Exception problem)
+                {
+                    OnProblem($"Whoever listens to the downloads of the SFTP area '/{Path}' failed over '{Downloaded.Name}': {problem.Message}");
                 }
             }
 

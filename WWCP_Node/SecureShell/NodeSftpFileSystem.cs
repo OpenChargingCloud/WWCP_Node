@@ -81,6 +81,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             public String?          Upload      { get; } = Upload;
             public Boolean          Append      { get; } = Append;
             public Int64            BytesRead   { get; set; }
+
+            /// <summary>
+            /// The first byte read of a file opened for reading - where a
+            /// download that takes up where another stopped begins -, or null
+            /// while nothing is read.
+            /// </summary>
+            public Int64?           FirstByte   { get; set; }
             public String?          Failed      { get; set; }
             public DateTimeOffset?  ModifyTime  { get; set; }
             public DateTimeOffset?  AccessTime  { get; set; }
@@ -310,7 +317,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             var read    = await RandomAccess.ReadAsync(file.Handle, buffer.AsMemory(0, Length), Offset, CancellationToken).ConfigureAwait(false);
 
             if (file.Upload is null)
+            {
                 file.BytesRead += read;
+                file.FirstByte  = Math.Min(file.FirstByte ?? Offset, Offset);
+            }
 
             return read == Length ? buffer : buffer[..read];
 
@@ -402,6 +412,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
                     log.Info($"'{account.Id}' downloaded /{file.Area.Path}/{file.Name} ({SizeOf(file.BytesRead)}) over SFTP from {from}.",
                              [ "ssh", "sftp", .. file.Area.Tags ]);
+
+                    file.Area.RaiseDownloaded(new SftpAreaDownloaded(file.Area, file.Name, account, from, file.FirstByte ?? 0, file.BytesRead, length), Problem);
 
                 }
 
