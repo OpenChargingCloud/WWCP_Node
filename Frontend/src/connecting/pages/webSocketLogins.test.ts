@@ -12,7 +12,7 @@ import { asked, change, field, open, refused, said, settled, submit, until, type
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import type { I18NString, LoginGroup, WebSocketLogin, WebSocketLogins } from '../api/webSocketLogins.ts';
+import type { Forwarding, ForwardingTarget, I18NString, LoginGroup, NodePeer, WebSocketLogin, WebSocketLogins } from '../api/webSocketLogins.ts';
 
 const { webSocketLoginsPage: stationLoginsPage } = await import('./webSocketLogins.ts');
 
@@ -31,7 +31,47 @@ let held: WebSocketLogins;
 /** Refuses every change to a station where told to. */
 let refuseChanges = false;
 
+/** The back ends a target may name, and whether the node forwards, where the logins are forwarded. */
+const peersHeld: NodePeer[] = [
+    { id: 'p-csms1', description: { en: 'CSMS one' }, kind: 'CSMS', role: 'Primary',  ocppVersion: 'OCPP2.1', endpoints: [ 'c1' ] },
+    { id: 'p-csms2', description: { en: 'CSMS two' }, kind: 'CSMS', role: 'Observer', ocppVersion: 'OCPP2.1', endpoints: [ 'c2' ] }
+];
+
+let forwardingHeld: Forwarding;
+
 function controller({ method, path, body }: Asked): unknown {
+
+    if (path === '/configuration/connections' && method === 'GET')
+        return { peers: peersHeld };
+
+    if (path === '/configuration/forwarding' && method === 'GET')
+        return forwardingHeld;
+
+    if (path === '/configuration/forwarding' && method === 'PUT') {
+        const enabled = (body as { enabled?: boolean }).enabled;
+        forwardingHeld = { ...forwardingHeld, configured: enabled ?? null, enabled: enabled ?? forwardingHeld.byDefault };
+        return forwardingHeld;
+    }
+
+    if (path === '/configuration/ocpp-server/targets' && method === 'POST') {
+        const made = body as { id: string; peers: string[]; description?: I18NString };
+        const target: ForwardingTarget = { id: made.id.toLowerCase(), peers: made.peers, addedAt: '2026-11-24T00:00:00Z', logins: 0, description: made.description };
+        held = { ...held, targets: [ ...(held.targets ?? []), target ] };
+        return held;
+    }
+
+    const target = /^\/configuration\/ocpp-server\/targets\/([^/]+)$/.exec(path);
+
+    if (target && method === 'PUT') {
+        const changed = body as { peers: string[] };
+        held = { ...held, targets: (held.targets ?? []).map(one => one.id === target[1] ? { ...one, peers: changed.peers } : one) };
+        return held;
+    }
+
+    if (target && method === 'DELETE') {
+        held = { ...held, targets: (held.targets ?? []).filter(one => one.id !== target[1]) };
+        return held;
+    }
 
     if (path === '/configuration/ocpp-server/logins' && method === 'GET')
         return held;
@@ -104,6 +144,19 @@ async function opened(): Promise<HTMLElement> {
     refuseChanges = false;
     return open(stationLoginsPage, '/configuration/ocpp-server/logins', [ 'stations:read', 'stations:edit' ],
                 controller, root => root.querySelector('#station-form') !== null);
+}
+
+/** The logins of a node whose charging stations are forwarded: with targets, one of them named by cs001. */
+async function openedWithTargets(): Promise<HTMLElement> {
+    held = { file: 'stations.json', enabled: 2, maxLogins: 100, maxGroups: 8, minPasswordLength: 16, minSecretLength: 20,
+             defaultGroup: 'default', groups: [ aGroup('default', true) ],
+             logins: [ { ...aStation('cs001'), target: 'site-1' }, aStation('cs002') ],
+             maxTargets: 100, maxTargetPeers: 8,
+             targets: [ { id: 'site-1', peers: [ 'p-csms2', 'p-gone' ], addedAt: '2026-11-24T00:00:00Z', logins: 1 } ] };
+    forwardingHeld = { enabled: true, configured: null, byDefault: true, file: 'wwcp.json' };
+    refuseChanges = false;
+    return open(stationLoginsPage, '/configuration/ocpp-server/logins', [ 'stations:read', 'stations:edit' ],
+                controller, root => root.querySelector('#targets .target-edit') !== null);
 }
 
 const switchOf  = (root: HTMLElement, id: string) => root.querySelector<HTMLInputElement>(`.station-enabled[data-id="${id}"]`)!;
@@ -302,6 +355,102 @@ describe('the logins and groups', () => {
         await until(() => root.querySelector('#group-form[data-id="field-test"]') !== null, 'the settings did not open');
 
         assert.equal(field<HTMLInputElement>(root, '#group-form', 'keypin').checked, false, 'a group without key pins is drawn with them');
+
+    });
+
+});
+
+
+describe('the forwarding targets', () => {
+
+    it('are not drawn where the logins are not forwarded', async () => {
+
+        const root = await opened();
+
+        assert.equal(root.querySelector('#targets'),         null, 'a server without targets is drawn with them');
+        assert.equal(root.querySelector('.station-target'),  null);
+        assert.equal(asked.some(one => one.path === '/configuration/connections' || one.path === '/configuration/forwarding'), false,
+                     'what only forwarded logins need was asked for');
+
+    });
+
+    it('say the peers of a target in order, one that is gone as gone, and that the node forwards as its kind does', async () => {
+
+        const root  = await openedWithTargets();
+        const peers = [ ...root.querySelectorAll('#targets ol.target-peers li') ].map(item => item.textContent!.replace(/\s+/g, ' ').trim());
+
+        assert.deepEqual(peers, [ 'CSMS two CSMS, Observer', 'p-gone gone' ]);
+        assert.match(root.querySelector('#forwarding-state')!.textContent!, /forwards, as its kind does/);
+        assert.equal(root.querySelector<HTMLButtonElement>('.target-remove[data-id="site-1"]')!.disabled, true, 'a target a login names may be removed');
+        assert.equal(root.querySelector<HTMLSelectElement>('.station-target[data-id="cs001"]')!.value, 'site-1');
+        assert.equal(root.querySelector<HTMLSelectElement>('.station-target[data-id="cs002"]')!.value, '');
+
+    });
+
+    it('forward a station to a target, and to the back end in charge again with none', async () => {
+
+        const root = await openedWithTargets();
+
+        change(root.querySelector<HTMLSelectElement>('.station-target[data-id="cs002"]')!, 'site-1');
+        await until(() => held.logins[1]!.target === 'site-1', 'the station was not forwarded');
+
+        change(root.querySelector<HTMLSelectElement>('.station-target[data-id="cs001"]')!, '');
+        await until(() => held.logins[0]!.target === null, 'the station was not given back to the back end in charge');
+
+        assert.deepEqual(asked.filter(one => one.method === 'PUT').map(one => [ one.path, one.body ]), [
+            [ '/configuration/ocpp-server/logins/cs002', { target: 'site-1' } ],
+            [ '/configuration/ocpp-server/logins/cs001', { target: null } ]
+        ]);
+
+    });
+
+    it('make a target of the peers chosen one after the other, in that order', async () => {
+
+        const root = await openedWithTargets();
+
+        root.querySelector<HTMLButtonElement>('#target-new')!.click();
+        await until(() => root.querySelector('#target-form') !== null, 'the form of a new target did not open');
+
+        field(root, '#target-form', 'id').value = 'Site-2';
+
+        change(root.querySelector<HTMLSelectElement>('.target-peer[data-index="0"]')!, 'p-csms2');
+        await until(() => root.querySelector('.target-peer[data-index="1"]') !== null, 'no chooser for the next peer');
+
+        assert.equal(root.querySelector<HTMLOptionElement>('.target-peer[data-index="1"] option[value="p-csms2"]')!.disabled, true,
+                     'a peer chosen already may be chosen twice');
+
+        change(root.querySelector<HTMLSelectElement>('.target-peer[data-index="1"]')!, 'p-csms1');
+        await until(() => root.querySelector('.target-peer[data-index="2"]') !== null, 'no chooser for the peer after it');
+
+        submit(root, '#target-form');
+        await until(() => root.querySelector('.target-edit[data-id="site-2"]') !== null, 'the target made was not drawn');
+
+        assert.deepEqual(asked.find(one => one.method === 'POST')?.body, { id: 'Site-2', peers: [ 'p-csms2', 'p-csms1' ] });
+        assert.equal(root.querySelector('#target-form'), null, 'the form stayed open');
+
+    });
+
+    it('switch forwarding off only once asked, and say so', async () => {
+
+        const root = await openedWithTargets();
+        const asks = window.confirm;
+        let   told = '';
+
+        window.confirm = (text?: string) => { told = text ?? ''; return true; };
+
+        try {
+
+            root.querySelector<HTMLButtonElement>('#forwarding-switch')!.click();
+            await until(() => /forwards nothing/.test(root.querySelector('#forwarding-state')!.textContent!), 'that it forwards nothing was not drawn');
+
+            assert.match(told, /Switch forwarding off/);
+            assert.deepEqual(asked.find(one => one.path === '/configuration/forwarding' && one.method === 'PUT')?.body, { enabled: false });
+            assert.equal(root.querySelector('#forwarding-switch')!.textContent!.trim(), 'Switch on');
+
+        }
+        finally {
+            window.confirm = asks;
+        }
 
     });
 

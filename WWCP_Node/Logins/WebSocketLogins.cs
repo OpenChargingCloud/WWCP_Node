@@ -127,6 +127,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         private readonly Object                                   updateLock  = new ();
         private readonly Dictionary<User_Id, WebSocketLogin>      logins      = [];
         private readonly Dictionary<String, WebSocketLoginGroup>  groups      = [];
+        private readonly Dictionary<String, ForwardingTarget>     targets     = [];
 
         /// <summary>
         /// Every key pin that was listed for a station at any time since this
@@ -176,6 +177,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                 lock (updateLock)
                     return [.. groups.Values.OrderByDescending(group => group.IsBuiltIn).
                                              ThenBy          (group => group.Id, StringComparer.OrdinalIgnoreCase)];
+            }
+        }
+
+        /// <summary>
+        /// Every forwarding target, by identification.
+        /// </summary>
+        public IReadOnlyList<ForwardingTarget> Targets
+        {
+            get
+            {
+                lock (updateLock)
+                    return [.. targets.Values.OrderBy(target => target.Id, StringComparer.Ordinal)];
             }
         }
 
@@ -279,6 +292,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 logins.Clear();
                 groups.Clear();
+                targets.Clear();
                 groups[WebSocketLoginGroup.DefaultId] = WebSocketLoginGroup.Default(TimeProvider.GetUtcNow());
 
                 // The file of before, where it is all there is, is not read: its
@@ -356,6 +370,40 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 #endregion
 
+                #region The forwarding targets, when the file knows about any
+
+                if (document["targets"] is JToken targetsToken && targetsToken.Type != JTokenType.Null)
+                {
+
+                    if (targetsToken is not JArray targetArray)
+                    {
+                        Error = $"'{Path}': 'targets' must be a JSON array.";
+                        return false;
+                    }
+
+                    foreach (var token in targetArray)
+                    {
+
+                        if (token is not JObject json)
+                        {
+                            Error = $"'{Path}': every entry of 'targets' must be a JSON object.";
+                            return false;
+                        }
+
+                        if (!ForwardingTarget.TryParse(json, out var target, out var problem))
+                        {
+                            Error = $"'{Path}': {problem}";
+                            return false;
+                        }
+
+                        targets[target.Id] = target;
+
+                    }
+
+                }
+
+                #endregion
+
                 #region The logins
 
                 if (document["logins"] is not JArray stations)
@@ -382,6 +430,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     if (!groups.ContainsKey(login.GroupId))
                     {
                         Error = $"'{Path}': the charging station '{login.Login}' belongs to the group '{login.GroupId}', which is not in this file.";
+                        return false;
+                    }
+
+                    // Not sent to the back end in charge instead: that is a
+                    // CSMS nobody chose for this station.
+                    if (login.Target is String targetId && !targets.ContainsKey(targetId))
+                    {
+                        Error = $"'{Path}': the charging station '{login.Login}' is forwarded to the target '{targetId}', which is not in this file.";
                         return false;
                     }
 
@@ -1693,6 +1749,295 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
+        #region KnownPeerIds
+
+        /// <summary>
+        /// The peers of the node these logins are the logins of, asked when a
+        /// target is written: a target that names a peer nobody has heard of
+        /// is refused rather than kept to fail on the first message. Null:
+        /// every peer is taken as given.
+        /// </summary>
+        /// <remarks>
+        /// Asked, not told once: peers come and go while the node runs. A peer
+        /// removed later stays in the targets that named it, and is passed
+        /// over as one that is not connected - see <see cref="ForwardingTarget"/>.
+        /// </remarks>
+        public Func<IEnumerable<String>>? KnownPeerIds { get; set; }
+
+        #endregion
+
+        #region TryAddOrUpdateTarget(Id, PeerIds, Description, out Error [, out NotSaved])
+
+        /// <summary>
+        /// Make a forwarding target, or change the peers it tries and their order.
+        /// </summary>
+        public Boolean TryAddOrUpdateTarget(String?                           Id,
+                                            IEnumerable<String>?              PeerIds,
+                                            I18NString?                       Description,
+                                            [NotNullWhen(false)] out String?  Error)
+
+            => TryAddOrUpdateTarget(Id, PeerIds, Description, out Error, out _);
+
+        /// <summary>
+        /// Make a forwarding target, or change it - and say whether a refusal
+        /// was the file's rather than the change's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file could not be written: see <see cref="TryRemove(User_Id, out String?, out Boolean)"/>.</param>
+        public Boolean TryAddOrUpdateTarget(String?                           Id,
+                                            IEnumerable<String>?              PeerIds,
+                                            I18NString?                       Description,
+                                            [NotNullWhen(false)] out String?  Error,
+                                            out Boolean                       NotSaved)
+        {
+
+            NotSaved = false;
+
+            if (!ForwardingTarget.TryCheckId(Id, out var id, out Error))
+                return false;
+
+            var peers = (PeerIds ?? []).Select(peer => peer?.Trim() ?? "").ToArray();
+
+            if (peers.Length == 0 || peers.Length > ForwardingTarget.MaxPeers || peers.Any(String.IsNullOrEmpty))
+            {
+                Error = $"A target tries 1 to {ForwardingTarget.MaxPeers} peers.";
+                return false;
+            }
+
+            if (peers.Distinct(StringComparer.Ordinal).Count() != peers.Length)
+            {
+                Error = "A target names each of its peers once.";
+                return false;
+            }
+
+            if (KnownPeerIds?.Invoke().ToHashSet(StringComparer.Ordinal) is HashSet<String> known &&
+                peers.FirstOrDefault(peer => !known.Contains(peer)) is String unknown)
+            {
+                Error = $"This {NodeNoun} has no peer called '{unknown}'.";
+                return false;
+            }
+
+            I18NString? description = null;
+
+            if (Description is not null &&
+                !Descriptions.TryCheckRequired(Description, ForwardingTarget.MaxDescriptionLength, "", out description, out _))
+            {
+                Error = $"A target is described in 1 to {ForwardingTarget.MaxDescriptionLength} characters, in each language it is said in.";
+                return false;
+            }
+
+            lock (updateLock)
+            {
+
+                targets.TryGetValue(id, out var existing);
+
+                if (existing is null && targets.Count >= ForwardingTarget.MaxTargets)
+                {
+                    Error = $"This {NodeNoun} holds at most {ForwardingTarget.MaxTargets} targets.";
+                    return false;
+                }
+
+                targets[id] = new ForwardingTarget(
+                                  id,
+                                  peers,
+                                  existing?.AddedAt ?? TimeProvider.GetUtcNow(),
+                                  description ?? existing?.Description
+                              );
+
+                if (!TrySave(out Error))
+                {
+
+                    NotSaved = true;
+
+                    if (existing is not null)
+                        targets[id] = existing;
+                    else
+                        targets.Remove(id);
+
+                    return false;
+
+                }
+
+                OnNotice?.Invoke(LogLevel.Notice, $"The target '{id}' {(existing is null ? "was made" : "was changed")}: it forwards to {String.Join(", then ", peers.Select(peer => $"'{peer}'"))}.");
+
+            }
+
+            OnChanged?.Invoke();
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region TryRemoveTarget(Id, out Error [, out NotSaved])
+
+        /// <summary>
+        /// Forget a forwarding target no login names.
+        /// </summary>
+        /// <remarks>
+        /// A target that logins name is not removed and its logins are not
+        /// handed to the back end in charge behind somebody's back: that would
+        /// send their stations to a CSMS nobody chose for them. Whoever wants
+        /// the target gone gives its logins another one first.
+        /// </remarks>
+        public Boolean TryRemoveTarget(String                            Id,
+                                       [NotNullWhen(false)] out String?  Error)
+
+            => TryRemoveTarget(Id, out Error, out _);
+
+        /// <summary>
+        /// Forget a forwarding target no login names - and say whether a
+        /// refusal was the file's rather than the change's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file could not be written: see <see cref="TryRemove(User_Id, out String?, out Boolean)"/>.</param>
+        public Boolean TryRemoveTarget(String                            Id,
+                                       [NotNullWhen(false)] out String?  Error,
+                                       out Boolean                       NotSaved)
+        {
+
+            Error     = null;
+            NotSaved  = false;
+
+            var id = Id?.Trim().ToLowerInvariant() ?? "";
+
+            lock (updateLock)
+            {
+
+                if (!targets.TryGetValue(id, out var target))
+                {
+                    Error = $"This {NodeNoun} has never heard of a target called '{Id}'.";
+                    return false;
+                }
+
+                var naming = logins.Values.Count(login => login.Target == id);
+
+                if (naming > 0)
+                {
+                    Error = $"The target '{id}' is still named by {naming} login(s). Give them another target first.";
+                    return false;
+                }
+
+                targets.Remove(id);
+
+                if (!TrySave(out Error))
+                {
+                    NotSaved     = true;
+                    targets[id]  = target;
+                    return false;
+                }
+
+                OnNotice?.Invoke(LogLevel.Notice, $"The target '{id}' was removed.");
+
+            }
+
+            OnChanged?.Invoke();
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region TrySetTarget(Login, TargetId, out Error [, out NotSaved]) / TargetOf(Login) / GetTarget(Id)
+
+        /// <summary>
+        /// Give a charging station the forwarding target what it sends up goes
+        /// to - or none, for the back end in charge of this node.
+        /// </summary>
+        public Boolean TrySetTarget(User_Id                           Login,
+                                    String?                           TargetId,
+                                    [NotNullWhen(false)] out String?  Error)
+
+            => TrySetTarget(Login, TargetId, out Error, out _);
+
+        /// <summary>
+        /// Give a charging station a forwarding target, or none - and say
+        /// whether a refusal was the file's rather than the change's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file could not be written: see <see cref="TryRemove(User_Id, out String?, out Boolean)"/>.</param>
+        public Boolean TrySetTarget(User_Id                           Login,
+                                    String?                           TargetId,
+                                    [NotNullWhen(false)] out String?  Error,
+                                    out Boolean                       NotSaved)
+        {
+
+            Error     = null;
+            NotSaved  = false;
+
+            var targetId = TargetId?.Trim().ToLowerInvariant() is { Length: > 0 } given ? given : null;
+
+            lock (updateLock)
+            {
+
+                if (!logins.TryGetValue(Login, out var login))
+                {
+                    Error = $"This {NodeNoun} has never heard of a charging station called '{Login}'.";
+                    return false;
+                }
+
+                if (targetId is not null && !targets.ContainsKey(targetId))
+                {
+                    Error = $"This {NodeNoun} has never heard of a target called '{TargetId}'.";
+                    return false;
+                }
+
+                if (login.Target == targetId)
+                    return true;
+
+                logins[Login] = login with { Target = targetId };
+
+                if (!TrySave(out Error))
+                {
+                    NotSaved       = true;
+                    logins[Login]  = login;
+                    return false;
+                }
+
+                OnNotice?.Invoke(
+                    LogLevel.Notice,
+                    targetId is not null
+                        ? $"What the charging station '{Login}' sends up goes to the target '{targetId}' now."
+                        : $"What the charging station '{Login}' sends up goes to the back end in charge of this {NodeNoun} now."
+                );
+
+            }
+
+            OnChanged?.Invoke();
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// The forwarding target of the given login, or null where it names
+        /// none - or is no login at all.
+        /// </summary>
+        public ForwardingTarget? TargetOf(User_Id Login)
+        {
+            lock (updateLock)
+            {
+                return logins.TryGetValue(Login, out var login) &&
+                       login.Target is String targetId &&
+                       targets.TryGetValue(targetId, out var target)
+                           ? target
+                           : null;
+            }
+        }
+
+        /// <summary>
+        /// The target of the given identification, or null.
+        /// </summary>
+        public ForwardingTarget? GetTarget(String Id)
+        {
+            lock (updateLock)
+            {
+                return targets.GetValueOrDefault(Id?.Trim().ToLowerInvariant() ?? "");
+            }
+        }
+
+        #endregion
+
+
         #region TryRemove(Id, out Error [, out NotSaved])
 
         /// <summary>
@@ -1998,12 +2343,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// and attack offline, and a shared secret on a screen is a charging
         /// station somebody can impersonate outright.
         /// </remarks>
-        public JObject ToJSON()
+        /// <param name="WithTargets">Whether the forwarding targets are said as well: where the logins are a node's charging stations, which are forwarded.</param>
+        public JObject ToJSON(Boolean WithTargets = false)
         {
 
             lock (updateLock)
+            {
 
-                return new JObject(
+                var json = new JObject(
 
                     new JProperty("file",               Path),
                     new JProperty("enabled",            logins.Values.Count(login => login.Enabled &&
@@ -2026,6 +2373,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     ))
 
                 );
+
+                if (WithTargets)
+                {
+
+                    json.Add("maxTargets",      ForwardingTarget.MaxTargets);
+                    json.Add("maxTargetPeers",  ForwardingTarget.MaxPeers);
+
+                    json.Add("targets",         new JArray(
+                        targets.Values.OrderBy(target => target.Id, StringComparer.Ordinal).
+                                       Select (target => target.ToJSON(logins.Values.Count(login => login.Target == target.Id)))
+                    ));
+
+                }
+
+                return json;
+
+            }
 
         }
 
@@ -2225,6 +2589,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                             groups.Values.OrderByDescending(group => group.IsBuiltIn).
                                           ThenBy          (group => group.Id, StringComparer.OrdinalIgnoreCase).
                                           Select          (group => group.ToJSON())
+                        )),
+
+                        new JProperty("targets",  new JArray(
+                            targets.Values.OrderBy(target => target.Id, StringComparer.Ordinal).
+                                           Select (target => target.ToJSON())
                         )),
 
                         new JProperty("logins", new JArray(

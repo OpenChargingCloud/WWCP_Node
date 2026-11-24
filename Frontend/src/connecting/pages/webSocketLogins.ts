@@ -1,4 +1,4 @@
-import { webSocketLoginsAPI as api, type AuthMethod, type ClientAuthentication, type LoginGroup, type WebSocketLogin, type WebSocketLogins, type I18NString, inEnglish, textOf } from '../api/webSocketLogins';
+import { webSocketLoginsAPI as api, type AuthMethod, type ClientAuthentication, type Forwarding, type ForwardingTarget, type LoginGroup, type NodePeer, type WebSocketLogin, type WebSocketLogins, type I18NString, inEnglish, textOf } from '../api/webSocketLogins';
 import { auth } from '../auth';
 import { loginServer, nodeNoun, stationsResource } from '../settings';
 import { must } from '../../html';
@@ -87,6 +87,14 @@ export const webSocketLoginsPage: Page = {
         /** The group whose settings are open, or null while none is. */
         let editing: string | null = null;
 
+        /** Where the logins are forwarded: the peers a target may name - null where they could not be read -, and the switch. */
+        let peers:       NodePeer[] | null = null;
+        let forwarding:  Forwarding | null = null;
+
+        /** The target being written - '' for a new one - and its peers in order so far; null while none is. */
+        let targeting:   string | null = null;
+        let draftPeers:  string[]      = [];
+
 
         function draw(): void {
 
@@ -115,6 +123,7 @@ export const webSocketLoginsPage: Page = {
                 <div class="cards">
                     ${groupsCard(logins)}
                     ${loginsCard(logins)}
+                    ${logins.targets === undefined ? nothing : targetsCard(logins, logins.targets)}
                 </div>
             `);
 
@@ -508,6 +517,17 @@ export const webSocketLoginsPage: Page = {
                             `)}
                         </select>
                         ${group?.enabled === false ? html`<div class="small warn">the group is switched off</div>` : nothing}
+                        ${logins.targets === undefined ? nothing : html`
+                            <div class="small muted">forwarded to</div>
+                            <select class="station-target" data-id="${station.login}" ?disabled=${!mayChange}
+                                    .value=${live(station.target ?? '')}
+                                    @change=${(event: Event) => void forward(station.login, (event.target as HTMLSelectElement).value)}>
+                                <option value="" ?selected=${station.target === undefined}>the back end in charge</option>
+                                ${repeat(logins.targets, one => one.id, one => html`
+                                    <option value="${one.id}" ?selected=${one.id === station.target}>${one.id}</option>
+                                `)}
+                            </select>
+                        `}
                     </td>
 
                     <td>
@@ -611,6 +631,265 @@ export const webSocketLoginsPage: Page = {
 
                 </tr>
             `;
+
+        }
+
+
+        /** What a peer is called on the page: its description, or its id where it is not known (any more). */
+        function peerName(id: string): TemplateResult {
+
+            const peer = peers?.find(one => one.id === id);
+
+            return peer === undefined
+                       ? html`<code>${id}</code>${peers === null ? nothing : html` <span class="badge warn">gone</span>`}`
+                       : html`${textOf(peer.description) ?? id} <span class="small muted">${peer.kind}, ${peer.role}</span>`;
+
+        }
+
+
+        // Where what a station sends up goes: a priority list of the node's
+        // back ends each, named by a login - and the switch above them all.
+        function targetsCard(logins: WebSocketLogins, targets: ForwardingTarget[]): TemplateResult {
+
+            return html`
+                <section class="card wide" id="targets">
+
+                    <h2><i class="fa-solid fa-route"></i> Forwarding targets</h2>
+
+                    <p class="hint">
+                        What a ${server.login} sends up goes to the first connected back end of its target, in the
+                        order the target names them - and where none of them is connected, the ${server.login} is
+                        told so, and nothing goes to another back end. A ${server.login} without a target goes to
+                        the back end in charge of this ${nodeNoun()}. A back end reaches the ${server.logins} whose
+                        target names it, and the back end in charge those without one.
+                    </p>
+
+                    ${forwarding === null ? nothing : html`
+                        <div class="notice ${forwarding.enabled ? '' : 'warn'}" id="forwarding-state">
+                            ${forwarding.enabled
+                                  ? html`This ${nodeNoun()} forwards${forwarding.configured === null ? ', as its kind does' : ''}.`
+                                  : html`This ${nodeNoun()} forwards nothing: what is not for itself is refused.`}
+                            <button type="button" class="btn small" id="forwarding-switch" ?disabled=${!mayChange}
+                                    @click=${() => void switchForwarding(!forwarding!.enabled)}>
+                                ${forwarding.enabled ? 'Switch off' : 'Switch on'}
+                            </button>
+                        </div>
+                    `}
+
+                    ${targets.length === 0
+                          ? html`<p class="muted">No target yet: every ${server.login} goes to the back end in charge.</p>`
+                          : html`
+                              <div class="table-scroll">
+                                  <table class="table">
+                                      <thead>
+                                          <tr>
+                                              <th>Target</th>
+                                              <th>Tries, in this order</th>
+                                              <th>Logins</th>
+                                              <th></th>
+                                          </tr>
+                                      </thead>
+                                      <tbody>
+                                          ${repeat(targets, target => target.id, target => html`
+                                              <tr>
+                                                  <td>
+                                                      <code>${target.id}</code>
+                                                      ${target.description ? html`<div class="small muted">${textOf(target.description)}</div>` : nothing}
+                                                  </td>
+                                                  <td>
+                                                      <ol class="target-peers">
+                                                          ${target.peers.map(peer => html`<li>${peerName(peer)}</li>`)}
+                                                      </ol>
+                                                  </td>
+                                                  <td>${target.logins}</td>
+                                                  <td class="right">
+                                                      <button type="button" class="btn small target-edit" data-id="${target.id}"
+                                                              ?disabled=${!mayChange} @click=${() => openTarget(target)}>
+                                                          Change
+                                                      </button>
+                                                      <button type="button" class="btn small danger target-remove" data-id="${target.id}"
+                                                              ?disabled=${!mayChange || target.logins !== 0}
+                                                              @click=${() => void removeTarget(target.id)}>
+                                                          Remove
+                                                      </button>
+                                                  </td>
+                                              </tr>
+                                          `)}
+                                      </tbody>
+                                  </table>
+                              </div>
+                          `}
+
+                    ${targeting === null
+                          ? (!mayChange ? nothing : html`
+                                <div class="form-actions">
+                                    <button type="button" id="target-new" class="btn"
+                                            ?disabled=${targets.length >= (logins.maxTargets ?? 0)} @click=${() => openTarget(null)}>
+                                        Make a target
+                                    </button>
+                                </div>
+                            `)
+                          : keyed(targeting, targetForm(logins, targets.find(target => target.id === targeting) ?? null))}
+
+                </section>
+            `;
+
+        }
+
+
+        // Its peers chosen one after the other: a chooser for each, and one
+        // more for the next, until the target holds as many as it may.
+        function targetForm(logins: WebSocketLogins, target: ForwardingTarget | null): TemplateResult {
+
+            const choosers = draftPeers.length < (logins.maxTargetPeers ?? 1) ? [ ...draftPeers, '' ] : draftPeers;
+
+            return html`
+                <form id="target-form" class="form-stack" data-id="${target?.id ?? ''}" @submit=${saveTarget}>
+
+                    <h3>${target === null ? 'A new target' : `The target '${target.id}'`}</h3>
+
+                    ${target !== null ? nothing : html`
+                        <label>Identification
+                            <input type="text" name="id" placeholder="site-1" maxlength="32" required
+                                   pattern="[a-zA-Z0-9][a-zA-Z0-9_\-]*" />
+                            <span class="hint">Letters, digits, '-' and '_'.</span>
+                        </label>
+                    `}
+
+                    <label>What it is
+                        <input type="text" name="description" maxlength="200" value="${textOf(target?.description) ?? ''}" />
+                    </label>
+
+                    <fieldset>
+                        <legend>Back ends, in the order they are tried</legend>
+                        ${choosers.map((chosen, index) => html`
+                            <label>${index === 0 ? 'First' : 'Then'}
+                                <select class="target-peer" data-index="${index}"
+                                        .value=${live(chosen)}
+                                        @change=${(event: Event) => choosePeer(index, (event.target as HTMLSelectElement).value)}>
+                                    <option value="" ?selected=${chosen === ''}>${index === 0 ? 'choose a back end' : 'no further one'}</option>
+                                    ${(peers ?? []).map(peer => html`
+                                        <option value="${peer.id}" ?selected=${peer.id === chosen}
+                                                ?disabled=${peer.id !== chosen && draftPeers.includes(peer.id)}>
+                                            ${textOf(peer.description) ?? peer.id} (${peer.kind}, ${peer.role})
+                                        </option>
+                                    `)}
+                                    ${chosen !== '' && !(peers ?? []).some(peer => peer.id === chosen)
+                                          ? html`<option value="${chosen}" selected>${chosen}</option>`
+                                          : nothing}
+                                </select>
+                            </label>
+                        `)}
+                        ${peers === null ? html`<span class="hint warn">The back ends could not be read: the connections are not yours to look at.</span>` : nothing}
+                    </fieldset>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn primary" ?disabled=${draftPeers.length === 0}>Save</button>
+                        <button type="button" class="btn" @click=${closeTarget}>Cancel</button>
+                        <span id="target-error" class="form-error" role="alert"></span>
+                    </div>
+
+                </form>
+            `;
+
+        }
+
+
+        function openTarget(target: ForwardingTarget | null): void {
+            targeting   = target?.id ?? '';
+            draftPeers  = [ ...(target?.peers ?? []) ];
+            draw();
+        }
+
+        function closeTarget(): void {
+            targeting   = null;
+            draftPeers  = [];
+            draw();
+        }
+
+        /** A peer chosen at a place of the list; none there drops it and those after it move up. */
+        function choosePeer(index: number, peer: string): void {
+
+            if (peer === '')
+                draftPeers = draftPeers.filter((_, at) => at !== index);
+            else if (index < draftPeers.length)
+                draftPeers = draftPeers.map((one, at) => at === index ? peer : one);
+            else
+                draftPeers = [ ...draftPeers, peer ];
+
+            draw();
+
+        }
+
+        function saveTarget(event: SubmitEvent): void {
+            event.preventDefault();
+            void tellTarget(event.target as HTMLFormElement);
+        }
+
+        async function tellTarget(form: HTMLFormElement): Promise<void> {
+
+            const isNew        = targeting === '';
+            const id           = isNew ? field(form, 'id').trim() : targeting!;
+            const description  = field(form, 'description').trim();
+            const error        = must<HTMLElement>(form, '#target-error');
+
+            error.textContent = '';
+
+            try
+            {
+
+                const answer = await api.targets.save(id, draftPeers, isNew, description === '' ? undefined : inEnglish(description));
+
+                if (cancelled)
+                    return;
+
+                store       = answer;
+                targeting   = null;
+                draftPeers  = [];
+
+                draw();
+
+            }
+            catch (problem)
+            {
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
+            }
+
+        }
+
+        async function removeTarget(id: string): Promise<void> {
+
+            if (!window.confirm(`Remove the target '${id}'?`))
+                return;
+
+            await change(() => api.targets.remove(id));
+
+        }
+
+        async function switchForwarding(on: boolean): Promise<void> {
+
+            if (!on && !window.confirm(`Switch forwarding off? Nothing a ${server.login} sends up reaches a back end any more, and nothing a back end asks of one reaches it.`))
+                return;
+
+            try
+            {
+
+                const answer = await api.forwarding.set(on);
+
+                if (cancelled)
+                    return;
+
+                forwarding = answer;
+
+                draw();
+
+            }
+            catch (problem)
+            {
+                if (!cancelled)
+                    window.alert(errorMessage(problem));
+            }
 
         }
 
@@ -932,6 +1211,9 @@ export const webSocketLoginsPage: Page = {
         const move = (id: string, group: string) =>
             change(() => api.logins.move(id, group));
 
+        const forward = (id: string, target: string) =>
+            change(() => api.logins.forward(id, target === '' ? null : target));
+
 
         /** Every change that answers with the whole list and has nothing to hand out. */
         async function change(what: () => Promise<WebSocketLogins>): Promise<void> {
@@ -975,6 +1257,18 @@ export const webSocketLoginsPage: Page = {
             {
 
                 const logins = await api.logins.get();
+
+                // Where the logins are forwarded: the peers a target names,
+                // and whether the node forwards at all. Neither is the page's
+                // to fail over - a user who may not look at the connections
+                // sees the peers by their ids.
+                if (logins.targets !== undefined)
+                {
+                    [ peers, forwarding ] = await Promise.all([
+                        api.peers().catch(() => null),
+                        api.forwarding.get().catch(() => null)
+                    ]);
+                }
 
                 if (cancelled)
                     return;

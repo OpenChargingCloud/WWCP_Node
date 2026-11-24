@@ -62,6 +62,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     /// <param name="KeyPins">The key pins of the TLS client keys it signs in with; null or none when it has none.</param>
     /// <param name="LocalController">Whether it is a local controller's login: one that may send, in the overlay network, in the name of the charging stations behind it. Any other speaks for itself alone.</param>
     /// <param name="Gateway">Whether it is a gateway's login: one that, like a local controller's, may send in the overlay network in the name of the charging stations behind it. A login is a local controller's or a gateway's, not both.</param>
+    /// <param name="Target">The forwarding target what it sends up goes to - see <see cref="ForwardingTarget"/> -, or null for the back end in charge of this node.</param>
     public sealed record WebSocketLogin(User_Id                        Login,
                                               String                         GroupId,
                                               SecurePassword?                Password,
@@ -72,7 +73,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                                               IReadOnlyList<UserSSHKey>?     SSHKeys          = null,
                                               IReadOnlyList<LoginKeyPin>?  KeyPins          = null,
                                               Boolean                        LocalController  = false,
-                                              Boolean                        Gateway          = false)
+                                              Boolean                        Gateway          = false,
+                                              String?                        Target           = null)
     {
 
         #region Data
@@ -425,7 +427,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                         // written by this node, and is read as a local
                         // controller's, which it was first.
                         JSON["gateway"]?.Type == JTokenType.Boolean && JSON.Value<Boolean>("gateway") &&
-                        !(JSON["localController"]?.Type == JTokenType.Boolean && JSON.Value<Boolean>("localController"))
+                        !(JSON["localController"]?.Type == JTokenType.Boolean && JSON.Value<Boolean>("localController")),
+                        JSON.Value<String>("target")?.Trim().ToLowerInvariant() is { Length: > 0 } target
+                            ? target
+                            : null
                     );
 
             return true;
@@ -458,6 +463,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
             if (Description.IsNotNullOrEmpty())
                 json.Add("description", Description.ToJSON());
+
+            if (Target is not null)
+                json.Add("target", Target);
 
             // Public keys, so the same with and without the secrets.
             if (HasSSHKey)

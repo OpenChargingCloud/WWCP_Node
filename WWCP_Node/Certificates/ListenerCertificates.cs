@@ -32,10 +32,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
     /// <para>
     /// A listener shows another certificate without anybody touching the
     /// store: one put in ahead of time becomes valid, one runs out. The
-    /// choice itself is made again at every handshake and needs nobody to
-    /// notice - but somebody has to say it in the log, and a listener that
-    /// does not ask at every handshake - an HTTP/3 listener, whose certificate
-    /// is handed over once when it starts - has to be told. So the store is
+    /// choice itself is made again at every handshake - over QUIC at every
+    /// connection - and needs nobody to notice; but somebody has to say it in
+    /// the log, and whoever shows what a listener shows elsewhere may want to
+    /// be told. So the store is
     /// looked at by the node's clock every <see cref="CheckEvery"/>, and right
     /// after every change of it: an identity that became valid or ran out is
     /// said, and a listener that shows another certificate than before raises
@@ -119,9 +119,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Certificates
         /// </summary>
         /// <remarks>
         /// Raised outside every lock, after the store changed or the clock
-        /// moved a certificate in or out of its validity, for what does not
-        /// ask at every handshake - an HTTP/3 listener restarted with the new
-        /// one. A handler that throws is caught and complained about.
+        /// moved a certificate in or out of its validity. A listener needs it
+        /// not: TLS asks at every handshake and QUIC at every connection, an
+        /// HTTP/3 listener as well. A handler that throws is caught and
+        /// complained about.
         /// </remarks>
         public event Action<CertificateUsage, CertificateEntry?, CertificateEntry?>? OnShownChanged;
 

@@ -97,6 +97,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
     /// <param name="LoginRemoved">What else is forgotten with a login, said as the end of a sentence; null for nothing.</param>
     /// <param name="Marks">What a login may be marked as beside its group, of which a login is one at most; null for nothing.</param>
     /// <param name="WhyGroupStays">Why a group of the given id may not be removed - the groups a node lives by, a meter's SunSpec roles, say -, or null where it may; null for every group.</param>
+    /// <param name="Targets">Whether the logins have forwarding targets - what a charging station sends up goes to -, under .../targets, and a login its 'target'.</param>
     public sealed record WebSocketLoginRoutes(HTTPPath                             Root,
                                               Func<WebSocketLogins>                Logins,
                                               Func<ClientTrustStore>               Trust,
@@ -105,7 +106,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                                               IReadOnlyList<String>                LogTags,
                                               Func<User_Id, String>?               LoginRemoved   = null,
                                               IReadOnlyList<WebSocketLoginMark>?   Marks          = null,
-                                              Func<String, String?>?               WhyGroupStays  = null);
+                                              Func<String, String?>?               WhyGroupStays  = null,
+                                              Boolean                              Targets        = false);
 
     #endregion
 
@@ -160,6 +162,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             AddHandler(root + "logins/{login}/keyPins",                request => PostLoginKeyPin     (request, Routes),  HTTPMethod.POST);
             AddHandler(root + "logins/{login}/keyPins/{pin}",          request => DeleteLoginKeyPin   (request, Routes),  HTTPMethod.DELETE);
+
+            if (Routes.Targets)
+            {
+                AddHandler(root + "targets",                           request => PostTarget          (request, Routes),  HTTPMethod.POST);
+                AddHandler(root + "targets/{id}",                      request => PutTarget           (request, Routes),  HTTPMethod.PUT);
+                AddHandler(root + "targets/{id}",                      request => DeleteTarget        (request, Routes),  HTTPMethod.DELETE);
+            }
 
         }
 
@@ -284,7 +293,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (!TryAuthorize(Request, Permission.Read(Routes.Resource), false, out _, out var refused))
                 return Task.FromResult(refused);
 
-            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON()));
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets)));
 
         }
 
@@ -330,17 +339,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, new JObject(
                            new JProperty("login",   login.ToString()),
-                           new JProperty("logins",  logins.ToJSON())
+                           new JProperty("logins",  logins.ToJSON(Routes.Targets))
                        ))
                    );
 
         }
 
         /// <summary>
-        /// PUT .../logins/{login} with {"enabled"}, {"group"} and/or one of the
-        /// marks: let a login in, stop letting it in, move it to another group,
-        /// or mark it - without losing what it signs in with. A login has one
-        /// mark at most: two of them true is refused.
+        /// PUT .../logins/{login} with {"enabled"}, {"group"}, one of the marks
+        /// and/or - where the logins have targets - {"target"}: let a login in,
+        /// stop letting it in, move it to another group, mark it, or forward it
+        /// to another target, null for none - without losing what it signs in
+        /// with. A login has one mark at most: two of them true is refused.
         /// </summary>
         private Task<HTTPResponse> PutLogin(HTTPRequest Request, WebSocketLoginRoutes Routes)
         {
@@ -372,7 +382,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             }
 
-            if (enabled is null && group is null && marked.Count == 0)
+            // A target named, or none: null takes it away, and only where it is said at all.
+            var targetSaid = Routes.Targets && json.ContainsKey("target");
+            var target     = targetSaid ? json["target"] : null;
+
+            if (targetSaid && target!.Type is not (JTokenType.String or JTokenType.Null))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "'target' is the identification of a target, or null for none."));
+
+            if (enabled is null && group is null && marked.Count == 0 && !targetSaid)
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest,
                                                  marks.Count == 0
                                                      ? "An 'enabled' of true or false, or a 'group', is required."
@@ -388,6 +405,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                 !logins.TrySetGroup(login, group, out var groupError, out var groupNotSaved))
             {
                 return Task.FromResult(NotChanged(Request, HTTPStatusCode.NotFound, groupError, groupNotSaved));
+            }
+
+            if (targetSaid &&
+                !logins.TrySetTarget(login, target!.Type == JTokenType.String ? target.Value<String>() : null, out var targetError, out var targetNotSaved))
+            {
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.NotFound, targetError, targetNotSaved));
             }
 
             if (enabled is Boolean wanted &&
@@ -414,7 +437,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             if (enabled is Boolean said)
                 Log.Info($"'{user.Id}' {(said ? "let in" : "shut out")} the {Routes.LoginNoun} '{login}'.", [ .. Routes.LogTags, "auth", "web" ]);
 
-            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, logins.ToJSON()));
+            if (targetSaid)
+                Log.Notice(target!.Type == JTokenType.String
+                               ? $"'{user.Id}' forwarded the {Routes.LoginNoun} '{login}' to the target '{target.Value<String>()?.Trim().ToLowerInvariant()}'."
+                               : $"'{user.Id}' forwarded the {Routes.LoginNoun} '{login}' to the back end in charge.",
+                           [ .. Routes.LogTags, "forwarding", "web" ]);
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, logins.ToJSON(Routes.Targets)));
 
         }
 
@@ -484,7 +513,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             var response = new JObject(
                                new JProperty("login",   login.ToString()),
-                               new JProperty("logins",  logins.ToJSON())
+                               new JProperty("logins",  logins.ToJSON(Routes.Targets))
                            );
 
             // None was sent, so one was made up: shown once here.
@@ -533,7 +562,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             Log.Notice($"'{user.Id}' {(bound ? "asked for" : "no longer asks for")} the one-time token of the {Routes.LoginNoun} '{login}' to be bound to its connection.",
                        [ .. Routes.LogTags, "auth", "web" ]);
 
-            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON()));
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets)));
 
         }
 
@@ -606,7 +635,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                        JSONResponse(Request, HTTPStatusCode.OK, new JObject(
                            new JProperty("login",        login.ToString()),
                            new JProperty("fingerprint",  key.Fingerprint),
-                           new JProperty("logins",       logins.ToJSON())
+                           new JProperty("logins",       logins.ToJSON(Routes.Targets))
                        ))
                    );
 
@@ -640,7 +669,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             Log.Notice($"'{user.Id}' took the SSH key {fingerprint} of the {Routes.LoginNoun} '{login}' away.", [ .. Routes.LogTags, "auth", "ssh", "web" ]);
 
-            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON()));
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets)));
 
         }
 
@@ -691,7 +720,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                        JSONResponse(Request, HTTPStatusCode.OK, new JObject(
                            new JProperty("login",   login.ToString()),
                            new JProperty("keyPin",  keyPin.Pin.ToHex()),
-                           new JProperty("logins",  logins.ToJSON())
+                           new JProperty("logins",  logins.ToJSON(Routes.Targets))
                        ))
                    );
 
@@ -723,7 +752,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             Log.Notice($"'{user.Id}' took the key pin {pin} of the {Routes.LoginNoun} '{login}' away.", [ .. Routes.LogTags, "auth", "tls", "web" ]);
 
-            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON()));
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets)));
 
         }
 
@@ -747,7 +776,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             Log.Notice($"'{user.Id}' took the {What} of the {Routes.LoginNoun} '{login}' away.", [ .. Routes.LogTags, "auth", "web" ]);
 
-            return JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON());
+            return JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets));
 
         }
 
@@ -780,7 +809,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             Log.Notice($"'{user.Id}' removed the {Routes.LoginNoun} '{login}'{alsoForgotten}.", [ .. Routes.LogTags, "auth", "web" ]);
 
-            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON()));
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets)));
 
         }
 
@@ -932,7 +961,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             Log.Notice($"'{user.Id}' wrote the login group '{Id}'.", [ .. Routes.LogTags, "auth", "web" ]);
 
-            return JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON());
+            return JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets));
 
         }
 
@@ -958,7 +987,108 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             Log.Notice($"'{user.Id}' removed the login group '{id}'.", [ .. Routes.LogTags, "auth", "web" ]);
 
-            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON()));
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets)));
+
+        }
+
+        #endregion
+
+        #region (private) The forwarding targets
+
+        /// <summary>
+        /// POST .../targets with {"id", "peers", "description"}: make a forwarding target.
+        /// </summary>
+        private Task<HTTPResponse> PostTarget(HTTPRequest Request, WebSocketLoginRoutes Routes)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(Routes.Resource), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var id = json.Value<String>("id")?.Trim().ToLowerInvariant();
+
+            if (String.IsNullOrEmpty(id))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "A target needs an 'id'."));
+
+            if (Routes.Logins().GetTarget(id) is not null)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.Conflict, $"There is a target called '{id}' already."));
+
+            return Task.FromResult(WriteTarget(Request, Routes, id, json));
+
+        }
+
+        /// <summary>
+        /// PUT .../targets/{id} with {"peers", "description"}: change the peers a target tries, and
+        /// their order - or make it.
+        /// </summary>
+        private Task<HTTPResponse> PutTarget(HTTPRequest Request, WebSocketLoginRoutes Routes)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(Routes.Resource), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryIdOfPath(Request, out var id, out var badRequest))
+                return Task.FromResult(badRequest);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            return Task.FromResult(WriteTarget(Request, Routes, id, json));
+
+        }
+
+        /// <summary>
+        /// Making a target and changing one are the same write: its peers are replaced, in the order
+        /// given.
+        /// </summary>
+        private HTTPResponse WriteTarget(HTTPRequest           Request,
+                                         WebSocketLoginRoutes  Routes,
+                                         String                Id,
+                                         JObject               JSON)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(Routes.Resource), true, out var user, out var refused))
+                return refused;
+
+            if (JSON["peers"] is not JArray peerArray ||
+                peerArray.Any(token => token.Type != JTokenType.String))
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, "'peers' must be a list of the identifications of peers, in the order they are tried.");
+
+            if (!ConnectionFields.TryDescriptionOf(JSON, out var description, out var wrongDescription))
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, wrongDescription);
+
+            var peers = peerArray.Select(token => token.Value<String>()!).ToArray();
+
+            if (!Routes.Logins().TryAddOrUpdateTarget(Id, peers, description, out var error, out var notSaved))
+                return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
+
+            Log.Notice($"'{user.Id}' wrote the target '{Id.Trim().ToLowerInvariant()}': {String.Join(", then ", peers.Select(peer => $"'{peer}'"))}.",
+                       [ .. Routes.LogTags, "forwarding", "web" ]);
+
+            return JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets));
+
+        }
+
+        /// <summary>
+        /// DELETE .../targets/{id}: forget a target no login names.
+        /// </summary>
+        private Task<HTTPResponse> DeleteTarget(HTTPRequest Request, WebSocketLoginRoutes Routes)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(Routes.Resource), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryIdOfPath(Request, out var id, out var badRequest))
+                return Task.FromResult(badRequest);
+
+            if (!Routes.Logins().TryRemoveTarget(id, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.Conflict, error, notSaved));
+
+            Log.Notice($"'{user.Id}' removed the target '{id}'.", [ .. Routes.LogTags, "forwarding", "web" ]);
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Routes.Logins().ToJSON(Routes.Targets)));
 
         }
 

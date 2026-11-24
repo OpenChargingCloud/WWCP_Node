@@ -112,6 +112,42 @@ export interface WebSocketLogin {
     hasKeyPin?:   boolean;
     keyPins?:     StationKeyPin[];
     description?: I18NString;
+    /** The forwarding target what it sends up goes to; left out, the back end in charge of the node. */
+    target?:      string;
+}
+
+/**
+ * Where what a charging station sends up is forwarded to: peers of the node -
+ * its back ends - in the order they are tried. The first of them that is
+ * connected gets it; where none is, the station is told so.
+ */
+export interface ForwardingTarget {
+    id:            string;
+    peers:         string[];
+    addedAt:       string;
+    description?:  I18NString;
+    /** How many logins name it. */
+    logins:        number;
+}
+
+/** Whether a node forwards what is not for itself, and why. */
+export interface Forwarding {
+    enabled:     boolean;
+    /** What its file says: true, false, or null for what its kind does. */
+    configured:  boolean | null;
+    /** What its kind does where its file says nothing. */
+    byDefault:   boolean;
+    file:        string;
+}
+
+/** A back end of the node, as the connections tell of it. */
+export interface NodePeer {
+    id:           string;
+    description:  I18NString;
+    kind:         string;
+    role:         string;
+    ocppVersion:  string;
+    endpoints:    string[];
 }
 
 /** A group of logins, and what its members are allowed to do. */
@@ -141,6 +177,10 @@ export interface WebSocketLogins {
     defaultGroup:       string;
     groups:             LoginGroup[];
     logins:             WebSocketLogin[];
+    /** There where the logins are forwarded - a node's charging stations -, and nowhere else. */
+    maxTargets?:        number;
+    maxTargetPeers?:    number;
+    targets?:           ForwardingTarget[];
 }
 
 /** What a group may be changed to. */
@@ -224,6 +264,10 @@ export const webSocketLoginsAPI = {
         move:     (login: string, group: string) =>
                       request<WebSocketLogins>('PUT', loginPath(login), { group }),
 
+        /** Forward a login to a target, or with null to the back end in charge. */
+        forward:  (login: string, target: string | null) =>
+                      request<WebSocketLogins>('PUT', loginPath(login), { target }),
+
         remove:   (login: string) =>
                       request<WebSocketLogins>('DELETE', loginPath(login)),
 
@@ -289,6 +333,32 @@ export const webSocketLoginsAPI = {
                       request<WebSocketLogins>('DELETE', `${loginServer().root}/groups/${encodeURIComponent(id)}`)
 
     },
+
+    targets: {
+
+        /** Its peers are replaced, in the order given. */
+        save:     (id: string, peers: string[], isNew: boolean, description?: I18NString) =>
+                      isNew
+                          ? request<WebSocketLogins>('POST', `${loginServer().root}/targets`, { id, peers, description })
+                          : request<WebSocketLogins>('PUT',  `${loginServer().root}/targets/${encodeURIComponent(id)}`, { peers, description }),
+
+        remove:   (id: string) =>
+                      request<WebSocketLogins>('DELETE', `${loginServer().root}/targets/${encodeURIComponent(id)}`)
+
+    },
+
+    /** Whether the node forwards at all; enabled left out goes back to what its kind does. */
+    forwarding: {
+
+        get:      ()  => request<Forwarding>('GET', '/configuration/forwarding'),
+
+        set:      (enabled?: boolean) =>
+                      request<Forwarding>('PUT', '/configuration/forwarding', enabled === undefined ? {} : { enabled })
+
+    },
+
+    /** The back ends a target may name, as the connections tell of them. */
+    peers:    async () => (await request<{ peers?: NodePeer[] }>('GET', '/configuration/connections')).peers ?? [],
 
     /**
      * How a client may authenticate at the server itself, as its own route
