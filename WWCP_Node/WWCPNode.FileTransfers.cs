@@ -152,8 +152,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>An HTTP file server does not take the PUT or the GET there: 405 or 501. Not tried again.</summary>
         MethodNotAllowed,
 
-        /// <summary>An HTTP file server answered with another status that says the request was wrong: a redirect, 400, 409, ... Not tried again.</summary>
-        RejectedByServer
+        /// <summary>An HTTP file server answered with another status that says the request was wrong: a redirect it may not follow, 400, 409, ... Not tried again.</summary>
+        RejectedByServer,
+
+        /// <summary>
+        /// The file to download changed since the attempt before, and what it
+        /// brought is no part of the new one: the caller throws it away and
+        /// starts anew - which the download does itself where its destination
+        /// can be cut back. Tried again.
+        /// </summary>
+        Changed
 
     }
 
@@ -167,12 +175,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <param name="Bytes">How many bytes were moved by this attempt.</param>
     /// <param name="RemotePath">The remote file, where one was named.</param>
     /// <param name="HostKeyShown">The SHA-256 fingerprint of a host key that was refused.</param>
+    /// <param name="Validator">What an HTTP file server said the file it sent is - its strong entity tag, or else the time it was last written - for the attempt after this one to ask whether it is still the same (If-Range); null where it said neither.</param>
     public sealed record FileTransferResult(FileTransferOutcome    Outcome,
                                             String                 Why,
                                             FileTransferJudgement  Judgement,
                                             Int64                  Bytes         = 0,
                                             String?                RemotePath    = null,
-                                            String?                HostKeyShown  = null)
+                                            String?                HostKeyShown  = null,
+                                            String?                Validator     = null)
     {
 
         /// <summary>
@@ -187,7 +197,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// a missing permission would only be asked for again.
         /// </summary>
         public Boolean MayBeTriedAgain
-            => Outcome is FileTransferOutcome.Unreachable or FileTransferOutcome.Failed;
+            => Outcome is FileTransferOutcome.Unreachable or FileTransferOutcome.Failed or FileTransferOutcome.Changed;
 
     }
 

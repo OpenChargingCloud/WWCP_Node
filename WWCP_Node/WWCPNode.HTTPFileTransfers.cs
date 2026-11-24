@@ -419,14 +419,27 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <param name="Direction">Which way.</param>
         public FileTransferJudgement JudgeHTTPFileTransfer(String?                 URL,
                                                            FileTransferDirections  Direction   = FileTransferDirections.Upload)
+
+            => JudgeHTTPFileTransfer(URL, Direction, Redirected: false);
+
+        /// <summary>
+        /// The same for a URL a request named, or - where Redirected - one an
+        /// HTTP file server sent a download on to: that may carry a query, as
+        /// the signed URL of a content delivery network does, and must lie in
+        /// the directory of an HTTP file server of this node that may be used
+        /// for downloads as much as a URL of a request.
+        /// </summary>
+        private FileTransferJudgement JudgeHTTPFileTransfer(String?                 URL,
+                                                            FileTransferDirections  Direction,
+                                                            Boolean                 Redirected)
         {
 
-            var judgement = JudgeHTTP(URL, Direction);
+            var judgement = JudgeHTTP(URL, Direction, AllowQuery: Redirected);
 
             if (!judgement.IsAllowed)
             {
 
-                Log.Warning($"A request for {(Direction == FileTransferDirections.Download ? "a download from" : "an upload to")} {Shown(URL)} is refused: {judgement.Why}.",
+                Log.Warning($"{(Redirected ? "A redirect" : "A request")} for {(Direction == FileTransferDirections.Download ? "a download from" : "an upload to")} {Shown(URL)} is refused: {judgement.Why}.",
                             Kind.Tag, "http", "filetransfer", "security");
 
                 if (judgement.Refusal == FileTransferRefusal.FileServerNotPermitted)
@@ -448,7 +461,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    : "a location that could not be read";
 
         private FileTransferJudgement JudgeHTTP(String?                 URL,
-                                                FileTransferDirections  Direction)
+                                                FileTransferDirections  Direction,
+                                                Boolean                 AllowQuery  = false)
         {
 
             static FileTransferJudgement Invalid(String Why)
@@ -469,7 +483,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (location.UserInfo.Length > 0 && CredentialsOf(location) is null)
                 return Invalid("its login is empty, or has a control character in it");
 
-            if (location.Query.Length > 0 || location.Fragment.Length > 0)
+            if ((location.Query.Length > 0 && !AllowQuery) || location.Fragment.Length > 0)
                 return Invalid("it carries a query or a fragment");
 
             var path = location.AbsolutePath;
@@ -586,7 +600,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              FileTransferDirections.Upload,
                              target,
                              () => sent,
-                             async (client, stillAlive, cancellationToken) => {
+                             async (client, stillAlive, redirected, cancellationToken) => {
 
                                  var body    = new CountingStream(Content, count => { sent = count; stillAlive(); Progress?.Report(count); });
                                  var content = new StreamContent(body);
@@ -630,10 +644,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         /// <remarks>
         /// <para>
-        /// From an offset on, the GET asks for the rest with a Range. A server
-        /// that answers with the whole file instead - 200 - is read from the
-        /// offset on, what came before being passed over. A 416 that says the
-        /// file is as long as the offset: there was nothing left to fetch.
+        /// From an offset on, the GET asks for the rest with a Range - and,
+        /// where the attempt before learned what the file was (its strong
+        /// entity tag, or else the time it was last written), with an
+        /// If-Range, so that a server whose file changed meanwhile sends the
+        /// new one whole rather than the rest of it. A server that answers with
+        /// the whole file - 200 - sends the same file where it says the same
+        /// validator, and is read from the offset on, what came before being
+        /// passed over; where it says another, or none while the attempt
+        /// before had one, the file changed: what the attempt before brought is
+        /// cut away from the destination, and the new file read from its first
+        /// byte - or, where the destination cannot be cut back, Changed, for
+        /// the caller to start anew. A 416 that says the file is as long as the
+        /// offset: there was nothing left to fetch.
+        /// </para>
+        /// <para>
+        /// A redirect - 301, 302, 303, 307, 308 - is followed where it leads to
+        /// a file an HTTP file server of the configuration may serve for
+        /// downloads, and nowhere else: not from https to http, not more than
+        /// <see cref="MaxHTTPRedirects"/> times. Its URL may carry a query, as
+        /// the signed URL of a content delivery network does. The login of the
+        /// request's URL goes along only to the server the request named; any
+        /// other server is signed in to as the configuration says of it.
         /// </para>
         /// <para>
         /// The server says who it is, not what the file is: whether a firmware
@@ -642,14 +674,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </para>
         /// </remarks>
         /// <param name="URL">The file.</param>
-        /// <param name="Destination">Where its bytes go, in order.</param>
+        /// <param name="Destination">Where its bytes go, in order: from its current position on, the bytes the attempt before brought just in front of it.</param>
         /// <param name="Offset">The first byte to read: what an attempt before brought already.</param>
         /// <param name="MaxSize">The most the whole file may have; a larger one is refused before a byte of it is written, where the server says its size.</param>
+        /// <param name="Validator">What the attempt before learned the file was (<see cref="FileTransferResult.Validator"/>), to be sure the rest is of the same file; null where it learned nothing.</param>
         /// <param name="Progress">Told the position in the remote file reached so far.</param>
         public async Task<FileTransferResult> DownloadFileOverHTTPAsync(String?            URL,
                                                                         Stream             Destination,
                                                                         Int64              Offset             = 0,
                                                                         Int64?             MaxSize            = null,
+                                                                        String?            Validator          = null,
                                                                         IProgress<Int64>?  Progress           = null,
                                                                         CancellationToken  CancellationToken  = default)
         {
@@ -659,105 +693,244 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!judgement.IsAllowed)
                 return new (FileTransferOutcome.Refused, judgement.Why, judgement);
 
-            var target    = new Uri(judgement.HTTPLocation!.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped));
-            var written   = 0L;
+            var origin     = judgement.HTTPLocation!;
+            var target     = new Uri(origin.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped));
+            var written    = 0L;
+            String? learned = null;
 
-            return await TransferOverHTTP(
+            var result = await TransferOverHTTP(
                              judgement,
                              FileTransferDirections.Download,
                              target,
                              () => written,
-                             async (client, stillAlive, cancellationToken) => {
+                             async (client, stillAlive, redirected, cancellationToken) => {
 
-                                 using var request = new HttpRequestMessage(HttpMethod.Get, target);
+                                 var hop       = judgement;
+                                 var location  = target;
 
-                                 if (Offset > 0)
-                                     request.Headers.Range = new RangeHeaderValue(Offset, null);
-
-                                 SignIn(request, judgement);
-
-                                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-
-                                 var status = (Int32) response.StatusCode;
-                                 var range  = response.Content.Headers.ContentRange;
-
-                                 // Nothing was left to fetch.
-                                 if (status == 416 && Offset > 0 && range?.Length == Offset)
-                                     return (FileTransferOutcome.Done, "");
-
-                                 if (status is not (200 or 206))
-                                     return Failed(response, judgement);
-
-                                 Int64? total;
-                                 var    skip = 0L;
-
-                                 if (status == 206)
+                                 for (var redirects = 0; ; redirects++)
                                  {
 
-                                     if (range?.From != Offset)
-                                         return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: the server sent the file from byte {range?.From}, and not from {Offset}.");
+                                     using var request = new HttpRequestMessage(HttpMethod.Get, location);
 
-                                     total = range.Length ?? (response.Content.Headers.ContentLength is Int64 length ? Offset + length : null);
-
-                                 }
-                                 else
-                                 {
-                                     // The whole file: what an attempt before brought is passed over.
-                                     total = response.Content.Headers.ContentLength;
-                                     skip  = Offset;
-                                 }
-
-                                 if (MaxSize is Int64 max && total > max)
-                                     return (FileTransferOutcome.TooLarge, $"the file has {total} bytes, and at most {max} are taken.");
-
-                                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-
-                                 var buffer   = new Byte[64 * 1024];
-                                 var position = Offset;
-
-                                 while (true)
-                                 {
-
-                                     var read = await body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-
-                                     if (read == 0)
-                                         break;
-
-                                     stillAlive();
-
-                                     var from = 0;
-
-                                     if (skip > 0)
+                                     if (Offset > 0)
                                      {
-                                         from  = (Int32) Math.Min(skip, read);
-                                         skip -= from;
+
+                                         request.Headers.Range = new RangeHeaderValue(Offset, null);
+
+                                         // Only the rest of the same file, or else the new file whole.
+                                         if (Validator is not null)
+                                             request.Headers.TryAddWithoutValidation("If-Range", Validator);
+
                                      }
 
-                                     if (from == read)
+                                     // The login of the request's URL goes along to its own server only.
+                                     SignIn(request, hop, SameServer(location, origin) ? CredentialsOf(origin) : null);
+
+                                     using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+                                     var status = (Int32) response.StatusCode;
+
+                                     #region A redirect
+
+                                     if (status is 301 or 302 or 303 or 307 or 308)
+                                     {
+
+                                         if (response.Headers.Location is not Uri sentTo)
+                                             return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: a redirect to nowhere.");
+
+                                         var next = sentTo.IsAbsoluteUri ? sentTo : new Uri(location, sentTo);
+
+                                         if (redirects >= MaxHTTPRedirects)
+                                             return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: a redirect, to {Shown(next.ToString())}, after {MaxHTTPRedirects} already - it is not followed.");
+
+                                         if (location.Scheme == Uri.UriSchemeHttps && next.Scheme != Uri.UriSchemeHttps)
+                                             return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: a redirect from https:// to {Shown(next.ToString())} is not followed - the file would come over a connection nobody vouches for.");
+
+                                         var judged = JudgeHTTPFileTransfer(next.ToString(), FileTransferDirections.Download, Redirected: true);
+
+                                         if (!judged.IsAllowed)
+                                             return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: a redirect, to {Shown(next.ToString())}, is not followed - {judged.Why}.");
+
+                                         Log.Info($"The download from {Shown(location.ToString())} is sent on to {Shown(next.ToString())}, {judged.Why}.",
+                                                  Kind.Tag, "http", "filetransfer");
+
+                                         hop       = judged;
+                                         location  = new Uri(judged.HTTPLocation!.GetComponents(UriComponents.HttpRequestUrl, UriFormat.UriEscaped));
+
+                                         redirected(hop);
+
                                          continue;
 
-                                     if (MaxSize is Int64 most && position + (read - from) > most)
-                                         return (FileTransferOutcome.TooLarge, $"the file has more than the {most} bytes that are taken.");
+                                     }
 
-                                     await Destination.WriteAsync(buffer.AsMemory(from, read - from), cancellationToken).ConfigureAwait(false);
+                                     #endregion
 
-                                     written  += read - from;
-                                     position += read - from;
+                                     var range  = response.Content.Headers.ContentRange;
+                                     var shown  = ValidatorOf(response);
 
-                                     Progress?.Report(position);
+                                     // Nothing was left to fetch.
+                                     if (status == 416 && Offset > 0 && range?.Length == Offset)
+                                     {
+                                         learned = Validator;
+                                         return (FileTransferOutcome.Done, "");
+                                     }
+
+                                     if (status is not (200 or 206))
+                                         return Failed(response, hop);
+
+                                     learned = shown;
+
+                                     Int64? total;
+                                     var    skip      = 0L;
+                                     var    position  = Offset;
+
+                                     if (status == 206)
+                                     {
+
+                                         if (range?.From != Offset)
+                                             return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: the server sent the file from byte {range?.From}, and not from {Offset}.");
+
+                                         total = range.Length ?? (response.Content.Headers.ContentLength is Int64 length ? Offset + length : null);
+
+                                     }
+
+                                     else if (Offset > 0 && Validator is not null && shown != Validator)
+                                     {
+
+                                         // Another file than the one the attempt before brought the
+                                         // beginning of: that beginning is cut away, and this one read
+                                         // from its first byte.
+                                         if (!Destination.CanSeek)
+                                             return (FileTransferOutcome.Changed, $"{Said(response)}: the file changed since the attempt before ({Validator}, now {shown ?? "unknown"}), and what it brought is no part of it.");
+
+                                         var start = Destination.Position - Offset;
+
+                                         Destination.SetLength(start);
+                                         Destination.Position = start;
+
+                                         Log.Info($"The file at {Shown(location.ToString())} changed since the attempt before ({Validator}, now {shown ?? "unknown"}): it is fetched anew from its first byte.",
+                                                  Kind.Tag, "http", "filetransfer");
+
+                                         total     = response.Content.Headers.ContentLength;
+                                         position  = 0;
+
+                                     }
+
+                                     else
+                                     {
+                                         // The whole file, the same one: what an attempt before brought is passed over.
+                                         total = response.Content.Headers.ContentLength;
+                                         skip  = Offset;
+                                     }
+
+                                     if (MaxSize is Int64 max && total > max)
+                                         return (FileTransferOutcome.TooLarge, $"the file has {total} bytes, and at most {max} are taken.");
+
+                                     return await Read(response, total, skip, position, stillAlive, cancellationToken).ConfigureAwait(false);
 
                                  }
-
-                                 await Destination.FlushAsync(cancellationToken).ConfigureAwait(false);
-
-                                 if (skip > 0 || (total is Int64 expected && position != expected))
-                                     return (FileTransferOutcome.Unreachable, $"the connection ended at byte {position}{(total is null ? "" : $" of {total}")}.");
-
-                                 return (FileTransferOutcome.Done, "");
 
                              },
                              CancellationToken
                          ).ConfigureAwait(false);
+
+            return result with { Validator = learned };
+
+
+            // The body of an answer into the destination: what is to be passed
+            // over first, then every byte up to the end, or to the most taken.
+            async Task<(FileTransferOutcome, String)> Read(HttpResponseMessage  Response,
+                                                           Int64?               Total,
+                                                           Int64                Skip,
+                                                           Int64                Position,
+                                                           Action               StillAlive,
+                                                           CancellationToken    Cancel)
+            {
+
+                await using var body = await Response.Content.ReadAsStreamAsync(Cancel).ConfigureAwait(false);
+
+                var buffer    = new Byte[64 * 1024];
+                var skip      = Skip;
+                var position  = Position;
+
+                while (true)
+                {
+
+                    var read = await body.ReadAsync(buffer, Cancel).ConfigureAwait(false);
+
+                    if (read == 0)
+                        break;
+
+                    StillAlive();
+
+                    var from = 0;
+
+                    if (skip > 0)
+                    {
+                        from  = (Int32) Math.Min(skip, read);
+                        skip -= from;
+                    }
+
+                    if (from == read)
+                        continue;
+
+                    if (MaxSize is Int64 most && position + (read - from) > most)
+                        return (FileTransferOutcome.TooLarge, $"the file has more than the {most} bytes that are taken.");
+
+                    await Destination.WriteAsync(buffer.AsMemory(from, read - from), Cancel).ConfigureAwait(false);
+
+                    written  += read - from;
+                    position += read - from;
+
+                    Progress?.Report(position);
+
+                }
+
+                await Destination.FlushAsync(Cancel).ConfigureAwait(false);
+
+                if (skip > 0 || (Total is Int64 expected && position != expected))
+                    return (FileTransferOutcome.Unreachable, $"the connection ended at byte {position}{(Total is null ? "" : $" of {Total}")}.");
+
+                return (FileTransferOutcome.Done, "");
+
+            }
+
+        }
+
+        #endregion
+
+        #region MaxHTTPRedirects / (private static) SameServer(A, B) / (private static) ValidatorOf(Response)
+
+        /// <summary>
+        /// How many redirects a download follows at most, one after the other.
+        /// </summary>
+        public const Int32 MaxHTTPRedirects = 5;
+
+        /// <summary>
+        /// Whether both URLs name the same server: scheme, host and port.
+        /// </summary>
+        private static Boolean SameServer(Uri A, Uri B)
+
+            => String.Equals(A.Scheme, B.Scheme, StringComparison.OrdinalIgnoreCase) &&
+               String.Equals(A.IdnHost, B.IdnHost, StringComparison.OrdinalIgnoreCase) &&
+               A.Port == B.Port;
+
+        /// <summary>
+        /// What an answer says the file it carries is, as an If-Range may name
+        /// it again (RFC 9110, Section 13.1.5): its entity tag where it is a
+        /// strong one, or else the time it was last written; null where it
+        /// says neither.
+        /// </summary>
+        private static String? ValidatorOf(HttpResponseMessage Response)
+        {
+
+            if (Response.Headers.ETag is EntityTagHeaderValue tag && !tag.IsWeak)
+                return tag.Tag;
+
+            return Response.Content.Headers.LastModified is DateTimeOffset written
+                       ? written.ToUniversalTime().ToString("r", System.Globalization.CultureInfo.InvariantCulture)
+                       : null;
 
         }
 
@@ -768,16 +941,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Sign in as the URL says, or else as the configuration says, where
-        /// either says anything.
+        /// either says anything - or, after a redirect to the server the
+        /// request named, as the request's URL said.
         /// </summary>
-        private void SignIn(HttpRequestMessage     Request,
-                            FileTransferJudgement  Judgement)
+        private void SignIn(HttpRequestMessage         Request,
+                            FileTransferJudgement      Judgement,
+                            (String, String)?          Carried  = null)
         {
 
             var server      = Judgement.HTTPServer!;
 
             // The login of the URL, where it carries one, before that of the configuration.
-            var credentials = CredentialsOf(Judgement.HTTPLocation!) ??
+            var credentials = Carried ??
+                              CredentialsOf(Judgement.HTTPLocation!) ??
                               (server.User is String user && server.Password is String password
                                    ? (user, password)
                                    : null);
@@ -812,7 +988,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        405 or 501            => (FileTransferOutcome.MethodNotAllowed,  $"{said}: the server does not take this method there."),
                        413                   => (FileTransferOutcome.TooLarge,          said),
                        408 or 429 or >= 500  => (FileTransferOutcome.Failed,            said),
-                       >= 300 and < 400      => (FileTransferOutcome.RejectedByServer,  $"{said}: a redirect, to {Response.Headers.Location?.GetLeftPart(UriPartial.Path) ?? "nowhere"}, is not followed - it would lead to a server the configuration does not name."),
+                       >= 300 and < 400      => (FileTransferOutcome.RejectedByServer,  $"{said}: a redirect, to {Response.Headers.Location?.GetLeftPart(UriPartial.Path) ?? "nowhere"}, is not followed - an upload goes to the server the request named, and a download follows only 301, 302, 303, 307 and 308."),
                        _                     => (FileTransferOutcome.RejectedByServer,  said)
                    };
 
@@ -826,16 +1002,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// Make the HTTP client the judgement says, let the transfer ask its
         /// server, and say how it ended.
         /// </summary>
-        private async Task<FileTransferResult> TransferOverHTTP(FileTransferJudgement                                                                    Judgement,
-                                                                FileTransferDirections                                                                   Direction,
-                                                                Uri                                                                                      Target,
-                                                                Func<Int64>                                                                              Bytes,
-                                                                Func<HttpClient, Action, CancellationToken, Task<(FileTransferOutcome, String)>>         Move,
-                                                                CancellationToken                                                                        CancellationToken)
+        private async Task<FileTransferResult> TransferOverHTTP(FileTransferJudgement                                                                                          Judgement,
+                                                                FileTransferDirections                                                                                         Direction,
+                                                                Uri                                                                                                            Target,
+                                                                Func<Int64>                                                                                                    Bytes,
+                                                                Func<HttpClient, Action, Action<FileTransferJudgement>, CancellationToken, Task<(FileTransferOutcome, String)>>  Move,
+                                                                CancellationToken                                                                                              CancellationToken)
         {
 
-            var server              = Judgement.HTTPServer!;
-            var directory           = Judgement.HTTPLocation!;
+            // The server asked now: the one the request named, or the one a
+            // redirect it may follow sent it on to.
+            var hop                 = Judgement;
             var what                = $"{(Direction == FileTransferDirections.Download ? "download from" : "upload to")} {Target.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)}";
             String? certificateRefused = null;
 
@@ -874,7 +1051,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 using var shown = certificate is null ? null : X509CertificateLoader.LoadCertificate(certificate.GetRawCertData());
 
                 var judged = JudgeServer(ConnectionsCertificateUsage,
-                                         directory.IdnHost,
+                                         hop.HTTPLocation!.IdnHost,
                                          null,
                                          shown,
                                          chain,
@@ -897,7 +1074,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 StillAlive();
 
-                var (outcome, why) = await Move(client, StillAlive, idle.Token).ConfigureAwait(false);
+                var (outcome, why) = await Move(client, StillAlive, next => hop = next, idle.Token).ConfigureAwait(false);
 
                 return Ended(outcome, why);
 
@@ -913,7 +1090,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
             catch (HttpRequestException problem) when (certificateRefused is not null || problem.InnerException is AuthenticationException)
             {
 
-                var why = certificateRefused ?? problem.InnerException?.Message ?? problem.Message;
+                var why    = certificateRefused ?? problem.InnerException?.Message ?? problem.Message;
+                var server = hop.HTTPServer!;
 
                 Log.Metrological(LogLevel.Warning,
                                  $"The HTTP file server '{server.Id}' ({server.URL.GetLeftPart(UriPartial.Authority)}) showed a TLS certificate this {Kind.Name} does not believe: {why} " +

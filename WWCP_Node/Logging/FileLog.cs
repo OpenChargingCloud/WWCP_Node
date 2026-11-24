@@ -311,6 +311,118 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logging
 
         #endregion
 
+
+        #region (static) FilesIn(Directory, FilePrefix, From = null, To = null)
+
+        /// <summary>
+        /// The files a log of the given prefix wrote to the given directory, by
+        /// their day, the oldest first - of the days from From to To, both
+        /// included, where they are given. Nothing else that lies there.
+        /// </summary>
+        public static IReadOnlyList<(DateOnly Day, String Path)> FilesIn(String     Directory,
+                                                                          String     FilePrefix,
+                                                                          DateOnly?  From  = null,
+                                                                          DateOnly?  To    = null)
+        {
+
+            if (!System.IO.Directory.Exists(Directory))
+                return [];
+
+            var files = new List<(DateOnly Day, String Path)>();
+
+            foreach (var path in System.IO.Directory.EnumerateFiles(Directory, $"{FilePrefix}-*.log"))
+            {
+
+                var name = Path.GetFileNameWithoutExtension(path);
+
+                if (name.Length != FilePrefix.Length + 11 ||
+                    !DateOnly.TryParseExact(name[(FilePrefix.Length + 1)..], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var day))
+                {
+                    continue;
+                }
+
+                if ((From is DateOnly from && day < from) ||
+                    (To   is DateOnly to   && day > to))
+                {
+                    continue;
+                }
+
+                files.Add((day, path));
+
+            }
+
+            files.Sort((a, b) => a.Day.CompareTo(b.Day));
+
+            return files;
+
+        }
+
+        #endregion
+
+        #region (static) TryParseLine(Line, out Entry)
+
+        /// <summary>
+        /// One line of a file read back into the entry it was written of: its
+        /// time, its level, its tags and its message. What the file never had -
+        /// the number the entry had in the log, its data - it has not either:
+        /// its number is 0.
+        /// </summary>
+        public static Boolean TryParseLine(String?                                                         Line,
+                                           [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out LogEntry?  Entry)
+        {
+
+            Entry = null;
+
+            // "2026-09-23T13:45:01.123Z info    [ocpp http] message": the time
+            // in 24 characters, a space, the level in 8, and the rest.
+            if (Line is null || Line.Length < 33 || Line[24] != ' ')
+                return false;
+
+            if (!DateTimeOffset.TryParseExact(Line[..24], "yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture,
+                                              System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var timestamp) ||
+                !Enum.TryParse<LogLevel>(Line[25..33].Trim(), ignoreCase: true, out var level))
+            {
+                return false;
+            }
+
+            var rest  = Line[33..];
+            var tags  = Array.Empty<String>();
+
+            // Tags are lower case: a message without any that begins with a
+            // bracket of its own is a message.
+            if (rest.StartsWith('[') && rest.IndexOf("] ", StringComparison.Ordinal) is var end && end > 1 &&
+                rest[1..end].All(character => character is (>= 'a' and <= 'z') or (>= '0' and <= '9') or ' ' or '-' or '_' or '.' or ':' or '/'))
+            {
+                tags  = rest[1..end].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                rest  = rest[(end + 2)..];
+            }
+
+            Entry = new LogEntry(0, timestamp, level, tags, rest);
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) Read(Path)
+
+        /// <summary>
+        /// The entries of one file, in the order they were written; a line that
+        /// is none is passed over.
+        /// </summary>
+        public static IEnumerable<LogEntry> Read(String Path)
+        {
+
+            using var reader = new StreamReader(new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+
+            while (reader.ReadLine() is String line)
+                if (TryParseLine(line, out var entry))
+                    yield return entry;
+
+        }
+
+        #endregion
+
     }
 
 }

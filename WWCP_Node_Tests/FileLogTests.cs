@@ -215,6 +215,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region WhatIsWrittenIsReadBack_ByTheDaysAskedFor()
+
+        /// <summary>
+        /// The files of the days asked for, the oldest first, and nothing else
+        /// that lies beside them; each line read back into the entry it was
+        /// written of - its time, its level, its tags, its message - and a line
+        /// that is none passed over.
+        /// </summary>
+        [Test]
+        public void WhatIsWrittenIsReadBack_ByTheDaysAskedFor()
+        {
+
+            using (new FileLog(log, directory))
+            {
+
+                log.Critical("Critical, with no room for a space before its tags.", "test", "security");
+
+                clock.Now = new DateTimeOffset(2026, 9, 24, 8, 0, 0, 5, TimeSpan.Zero);
+                log.Info("[Not a tag] but a message.");
+
+                clock.Now = new DateTimeOffset(2026, 9, 25, 8, 0, 0, 0, TimeSpan.Zero);
+                log.Warning("The third day.", "ocpp");
+
+            }
+
+            File.WriteAllText(Path.Combine(directory, "node-yesterday.log"),  "not a day\n");
+            File.WriteAllText(Path.Combine(directory, "other-2026-09-24.log"), "another prefix\n");
+            File.AppendAllText(Path.Combine(directory, "node-2026-09-24.log"), "no line of a log\n");
+
+            var all   = FileLog.FilesIn(directory, "node");
+            var some  = FileLog.FilesIn(directory, "node", From: new DateOnly(2026, 9, 24), To: new DateOnly(2026, 9, 24));
+
+            Assert.Multiple(() => {
+
+                Assert.That(all. Select(file => file.Day), Is.EqualTo(new[] { new DateOnly(2026, 9, 23), new DateOnly(2026, 9, 24), new DateOnly(2026, 9, 25) }));
+                Assert.That(some.Select(file => file.Day), Is.EqualTo(new[] { new DateOnly(2026, 9, 24) }));
+
+                Assert.That(all.SelectMany(file => FileLog.Read(file.Path)).Select(entry => (entry.Timestamp, entry.Level, String.Join(",", entry.Tags), entry.Message)),
+                            Is.EqualTo(new[] {
+                                (Afternoon,                                                      LogLevel.Critical, "test,security", "Critical, with no room for a space before its tags."),
+                                (new DateTimeOffset(2026, 9, 24, 8, 0, 0, 5, TimeSpan.Zero),     LogLevel.Info,     "",              "[Not a tag] but a message."),
+                                (new DateTimeOffset(2026, 9, 25, 8, 0, 0, 0, TimeSpan.Zero),     LogLevel.Warning,  "ocpp",          "The third day.")
+                            }));
+
+            });
+
+        }
+
+        #endregion
+
         #region NothingThatWasThereIsOverwritten()
 
         /// <summary>
