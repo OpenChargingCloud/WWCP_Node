@@ -1127,11 +1127,13 @@ one, so no network, without a zone, and an IPv4 address in its four parts -
 behind a reverse proxy the client is the one the `web` section believes the
 proxy about; the list says `only from ...`. Over SSH the account may be left
 out, and is then the one signed in; another account's keys are for
-whoever the HTTPExt API lets act for it - as its routes
-`/ext/users/{UserId}/SSHKeys` and the API keys' own decide - which is an
-admin of its admins' organization, `Admins`. A node does not make that
-organization by itself, so until somebody does, another account's keys are
-the console's alone. The console names the account, and may do everything.
+an account in the `systemadmin` role - every account's, another
+systemadmin's too - and beyond that for whoever the HTTPExt API lets act
+for it, as its routes `/ext/users/{UserId}/SSHKeys` and the API keys' own
+decide: an admin of its admins' organization, `Admins`, which a node does
+not make by itself. Those routes stay as the HTTPExt API has them, so on
+the web an account manages its own keys. The console names the account,
+and may do everything.
 Every key let in or taken out is in the log, tagged `security`, naming who
 did it - an API key by its hint and hash, as a list names it.
 A key switched off - on the account's page - is listed as switched off, and

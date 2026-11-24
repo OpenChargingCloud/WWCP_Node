@@ -593,6 +593,66 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ASystemAdminManagesEveryAccountsKeys
+
+        /// <summary>
+        /// An account in the systemadmin role manages the keys of every other
+        /// account - with no organization of admins anywhere, and those of
+        /// another systemadmin too, whom the accounts let nobody act for.
+        /// </summary>
+        [Test]
+        public async Task ASystemAdminManagesEveryAccountsKeys()
+        {
+
+            var hank                = await MakeAccount(User_Id.Parse("hank"), Role.Viewer.Name);
+            var hanksKey            = SshHostKey.GenerateEd25519();
+
+            Assert.That((await node!.AuthorizeSSHKey(User_Id.Parse("hank"), SshPublicKey.FromHostKey(hanksKey).ToAuthorizedKeyLine())).IsAdded, Is.True);
+
+            var fingerprint         = SshFingerprint.Sha256(hanksKey.PublicKeyBlob);
+            var rootsKey            = SshHostKey.GenerateEd25519();
+            var rootsFingerprint    = SshFingerprint.Sha256(rootsKey.PublicKeyBlob);
+
+            await using var client  = await SignIn(User_Id.Parse("sally"), WWCPNode.AdminRole.ToString());
+            var (shell, screen)     = await Open(client);
+
+            await screen.WaitFor("WWCP node> ");
+
+            var listed = screen.Text.Length;
+            await shell.WriteAsync("sshKeys hank\r");
+            await screen.WaitFor(fingerprint, listed);
+
+            var removed = screen.Text.Length;
+            await shell.WriteAsync($"sshKeys hank remove {fingerprint}\r");
+            await screen.WaitFor("lets 'hank' in no more", removed);
+
+            var made = screen.Text.Length;
+            await shell.WriteAsync("apiKeys hank add\r");
+            await screen.WaitFor("has a new API key, ReadOnly:", made);
+
+            var rootsAdded = screen.Text.Length;
+            await shell.WriteAsync($"sshKeys root add {SshPublicKey.FromHostKey(rootsKey).ToAuthorizedKeyLine()}\r");
+            await screen.WaitFor($"'root' signs in with the key {rootsFingerprint} now.", rootsAdded);
+
+            node.ExtAPI.TryGetUser(User_Id.Parse("sally"), out var sally);
+            node.ExtAPI.TryGetUser(User_Id.Parse("root"),  out var root);
+
+            Assert.Multiple(() => {
+                Assert.That(node.ExtAPI.CanImpersonate(sally!, hank), Is.False,             "the accounts let sally act for hank - this test would not tell the role from them");
+                Assert.That(node.ExtAPI.CanImpersonate(sally!, root!),Is.False,             "the accounts let sally act for root - this test would not tell the role from them");
+                Assert.That(node.ExtAPI.GetSSHKeys(hank.Id),          Is.Empty);
+                Assert.That(node.ExtAPI.GetAPIKeysForUser(hank),      Has.Exactly(1).Items);
+                Assert.That(node.ExtAPI.GetSSHKeys(User_Id.Parse("root")).Select(key => key.Fingerprint), Does.Contain(rootsFingerprint));
+                Assert.That(screen.Text,                              Does.Not.Contain("may not do that for"));
+                lock (said)
+                    Assert.That(said, Has.Some.EqualTo($"'sally' at the command line over SSH took the key {fingerprint} from 'hank': it lets nobody in from now on.").
+                                          And.Some.EqualTo($"'sally' at the command line over SSH let 'root' in over SSH with the key {rootsFingerprint}."));
+            });
+
+        }
+
+        #endregion
+
         #region TheLogIsAboveTheLineFromALevelOfItsOwn
 
         /// <summary>

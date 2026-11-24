@@ -317,9 +317,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
         /// not.
         /// </summary>
         /// <remarks>
-        /// The HTTPExt API's answer, as its routes give it for the same keys: an
-        /// account its own, and another where it may impersonate it - an admin
-        /// of the API's admin organization everybody but another such admin.
+        /// An account its own; every account for whoever has the node's
+        /// systemadmin role, which may do everything there is here; and
+        /// beyond that the HTTPExt API's answer, as its routes give it for the
+        /// same keys: another account where it may impersonate it - an admin of
+        /// the API's admin organization everybody but another such admin.
         /// The console may do everything: whoever is at it has the process.
         /// </remarks>
         /// <param name="Account">The account whose things are asked about.</param>
@@ -337,6 +339,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
 
             if (Caller.Account is not { } caller ||
                 caller.Id == Account.Id ||
+                Node.RolesOf(caller).Any(role => role.IsSystemAdmin) ||
                 Node.ExtAPI.CanImpersonate(caller, Account))
             {
                 return true;
@@ -347,7 +350,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.CommandLine
                 "cli", "ssh", "auth"
             );
 
-            Refused = $"'{caller.Id}' may not do that for '{Account.Id}': only the account itself, or an account that may act for it in the accounts, may.";
+            Refused = $"'{caller.Id}' may not do that for '{Account.Id}': only the account itself, the {WWCPNode.AdminRole} role, or an account that may act for it in the accounts, may.";
             return false;
 
         }
