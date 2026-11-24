@@ -252,6 +252,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public String LoginNoun { get; }
 
         /// <summary>
+        /// The same, more than one of them: "charging stations",
+        /// "registration authorities".
+        /// </summary>
+        private String LoginNouns
+            => NodeWording.Plural(LoginNoun);
+
+        /// <summary>
         /// Who a login is where nothing says otherwise.
         /// </summary>
         public const String DefaultLoginNoun = "charging station";
@@ -443,7 +450,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                         return false;
                     }
 
-                    if (!WebSocketLogin.TryParse(json, out var login, out var problem, NodeNoun))
+                    if (!WebSocketLogin.TryParse(json, out var login, out var problem, NodeNoun, LoginNoun))
                     {
                         Error = $"'{Path}': {problem}";
                         return false;
@@ -468,7 +475,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     foreach (var key in login.Keys)
                         if (logins.Values.FirstOrDefault(other => other.Keys.Any(known => known.Fingerprint == key.Fingerprint)) is WebSocketLogin holder)
                         {
-                            Error = $"'{Path}': the SSH key {key.Fingerprint} is listed for the {LoginNoun}s '{holder.Login}' and '{login.Login}'; one key is one {LoginNoun}.";
+                            Error = $"'{Path}': the SSH key {key.Fingerprint} is listed for the {LoginNouns} '{holder.Login}' and '{login.Login}'; one key is one {LoginNoun}.";
                             return false;
                         }
 
@@ -478,7 +485,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                     foreach (var keyPin in login.Pins)
                         if (logins.Values.FirstOrDefault(other => other.FindKeyPin(keyPin.Pin) is not null) is WebSocketLogin holder)
                         {
-                            Error = $"'{Path}': the key pin {keyPin.Pin} is listed for the {LoginNoun}s '{holder.Login}' and '{login.Login}'; one key is one {LoginNoun}.";
+                            Error = $"'{Path}': the key pin {keyPin.Pin} is listed for the {LoginNouns} '{holder.Login}' and '{login.Login}'; one key is one {LoginNoun}.";
                             return false;
                         }
 
@@ -674,7 +681,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (members > 0)
                 {
-                    Error = $"The login group '{id}' still holds {members} {LoginNoun}(s). Move them to another group first.";
+                    Error = $"The login group '{id}' still holds {members} {(members == 1 ? LoginNoun : LoginNouns)}. Move them to another group first.";
                     return false;
                 }
 
@@ -1156,7 +1163,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (existing is null && logins.Count >= MaxStations)
                 {
-                    Error = $"At most {MaxStations} {LoginNoun}s may be listed here.";
+                    Error = $"At most {MaxStations} {LoginNouns} may be listed here.";
                     return false;
                 }
 
@@ -1369,7 +1376,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (existing is null && logins.Count >= MaxStations)
                 {
-                    Error = $"At most {MaxStations} {LoginNoun}s may be listed here.";
+                    Error = $"At most {MaxStations} {LoginNouns} may be listed here.";
                     return false;
                 }
 
@@ -2474,7 +2481,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (!logins.ContainsKey(Login) && logins.Count >= MaxStations)
                 {
-                    Error = $"At most {MaxStations} {LoginNoun}s may be listed here.";
+                    Error = $"At most {MaxStations} {LoginNouns} may be listed here.";
                     return false;
                 }
 
@@ -2648,7 +2655,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public override String ToString()
         {
             lock (updateLock)
-                return $"{logins.Values.Count(login => login.Enabled)} of {logins.Count} {LoginNoun}(s) " +
+                return $"{logins.Values.Count(login => login.Enabled)} of {logins.Count} {(logins.Count == 1 ? LoginNoun : LoginNouns)} " +
                        $"in {groups.Count} group(s) may sign in";
         }
 

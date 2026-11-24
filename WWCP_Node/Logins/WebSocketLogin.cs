@@ -247,7 +247,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         public static Boolean TryParse(JObject                                        JSON,
                                        [NotNullWhen(true)]  out WebSocketLogin?  Login,
                                        [NotNullWhen(false)] out String?                Error,
-                                       String?                                         NodeNoun   = null)
+                                       String?                                         NodeNoun   = null,
+                                       String?                                         LoginNoun  = null)
         {
 
             Login  = null;
@@ -255,7 +256,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
             if (User_Id.TryParse(JSON.Value<String>("login")) is not User_Id login)
             {
-                Error = "every charging station needs a 'login'.";
+                Error = $"every {LoginNoun ?? WebSocketLogins.DefaultLoginNoun} needs a 'login'.";
                 return false;
             }
 
@@ -388,7 +389,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
                 if (keyPins.Count > MaxKeyPins)
                 {
-                    Error = $"'{login}' has {keyPins.Count} key pins, and a charging station may have at most {MaxKeyPins}.";
+                    Error = $"'{login}' has {keyPins.Count} key pins, and a {LoginNoun ?? WebSocketLogins.DefaultLoginNoun} may have at most {MaxKeyPins}.";
                     return false;
                 }
 

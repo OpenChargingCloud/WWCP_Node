@@ -58,6 +58,21 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             NodeWording.LongNoun  = LongNoun ?? Noun;
         }
 
+        /// <summary>
+        /// More than one of what the given noun names: "charging stations",
+        /// "registration authorities", "CPOs".
+        /// </summary>
+        /// <param name="Noun">A noun in the singular.</param>
+        public static String Plural(String Noun)
+
+            => Noun.Length > 1 &&
+               Noun.EndsWith('y') &&
+               !"aeiou".Contains(Noun[^2])
+                   ? $"{Noun[..^1]}ies"
+                   : Noun.EndsWith('s') || Noun.EndsWith('x') || Noun.EndsWith("ch") || Noun.EndsWith("sh")
+                         ? $"{Noun}es"
+                         : $"{Noun}s";
+
     }
 
 }

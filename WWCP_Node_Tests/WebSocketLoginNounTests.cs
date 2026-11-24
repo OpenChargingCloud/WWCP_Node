@@ -23,6 +23,7 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Logins;
+using cloud.charging.open.protocols.WWCP.Node.Connections;
 
 #endregion
 
@@ -132,6 +133,38 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.That(logins.TrySetPasswordAuthentication(User_Id.Parse("cs002"), "short", null, null, out var tooShort), Is.False);
             Assert.That(tooShort, Does.EndWith("characters long; OCPP asks for that much."));
+
+        }
+
+        #endregion
+
+        #region MoreThanOneRegistrationAuthority
+
+        /// <summary>
+        /// More than one of a login is said as English says it: registration
+        /// authorities, not "registration authoritys".
+        /// </summary>
+        [Test]
+        public void MoreThanOneRegistrationAuthority()
+        {
+
+            Assert.That(NodeWording.Plural("charging station"),        Is.EqualTo("charging stations"));
+            Assert.That(NodeWording.Plural("registration authority"),  Is.EqualTo("registration authorities"));
+            Assert.That(NodeWording.Plural("CPO"),                     Is.EqualTo("CPOs"));
+            Assert.That(NodeWording.Plural("gateway"),                 Is.EqualTo("gateways"));
+
+            var logins = new WebSocketLogins(Path.Combine(directory, "websocket-logins.json"),
+                                             NodeNoun:   "PKI",
+                                             LoginNoun:  "registration authority");
+
+            Assert.That(logins.TryLoad(out var error), Is.True, error);
+            Assert.That(logins.TrySetPasswordAuthentication(User_Id.Parse("ra-1"), "a-password-long-enough", null, null, out error), Is.True, error);
+
+            Assert.That(logins.ToString(), Does.StartWith("1 of 1 registration authority "));
+
+            Assert.That(logins.TrySetPasswordAuthentication(User_Id.Parse("ra-2"), "a-password-long-enough", null, null, out error), Is.True, error);
+
+            Assert.That(logins.ToString(), Does.StartWith("2 of 2 registration authorities "));
 
         }
 

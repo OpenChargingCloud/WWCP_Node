@@ -200,13 +200,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// The same, more than one of them: "charging stations".
         /// </summary>
         private String Clients
-            => $"{ClientNoun}s";
+            => NodeWording.Plural(ClientNoun);
 
         /// <summary>
         /// The same, at the start of a sentence: "Charging stations".
         /// </summary>
         private String ClientsAtFirst
-            => $"{Char.ToUpperInvariant(ClientNoun[0])}{ClientNoun[1..]}s";
+            => $"{Char.ToUpperInvariant(Clients[0])}{Clients[1..]}";
 
         #endregion
 
