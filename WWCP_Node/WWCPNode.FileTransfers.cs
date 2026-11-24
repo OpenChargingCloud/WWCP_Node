@@ -149,7 +149,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <summary>An HTTP file server showed a TLS certificate the node does not believe. Never tried again.</summary>
         CertificateRefused,
 
-        /// <summary>An HTTP file server does not take a PUT there: 405 or 501. Not tried again.</summary>
+        /// <summary>An HTTP file server does not take the PUT or the GET there: 405 or 501. Not tried again.</summary>
         MethodNotAllowed,
 
         /// <summary>An HTTP file server answered with another status that says the request was wrong: a redirect, 400, 409, ... Not tried again.</summary>

@@ -17,7 +17,6 @@
 
 #region Usings
 
-using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -42,35 +41,39 @@ namespace cloud.charging.open.protocols.WWCP.Node
     #region HTTPFileServer
 
     /// <summary>
-    /// A file server a node uploads to over HTTP or HTTPS: an entry of
-    /// "httpFileServers" in its configuration file. A request chooses among
-    /// these, and never introduces one - as it chooses among the SSH peers
-    /// that are file servers for "sftp://".
+    /// A file server a node uploads to, or downloads from, over HTTP or HTTPS:
+    /// an entry of "httpFileServers" in its configuration file. A request
+    /// chooses among these, and never introduces one - as it chooses among the
+    /// SSH peers that are file servers for "sftp://".
     /// </summary>
     /// <remarks>
     /// <para>
     /// { "id": "logs", "url": "https://logs.example.com/upload/{id}/",
-    ///   "user": "station-17", "password": "..." }
+    ///   "directions": [ "upload" ], "user": "station-17", "password": "..." }
     /// </para>
     /// <para>
-    /// The URL is the directory everything below it may be uploaded to:
-    /// scheme, host and port as they are, and its path as a prefix - "{id}"
-    /// standing for the identity of the node. Who signs in, and with which
-    /// password, is said here - or by the request, whose URL may carry a
-    /// login and a password, as OCPP's GetLog gives them: those go before
-    /// these. Over http:// a password crosses the network in the clear, and
-    /// the log says so at every upload. An https server is believed by the
-    /// TLS roots the node keeps for its connections, and by the machine's.
+    /// The URL is the directory everything below it may be uploaded to, or
+    /// downloaded from: scheme, host and port as they are, and its path as a
+    /// prefix - "{id}" standing for the identity of the node. "directions"
+    /// says which way, "upload", "download" or both - both where it says
+    /// nothing. Who signs in, and with which password, is said here - or by
+    /// the request, whose URL may carry a login and a password, as OCPP's
+    /// GetLog and UpdateFirmware give them: those go before these. Over
+    /// http:// a password crosses the network in the clear, and the log says
+    /// so at every transfer. An https server is believed by the TLS roots the
+    /// node keeps for its connections, and by the machine's.
     /// </para>
     /// </remarks>
     /// <param name="Id">The name of the file server, as whoever configured it called it.</param>
-    /// <param name="URL">The directory uploads may go to, with everything below it.</param>
+    /// <param name="URL">The directory files may go to or come from, with everything below it.</param>
     /// <param name="User">The login of HTTP Basic authentication, or null for none.</param>
     /// <param name="Password">Its password.</param>
-    public sealed record HTTPFileServer(String   Id,
-                                        Uri      URL,
-                                        String?  User      = null,
-                                        String?  Password  = null)
+    /// <param name="Directions">The ways it may be used; both where none is given.</param>
+    public sealed record HTTPFileServer(String                   Id,
+                                        Uri                      URL,
+                                        String?                  User        = null,
+                                        String?                  Password    = null,
+                                        FileTransferDirections?  Directions  = null)
     {
 
         #region Data
@@ -117,6 +120,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
             => Scheme == "https";
 
         /// <summary>
+        /// The ways it may be used.
+        /// </summary>
+        public FileTransferDirections Ways
+            => Directions ?? (FileTransferDirections.Upload | FileTransferDirections.Download);
+
+        /// <summary>
         /// Why this is no file server a node may hold, or null where it is one.
         /// </summary>
         public String? Problem
@@ -130,21 +139,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    ? $"the URL of '{Id}' carries a login, a query or a fragment: the login is \"user\" and \"password\""
              : (User is null) != (Password is null)
                    ? $"'{Id}' has a user without a password, or a password without a user"
+             : Ways == FileTransferDirections.None
+                   ? $"'{Id}' may be used in no direction"
              : null;
 
         #endregion
 
 
-        #region AllowsDirectory(EscapedPath, Identity)
+        #region Allows(Direction) / AllowsPath(Direction, EscapedPath, Identity)
 
         /// <summary>
-        /// Whether an upload may go to the given directory: it lies in the
-        /// directory of the URL, or is it.
+        /// Whether it may be used in the given direction.
         /// </summary>
+        public Boolean Allows(FileTransferDirections Direction)
+            => Direction != FileTransferDirections.None && (Ways & Direction) == Direction;
+
+        /// <summary>
+        /// Whether a file may go to, or come from, the given path: it lies in
+        /// the directory of the URL.
+        /// </summary>
+        /// <param name="Direction">Upload: the path is the directory, which may be that of the URL. Download: the path is the file, below it.</param>
         /// <param name="EscapedPath">The path of the request, as <see cref="Uri.AbsolutePath"/> has it.</param>
         /// <param name="Identity">What "{id}" stands for.</param>
-        public Boolean AllowsDirectory(String  EscapedPath,
-                                       String  Identity)
+        public Boolean AllowsPath(FileTransferDirections  Direction,
+                                  String                  EscapedPath,
+                                  String                  Identity)
         {
 
             var prefix  = URL.AbsolutePath.Replace(Uri.EscapeDataString(SSHFileTransfers.IdentityMark), Uri.EscapeDataString(Identity), StringComparison.Ordinal).
@@ -152,6 +171,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (!prefix.EndsWith('/'))
                 prefix += "/";
+
+            if (Direction == FileTransferDirections.Download)
+                return EscapedPath.Length > prefix.Length &&
+                       EscapedPath.StartsWith(prefix, StringComparison.Ordinal) &&
+                       !EscapedPath.EndsWith('/');
 
             var path    = EscapedPath.EndsWith('/') ? EscapedPath : EscapedPath + "/";
 
@@ -176,14 +200,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             if (JSON is not JObject json)
             {
-                Error = $"'{Path}' must be an object: {{ \"id\", \"url\", \"user\", \"password\" }}.";
+                Error = $"'{Path}' must be an object: {{ \"id\", \"url\", \"directions\", \"user\", \"password\" }}.";
                 return false;
             }
 
-            if (!ConfigurationReader.TryReadString(json, "id",       Path,   50, out var serverId, out Error) ||
-                !ConfigurationReader.TryReadString(json, "url",      Path, 1024, out var url,      out Error) ||
-                !ConfigurationReader.TryReadString(json, "user",     Path,  128, out var user,     out Error) ||
-                !ConfigurationReader.TryReadString(json, "password", Path,  512, out var password, out Error))
+            if (!ConfigurationReader.TryReadString (json, "id",         Path,   50,      out var serverId,        out Error) ||
+                !ConfigurationReader.TryReadString (json, "url",        Path, 1024,      out var url,             out Error) ||
+                !ConfigurationReader.TryReadStrings(json, "directions", Path,    2,  16, out var directionTexts,  out Error) ||
+                !ConfigurationReader.TryReadString (json, "user",       Path,  128,      out var user,            out Error) ||
+                !ConfigurationReader.TryReadString (json, "password",   Path,  512,      out var password,        out Error))
             {
                 return false;
             }
@@ -200,7 +225,28 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return false;
             }
 
-            var server = new HTTPFileServer(serverId, uri, user, password);
+            FileTransferDirections? directions = null;
+
+            if (directionTexts is not null)
+            {
+
+                directions = FileTransferDirections.None;
+
+                foreach (var text in directionTexts)
+                {
+                    switch (text.Trim().ToLowerInvariant())
+                    {
+                        case "upload":    directions |= FileTransferDirections.Upload;    break;
+                        case "download":  directions |= FileTransferDirections.Download;  break;
+                        default:
+                            Error = $"'{Path}.directions': '{text}' is neither \"upload\" nor \"download\".";
+                            return false;
+                    }
+                }
+
+            }
+
+            var server = new HTTPFileServer(serverId, uri, user, password, directions);
 
             if (server.Problem is String problem)
             {
@@ -227,6 +273,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("id",   Id),
                            new JProperty("url",  URL.ToString())
                        );
+
+            if (Directions is not null)
+            {
+
+                var directions = new JArray();
+
+                if (Allows(FileTransferDirections.Upload))    directions.Add("upload");
+                if (Allows(FileTransferDirections.Download))  directions.Add("download");
+
+                json.Add("directions", directions);
+
+            }
 
             if (User     is not null) json.Add("user",     User);
             if (Password is not null) json.Add("password", Password);
@@ -256,16 +314,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// File transfers of a node over HTTP and HTTPS, on somebody's request: a
     /// file of the node uploaded with a PUT to a file server of its
     /// configuration - OCPP's GetLog and GetDiagnostics with an "http://" or
-    /// "https://" URL.
+    /// "https://" URL -, and a file downloaded with a GET from one - OCPP's
+    /// UpdateFirmware.
     /// </summary>
     /// <remarks>
     /// The same rules as over SFTP (<see cref="JudgeFileTransfer"/>): a request
     /// chooses among the file servers the node holds and never introduces one,
-    /// a refusal is an answer before anything is sent, and nothing is written
-    /// over - the PUT says "If-None-Match: *", and a server that has the file
-    /// answers 412. One difference, as OCPP's GetLog has it: the URL may carry
-    /// the login and the password the node signs in with there, HTTP Basic,
-    /// and they go before those of the configuration.
+    /// a refusal is an answer before anything is sent, nothing is written over
+    /// - the PUT says "If-None-Match: *", and a server that has the file
+    /// answers 412 -, and a download takes up where the attempt before stopped,
+    /// with a Range. A redirect is not followed: it would lead to a server the
+    /// configuration does not name. One difference, as OCPP has it: the URL may
+    /// carry the login and the password the node signs in with there, HTTP
+    /// Basic, and they go before those of the configuration.
     /// </remarks>
     public partial class WWCPNode
     {
@@ -334,7 +395,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         /// <summary>
         /// Whether the given URL is one of HTTP or HTTPS: one for
-        /// <see cref="UploadFileOverHTTPAsync"/>.
+        /// <see cref="UploadFileOverHTTPAsync"/> and <see cref="DownloadFileOverHTTPAsync"/>.
         /// </summary>
         public static Boolean IsHTTPFileTransfer(String? URL)
         {
@@ -345,28 +406,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region JudgeHTTPFileTransfer(URL)
+        #region JudgeHTTPFileTransfer(URL, Direction = Upload)
 
         /// <summary>
-        /// What a request for an upload over HTTP comes to, decided without the
-        /// network: InvalidURL for a URL that is none, or carries a login, a
-        /// query or what leaves its directory; FileServerNotPermitted for one
-        /// that lies in the directory of no HTTP file server of this node.
+        /// What a request for a transfer over HTTP comes to, decided without
+        /// the network: InvalidURL for a URL that is none, carries a query or
+        /// what leaves its directory, or - for a download - names no file;
+        /// FileServerNotPermitted for one that lies in the directory of no HTTP
+        /// file server of this node that may be used this way.
         /// </summary>
-        /// <param name="URL">The directory the request names.</param>
-        public FileTransferJudgement JudgeHTTPFileTransfer(String? URL)
+        /// <param name="URL">Upload: the directory the request names. Download: the file.</param>
+        /// <param name="Direction">Which way.</param>
+        public FileTransferJudgement JudgeHTTPFileTransfer(String?                 URL,
+                                                           FileTransferDirections  Direction   = FileTransferDirections.Upload)
         {
 
-            var judgement = JudgeHTTP(URL);
+            var judgement = JudgeHTTP(URL, Direction);
 
             if (!judgement.IsAllowed)
             {
 
-                Log.Warning($"A request for an upload to {Shown(URL)} is refused: {judgement.Why}.",
+                Log.Warning($"A request for {(Direction == FileTransferDirections.Download ? "a download from" : "an upload to")} {Shown(URL)} is refused: {judgement.Why}.",
                             Kind.Tag, "http", "filetransfer", "security");
 
                 if (judgement.Refusal == FileTransferRefusal.FileServerNotPermitted)
-                    try { OnFileTransferRefused?.Invoke(judgement, FileTransferDirections.Upload); } catch (Exception) { }
+                    try { OnFileTransferRefused?.Invoke(judgement, Direction); } catch (Exception) { }
 
             }
 
@@ -383,11 +447,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    ? uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)
                    : "a location that could not be read";
 
-        private FileTransferJudgement JudgeHTTP(String? URL)
+        private FileTransferJudgement JudgeHTTP(String?                 URL,
+                                                FileTransferDirections  Direction)
         {
 
             static FileTransferJudgement Invalid(String Why)
                 => new (FileTransferRefusal.InvalidURL, Why);
+
+            if (Direction is not (FileTransferDirections.Upload or FileTransferDirections.Download))
+                return Invalid("a transfer goes in one direction");
 
             // 1. The URL.
             if (!Uri.TryCreate(URL?.Trim(), UriKind.Absolute, out var location) ||
@@ -396,8 +464,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return Invalid("it is no http:// or https:// URL");
             }
 
-            // A login and a password the node is to sign in with there, as OCPP's
-            // GetLog may give them: a login it is, or no URL.
+            // A login and a password the node is to sign in with there, as OCPP
+            // may give them: a login it is, or no URL.
             if (location.UserInfo.Length > 0 && CredentialsOf(location) is null)
                 return Invalid("its login is empty, or has a control character in it");
 
@@ -415,12 +483,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 return Invalid("its path leaves its directory, or has a control character in it");
             }
 
+            // A download names a file.
+            if (Direction == FileTransferDirections.Download && !SFTPLocation.IsFileName(FileNameOf(location)))
+                return Invalid("it names no file");
+
             if (SFTPLocation.NormalizeHost(location.Host) is not String host)
                 return Invalid("its host is neither a DNS name nor an IP address");
 
-            // 2. A file server of that scheme, host and port, whose directory it lies in.
-            //    Compared as text: a name is never resolved to compare it.
+            // 2. A file server of that scheme, host and port, that may be used this way,
+            //    whose directory it lies in. Compared as text: a name is never resolved
+            //    to compare it.
             var scheme  = location.Scheme.ToLowerInvariant();
+            var way     = Direction == FileTransferDirections.Download ? "downloads" : "uploads";
             var servers = HTTPFileServers.Where(candidate => candidate.Scheme == scheme   &&
                                                              candidate.Host   == host     &&
                                                              candidate.Port   == location.Port).
@@ -429,15 +503,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (servers.Length == 0)
                 return new (FileTransferRefusal.FileServerNotPermitted, $"{scheme}://{host}:{location.Port} is no HTTP file server of this {Kind.Name}");
 
-            if (servers.FirstOrDefault(candidate => candidate.AllowsDirectory(path, FileTransferIdentity)) is not HTTPFileServer server)
-                return new (FileTransferRefusal.FileServerNotPermitted, $"'{path}' lies in no directory of the HTTP file server{(servers.Length == 1 ? $" '{servers[0].Id}'" : "s of its host")}");
+            var ofThisWay = servers.Where(candidate => candidate.Allows(Direction)).ToArray();
+
+            if (ofThisWay.Length == 0)
+                return new (FileTransferRefusal.FileServerNotPermitted, $"the HTTP file server{(servers.Length == 1 ? $" '{servers[0].Id}' is" : "s of its host are")} not allowed {way}");
+
+            if (ofThisWay.FirstOrDefault(candidate => candidate.AllowsPath(Direction, path, FileTransferIdentity)) is not HTTPFileServer server)
+                return new (FileTransferRefusal.FileServerNotPermitted, $"'{path}' lies in no directory the HTTP file server{(ofThisWay.Length == 1 ? $" '{ofThisWay[0].Id}' is" : "s of its host are")} allowed {way} {(Direction == FileTransferDirections.Download ? "from" : "to")}");
 
             return new (FileTransferRefusal.None,
-                        $"to the HTTP file server '{server.Id}'",
+                        $"{(Direction == FileTransferDirections.Download ? "from" : "to")} the HTTP file server '{server.Id}'",
                         HTTPLocation:  location,
                         HTTPServer:    server);
 
         }
+
+        /// <summary>
+        /// The name of the file the URL names: its last segment, unescaped.
+        /// </summary>
+        public static String FileNameOf(Uri Location)
+            => Uri.UnescapeDataString(Location.AbsolutePath[(Location.AbsolutePath.LastIndexOf('/') + 1)..]);
 
         /// <summary>
         /// The login and the password of the URL, unescaped; null where it
@@ -483,7 +568,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                                       CancellationToken  CancellationToken  = default)
         {
 
-            var judgement = JudgeHTTPFileTransfer(URL);
+            var judgement = JudgeHTTPFileTransfer(URL, FileTransferDirections.Upload);
 
             if (!judgement.IsAllowed)
                 return new (FileTransferOutcome.Refused, judgement.Why, judgement);
@@ -491,20 +576,275 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!SFTPLocation.IsFileName(FileName))
                 return new (FileTransferOutcome.Refused, $"'{FileName}' is no name of a file to upload", judgement);
 
-            var server    = judgement.HTTPServer!;
-            var directory = judgement.HTTPLocation!;
             // Without the login and password of the URL: they go in the Authorization.
+            var directory = judgement.HTTPLocation!;
             var target    = new Uri(directory.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped).TrimEnd('/') + "/" + Uri.EscapeDataString(FileName));
-            var what      = target.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped);
             var sent      = 0L;
+
+            return await TransferOverHTTP(
+                             judgement,
+                             FileTransferDirections.Upload,
+                             target,
+                             () => sent,
+                             async (client, stillAlive, cancellationToken) => {
+
+                                 var body    = new CountingStream(Content, count => { sent = count; stillAlive(); Progress?.Report(count); });
+                                 var content = new StreamContent(body);
+
+                                 content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                                 if (Content.CanSeek)
+                                     content.Headers.ContentLength = Math.Max(0, Content.Length - Content.Position);
+
+                                 using var request = new HttpRequestMessage(HttpMethod.Put, target) { Content = content };
+
+                                 // The name is to be free: nothing is written over.
+                                 request.Headers.IfNoneMatch.Add(EntityTagHeaderValue.Any);
+
+                                 SignIn(request, judgement);
+
+                                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+                                 var status = (Int32) response.StatusCode;
+
+                                 return status is >= 200 and < 300
+                                            ? (FileTransferOutcome.Done, "")
+                                            : status == 412
+                                                  ? (FileTransferOutcome.FileExists, $"{Said(response)}: '{target.AbsolutePath}' is there already, and nothing is written over.")
+                                                  : Failed(response, judgement);
+
+                             },
+                             CancellationToken
+                         ).ConfigureAwait(false);
+
+        }
+
+        #endregion
+
+        #region DownloadFileOverHTTPAsync(URL, Destination, Offset, MaxSize, ...)
+
+        /// <summary>
+        /// Download the file an "http://" or "https://" URL names into a
+        /// stream, with a GET: one attempt, which takes up where the one before
+        /// stopped.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// From an offset on, the GET asks for the rest with a Range. A server
+        /// that answers with the whole file instead - 200 - is read from the
+        /// offset on, what came before being passed over. A 416 that says the
+        /// file is as long as the offset: there was nothing left to fetch.
+        /// </para>
+        /// <para>
+        /// The server says who it is, not what the file is: whether a firmware
+        /// image is genuine and may be installed is decided after the download,
+        /// by its signature, in the logic above.
+        /// </para>
+        /// </remarks>
+        /// <param name="URL">The file.</param>
+        /// <param name="Destination">Where its bytes go, in order.</param>
+        /// <param name="Offset">The first byte to read: what an attempt before brought already.</param>
+        /// <param name="MaxSize">The most the whole file may have; a larger one is refused before a byte of it is written, where the server says its size.</param>
+        /// <param name="Progress">Told the position in the remote file reached so far.</param>
+        public async Task<FileTransferResult> DownloadFileOverHTTPAsync(String?            URL,
+                                                                        Stream             Destination,
+                                                                        Int64              Offset             = 0,
+                                                                        Int64?             MaxSize            = null,
+                                                                        IProgress<Int64>?  Progress           = null,
+                                                                        CancellationToken  CancellationToken  = default)
+        {
+
+            var judgement = JudgeHTTPFileTransfer(URL, FileTransferDirections.Download);
+
+            if (!judgement.IsAllowed)
+                return new (FileTransferOutcome.Refused, judgement.Why, judgement);
+
+            var target    = new Uri(judgement.HTTPLocation!.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped));
+            var written   = 0L;
+
+            return await TransferOverHTTP(
+                             judgement,
+                             FileTransferDirections.Download,
+                             target,
+                             () => written,
+                             async (client, stillAlive, cancellationToken) => {
+
+                                 using var request = new HttpRequestMessage(HttpMethod.Get, target);
+
+                                 if (Offset > 0)
+                                     request.Headers.Range = new RangeHeaderValue(Offset, null);
+
+                                 SignIn(request, judgement);
+
+                                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+                                 var status = (Int32) response.StatusCode;
+                                 var range  = response.Content.Headers.ContentRange;
+
+                                 // Nothing was left to fetch.
+                                 if (status == 416 && Offset > 0 && range?.Length == Offset)
+                                     return (FileTransferOutcome.Done, "");
+
+                                 if (status is not (200 or 206))
+                                     return Failed(response, judgement);
+
+                                 Int64? total;
+                                 var    skip = 0L;
+
+                                 if (status == 206)
+                                 {
+
+                                     if (range?.From != Offset)
+                                         return (FileTransferOutcome.RejectedByServer, $"{Said(response)}: the server sent the file from byte {range?.From}, and not from {Offset}.");
+
+                                     total = range.Length ?? (response.Content.Headers.ContentLength is Int64 length ? Offset + length : null);
+
+                                 }
+                                 else
+                                 {
+                                     // The whole file: what an attempt before brought is passed over.
+                                     total = response.Content.Headers.ContentLength;
+                                     skip  = Offset;
+                                 }
+
+                                 if (MaxSize is Int64 max && total > max)
+                                     return (FileTransferOutcome.TooLarge, $"the file has {total} bytes, and at most {max} are taken.");
+
+                                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+                                 var buffer   = new Byte[64 * 1024];
+                                 var position = Offset;
+
+                                 while (true)
+                                 {
+
+                                     var read = await body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+
+                                     if (read == 0)
+                                         break;
+
+                                     stillAlive();
+
+                                     var from = 0;
+
+                                     if (skip > 0)
+                                     {
+                                         from  = (Int32) Math.Min(skip, read);
+                                         skip -= from;
+                                     }
+
+                                     if (from == read)
+                                         continue;
+
+                                     if (MaxSize is Int64 most && position + (read - from) > most)
+                                         return (FileTransferOutcome.TooLarge, $"the file has more than the {most} bytes that are taken.");
+
+                                     await Destination.WriteAsync(buffer.AsMemory(from, read - from), cancellationToken).ConfigureAwait(false);
+
+                                     written  += read - from;
+                                     position += read - from;
+
+                                     Progress?.Report(position);
+
+                                 }
+
+                                 await Destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+                                 if (skip > 0 || (total is Int64 expected && position != expected))
+                                     return (FileTransferOutcome.Unreachable, $"the connection ended at byte {position}{(total is null ? "" : $" of {total}")}.");
+
+                                 return (FileTransferOutcome.Done, "");
+
+                             },
+                             CancellationToken
+                         ).ConfigureAwait(false);
+
+        }
+
+        #endregion
+
+
+        #region (private) SignIn(Request, Judgement) / Said(Response) / Failed(Response, Judgement)
+
+        /// <summary>
+        /// Sign in as the URL says, or else as the configuration says, where
+        /// either says anything.
+        /// </summary>
+        private void SignIn(HttpRequestMessage     Request,
+                            FileTransferJudgement  Judgement)
+        {
+
+            var server      = Judgement.HTTPServer!;
+
+            // The login of the URL, where it carries one, before that of the configuration.
+            var credentials = CredentialsOf(Judgement.HTTPLocation!) ??
+                              (server.User is String user && server.Password is String password
+                                   ? (user, password)
+                                   : null);
+
+            if (credentials is not (String login, String secret))
+                return;
+
+            Request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{login}:{secret}")));
+
+            if (!server.IsSecure)
+                Log.Warning($"The transfer with {Request.RequestUri?.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)} signs in as '{login}' over http://: its password crosses the network in the clear.",
+                            Kind.Tag, "http", "filetransfer", "security");
+
+        }
+
+        private static String Said(HttpResponseMessage Response)
+            => $"HTTP {(Int32) Response.StatusCode} {Response.ReasonPhrase}";
+
+        /// <summary>
+        /// What a status that is no success comes to - the same both ways.
+        /// </summary>
+        private static (FileTransferOutcome, String) Failed(HttpResponseMessage    Response,
+                                                            FileTransferJudgement  Judgement)
+        {
+
+            var said = Said(Response);
+
+            return (Int32) Response.StatusCode switch {
+                       401                   => (FileTransferOutcome.LoginRefused,      $"{said}: the server did not take the login{(Judgement.HTTPServer!.User is null && Judgement.HTTPLocation!.UserInfo.Length == 0 ? ", as there is none" : "")}."),
+                       403                   => (FileTransferOutcome.PermissionDenied,  said),
+                       404 or 410            => (FileTransferOutcome.NoSuchFile,        said),
+                       405 or 501            => (FileTransferOutcome.MethodNotAllowed,  $"{said}: the server does not take this method there."),
+                       413                   => (FileTransferOutcome.TooLarge,          said),
+                       408 or 429 or >= 500  => (FileTransferOutcome.Failed,            said),
+                       >= 300 and < 400      => (FileTransferOutcome.RejectedByServer,  $"{said}: a redirect, to {Response.Headers.Location?.GetLeftPart(UriPartial.Path) ?? "nowhere"}, is not followed - it would lead to a server the configuration does not name."),
+                       _                     => (FileTransferOutcome.RejectedByServer,  said)
+                   };
+
+        }
+
+        #endregion
+
+        #region (private) TransferOverHTTP(Judgement, Direction, Target, Bytes, Move, CancellationToken)
+
+        /// <summary>
+        /// Make the HTTP client the judgement says, let the transfer ask its
+        /// server, and say how it ended.
+        /// </summary>
+        private async Task<FileTransferResult> TransferOverHTTP(FileTransferJudgement                                                                    Judgement,
+                                                                FileTransferDirections                                                                   Direction,
+                                                                Uri                                                                                      Target,
+                                                                Func<Int64>                                                                              Bytes,
+                                                                Func<HttpClient, Action, CancellationToken, Task<(FileTransferOutcome, String)>>         Move,
+                                                                CancellationToken                                                                        CancellationToken)
+        {
+
+            var server              = Judgement.HTTPServer!;
+            var directory           = Judgement.HTTPLocation!;
+            var what                = $"{(Direction == FileTransferDirections.Download ? "download from" : "upload to")} {Target.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)}";
             String? certificateRefused = null;
 
             FileTransferResult Ended(FileTransferOutcome Outcome, String Why)
             {
 
-                var said = $"The upload to {what} ({judgement.Why}) " +
+                var said = $"The {what} ({Judgement.Why}) " +
                            (Outcome == FileTransferOutcome.Done
-                                ? $"is done: {sent} bytes."
+                                ? $"is done: {Bytes()} bytes."
                                 : $"ended as {Outcome}: {Why}");
 
                 if (Outcome == FileTransferOutcome.Done)
@@ -512,7 +852,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 else
                     Log.Warning(said, Kind.Tag, "http", "filetransfer");
 
-                return new (Outcome, Why, judgement, sent, target.AbsolutePath);
+                return new (Outcome, Why, Judgement, Bytes(), Target.AbsolutePath);
 
             }
 
@@ -548,60 +888,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             };
 
-            using var client  = new HttpClient(handler, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan };
+            using var client = new HttpClient(handler, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan };
+
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("WWCP-Node", "1.0"));
 
             try
             {
 
-                var body    = new CountingStream(Content, count => { sent = count; StillAlive(); Progress?.Report(count); });
-                var content = new StreamContent(body);
-
-                content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-
-                if (Content.CanSeek)
-                    content.Headers.ContentLength = Math.Max(0, Content.Length - Content.Position);
-
-                using var request = new HttpRequestMessage(HttpMethod.Put, target) { Content = content };
-
-                // The name is to be free: nothing is written over.
-                request.Headers.IfNoneMatch.Add(EntityTagHeaderValue.Any);
-                request.Headers.UserAgent.Add(new ProductInfoHeaderValue("WWCP-Node", "1.0"));
-
-                // The login of the URL, where it carries one, before that of the configuration.
-                var credentials = CredentialsOf(directory) ??
-                                  (server.User is String user && server.Password is String password
-                                       ? (user, password)
-                                       : null);
-
-                if (credentials is (String login, String secret))
-                {
-
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{login}:{secret}")));
-
-                    if (!server.IsSecure)
-                        Log.Warning($"The upload to {what} signs in as '{login}' over http://: its password crosses the network in the clear.",
-                                    Kind.Tag, "http", "filetransfer", "security");
-
-                }
-
                 StillAlive();
 
-                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false);
+                var (outcome, why) = await Move(client, StillAlive, idle.Token).ConfigureAwait(false);
 
-                var status = (Int32) response.StatusCode;
-                var said   = $"HTTP {status} {response.ReasonPhrase}";
-
-                return status switch {
-                           >= 200 and < 300                => Ended(FileTransferOutcome.Done,              ""),
-                           412                             => Ended(FileTransferOutcome.FileExists,        $"{said}: '{target.AbsolutePath}' is there already, and nothing is written over."),
-                           401                             => Ended(FileTransferOutcome.LoginRefused,      $"{said}: the server did not take the login{(server.User is null ? ", as there is none" : $" '{server.User}'")}."),
-                           403                             => Ended(FileTransferOutcome.PermissionDenied,  said),
-                           404                             => Ended(FileTransferOutcome.NoSuchFile,        said),
-                           405 or 501                      => Ended(FileTransferOutcome.MethodNotAllowed,  $"{said}: the server takes no PUT there."),
-                           413                             => Ended(FileTransferOutcome.TooLarge,          said),
-                           408 or 429 or >= 500            => Ended(FileTransferOutcome.Failed,            said),
-                           _                               => Ended(FileTransferOutcome.RejectedByServer,  said)
-                       };
+                return Ended(outcome, why);
 
             }
             catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
