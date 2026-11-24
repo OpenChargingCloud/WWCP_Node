@@ -160,6 +160,30 @@ export interface StationConnection {
 }
 
 /**
+ * How many of the charging stations a node serves one of its peers gets,
+ * counted by their logins - those switched off left out. Said only by a
+ * node that forwards them.
+ */
+export interface PeerStations {
+    /** Those whose forwarding target names the peer first. */
+    first:          number;
+    /** Those whose forwarding target names it after another peer. */
+    inReserve:      number;
+    /** Those that name no target, where the peer is the back end in charge; none otherwise. */
+    withoutTarget:  number;
+    /** Those whose messages go to it now. */
+    now:            number;
+}
+
+/** A peer of the node: the endpoints it holds, and the stations it gets, where those are said. */
+export interface ConnectionPeer {
+    id:           string;
+    description:  I18NString;
+    endpoints:    string[];
+    stations?:    PeerStations;
+}
+
+/**
  * One of the identities a connection proves itself with, and from when on.
  * Of those whose time has come the one that came last goes first: over TLS
  * the first that can be shown is, over SSH all are offered in that order.
@@ -362,6 +386,8 @@ export interface StationConnections extends ConnectionStates {
     directory:             string;
     authentications:       StationLogin[];
     connections:           StationConnection[];
+    /** The peers the connections are endpoints of: each the endpoints it holds, by id. */
+    peers?:                ConnectionPeer[];
     certificates:          ConnectionCertificate[];
     /** Null until the first ssh:// connection made it. */
     sshClientKey?:         StationSshKey | null;

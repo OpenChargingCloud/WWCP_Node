@@ -207,6 +207,28 @@ function aHeldStation(): StationConnections {
                             station.connections[1]! ] };
 }
 
+/**
+ * A gateway that forwards its charging stations: c1 and c2 are the two
+ * endpoints of the peer in charge, c3 the only one of a second CSMS, c4 of a
+ * third nobody's target names, and c5 a connection of OCPI.
+ */
+function aForwardingNode(): StationConnections {
+    const station = aStation();
+    const third   = aConnection('c3', { description: { en: 'CSMS #2' } });
+    const fourth  = aConnection('c4', { description: { en: 'CSMS #3' } });
+    const ocpi    = aConnection('c5', { description: { en: 'an EMSP' }, connectionType: 'EMSP', ocpiVersion: '2.3.0' });
+    return { ...station,
+             connections: [ ...station.connections, third, fourth, ocpi ],
+             peers: [ { id: 'csms-01', description: { en: 'CSMS #1' }, endpoints: [ 'c1', 'c2' ],
+                        stations: { first: 2, inReserve: 1, withoutTarget: 4, now: 6 } },
+                      { id: 'csms-02', description: { en: 'CSMS #2' }, endpoints: [ 'c3' ],
+                        stations: { first: 1, inReserve: 0, withoutTarget: 0, now: 1 } },
+                      { id: 'csms-03', description: { en: 'CSMS #3' }, endpoints: [ 'c4' ],
+                        stations: { first: 0, inReserve: 0, withoutTarget: 0, now: 0 } },
+                      { id: 'emsp-01', description: { en: 'an EMSP' }, endpoints: [ 'c5' ],
+                        stations: { first: 0, inReserve: 0, withoutTarget: 0, now: 0 } } ] };
+}
+
 async function opened(make: () => StationConnections = aStation): Promise<HTMLElement> {
     held     = make();
     lastAdded = null;
@@ -876,6 +898,24 @@ describe('the Connections page', () => {
         // Written down, the form is empty again, and asks of the first kind.
         await until(() => root.querySelector('#add-note')?.textContent === 'Written down.', 'the connection was not written down');
         assert.deepEqual(asked('#add-form'), [ 'ocppVersion' ]);
+
+    });
+
+    it('says how many charging stations the peer of a connection gets, where the node forwards them', async () => {
+
+        const said = (root: HTMLElement, id: string) => root.querySelector(`[data-stations="${id}"]`)?.textContent?.replace(/\s+/g, ' ').trim();
+
+        let root = await opened(aForwardingNode);
+
+        assert.match(said(root, 'c1') ?? '', /^6 charging stations now; 2 by a target naming it first, 1 by a target naming it after another, 4 without a target, as it is the back end in charge - of its peer CSMS #1/);
+        assert.equal(said(root, 'c2'), said(root, 'c1'), 'the second endpoint of the peer says something else');
+        assert.match(said(root, 'c3') ?? '', /^1 charging station now; 1 by a target naming it first \(forwarding targets\)$/);
+        assert.match(said(root, 'c4') ?? '', /^none - no forwarding target names it$/);
+        assert.equal(said(root, 'c5'), undefined, 'a connection of OCPI is said to get stations');
+
+        // A node that does not forward says nothing of stations.
+        root = await opened();
+        assert.equal(root.querySelector('[data-stations]'), null);
 
     });
 

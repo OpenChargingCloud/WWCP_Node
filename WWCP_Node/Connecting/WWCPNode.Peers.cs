@@ -644,6 +644,18 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (virtual) StationsByPeer()
+
+        /// <summary>
+        /// How many of the charging stations this node serves each of its peers
+        /// gets, by the peer's id - or null, for a node that forwards none: one
+        /// that serves no stations, or does not forward.
+        /// </summary>
+        public virtual IReadOnlyDictionary<String, PeerStations>? StationsByPeer()
+            => null;
+
+        #endregion
+
         #region (private static) StartOf(Peer, Connections) / FirstConnectedAt(Peer, Connections)
 
         /// <summary>

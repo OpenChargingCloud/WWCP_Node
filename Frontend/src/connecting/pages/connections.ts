@@ -1,4 +1,4 @@
-import { connectionsAPI as api, type ConnectionIdentity, type ConnectionState, type ConnectionTest, type ConnectionTestAsks, type ConnectionToSave, type LoginToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type SignatureFormatsOfAConnection, type StationConnection, type StationConnections, inEnglish, textOf } from '../api/connections';
+import { connectionsAPI as api, type ConnectionIdentity, type ConnectionState, type ConnectionTest, type ConnectionTestAsks, type ConnectionToSave, type LoginToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type SignatureFormatsOfAConnection, type ConnectionPeer, type StationConnection, type StationConnections, inEnglish, textOf } from '../api/connections';
 import { auth } from '../auth';
 import { credentialsPanel } from './authentication';
 import { connectionsResource, farEnd, loginServer, nodeNoun, nodeNounInFull, nodeTraits } from '../settings';
@@ -1064,6 +1064,7 @@ export const connectionsPage: Page = {
                             <dt>Its certificate</dt>
                             <dd data-judgement="${entry.id}">${judgementView(entry.judgement)}</dd>
                         ` : nothing}
+                        ${stationsRow(entry, state)}
                         <dt>Written</dt> <dd>${formatTimestamp(entry.createdAt)}</dd>
                     </dl>
 
@@ -1101,6 +1102,42 @@ export const connectionsPage: Page = {
                     </details>
 
                 </div>
+            `;
+
+        }
+
+        /**
+         * How many charging stations the peer of a connection of OCPP gets,
+         * where the node forwards them: now, and by their targets. Said of
+         * the peer, and so the same on each of its endpoints.
+         */
+        function stationsRow(entry: StationConnection, state: StationConnections): TemplateResult | typeof nothing {
+
+            if (useOf(entry.connectionType) !== 'OCPP')
+                return nothing;
+
+            const peer: ConnectionPeer | undefined = (state.peers ?? []).find(one => one.endpoints.includes(entry.id));
+            const its  = peer?.stations;
+
+            if (peer === undefined || its === undefined)
+                return nothing;
+
+            const count  = (n: number) => `${n} charging station${n === 1 ? '' : 's'}`;
+            const by     = [
+                               its.first         > 0 ? `${its.first} by a target naming it first`              : '',
+                               its.inReserve     > 0 ? `${its.inReserve} by a target naming it after another` : '',
+                               its.withoutTarget > 0 ? `${its.withoutTarget} without a target, as it is the back end in charge` : ''
+                           ].filter(part => part !== '');
+            const shared = peer.endpoints.length > 1
+                               ? html` <span class="hint">- of its peer <code>${textOf(peer.description) || peer.id}</code>, whichever endpoint is connected</span>`
+                               : nothing;
+
+            return html`
+                <dt>Stations</dt>
+                <dd data-stations="${entry.id}">${by.length === 0
+                    ? html`<span class="hint">none - no <a href="${toURL(loginServer().loginsPage)}">forwarding target</a> names it</span>`
+                    : html`<strong>${count(its.now)}</strong> now; ${by.join(', ')}${shared}
+                           <span class="hint">(<a href="${toURL(loginServer().loginsPage)}">forwarding targets</a>)</span>`}</dd>
             `;
 
         }

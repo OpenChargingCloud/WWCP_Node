@@ -663,6 +663,16 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             var json = Node.Connections.ToJSON();
 
+            // How many charging stations each peer gets, where this node
+            // forwards them: by their targets, and now.
+            if (Node.StationsByPeer() is IReadOnlyDictionary<String, PeerStations> stationsByPeer)
+                foreach (var peer in json["peers"]?.OfType<JObject>() ?? [])
+                    if (peer.Value<String>("id") is String peerId &&
+                        stationsByPeer.TryGetValue(peerId, out var stations))
+                    {
+                        peer.Add(new JProperty("stations", stations.ToJSON()));
+                    }
+
             // What this node made of the certificate the server of each
             // wss:// connection checked by its CA showed last: what its page
             // offers to hold it to, and says it came to.
