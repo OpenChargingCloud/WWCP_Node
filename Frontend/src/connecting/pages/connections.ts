@@ -1108,8 +1108,9 @@ export const connectionsPage: Page = {
 
         /**
          * How many charging stations the peer of a connection of OCPP gets,
-         * where the node forwards them: now, and by their targets. Said of
-         * the peer, and so the same on each of its endpoints.
+         * where the node forwards them: now, and by their targets - which of
+         * them are at it now, and what is held back for it. Said of the peer,
+         * and so the same on each of its endpoints.
          */
         function stationsRow(entry: StationConnection, state: StationConnections): TemplateResult | typeof nothing {
 
@@ -1132,13 +1133,44 @@ export const connectionsPage: Page = {
                                ? html` <span class="hint">- of its peer <code>${textOf(peer.description) || peer.id}</code>, whichever endpoint is connected</span>`
                                : nothing;
 
+            const at       = its.at ?? [];
+            const heldBack = its.heldBack ?? 0;
+            const sessions = its.sessions ?? 0;
+
             return html`
                 <dt>Stations</dt>
                 <dd data-stations="${entry.id}">${by.length === 0
                     ? html`<span class="hint">none - no <a href="${toURL(loginServer().loginsPage)}">forwarding target</a> names it</span>`
                     : html`<strong>${count(its.now)}</strong> now; ${by.join(', ')}${shared}
                            <span class="hint">(<a href="${toURL(loginServer().loginsPage)}">forwarding targets</a>)</span>`}</dd>
+                ${at.length > 0 ? html`
+                    <dt>At it now</dt>
+                    <dd data-at="${entry.id}">${namesView(at)}</dd>
+                ` : nothing}
+                ${heldBack > 0 ? html`
+                    <dt>Held back</dt>
+                    <dd data-held-back="${entry.id}"><strong>${heldBack} message${heldBack === 1 ? '' : 's'}</strong>${its.heldBackSince !== undefined
+                        ? `, the oldest from ${formatTimestamp(its.heldBackSince)}`
+                        : ''} <span class="hint">- sent to it in the order they came, while it is connected</span>${sessions > 0
+                        ? html`; ${sessions} charging session${sessions === 1 ? ' belongs' : 's belong'} to it`
+                        : nothing}</dd>
+                ` : nothing}
             `;
+
+        }
+
+        /**
+         * The names of the charging stations at a peer: the first twenty, and
+         * how many more there are.
+         */
+        function namesView(names: string[]): TemplateResult {
+
+            const shown = names.slice(0, 20);
+            const more  = names.length - shown.length;
+
+            return html`${shown.map((name, i) => html`${i > 0 ? ', ' : ''}<code>${name}</code>`)}${more > 0
+                ? html` <span class="hint">+${more} more</span>`
+                : nothing}`;
 
         }
 

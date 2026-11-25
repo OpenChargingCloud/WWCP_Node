@@ -173,6 +173,18 @@ export interface PeerStations {
     withoutTarget:  number;
     /** Those whose messages go to it now. */
     now:            number;
+    /**
+     * The stations connected to the node whose messages go to it now, by their
+     * names - where it is turned away or is on its way back, where they are
+     * and not where their target says -, where the node knows it and any are.
+     */
+    at?:            string[];
+    /** How many messages of its stations the node holds back for it, to be sent in the order they came while it is connected. */
+    heldBack?:      number;
+    /** When the oldest of them came, where any are held back. */
+    heldBackSince?: string;
+    /** How many charging sessions that have not ended belong to it: those that began at it. */
+    sessions?:      number;
 }
 
 /** A peer of the node: the endpoints it holds, and the stations it gets, where those are said. */

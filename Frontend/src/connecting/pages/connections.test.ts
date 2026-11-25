@@ -220,9 +220,12 @@ function aForwardingNode(): StationConnections {
     return { ...station,
              connections: [ ...station.connections, third, fourth, ocpi ],
              peers: [ { id: 'csms-01', description: { en: 'CSMS #1' }, endpoints: [ 'c1', 'c2' ],
-                        stations: { first: 2, inReserve: 1, withoutTarget: 4, now: 6 } },
+                        stations: { first: 2, inReserve: 1, withoutTarget: 4, now: 6,
+                                    at: Array.from({ length: 22 }, (_, i) => `cs${String(i + 1).padStart(3, '0')}`),
+                                    heldBack: 0, sessions: 3 } },
                       { id: 'csms-02', description: { en: 'CSMS #2' }, endpoints: [ 'c3' ],
-                        stations: { first: 1, inReserve: 0, withoutTarget: 0, now: 1 } },
+                        stations: { first: 1, inReserve: 0, withoutTarget: 0, now: 1,
+                                    heldBack: 3, heldBackSince: '2026-11-25T13:02:11.0000000+00:00', sessions: 1 } },
                       { id: 'csms-03', description: { en: 'CSMS #3' }, endpoints: [ 'c4' ],
                         stations: { first: 0, inReserve: 0, withoutTarget: 0, now: 0 } },
                       { id: 'emsp-01', description: { en: 'an EMSP' }, endpoints: [ 'c5' ],
@@ -916,6 +919,33 @@ describe('the Connections page', () => {
         // A node that does not forward says nothing of stations.
         root = await opened();
         assert.equal(root.querySelector('[data-stations]'), null);
+
+    });
+
+    it('says which charging stations are at the peer of a connection now, and what is held back for it', async () => {
+
+        const text = (root: HTMLElement, selector: string) => root.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim();
+
+        let root = await opened(aForwardingNode);
+
+        // The first twenty names, and how many more.
+        assert.equal(text(root, '[data-at="c1"]'),
+                     Array.from({ length: 20 }, (_, i) => `cs${String(i + 1).padStart(3, '0')}`).join(', ') + ' +2 more');
+        assert.equal(root.querySelectorAll('[data-at="c1"] code').length, 20);
+        assert.equal(text(root, '[data-at="c2"]'), text(root, '[data-at="c1"]'), 'the second endpoint of the peer says something else');
+        assert.equal(root.querySelector('[data-held-back="c1"]'), null, 'nothing held back is said to be held back');
+
+        // Nobody at it, and something held back: since when, and for how many sessions.
+        assert.equal(root.querySelector('[data-at="c3"]'), null, 'no station is said to be at it');
+        assert.match(text(root, '[data-held-back="c3"]') ?? '',
+                     /^3 messages, the oldest from .+ - sent to it in the order they came, while it is connected; 1 charging session belongs to it$/);
+
+        assert.equal(root.querySelector('[data-at="c4"]'),        null);
+        assert.equal(root.querySelector('[data-held-back="c4"]'), null);
+
+        // A node that does not forward says neither.
+        root = await opened();
+        assert.equal(root.querySelector('[data-at], [data-held-back]'), null);
 
     });
 
