@@ -509,6 +509,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 new JProperty("clientAddressHeader",  WebSettings.HasTrustedProxies
                                                           ? WebConfiguration.TextOf(WebSettings.Header ?? ClientAddressHeader.XForwardedFor)
                                                           : null),
+                new JProperty("requestBodyTimeout",   HTTPServer.BodyReadTimeout.TotalSeconds),
                 new JProperty("warning",              PlainHTTPWarning)
             ];
 

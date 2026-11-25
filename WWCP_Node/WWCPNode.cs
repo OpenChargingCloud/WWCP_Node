@@ -1063,6 +1063,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var selector         = ServerCertificateSelector;
             var chainSelector    = ServerCertificateChainSelector;
 
+            // How long a request's body may take to arrive is the server's to
+            // know from its start, and one handed in was started by its owner.
+            if (HTTPServer is not null && this.WebSettings.RequestBodyTimeout is not null)
+                this.Log.Warning($"'{WebConfiguration.SectionName}.{WebConfiguration.RequestBodyTimeoutName}' is not used: the HTTP server was handed in, and how long a request's body may take to arrive is its owner's to say.",
+                                 "config", "web");
+
             // TLS of this node's own making, where the file or a switch asks for
             // it - and only where nobody else brings TLS: a server handed in is
             // its owner's, and a kind of node that hands in a certificate of its
@@ -1108,7 +1114,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                        TCPPort:                    port,
                                                        HTTPServerName:             product,
                                                        ServerCertificateSelector:  selector,
-                                                       DNSClient:                  dnsClient
+                                                       DNSClient:                  dnsClient,
+                                                       BodyReadTimeout:            this.WebSettings.RequestBodyTimeout ?? WebConfiguration.DefaultRequestBodyTimeout
                                                    );
 
             // Hermod asks this one first and falls back to the certificate on

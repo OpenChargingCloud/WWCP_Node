@@ -1009,6 +1009,23 @@ it learns there holds for the JSON API and the sign-in, which are reached from
 them; a kind of node whose `FrontendSecurityHeaders` say an HSTS of their own
 keeps that one.
 
+**How long a body may take.** `requestBodyTimeout` says, in seconds, how long
+the body of one request to the web interface and its JSON API may take to
+arrive, from its first byte to its last - five minutes where it is not said,
+between a second and a day where it is:
+
+```json
+"web": { "requestBodyTimeout": 900 }
+```
+
+Hermod's own default, its receive timeout of 30 seconds, wants more than
+2 Mbit/s for the 8 MiB one request may bring, and a part of a file sent from
+a browser over a slow line was cut off half-way; five minutes is the same
+8 MiB at a little more than 220 kbit/s. A body past its time is answered with
+408, or the connection is closed. What the Configuration page is told says
+the time in effect as `requestBodyTimeout`. On an `HTTPServer` that was handed
+in, the time is its owner's to say, and the log says the key is not used.
+
 **Neither, beyond the machine.** A node that listens beyond the loopback -
 with `--any`, which a roaming hub needs for its OCPI peers, or on one of the
 machine's other addresses - with neither TLS nor a trusted proxy is not

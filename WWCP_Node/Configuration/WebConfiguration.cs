@@ -87,10 +87,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Header">The header they name the client in; X-Forwarded-For where absent.</param>
     /// <param name="TLS">The web interface over TLS of the node's own, and with which certificate; plain HTTP where absent.</param>
     /// <param name="HSTS">Whether, and for how long, an answer that reached a browser over HTTPS tells it to come back over HTTPS only; for a year where absent.</param>
-    public sealed record WebConfiguration(IReadOnlyList<IPNetwork>?  TrustedProxies  = null,
-                                          ClientAddressHeader?       Header          = null,
-                                          WebTLSConfiguration?       TLS             = null,
-                                          HSTSConfiguration?         HSTS            = null)
+    /// <param name="RequestBodyTimeout">How long the body of one request may take to arrive, from its first byte to its last; five minutes where absent.</param>
+    public sealed record WebConfiguration(IReadOnlyList<IPNetwork>?  TrustedProxies      = null,
+                                          ClientAddressHeader?       Header              = null,
+                                          WebTLSConfiguration?       TLS                 = null,
+                                          HSTSConfiguration?         HSTS                = null,
+                                          TimeSpan?                  RequestBodyTimeout  = null)
     {
 
         #region Data
@@ -104,6 +106,27 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// How many proxies may be named.
         /// </summary>
         public const Int32   MaxTrustedProxies  = 64;
+
+        /// <summary>
+        /// The name of the key that says how long the body of one request may
+        /// take to arrive, in seconds.
+        /// </summary>
+        public const String  RequestBodyTimeoutName  = "requestBodyTimeout";
+
+        /// <summary>
+        /// How long the body of one request may take to arrive where the file
+        /// says nothing: five minutes - eight MiB, the most one request may
+        /// bring, at a little more than 220 kbit/s. Hermod's own default, its
+        /// ReceiveTimeout of 30 seconds, wants more than 2 Mbit/s for that, and
+        /// a part of a file sent from a browser over a slow line was refused
+        /// half-way.
+        /// </summary>
+        public static readonly TimeSpan  DefaultRequestBodyTimeout  = TimeSpan.FromMinutes(5);
+
+        /// <summary>
+        /// The longest a body may be given to arrive: a day.
+        /// </summary>
+        public static readonly TimeSpan  LongestRequestBodyTimeout  = TimeSpan.FromDays(1);
 
         #endregion
 
@@ -131,7 +154,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             Configuration = null;
 
             if (!ConfigurationReader.TryReadStrings(JSON, "trustedProxies",       SectionName, MaxTrustedProxies, 64, out var proxies, out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "clientAddressHeader",  SectionName, 32,                    out var header,  out Error))
+                !ConfigurationReader.TryReadString (JSON, "clientAddressHeader",  SectionName, 32,                    out var header,  out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, RequestBodyTimeoutName, SectionName, 1, LongestRequestBodyTimeout.TotalSeconds, out var bodyTimeout, out Error))
                 return false;
 
             List<IPNetwork>? networks = null;
@@ -198,7 +222,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !HSTSConfiguration.TryParse(hstsToken, $"{SectionName}.{HSTSConfiguration.Name}", out hsts, out Error))
                 return false;
 
-            Configuration = new WebConfiguration(networks, clientAddressHeader, tls, hsts);
+            Configuration = new WebConfiguration(networks, clientAddressHeader, tls, hsts, bodyTimeout);
 
             return true;
 
@@ -280,6 +304,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Header is not null)
                 json.Add("clientAddressHeader",  TextOf(Header.Value));
 
+            if (RequestBodyTimeout is TimeSpan bodyTimeout)
+                json.Add(RequestBodyTimeoutName, bodyTimeout.TotalSeconds);
+
             return json;
 
         }
@@ -322,7 +349,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     TLS is not null
                         ? TLS.Over(Below?.TLS)
                         : Below?.TLS,
-                    HSTS            ?? Below?.HSTS);
+                    HSTS                ?? Below?.HSTS,
+                    RequestBodyTimeout  ?? Below?.RequestBodyTimeout);
 
         #endregion
 
