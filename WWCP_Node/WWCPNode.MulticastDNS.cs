@@ -54,6 +54,76 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
 
     /// <summary>
+    /// The name resolution of a node as every connection it makes is given
+    /// it: names under ".local" and the link-local reverse zones by Multicast
+    /// DNS where the node has that switched on, every other name by the
+    /// node's DNS client - and with Multicast DNS off, those too, which
+    /// answers them NXDOMAIN without asking anybody (RFC 6762 section 22.1).
+    /// </summary>
+    /// <remarks>
+    /// Asked at every query whether Multicast DNS is on, so that a connection
+    /// made before a change follows it at its next attempt. Not disposed by
+    /// whoever is given it: both clients behind it are the node's.
+    /// </remarks>
+    public sealed class NodeNameResolver : IDNSClientWithDNSSEC
+    {
+
+        private readonly WWCPNode node;
+
+        internal NodeNameResolver(WWCPNode Node)
+        {
+            this.node = Node;
+        }
+
+        /// <summary>
+        /// Whether the given name is one for Multicast DNS, and asked by it now.
+        /// </summary>
+        private Boolean ByMulticast(String Name)
+            => node.MulticastDNSEnabled && MulticastDNS.IsLocalName(Name);
+
+        public Boolean DnssecOK
+        {
+            get => node.DNSClient.DnssecOK;
+            set => node.DNSClient.DnssecOK = value;
+        }
+
+        public Task<DNSInfo> Query(DomainName                           DomainName,
+                                   IEnumerable<DNSResourceRecordTypes>  ResourceRecordTypes,
+                                   TimeSpan?                            Timeout             = null,
+                                   Boolean?                             RecursionDesired    = null,
+                                   Boolean?                             ForceUpdate         = false,
+                                   CancellationToken                    CancellationToken   = default)
+
+            => ByMulticast(DomainName.FullName)
+                   ? node.QueryByMulticastDNSAsync(DNSServiceName.Parse(DomainName.FullName), ResourceRecordTypes, Timeout, ForceUpdate, CancellationToken)
+                   : node.DNSClient.Query(DomainName, ResourceRecordTypes, Timeout, RecursionDesired, ForceUpdate, CancellationToken);
+
+        public Task<DNSInfo> Query(DNSServiceName                       DNSServiceName,
+                                   IEnumerable<DNSResourceRecordTypes>  ResourceRecordTypes,
+                                   TimeSpan?                            Timeout             = null,
+                                   Boolean?                             RecursionDesired    = null,
+                                   Boolean?                             ForceUpdate         = false,
+                                   CancellationToken                    CancellationToken   = default)
+
+            => ByMulticast(DNSServiceName.ToString())
+                   ? node.QueryByMulticastDNSAsync(DNSServiceName, ResourceRecordTypes, Timeout, ForceUpdate, CancellationToken)
+                   : node.DNSClient.Query(DNSServiceName, ResourceRecordTypes, Timeout, RecursionDesired, ForceUpdate, CancellationToken);
+
+        public void Dispose()
+        { }
+
+        public ValueTask DisposeAsync()
+            => ValueTask.CompletedTask;
+
+        public override String ToString()
+            => node.MulticastDNSEnabled
+                   ? $"{node.Kind.Name} name resolution: .local by Multicast DNS, others by {node.DNSClient}"
+                   : $"{node.Kind.Name} name resolution: {node.DNSClient}";
+
+    }
+
+
+    /// <summary>
     /// Names under ".local" asked for by Multicast DNS (RFC 6762) - off unless
     /// the "dns" section says "multicast": { "enabled": true }, on the network
     /// interfaces it names (mDNS-Concept.md, B.1 and B.2).
@@ -73,10 +143,31 @@ namespace cloud.charging.open.protocols.WWCP.Node
         private readonly SemaphoreSlim         multicastDNSLock  = new (1, 1);
         private          MulticastDNSClient?    multicastDNSClient;
         private          IMulticastDNSTransport? multicastDNSTransport;
+        private          NodeNameResolver?       nameResolver;
+
+        /// <summary>
+        /// The last names Multicast DNS answered or did not, newest first, for
+        /// the DNS page.
+        /// </summary>
+        private readonly LinkedList<JObject>     multicastDNSAnswers  = new ();
+
+        /// <summary>
+        /// How many of them are kept.
+        /// </summary>
+        public const     Int32                   MaxMulticastDNSAnswersShown  = 10;
 
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// The name resolution every connection this node makes is given: ".local"
+        /// by Multicast DNS where that is switched on, everything else by
+        /// <see cref="DNSClient"/>.
+        /// </summary>
+        public NodeNameResolver       NameResolver
+
+            => nameResolver ??= new NodeNameResolver(this);
 
         /// <summary>
         /// Whether names under ".local" are asked for by Multicast DNS. Off
@@ -234,6 +325,48 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (internal) QueryByMulticastDNSAsync(Name, ResourceRecordTypes, Timeout, ForceUpdate, CancellationToken)
+
+        /// <summary>
+        /// Ask Multicast DNS, and keep what came of it for the DNS page.
+        /// </summary>
+        internal async Task<DNSInfo> QueryByMulticastDNSAsync(DNSServiceName                       Name,
+                                                              IEnumerable<DNSResourceRecordTypes>  ResourceRecordTypes,
+                                                              TimeSpan?                            Timeout,
+                                                              Boolean?                             ForceUpdate,
+                                                              CancellationToken                    CancellationToken)
+        {
+
+            var client  = await MulticastDNSClientAsync(CancellationToken).ConfigureAwait(false);
+            var answer  = await client.Query(Name, ResourceRecordTypes, Timeout, null, ForceUpdate, CancellationToken).ConfigureAwait(false);
+
+            var addresses = answer.Answers.OfType<AAAA>().Select(record => record.IPv6Address.ToString()).
+                            Concat(answer.Answers.OfType<A>().Select(record => record.IPv4Address.ToString())).
+                            Distinct().
+                            ToArray();
+
+            lock (multicastDNSAnswers)
+            {
+
+                multicastDNSAnswers.AddFirst(new JObject(
+                                                 new JProperty("at",         TimeProvider.GetUtcNow().ToString("o")),
+                                                 new JProperty("name",       Name.ToString()),
+                                                 new JProperty("addresses",  new JArray(addresses)),
+                                                 new JProperty("answered",   answer.Answers.Any()),
+                                                 new JProperty("timedOut",   answer.IsTimeout)
+                                             ));
+
+                while (multicastDNSAnswers.Count > MaxMulticastDNSAnswersShown)
+                    multicastDNSAnswers.RemoveLast();
+
+            }
+
+            return answer;
+
+        }
+
+        #endregion
+
         #region (private) LetGoOfMulticastDNSAsync()
 
         /// <summary>
@@ -333,11 +466,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                IDNSClient asking = multicast
-                                        ? await MulticastDNSClientAsync(CancellationToken).ConfigureAwait(false)
-                                        : dnsClient;
-
-                var answer   = await asking.Query(
+                var answer   = await NameResolver.Query(
                                          serviceName,
                                          [ DNSResourceRecordTypes.AAAA, DNSResourceRecordTypes.A ],
                                          CancellationToken: CancellationToken
@@ -527,8 +656,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    new JProperty("enabled",     MulticastDNSEnabled),
                    new JProperty("interfaces",  new JArray(MulticastDNSInterfaces)),
                    new JProperty("ipv4",        MulticastDNSIPv4),
-                   new JProperty("ipv6",        MulticastDNSIPv6)
+                   new JProperty("ipv6",        MulticastDNSIPv6),
+                   new JProperty("asking",      multicastDNSClient is not null),
+                   new JProperty("answers",     MulticastDNSAnswersJSON())
                );
+
+        private JArray MulticastDNSAnswersJSON()
+        {
+            lock (multicastDNSAnswers)
+                return new JArray(multicastDNSAnswers.Select(answer => answer.DeepClone()));
+        }
 
         #endregion
 

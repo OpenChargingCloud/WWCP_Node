@@ -162,7 +162,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                     SubProtocolsOf(Connection),
                                     NetworkingNode.ReconnectPolicy,
                                     WWCPNode.SshPingEvery,
-                                    WWCPNode.DNSClient,
+                                    WWCPNode.NameResolver,
                                     SshConnection
                                 ),
                                 ConnectAs: WWCPSshClient.ConnectAsFrom(Connection.URL)

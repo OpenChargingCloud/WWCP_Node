@@ -147,7 +147,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    ClientCertificateChain:      WWCPNode.CertificateWithItsChain(Certificates),
                    TOTPConfig:                  TOTP,
                    TOTPLogin:                   TOTPLogin,
-                   DNSClient:                   WWCPNode.DNSClient,
+                   DNSClient:                   WWCPNode.NameResolver,
                    CancellationToken:           CancellationToken
                );
 

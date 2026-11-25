@@ -261,7 +261,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                        ? null
                                        : ClientFor(only);
 
-                var asking   = alone ?? dnsClient;
+                // All of them the way every connection asks: a name under
+                // ".local" by Multicast DNS, where that is switched on.
+                IDNSClient asking = alone is not null ? alone : NameResolver;
 
                 var answer   = await asking.Query(
                                          serviceName,

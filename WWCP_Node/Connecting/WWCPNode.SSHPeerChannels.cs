@@ -78,7 +78,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                             new SshSharedConnection(
                                 Connection.URL.Host.ToString(),
                                 port,
-                                Login with { DNSClient = Login.DNSClient ?? DNSClient }
+                                Login with { DNSClient = Login.DNSClient ?? NameResolver }
                             ),
                             WhyNot:     subsystem => subsystem == SshSubsystemOf(Connection)
                                                          ? null

@@ -1065,7 +1065,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             Login  = new SSHClientOptions {
                          Username           = username,
-                         DNSClient          = DNSClient,
+                         DNSClient          = NameResolver,
                          VerifyHostKey      = Trust.Verify,
                          Credentials        = [ .. keys ],
                          Password           = totp is null
@@ -2461,7 +2461,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                addresses = [.. await NameResolution.ResolveAsync(host, DNSClient, CancellationToken)];
+                addresses = [.. await NameResolution.ResolveAsync(host, NameResolver, CancellationToken)];
 
                 if (!System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _))
                     Step("info", $"'{host}' resolves to {String.Join(", ", addresses.Take(8).Select(address => address.ToString()))}.");
@@ -2554,7 +2554,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // somebody who wants to pin it.
                 client = new WebSocketClient(
                              connection.URL,
-                             DNSClient:                   DNSClient,
+                             DNSClient:                   NameResolver,
                              HTTPAuthentication:          basic,
                              SecWebSocketProtocols:       SubProtocolsOf(connection),
                              RemoteCertificateValidator:  keyPins is not null

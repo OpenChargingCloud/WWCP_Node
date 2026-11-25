@@ -353,7 +353,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              Entry.Port,
                              new SSHClientOptions {
                                  Username          = Entry.User ?? DefaultSSHPeerUser,
-                                 DNSClient         = dnsClient,
+                                 DNSClient         = NameResolver,
                                  Credentials       = [ key ],
                                  VerifyHostKey     = blob => JudgeSSHPeerHostKey(Entry, blob),
                                  RequireStrictKex  = true,

@@ -22,6 +22,7 @@ using System.Net.Sockets;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
@@ -533,6 +534,126 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(offAgain.Error,                                              Does.Contain("switched off"));
                 Assert.That(node.DNSConfigurationJSON()["multicast"]?["enabled"]?.Value<Boolean>(), Is.False);
                 Assert.That(File.ReadAllText(Path.Combine(directory, WWCPConfigFile.DefaultFileName)), Does.Contain("\"multicast\""));
+            });
+
+        }
+
+        #endregion
+
+        #region TheNameResolverAsksMulticastDNSForLocalNamesAlone()
+
+        /// <summary>
+        /// The node's NameResolver, which every connection it makes is given:
+        /// lc1.local by Multicast DNS, host.example.test by the node's name
+        /// server - one transport made, for the first, and kept.
+        /// </summary>
+        [Test]
+        public async Task TheNameResolverAsksMulticastDNSForLocalNamesAlone()
+        {
+
+            NodeWithTheTestsNameServer("""{ "enabled": true }""");
+
+            await Answering("lc1.local.", "127.0.0.1");
+
+            var local   = await node!.NameResolver.Query(DomainName.Parse("lc1.local."),         [ DNSResourceRecordTypes.A ]);
+            var unicast = await node .NameResolver.Query(DomainName.Parse("host.example.test."), [ DNSResourceRecordTypes.A ]);
+            var again   = await node .NameResolver.Query(DNSServiceName.Parse("lc1.local."),     [ DNSResourceRecordTypes.A ]);
+
+            Assert.Multiple(() => {
+                Assert.That(local.  Answers.OfType<A>().Select(record => record.IPv4Address.ToString()), Is.EqualTo(new[] { "127.0.0.1" }));
+                Assert.That(again.  Answers.OfType<A>().Select(record => record.IPv4Address.ToString()), Is.EqualTo(new[] { "127.0.0.1" }));
+                Assert.That(unicast.Answers.OfType<A>().Select(record => record.IPv4Address.ToString()), Is.EqualTo(new[] { "127.0.0.1" }));
+                Assert.That(unicast.Origin.ToString(),                                                   Does.Contain($"]:{port}").Or.Contain($"127.0.0.1:{port}"));
+                Assert.That(transportOptions,                                                            Has.Count.EqualTo(1));
+            });
+
+        }
+
+        #endregion
+
+        #region WithMulticastDNSOffALocalNameIsNXDomain()
+
+        /// <summary>
+        /// Multicast DNS off: the NameResolver answers lc1.local NXDOMAIN, as
+        /// the node's DNS client does for a name under ".local" it may not send
+        /// to its servers - and makes no socket.
+        /// </summary>
+        [Test]
+        public async Task WithMulticastDNSOffALocalNameIsNXDomain()
+        {
+
+            NodeWithTheTestsNameServer();
+
+            await Answering("lc1.local.", "127.0.0.1");
+
+            var answer = await node!.NameResolver.Query(DomainName.Parse("lc1.local."), [ DNSResourceRecordTypes.A ]);
+
+            Assert.Multiple(() => {
+                Assert.That(answer.ResponseCode,  Is.EqualTo(DNSResponseCodes.NameError));
+                Assert.That(answer.Answers,       Is.Empty);
+                Assert.That(transportOptions,     Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region QueryDNSAnswersALocalNameByMulticastDNS()
+
+        /// <summary>
+        /// "queryDNS lc1.local A" on the command line: answered by Multicast
+        /// DNS, and the answer kept for the DNS page.
+        /// </summary>
+        [Test]
+        public async Task QueryDNSAnswersALocalNameByMulticastDNS()
+        {
+
+            using var cli = new NodeCLI(NodeWithTheTestsNameServer("""{ "enabled": true }"""));
+
+            await Answering("lc1.local.", "127.0.0.1");
+
+            var said    = await cli.Execute("queryDNS lc1.local A");
+            var answers = node!.DNSConfigurationJSON()["multicast"]?["answers"] as JArray;
+
+            Assert.Multiple(() => {
+                Assert.That(said,                                        Has.Some.Match(@"^  lc1\.local\.\s+A\s+\d+\s+127\.0\.0\.1$"), String.Join(Environment.NewLine, said));
+                Assert.That(answers,                                     Has.Count.EqualTo(1));
+                Assert.That(answers![0]["name"]?.Value<String>(),        Is.EqualTo("lc1.local."));
+                Assert.That(answers [0]["addresses"]?.ToObject<String[]>(), Is.EqualTo(new[] { "127.0.0.1" }));
+                Assert.That(node.DNSConfigurationJSON()["multicast"]?["asking"]?.Value<Boolean>(), Is.True);
+            });
+
+        }
+
+        #endregion
+
+        #region TheConnectionTestFindsALocalHostByMulticastDNS()
+
+        /// <summary>
+        /// The test of a connection to ws://lc1.local: the name resolved by
+        /// Multicast DNS, as the connection itself would - and with Multicast
+        /// DNS off, not resolved, and nothing else asked.
+        /// </summary>
+        [Test]
+        public async Task TheConnectionTestFindsALocalHostByMulticastDNS()
+        {
+
+            NodeWithTheTestsNameServer("""{ "enabled": true }""");
+
+            await Answering("lc1.local.", "127.0.0.1");
+
+            var on     = await node!.TestConnection(I18NString.Create("The local controller"), "ws://lc1.local:9/", "CSMS");
+
+            Assert.That(node.TryUpdateDNSConfiguration(JObject.Parse("""{ "multicast": { "enabled": false } }"""), out var problem), Is.True, problem);
+
+            var off    = await node.TestConnection(I18NString.Create("The local controller"), "ws://lc1.local:9/", "CSMS");
+
+            static String[] Texts(JObject Result)
+                => [.. (Result["steps"] as JArray ?? []).Select(step => step["text"]?.Value<String>() ?? "")];
+
+            Assert.Multiple(() => {
+                Assert.That(Texts(on),  Has.Some.EqualTo("'lc1.local' resolves to 127.0.0.1."), String.Join(Environment.NewLine, Texts(on)));
+                Assert.That(Texts(off), Has.None.Contains("resolves to"),                        String.Join(Environment.NewLine, Texts(off)));
             });
 
         }

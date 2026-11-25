@@ -764,7 +764,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              Server.Port,
                              new SSHClientOptions {
                                  Username          = entry.User ?? DefaultNameServerSSHUser,
-                                 DNSClient         = dnsClient,
+                                 DNSClient         = NameResolver,
                                  Credentials       = [ key ],
                                  VerifyHostKey     = blob => JudgeNameServerHostKey(Server, entry, blob),
                                  RequireStrictKex  = true,
@@ -1053,7 +1053,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             var options = new SSHClientOptions {
                               Username          = SSH.User ?? DefaultNameServerSSHUser,
-                              DNSClient         = dnsClient,
+                              DNSClient         = NameResolver,
                               Credentials       = DNSSSHClientKey is ISshHostKey key ? [ key ] : [],
                               VerifyHostKey     = blob => SSH.Believes(blob, SSHHostOf(Server), TimeProvider.GetUtcNow(), out _, out _) ||
                                                           SSH.OnMismatch != PinMismatch.Refuse,

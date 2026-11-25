@@ -997,7 +997,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                              server.Port,
                                              new SSHClientOptions {
                                                  Username          = login,
-                                                 DNSClient         = dnsClient,
+                                                 DNSClient         = NameResolver,
                                                  // This key and nothing else: no password, no other key of the node.
                                                  Credentials       = [ key ],
                                                  // A pin or a CA, or nothing: what a mismatch comes to elsewhere is not read here.

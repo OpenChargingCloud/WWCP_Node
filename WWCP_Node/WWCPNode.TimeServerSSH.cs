@@ -354,7 +354,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              SSH.PortOrDefault,
                              new SSHClientOptions {
                                  Username        = SSH.UserOrDefault,
-                                 DNSClient       = dnsClient,
+                                 DNSClient       = NameResolver,
                                  Credentials     = [ key ],
                                  VerifyHostKey   = blob => JudgeTimeServerHostKey(Hostname, SSH, blob),
                                  ConnectTimeout  = TimeServerSSHConnectTimeout

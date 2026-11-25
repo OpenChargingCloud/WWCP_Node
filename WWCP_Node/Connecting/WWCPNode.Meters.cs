@@ -306,7 +306,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                   CertificateWithItsChain(certificates),
                                   totp,
                                   totpLogin?.ToString(),
-                                  DNSClient
+                                  NameResolver
                               );
 
             var (_, response) = await client.Connect(CancellationToken: CancellationToken);
@@ -406,7 +406,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 sshClient = await SSHClient.Connect(
                                       Connection.URL.Host.ToString(),
                                       Connection.URL.Port ?? IPPort.SSH,
-                                      login with { DNSClient = login.DNSClient ?? DNSClient },
+                                      login with { DNSClient = login.DNSClient ?? NameResolver },
                                       CancellationToken
                                   );
 
