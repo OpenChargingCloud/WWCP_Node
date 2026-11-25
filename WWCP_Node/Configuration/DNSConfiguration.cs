@@ -69,6 +69,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="ServerIds">The id the file gives each of the servers, by its place in the list, or null where it gives none - see <see cref="Ids"/>.</param>
     /// <param name="EncryptedOnly">Whether only the servers reached over TLS, HTTPS or SSH are asked - see <see cref="InClearText"/>.</param>
     /// <param name="SSH">How each of the servers asked over SSH is reached and what its host key is held to - see <see cref="NTSServerSSH"/>; only where the list of servers says so.</param>
+    /// <param name="Multicast">How names under ".local" are asked for by Multicast DNS - see <see cref="MulticastDNSConfiguration"/>.</param>
     public sealed record DNSConfiguration(Boolean?                        Enabled               = null,
                                           IReadOnlyList<DNSServerConfig>? Servers               = null,
                                           TimeSpan?                       QueryTimeout          = null,
@@ -81,7 +82,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           IReadOnlyDictionary<DNSServerConfig, ServerPins>?  Pins  = null,
                                           IReadOnlyList<String?>?         ServerIds             = null,
                                           Boolean?                        EncryptedOnly         = null,
-                                          IReadOnlyDictionary<DNSServerConfig, NTSServerSSH>?  SSH  = null)
+                                          IReadOnlyDictionary<DNSServerConfig, NTSServerSSH>?  SSH  = null,
+                                          MulticastDNSConfiguration?      Multicast             = null)
     {
 
         #region Data
@@ -257,6 +259,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
+            MulticastDNSConfiguration? multicast = null;
+
+            if (JSON[MulticastDNSConfiguration.Key] is JToken multicastToken && multicastToken.Type != JTokenType.Null &&
+                !MulticastDNSConfiguration.TryParse(multicastToken, out multicast, out Error))
+            {
+                return false;
+            }
+
             Configuration = new DNSConfiguration(
                                 enabled,
                                 servers,
@@ -270,7 +280,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 pins,
                                 ids,
                                 encryptedOnly,
-                                overSSH
+                                overSSH,
+                                multicast
                             ) {
                                 // Named, and null: "leave it to the server".
                                 // See RemovesRecursionDesired.
@@ -723,6 +734,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (MaxCNAMEFollows.    HasValue)  json.Add("maxCNAMEFollows",      MaxCNAMEFollows.    Value);
             if (MaxRetries.         HasValue)  json.Add("maxRetries",           MaxRetries.         Value);
             if (EncryptedOnly.      HasValue)  json.Add("encryptedOnly",        EncryptedOnly.      Value);
+            if (Multicast is not null)         json.Add(MulticastDNSConfiguration.Key, Multicast.ToJSON());
 
             return json;
 

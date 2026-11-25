@@ -1840,6 +1840,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("encryptedOnly",        DNSEncryptedOnly)
                    )),
 
+                   // Names under ".local", asked for by Multicast DNS.
+                   new JProperty("multicast",         MulticastDNSJSON()),
+
                    // What was decided when the client was made and is not on
                    // offer here; shown so that the page does not read as if
                    // these were the only settings there are.
@@ -2298,6 +2301,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 dnsClient.MaxRetries = Configuration.MaxRetries.Value;
                 changed.Add($"max retries = {dnsClient.MaxRetries}");
             }
+
+            // Names under ".local", which never go to the servers above.
+            changed.AddRange(ApplyMulticastDNSConfiguration(Configuration.Multicast));
 
             if (changed.Count > 0)
                 Log.Notice($"DNS configuration changed: {String.Join(", ", changed)}{ChangeOrigin.By(Origin)}.", "dns", "config");
@@ -3691,6 +3697,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                     // After the servers and the groups, which resolve names
                     // with it - and only where this node made it.
+                    await LetGoOfMulticastDNSAsync();
+
                     if (OwnsDNSClient)
                         await dnsClient.DisposeAsync();
 
