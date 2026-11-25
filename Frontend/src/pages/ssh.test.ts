@@ -13,7 +13,7 @@ import { describe, it }      from 'node:test';
 
 import type { SSHConfiguration, SSHUpdate } from '../api/client.ts';
 
-const { movesTheServer, ruleLine, sftpSessionsEnding, sshPage, typedRules, when } = await import('./ssh.ts');
+const { movesTheServer, namesAndTimeUpdate, ruleLine, sftpSessionsEnding, sshPage, typedRules, when } = await import('./ssh.ts');
 
 
 /** What the stand-in node has, how it answers a save, and what it was told. */
@@ -28,6 +28,10 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         strictKex:      true,
         sftp:           false,
         sftpByDefault:  false,
+        dns:            { enabled: false, served: false, subsystem: 'dns@open.charging.cloud', upstream: '9.9.9.9, 149.112.112.112' },
+        nts:            { enabled: false, served: false, subsystem: 'ntske/1@open.charging.cloud', ntpPort: 123, ntpHost: null,
+                          masterKeys: 'ssh/nts_master_keys.json' },
+        namesAndTimeProblem: null,
         listenAddress:  '127.0.0.1',
         url:            'ssh://127.0.0.1:22347',
         defaultPort:    22347,
@@ -63,7 +67,11 @@ function node({ method, path, body }: Asked): unknown {
         const { accessRules: _rules, ...settings } = update;
         held = { ...held, enabled: update.enabled ?? held.enabled, port: update.port ?? held.port, passwords: update.passwords ?? held.passwords,
                  strictKex: update.strictKex ?? held.strictKex,
-                          sftp: update.sftp ?? held.sftp, configured: { ...held.configured, ...settings } };
+                          sftp: update.sftp ?? held.sftp, configured: { ...held.configured, ...settings },
+                 dns: { ...held.dns, enabled: update.dns?.enabled ?? held.dns.enabled, served: update.dns?.enabled ?? held.dns.served },
+                 nts: { ...held.nts, enabled: update.nts?.enabled ?? held.nts.enabled, served: update.nts?.enabled ?? held.nts.served,
+                        ntpPort: update.nts?.ntpPort ?? held.nts.ntpPort,
+                        ntpHost: update.nts?.ntpHost === undefined ? held.nts.ntpHost : update.nts.ntpHost.length > 0 ? update.nts.ntpHost : null } };
         return held;
     }
 
@@ -564,6 +572,136 @@ describe('the SSH access rules on the SSH server page', () => {
 
         assert.equal(root.querySelectorAll('#access-rules tbody tr').length, 2);
         assert.equal(rulesBox(root), null, 'the form is offered to somebody who may not change the rules');
+
+    });
+
+});
+
+
+describe('what the form of names and time sends', () => {
+
+    function form(Fields: Record<string, string>): FormData {
+        const data = new FormData();
+        for (const [ name, value ] of Object.entries(Fields))
+            data.append(name, value);
+        return data;
+    }
+
+    it('is both switches, the port - 123 where emptied - and the host, an emptied one sent empty', () => {
+
+        assert.deepEqual(namesAndTimeUpdate(form({ dns: 'on', nts: 'on', ntpPort: '123', ntpHost: '' })),
+                         { dns: { enabled: true }, nts: { enabled: true, ntpPort: 123, ntpHost: '' } });
+
+        assert.deepEqual(namesAndTimeUpdate(form({ ntpPort: '', ntpHost: '  ' })),
+                         { dns: { enabled: false }, nts: { enabled: false, ntpPort: 123, ntpHost: '' } });
+
+        assert.deepEqual(namesAndTimeUpdate(form({ nts: 'on', ntpPort: '1123', ntpHost: ' lc.example.org ' })),
+                         { dns: { enabled: false }, nts: { enabled: true, ntpPort: 1123, ntpHost: 'lc.example.org' } });
+
+    });
+
+    it('is refused for a port that is no port, and for another port than 123 without a host where time is switched on', () => {
+
+        assert.equal(namesAndTimeUpdate(form({ ntpPort: '0' })),       'A port is a whole number from 1 to 65535.');
+        assert.equal(namesAndTimeUpdate(form({ ntpPort: '70000' })),   'A port is a whole number from 1 to 65535.');
+        assert.equal(namesAndTimeUpdate(form({ ntpPort: '12.5' })),    'A port is a whole number from 1 to 65535.');
+        assert.match(String(namesAndTimeUpdate(form({ nts: 'on', ntpPort: '1123' }))), /host as well/);
+        assert.equal(typeof namesAndTimeUpdate(form({ ntpPort: '1123' })), 'object', 'switched off, another port alone is kept for later');
+
+    });
+
+});
+
+
+describe('names and time for stations, on the SSH page', () => {
+
+    const box      = (root: HTMLElement, name: string) => root.querySelector<HTMLInputElement>(`#names-and-time-form [name="${name}"]`)!;
+    const send     = (root: HTMLElement) => root.querySelector<HTMLFormElement>('#names-and-time-form')!.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+    it('says that neither is served, and what DNS is passed on to', async () => {
+
+        const root = await opened();
+
+        assert.match(root.querySelector('#dns-state')!.textContent!, /off\s+DNS, passed on to the name servers of this .*9\.9\.9\.9/s);
+        assert.match(root.querySelector('#nts-state')!.textContent!, /off\s+Time: NTS-KE over SSH, NTP with NTS on UDP port 123/s);
+        assert.equal(box(root, 'dns').checked, false);
+        assert.equal(box(root, 'nts').checked, false);
+        assert.equal(root.querySelector('#names-and-time-problem'), null);
+
+    });
+
+    it('says what is served, on which port of which host, and why something is not', async () => {
+
+        const root = await opened({ dns: { enabled: true, served: true, subsystem: 'dns@open.charging.cloud', upstream: '9.9.9.9' },
+                                    nts: { enabled: true, served: false, subsystem: 'ntske/1@open.charging.cloud', ntpPort: 1123, ntpHost: 'lc.example.org',
+                                           masterKeys: 'ssh/nts_master_keys.json' },
+                                    configured: { enabled: true, port: 22347, dns: { enabled: true }, nts: { enabled: true, ntpPort: 1123, ntpHost: 'lc.example.org' } },
+                                    namesAndTimeProblem: 'The time server of the SSH logins could not be given port 1123: something else is already listening on it.' });
+
+        assert.match(root.querySelector('#dns-state')!.textContent!, /^served/);
+        assert.match(root.querySelector('#nts-state')!.textContent!, /^off.*port 1123 of lc\.example\.org/s);
+        assert.match(root.querySelector('#names-and-time-problem')!.textContent!, /port 1123/);
+        assert.equal(box(root, 'dns').checked,      true);
+        assert.equal(box(root, 'nts').checked,      true);
+        assert.equal(box(root, 'ntpPort').value,    '1123');
+        assert.equal(box(root, 'ntpHost').value,    'lc.example.org');
+
+    });
+
+    it('switches them on, and shows what the node made of it', async () => {
+
+        const root = await opened();
+
+        box(root, 'dns').checked = true;
+        box(root, 'nts').checked = true;
+
+        send(root);
+        await until(() => /^Saved/.test(root.querySelector('#names-and-time-note')?.textContent ?? ''), 'the save did not go through');
+
+        assert.deepEqual(puts().map(one => one.body), [ { dns: { enabled: true }, nts: { enabled: true, ntpPort: 123, ntpHost: '' } } ]);
+        assert.match(root.querySelector('#dns-state')!.textContent!, /^served/);
+        assert.match(root.querySelector('#nts-state')!.textContent!, /^served/);
+
+    });
+
+    it('refuses another port without a host before it asks the node', async () => {
+
+        const root = await opened();
+
+        box(root, 'nts').checked = true;
+        box(root, 'ntpPort').value = '1123';
+
+        send(root);
+        await wait(10);
+
+        assert.match(root.querySelector('#names-and-time-error')!.textContent!, /host as well/);
+        assert.equal(puts().length, 0, 'it went to the node all the same');
+
+    });
+
+    it('says what the node refused where the form is', async () => {
+
+        const root = await opened();
+
+        answer = () => refused(400, "'ssh.nts.ntpHost' must be a host name or an address, without port or path: 'a/b' is none.");
+
+        box(root, 'nts').checked = true;
+        box(root, 'ntpHost').value = 'a/b';
+
+        send(root);
+        await until(() => /ntpHost/.test(root.querySelector('#names-and-time-error')?.textContent ?? ''), 'the refusal is not said');
+
+    });
+
+    it('lets somebody who may only look see it, and change nothing', async () => {
+
+        const root = await opened({}, [ 'ssh:read' ]);
+
+        assert.equal(box(root, 'dns').disabled,     true);
+        assert.equal(box(root, 'nts').disabled,     true);
+        assert.equal(box(root, 'ntpPort').disabled, true);
+        assert.equal(box(root, 'ntpHost').disabled, true);
+        assert.ok(root.querySelector<HTMLButtonElement>('#names-and-time-form button[type="submit"]')!.disabled, 'the save is offered');
 
     });
 

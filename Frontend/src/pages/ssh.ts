@@ -29,6 +29,12 @@ import { html, nothing, render, repeat, type TemplateResult } from '../view';
  * sshAccessRules writes them, one a line, and saved the same way: in effect at
  * once, and asked again of every session open.
  *
+ * Names and time for the stations - the logins of the kind - over the SSH
+ * connection they sign in with are switched on and off here as well: DNS
+ * passed on to this node's name servers, and NTS keys over SSH with NTP on a
+ * UDP port of this node. Both are off until somebody switches them on, and a
+ * station has them only where its login group gives it the channel.
+ *
  * Beside that, what a person looking after the node wants to compare or copy:
  * the host key, as a client shows it the first time and as a known_hosts file
  * takes it; the folders SFTP shows and what each needs; who is connected now;
@@ -68,6 +74,31 @@ export function movesTheServer(Now: SSHConfiguration, Update: SSHUpdate): boolea
     const strictKex = Update.strictKex ?? Now.strictKex;
 
     return enabled !== Now.enabled || (enabled && (port !== Now.port || passwords !== Now.passwords || strictKex !== Now.strictKex));
+
+}
+
+/**
+ * What the form of names and time sends, or what is wrong with what it says:
+ * a port of NTP from 1 to 65535, and a host where the port is not 123 - which
+ * the node would refuse as well. A host emptied is sent empty, and taken away.
+ */
+export function namesAndTimeUpdate(Form: FormData): SSHUpdate | string {
+
+    const typedPort = String(Form.get('ntpPort') ?? '').trim();
+    const ntpPort   = typedPort.length > 0 ? Number(typedPort) : 123;
+    const ntpHost   = String(Form.get('ntpHost') ?? '').trim();
+    const nts       = Form.get('nts') !== null;
+
+    if (!(Number.isInteger(ntpPort) && ntpPort >= 1 && ntpPort <= 65535))
+        return 'A port is a whole number from 1 to 65535.';
+
+    if (nts && ntpPort !== 123 && ntpHost.length === 0)
+        return 'On another port than 123 a station has to be told the host as well.';
+
+    return {
+        dns: { enabled: Form.get('dns') !== null },
+        nts: { enabled: nts, ntpPort, ntpHost }
+    };
 
 }
 
@@ -150,6 +181,7 @@ export const sshPage: Page = {
 
                 <div class="cards stacked">
                     ${settingsCard(ssh)}
+                    ${namesAndTimeCard(ssh)}
                     ${accessRulesCard(ssh)}
                     ${hostKeysCard(ssh)}
                     ${sftpCard(ssh)}
@@ -240,6 +272,66 @@ export const sshPage: Page = {
                         </div>
 
                         <span class="hint">Saved to <span class="path">${ssh.file}</span>, and in effect at once.</span>
+
+                    </form>
+
+                </section>
+            `;
+
+        }
+
+
+        /** Names and time for the stations over their SSH connection - and the form that switches them. */
+        function namesAndTimeCard(ssh: SSHConfiguration): TemplateResult {
+
+            const served = (On: boolean) => On ? html`<span class="chip ok">served</span>` : html`<span class="chip">off</span>`;
+
+            return html`
+                <section class="card" id="ssh-names-and-time">
+
+                    <h2><i class="fa-solid fa-clock"></i> Names and time for stations</h2>
+
+                    <p class="muted">
+                        Over the SSH connection a station signs in with, beside OCPP - for a station whose login group gives it the
+                        channel <code>${ssh.dns.subsystem}</code> or <code>${ssh.nts.subsystem}</code>, and for no account.
+                    </p>
+
+                    <p id="dns-state">${served(ssh.dns.served)} DNS, passed on to the name servers of this ${config.nodeName}: <code>${ssh.dns.upstream}</code></p>
+                    <p id="nts-state">${served(ssh.nts.served)} Time: NTS-KE over SSH, NTP with NTS on UDP port <code>${ssh.nts.ntpPort}</code>${ssh.nts.ntpHost !== null ? html` of <code>${ssh.nts.ntpHost}</code>` : nothing}</p>
+
+                    ${ssh.namesAndTimeProblem === null ? nothing : html`
+                        <div class="error-box" id="names-and-time-problem">${ssh.namesAndTimeProblem}</div>
+                    `}
+
+                    <form id="names-and-time-form" class="form-stack" @submit=${onSaveNamesAndTime}>
+
+                        <label class="checkbox">
+                            <input type="checkbox" name="dns" ?checked=${ssh.configured.dns?.enabled ?? ssh.dns.enabled} ?disabled=${!mayChange} />
+                            Resolve names for the stations
+                            <span class="hint">This ${config.nodeName} answers no name itself: every question goes to its own name servers, and their answer back.</span>
+                        </label>
+
+                        <label class="checkbox">
+                            <input type="checkbox" name="nts" ?checked=${ssh.configured.nts?.enabled ?? ssh.nts.enabled} ?disabled=${!mayChange} />
+                            Give the stations their time
+                            <span class="hint">The time of the clock of this machine, from a time server of its own: its NTS keys over SSH alone, its master keys in <span class="path">${ssh.nts.masterKeys}</span>.</span>
+                        </label>
+
+                        <label>UDP port of NTP
+                            <input type="number" name="ntpPort" min="1" max="65535" value="${ssh.configured.nts?.ntpPort ?? ssh.nts.ntpPort}" placeholder="123" ?disabled=${!mayChange} />
+                            <span class="hint">A station asks on port 123. Below 1024, a Linux machine needs the right to bind it.</span>
+                        </label>
+
+                        <label>Host the stations ask for the time
+                            <input type="text" name="ntpHost" value="${ssh.configured.nts?.ntpHost ?? ''}" placeholder="the host they signed in at" ?disabled=${!mayChange} />
+                            <span class="hint">Only needed on another port than 123: the key exchange then tells the stations host and port.</span>
+                        </label>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
+                            <span id="names-and-time-note"  class="form-notice" role="status"></span>
+                            <span id="names-and-time-error" class="form-error"  role="alert"></span>
+                        </div>
 
                     </form>
 
@@ -663,6 +755,48 @@ export const sshPage: Page = {
         }
 
 
+        function onSaveNamesAndTime(event: SubmitEvent): void {
+
+            event.preventDefault();
+
+            const form   = event.currentTarget as HTMLFormElement;
+            const update = namesAndTimeUpdate(new FormData(form));
+
+            must<HTMLElement>(content, '#names-and-time-note').textContent  = '';
+            must<HTMLElement>(content, '#names-and-time-error').textContent = '';
+
+            if (typeof update === 'string') {
+                must<HTMLElement>(content, '#names-and-time-error').textContent = update;
+                return;
+            }
+
+            void saveNamesAndTime(update, form);
+
+        }
+
+
+        async function saveNamesAndTime(Update: SSHUpdate, form: HTMLFormElement): Promise<void> {
+
+            const note = must<HTMLElement>(content, '#names-and-time-note');
+
+            try
+            {
+                current = await whileSaving(content, note, () => api.ssh.save(Update));
+
+                draw();
+                form.reset();
+
+                // A port that is taken is saved all the same, and said beside it.
+                must<HTMLElement>(content, '#names-and-time-note').textContent = current.notice ?? 'Saved, and in effect.';
+            }
+            catch (problem)
+            {
+                must<HTMLElement>(content, '#names-and-time-error').textContent = errorMessage(problem);
+            }
+
+        }
+
+
         async function load(): Promise<void> {
 
             try
@@ -679,6 +813,7 @@ export const sshPage: Page = {
                 draw();
                 content.querySelector<HTMLFormElement>('#ssh-form')?.reset();
                 content.querySelector<HTMLFormElement>('#access-rules-form')?.reset();
+                content.querySelector<HTMLFormElement>('#names-and-time-form')?.reset();
 
             }
             catch (problem)
@@ -692,7 +827,8 @@ export const sshPage: Page = {
         }
 
         const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#ssh-form')) ||
-                                             typedSinceDrawn(content.querySelector('#access-rules-form')));
+                                             typedSinceDrawn(content.querySelector('#access-rules-form')) ||
+                                             typedSinceDrawn(content.querySelector('#names-and-time-form')));
 
         void load();
 

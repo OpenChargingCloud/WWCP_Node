@@ -1285,6 +1285,52 @@ and the answer's `notice` says so. Who changed it is in the log, tagged
 `ssh`, `web` and `security`.
 
 
+### Names and time for the logins of a kind
+
+The logins a kind of node lets in besides its accounts - a local controller's
+charging stations - may resolve names and get their time over the SSH
+connection they sign in with, beside OCPP, where the `ssh` section says so.
+Both are off where it says nothing:
+
+```json
+"ssh": { "enabled": true,
+         "dns": { "enabled": true },
+         "nts": { "enabled": true, "ntpPort": 123 } }
+```
+
+`dns` serves DNS-over-SSH, the subsystem `dns@open.charging.cloud`. The node
+answers no name itself: every question is passed on to its own name servers -
+those of the `dns` section, over whatever they are reached by - and their
+answer goes back, never authoritative and with recursion available, as a
+forwarder's does (Hermod's `ForwardingDNSRequestHandler`).
+
+`nts` starts a time server of the node's own: NTS key establishment over SSH,
+the subsystem `ntske/1@open.charging.cloud`, and NTP with NTS on UDP port
+`ntpPort` (123 where left out) of the address the node listens on. Its time is
+the clock of the machine. It has no key exchange over TLS and binds no TCP
+port for one: the cookies come over SSH alone, under the key the station
+signed in with. Its master keys are kept in `ssh/nts_master_keys.json` beside
+the SSH host key, so that the cookies a station holds stay good across a
+restart. A station asks for the time at the host it signed in at, on port 123;
+on another port the key exchange has to tell it the host as well, so
+`ntpHost` is then required, and a change without it is refused. A port that
+is taken - by a time server of the machine, say - or that the node may not
+bind (below 1024 on Linux without the right to) is said in the log, on the
+page and in the answer's `notice`; the node runs on without it.
+
+Who has either is the station's login group's, as ever: the channel among its
+SSH channels, and the SSH access rules besides. No account is given either. A
+kind that serves one of the two subsystems itself - a name server, a time
+server - keeps its own, and the log says so.
+
+**Configuration > SSH server** shows both under *Names and time for
+stations*, with what is served, on which port of which host, and why not
+where something is not; `GET /api/v1/configuration/ssh` says it as `dns`,
+`nts` and `namesAndTimeProblem`, and `PUT` takes `"dns": { "enabled" }` and
+`"nts": { "enabled", "ntpPort", "ntpHost" }` - an `ntpHost` sent empty takes
+the host away - and makes them at once.
+
+
 ## Files over SFTP
 
 Files are moved over SFTP, on the SSH server, where the file says so:

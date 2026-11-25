@@ -56,6 +56,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="MaxConnections">How many connections each kind that signs in may have open at once - "account" for the accounts, "station" for what a kind of node lets in besides; <see cref="DefaultMaxConnectionsOfAccounts"/> and <see cref="DefaultMaxConnectionsOfLogins"/> where absent.</param>
     /// <param name="StrictKex">Whether a client must signal strict KEX, the protection against Terrapin (CVE-2023-48795), or is turned away before it signs in; yes where absent.</param>
     /// <param name="Peers">The SSH peers of the node: the hosts it keeps one SSH connection to each, as a client - see <see cref="SSHPeerConfiguration"/>; none where absent.</param>
+    /// <param name="DNS">Whether the logins of a kind of node resolve names over their SSH connection, passed on to the node's name servers - see <see cref="SSHNameServiceConfiguration"/>; no where absent.</param>
+    /// <param name="NTS">Whether the logins of a kind of node get their time from it: NTS-KE over their SSH connection, NTP with NTS over UDP - see <see cref="SSHTimeServiceConfiguration"/>; no where absent.</param>
     public sealed record SSHConfiguration(Boolean?                             Enabled         = null,
                                           IPPort?                              Port            = null,
                                           Boolean?                             Passwords       = null,
@@ -63,7 +65,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                           SSHAccessRules?                      AccessRules     = null,
                                           IReadOnlyDictionary<String, Int32>?  MaxConnections  = null,
                                           Boolean?                             StrictKex       = null,
-                                          IReadOnlyList<SSHPeerConfiguration>? Peers           = null)
+                                          IReadOnlyList<SSHPeerConfiguration>? Peers           = null,
+                                          SSHNameServiceConfiguration?         DNS             = null,
+                                          SSHTimeServiceConfiguration?         NTS             = null)
     {
 
         #region Data
@@ -126,7 +130,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 !SSHPeerConfiguration.TryParseAll(listed, $"{SectionName}.peers", out peers, out Error))
                 return false;
 
-            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules, maxConnections, strictKex, peers);
+            SSHNameServiceConfiguration? dns = null;
+            if (JSON.TryGetValue(SSHNameServiceConfiguration.Key, out var dnsJSON) && dnsJSON.Type != JTokenType.Null &&
+                !SSHNameServiceConfiguration.TryParse(dnsJSON, out dns, out Error))
+                return false;
+
+            SSHTimeServiceConfiguration? nts = null;
+            if (JSON.TryGetValue(SSHTimeServiceConfiguration.Key, out var ntsJSON) && ntsJSON.Type != JTokenType.Null &&
+                !SSHTimeServiceConfiguration.TryParse(ntsJSON, out nts, out Error))
+                return false;
+
+            Configuration = new SSHConfiguration(enabled, port, passwords, sftp, accessRules, maxConnections, strictKex, peers, dns, nts);
 
             return true;
 
@@ -209,6 +223,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Peers is not null)
                 json.Add("peers", new JArray(Peers.Select(peer => peer.ToJSON())));
 
+            if (DNS is not null)
+                json.Add(SSHNameServiceConfiguration.Key, DNS.ToJSON());
+
+            if (NTS is not null)
+                json.Add(SSHTimeServiceConfiguration.Key, NTS.ToJSON());
+
             return json;
 
         }
@@ -224,7 +244,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                    : $"SSH{(Port is not null ? $" on port {Port}" : "")}{(Passwords == true ? " with passwords" : "")}{(Sftp == true ? " and SFTP" : "")}" +
                      (StrictKex == false ? ", strict KEX not required" : "") +
                      (AccessRules is { Rules.Count: > 0 } ? $", {AccessRules.Rules.Count} access rule(s)" : "") +
-                     (MaxConnections is { Count: > 0 } ? $", at most {String.Join(", ", MaxConnections.Select(kind => $"{kind.Value} {kind.Key} connection(s)"))}" : "");
+                     (MaxConnections is { Count: > 0 } ? $", at most {String.Join(", ", MaxConnections.Select(kind => $"{kind.Value} {kind.Key} connection(s)"))}" : "") +
+                     (DNS?.Enabled == true ? ", DNS for its logins" : "") +
+                     (NTS?.Enabled == true ? $", time for its logins (NTP on UDP port {NTS.NTPPortInEffect})" : "");
 
         #endregion
 

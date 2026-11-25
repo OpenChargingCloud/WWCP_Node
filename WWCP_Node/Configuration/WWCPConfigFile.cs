@@ -247,7 +247,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         /// </remarks>
         /// <param name="Name">The section, e.g. "nts".</param>
         /// <param name="Values">The fields to write into it.</param>
-        /// <param name="Removed">The keys to take out of it.</param>
+        /// <param name="Removed">The keys to take out of it - "key", or "object.key" for a key of an object within it.</param>
         /// <param name="Error">What went wrong, when something did.</param>
         public Boolean TryMergeSection(String                            Name,
                                        JObject                           Values,
@@ -352,7 +352,22 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (Document[Name] is JObject merged)
                 foreach (var key in Removed)
-                    merged.Remove(key);
+                {
+
+                    // A key of the section by that name, as ever - or else, where it has dots,
+                    // a key of an object within it: "nts.ntpHost", which a merge cannot take out.
+                    if (merged.Remove(key) || !key.Contains('.'))
+                        continue;
+
+                    var path   = key.Split('.');
+                    var parent = merged;
+
+                    for (var i = 0; i < path.Length - 1 && parent is not null; i++)
+                        parent = parent[path[i]] as JObject;
+
+                    parent?.Remove(path[^1]);
+
+                }
 
             return Document;
 

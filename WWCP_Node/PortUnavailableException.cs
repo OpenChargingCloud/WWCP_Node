@@ -58,6 +58,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public static readonly NodePort HTTPSRedirect  = new ("The redirect to HTTPS");
 
+        /// <summary>
+        /// NTP with NTS for the logins of a kind of node, whose key exchange goes over SSH.
+        /// </summary>
+        public static readonly NodePort TimeServer     = new ("The time server of the SSH logins");
+
         public override String ToString()
             => Name;
 

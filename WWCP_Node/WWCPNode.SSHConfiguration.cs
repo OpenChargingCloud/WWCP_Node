@@ -71,8 +71,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public JObject SSHConfigurationJSON(String? Host = null)
         {
 
-            var hostKey  = SSHHostKeyAsKept();
-            var limits   = SSHServerLimitsInEffect();
+            var hostKey       = SSHHostKeyAsKept();
+            var limits        = SSHServerLimitsInEffect();
+            var namesAndTime  = SSHNamesAndTimeJSON();
 
             return new JObject(
 
@@ -82,6 +83,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("strictKex",      SSHStrictKex),
                        new JProperty("sftp",           SFTPEnabled),
                        new JProperty("sftpByDefault",  sshSettings?.SftpByDefault == true),
+                       // Names and time for the logins of the kind, over their SSH connection.
+                       new JProperty("dns",            namesAndTime.DNS),
+                       new JProperty("nts",            namesAndTime.NTS),
+                       new JProperty("namesAndTimeProblem", SSHNamesAndTimeProblem),
                        new JProperty("listenAddress",  listenAddress.ToString()),
                        new JProperty("url",            SSHURL),
                        new JProperty("defaultPort",    SSHSettings.DefaultPortFor(sshWebInterfacePort)?.ToUInt16()),
@@ -325,7 +330,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                   sent.AccessRules     ?? sshFile?.AccessRules,
                                                   MergedMaxConnections(sshFile?.MaxConnections, sent.MaxConnections),
                                                   sent.StrictKex       ?? sshFile?.StrictKex,
-                                                  sent.Peers           ?? sshFile?.Peers);
+                                                  sent.Peers           ?? sshFile?.Peers,
+                                                  SSHNameServiceConfiguration.Merged(sshFile?.DNS, sent.DNS),
+                                                  SSHTimeServiceConfiguration.Merged(sshFile?.NTS, sent.NTS, SSHTimeServiceConfiguration.HostClearedIn(JSON)));
+
+                // Refused before anything is saved: a time server a station could not find.
+                if (file.NTS?.WhyNotServable() is String notServable)
+                    return new SSHConfigurationChange(false, notServable);
 
                 var sftpWas    = SFTPEnabled;
                 var rulesWas   = SSHAccessRules.ToJSON().ToString();
@@ -358,7 +369,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     }
                 }
 
-                if (!ConfigFile.TryMergeSection(SSHConfiguration.SectionName, file.ToJSON(), out error))
+                // A host sent empty is taken out: a merge would leave the one there is.
+                if (!ConfigFile.TryMergeSection(SSHConfiguration.SectionName,
+                                                file.ToJSON(),
+                                                SSHTimeServiceConfiguration.HostClearedIn(JSON)
+                                                    ? [ $"{SSHTimeServiceConfiguration.Key}.ntpHost" ]
+                                                    : [],
+                                                out error))
                 {
 
                     if (started is not null)
@@ -447,7 +464,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 }
 
-                var notices = new[] { CommandLineWins(sent), SSHServerTakesFewer() }.OfType<String>().ToArray();
+                // Names and time for the logins, as the file says now: a time server on a port
+                // that is taken is said beside what was saved.
+                var namesAndTime = this.started
+                                       ? await ApplySSHNamesAndTime(file)
+                                       : null;
+
+                var notices = new[] { CommandLineWins(sent), SSHServerTakesFewer(), namesAndTime }.OfType<String>().ToArray();
 
                 return new SSHConfigurationChange(true, Notice: notices.Length > 0 ? String.Join(" ", notices) : null);
 

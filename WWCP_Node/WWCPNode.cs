@@ -3451,11 +3451,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
             {
                 await StartRedirectServer();
                 await StartSSH();
+                // Names and time for the SSH logins, where the file says so: a port of the
+                // time server that is taken is said in the log and on the SSH page, and does
+                // not keep the node from starting.
+                await ApplySSHNamesAndTime(sshFile);
                 await OnListening();
             }
             catch
             {
 
+                await StopSSHNamesAndTime();
                 await StopSSH();
                 await StopRedirectServer();
 
@@ -3580,6 +3585,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 // Before everything else: a session is somebody at a terminal,
                 // and the moment to tell them is while the node is still there.
                 await StopSSH();
+                await StopSSHNamesAndTime();
 
                 JSONAPI?.CloseEventStreams();
 

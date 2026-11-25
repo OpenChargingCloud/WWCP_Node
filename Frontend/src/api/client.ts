@@ -281,6 +281,12 @@ export interface SSHConfiguration {
     sftp:           boolean;
     /** Whether this kind serves SFTP where the file does not say: off, except where the program says so. */
     sftpByDefault:  boolean;
+    /** Names for the logins of the kind - its stations - over their SSH connection, passed on to this node's name servers. */
+    dns:            { enabled: boolean; served: boolean; subsystem: string; upstream: string };
+    /** Time for the logins of the kind: NTS-KE over their SSH connection, NTP with NTS on a UDP port of this node. */
+    nts:            { enabled: boolean; served: boolean; subsystem: string; ntpPort: number; ntpHost: string | null; masterKeys: string };
+    /** Why names or time are not served as the file says - a port that is taken, say - or null. */
+    namesAndTimeProblem: string | null;
     listenAddress:  string;
     url:            string | null;
     /** The port it takes where nobody says: 20000 above the web interface's. */
@@ -289,7 +295,8 @@ export interface SSHConfiguration {
     file:           string;
     /** What the file's "ssh" section says. */
     configured:     { enabled?: boolean; port?: number; passwords?: boolean; strictKex?: boolean; sftp?: boolean; accessRules?: SSHAccessRule[];
-                      maxConnections?: Record<string, number> };
+                      maxConnections?: Record<string, number>;
+                      dns?: { enabled?: boolean }; nts?: { enabled?: boolean; ntpPort?: number; ntpHost?: string } };
     /** The SSH access rules in effect, the first that matches deciding. */
     accessRules:    SSHAccessRule[];
     /** What a switch on the command line said, which wins over the file: --no-ssh, --ssh-port. */
@@ -345,6 +352,10 @@ export interface SSHUpdate {
     passwords?:    boolean;
     strictKex?:    boolean;
     sftp?:         boolean;
+    /** Names for the logins of the kind over their SSH connection. */
+    dns?:          { enabled?: boolean };
+    /** Time for the logins of the kind; a host sent empty takes the host away. */
+    nts?:          { enabled?: boolean; ntpPort?: number; ntpHost?: string };
     /** The access rules, replacing those there are: objects, or lines as the command line writes them. */
     accessRules?:  (SSHAccessRule | string)[];
 }
