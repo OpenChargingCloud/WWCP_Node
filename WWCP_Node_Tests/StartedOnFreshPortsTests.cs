@@ -197,7 +197,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             Assert.That(async () => await TestPorts.StartedOnFreshPorts(() => Watched(made, IPPort.Parse(taken[made.Count]))),
                         Throws.TypeOf<PortUnavailableException>());
 
-            Assert.That(made.Select(node => node.LetGo), Is.EqualTo(Enumerable.Repeat(true, TestPorts.StartAttempts)),
+            Assert.That(made.Select(node => node.WasLetGo), Is.EqualTo(Enumerable.Repeat(true, TestPorts.StartAttempts)),
                         "a node whose start was given up on was never let go of");
 
         }
@@ -223,7 +223,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             Assert.Multiple(() => {
                 Assert.That(made,           Has.Count.EqualTo(1),  "a start that failed for another reason than a taken port was tried again");
-                Assert.That(made[0].LetGo,  Is.True,               "a node whose start failed was never let go of");
+                Assert.That(made[0].WasLetGo,  Is.True,               "a node whose start failed was never let go of");
             });
 
         }
@@ -339,7 +339,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             /// <summary>
             /// Whether it was let go of.
             /// </summary>
-            public Boolean LetGo { get; private set; }
+            public Boolean WasLetGo { get; private set; }
 
             protected override Task OnListening()
 
@@ -349,7 +349,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             public override async ValueTask DisposeAsync()
             {
-                LetGo = true;
+                WasLetGo = true;
                 await base.DisposeAsync();
             }
 

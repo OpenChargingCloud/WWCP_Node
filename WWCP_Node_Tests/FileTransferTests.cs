@@ -211,7 +211,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await TheServer();
-            TheNode();
+            var node = TheNode();
 
             Assert.That(await Hold(FileServer?.Invoke() ?? this.FileServer()), Is.Null);
 
@@ -701,7 +701,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
 
             await TheServer();
-            TheNode();
+            var node = TheNode();
 
             var both = FileServer(Users: [ User_Id.Parse("cs001"), User_Id.Parse("cs001-fw") ]);
             Assert.That(await Hold(both, both with { Id = "other", Address = "127.0.0.2" }), Is.Null);

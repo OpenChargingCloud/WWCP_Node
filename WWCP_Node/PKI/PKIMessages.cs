@@ -187,7 +187,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.PKI
         public JArray ToJSON()
 
             => Type switch {
-                   PKIMessageType.Request   => new JArray((Int32) Type, Id, Action, Payload),
+                   PKIMessageType.Request   => new JArray((Int32) Type, Id, Action ?? "", Payload),
                    PKIMessageType.Response  => new JArray((Int32) Type, Id, Payload),
                    _                        => new JArray((Int32) Type, Id, ErrorCode ?? PKIErrorCodes.GenericError, ErrorDescription ?? "", Payload)
                };

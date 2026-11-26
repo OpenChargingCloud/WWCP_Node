@@ -712,7 +712,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             var offered   = WWCPNode.MulticastInterfaces();
 
             Assert.Multiple(() => {
-                Assert.That(offered.Select(available => available.Name), Has.None.Matches<String>(loopbacks.Contains));
+                Assert.That(offered.Select(available => available.Name), Has.None.Matches<String?>(name => name is not null && loopbacks.Contains(name)));
                 Assert.That(offered.SelectMany(available => available.Addresses), Has.None.EqualTo("127.0.0.1").And.None.EqualTo("::1"));
             });
 

@@ -28,8 +28,6 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
-using cloud.charging.open.protocols.WWCP.WebSockets;
-
 using WWCPSignatureFormats = cloud.charging.open.protocols.WWCP.SignatureFormats;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
