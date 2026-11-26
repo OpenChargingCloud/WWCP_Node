@@ -1,0 +1,92 @@
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// A JSON value as a tree to browse - see jsonTree.ts: a row per name, folded
+// at first, a level indented under the row it unfolds from.
+
+.json-tree {
+
+    font-family:  $font-mono;
+    font-size:    0.85rem;
+    line-height:  1.55;
+    overflow-x:   auto;
+
+    .jt-row {
+
+        display:       flex;
+        align-items:   baseline;
+        gap:           0.35rem;
+        padding:       0.05rem 0.4rem;
+        border-radius: 4px;
+        min-width:     0;
+
+        &:focus-visible {
+            outline:         2px solid $color-accent;
+            outline-offset:  -2px;
+        }
+
+    }
+
+    .jt-branch > .jt-row {
+
+        cursor:  pointer;
+
+        &:hover {
+            background:  rgba($color-accent, 0.06);
+        }
+
+    }
+
+    // The leaves line up with the names of the branches beside them.
+    .jt-leaf > .jt-row {
+        padding-left:  1.45rem;
+    }
+
+    .jt-caret {
+        width:       0.65rem;
+        flex:        none;
+        color:       $color-muted;
+        text-align:  center;
+    }
+
+    .jt-children {
+        margin-left:   0.75rem;
+        padding-left:  0.5rem;
+        border-left:   1px solid $color-border;
+    }
+
+    .jt-key {
+        color:        $color-accent-dark;
+        font-weight:  600;
+        white-space:  nowrap;
+    }
+
+    .jt-colon {
+        color:        $color-muted;
+        margin-left:  -0.3rem;
+    }
+
+    .jt-summary {
+        color:          $color-muted;
+        overflow-wrap:  anywhere;
+    }
+
+    // A value breaks anywhere rather than taking the page sideways: a key, a
+    // certificate or a URL has nothing to break at.
+    .jt-value {
+        overflow-wrap:  anywhere;
+        min-width:      0;
+    }
+
+    .jt-string   { color: $color-ok; }
+    .jt-number   { color: $color-accent; }
+    .jt-boolean  { color: $color-warn; }
+    .jt-null     { color: $color-muted; font-style: italic; }
+
+    .jt-empty {
+        color:         $color-muted;
+        font-style:    italic;
+        padding-left:  1.45rem;
+    }
+
+}
