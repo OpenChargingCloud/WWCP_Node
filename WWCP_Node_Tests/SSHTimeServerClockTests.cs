@@ -188,8 +188,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                 Assert.That(LeapIndicatorOf(right),        Is.EqualTo(0));
                 Assert.That(right[1],                      Is.EqualTo(3),   "not one stratum below its server");
                 Assert.That(right.AsSpan(12, 4).ToArray(), Is.EqualTo(new Byte[] { 127, 0, 0, 1 }), "not its server as the reference");
-                Assert.That(Seconds(right, 4),             Is.GreaterThanOrEqualTo(0.020), "the root delay of its server is missing");
-                Assert.That(Seconds(right, 8),             Is.GreaterThanOrEqualTo(0.030), "the root dispersion of its server is missing");
+                Assert.That(Seconds(right, 4),             Is.GreaterThanOrEqualTo(OnTheWire(0.020)), "the root delay of its server is missing");
+                Assert.That(Seconds(right, 8),             Is.GreaterThanOrEqualTo(OnTheWire(0.030)), "the root dispersion of its server is missing");
                 Assert.That(rightClock?.Upstream?.Hostname,                Is.EqualTo("ntske.test"));
                 Assert.That(rightJSON["stratum"]?.Value<Int32>(),          Is.EqualTo(3));
                 Assert.That(rightJSON["reference"]?.Value<String>(),       Is.EqualTo("ntske.test"));
@@ -333,6 +333,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         /// </summary>
         private static Double Seconds(Byte[] Answer, Int32 At)
             => ((UInt32) (Answer[At] << 24 | Answer[At + 1] << 16 | Answer[At + 2] << 8 | Answer[At + 3])) / 65536.0;
+
+        /// <summary>
+        /// Seconds as a server writes them to the header, rounded to the 16.16 fixed point: the
+        /// 30 ms of root dispersion of the server above reach the node as 1966/65536 s, a little
+        /// less than 0.030, and where nothing of its own adds to them - Linux, a clock of fine
+        /// resolution, a check just made - the node hands on just these.
+        /// </summary>
+        private static Double OnTheWire(Double Seconds)
+            => Math.Round(Seconds * 65536.0) / 65536.0;
 
         #endregion
 
