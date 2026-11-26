@@ -1128,7 +1128,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                                       )
                                                     : null,
                          SessionBoundTOTP   = totp is not null
-                                                  ? sessionId => SshSessionBoundTotp.Generate(totp, sessionId, TimeProvider.GetUtcNow())
+                                                  ? binding => SshSessionBoundTotp.Generate(totp, binding, TimeProvider.GetUtcNow())
                                                   : null,
                          ConnectTimeout     = SshConnectTimeout,
                          KeepAliveInterval  = SshKeepAliveEvery,

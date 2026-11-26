@@ -49,9 +49,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
     ///
     /// <b>Or its one-time password, where its group accepts those.</b> The
     /// SSH method totp@open.charging.cloud (<see cref="SshSessionBoundTotp"/>):
-    /// the token of the secret the station has here for HTTP TOTP, bound to
-    /// the session identifier of the SSH connection it is sent in, so that
-    /// it is good in that session and nowhere else. The group has to accept
+    /// the token of the secret the station has here for HTTP TOTP, bound
+    /// with exporter material of the SSH connection it is sent in, as over
+    /// TLS, so that it is good in that connection and nowhere else. The group has to accept
     /// <see cref="AuthMethod.TOTP"/>, as it has to over the WebSocket port.
     /// What such a session may do is what a key's may, and no more.
     ///
@@ -246,7 +246,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
 
         #endregion
 
-        #region TakesSessionBoundTotp / AuthorizeSessionBoundTotpAsync(Username, Totp, SessionId, Client, CancellationToken)
+        #region TakesSessionBoundTotp / AuthorizeSessionBoundTotpAsync(Username, Totp, Binding, Client, CancellationToken)
 
         /// <summary>
         /// Whether a station can sign in with a one-time password bound to
@@ -259,8 +259,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
                logins.Logins.Any(login => login.HasTOTP);
 
         /// <summary>
-        /// Whether the one-time password lets the station in, in the session
-        /// with the given identifier: see the remarks of this class.
+        /// Whether the one-time password lets the station in, in the connection
+        /// with the given exporter material: see the remarks of this class.
         /// </summary>
         /// <remarks>
         /// The token is checked first, and for a station that is not here as
@@ -271,15 +271,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Logins
         /// </remarks>
         public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id                Username,
                                                                  String                 Totp,
-                                                                 ReadOnlyMemory<Byte>   SessionId,
+                                                                 ReadOnlyMemory<Byte>   Binding,
                                                                  System.Net.IPAddress?  Client,
                                                                  CancellationToken      CancellationToken = default)
         {
 
-            // Bound to the session identifier, where a TLS connection has its
-            // exporter material: the same token, see SshSessionBoundTotp.
-            if (SessionId.IsEmpty ||
-                !logins.VerifyTOTP(Username, Totp, Bound: true, TLSExporterMaterial: SessionId.ToArray()))
+            // Bound with the exporter material of the SSH connection, as a TLS
+            // connection binds it with its own: the same token, see SshSessionBoundTotp.
+            if (Binding.IsEmpty ||
+                !logins.VerifyTOTP(Username, Totp, Bound: true, TLSExporterMaterial: Binding.ToArray()))
             {
                 return ValueTask.FromResult(false);
             }

@@ -95,9 +95,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
             public Boolean TakesSessionBoundTotp
                 => Logins.Values.Any(login => login.Secret is not null);
 
-            public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id Username, String Totp, ReadOnlyMemory<Byte> SessionId, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
+            public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id Username, String Totp, ReadOnlyMemory<Byte> Binding, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
                 => ValueTask.FromResult(Logins.TryGetValue(Username.ToString(), out var login) && login.Enabled && login.Secret is not null &&
-                                        SshSessionBoundTotp.Verify(login.Secret, Totp, SessionId.Span));
+                                        SshSessionBoundTotp.Verify(login.Secret, Totp, Binding.Span));
 
             public IReadOnlySet<String> SubsystemsFor(User_Id Username)
                 => Logins.TryGetValue(Username.ToString(), out var login)
@@ -551,7 +551,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                               Username          = User_Id.Parse(Username),
                                               VerifyHostKey     = blob => node.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                               Credentials       = [],
-                                              SessionBoundTOTP  = sessionId => SshSessionBoundTotp.Generate(Config, sessionId)
+                                              SessionBoundTOTP  = binding => SshSessionBoundTotp.Generate(Config, binding)
                                           });
 
             async Task<Boolean> GetsInWithTotp(String Username, TOTPConfig Config)

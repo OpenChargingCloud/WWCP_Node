@@ -83,8 +83,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
             => false;
 
         /// <summary>
-        /// Whether the given one-time password lets the given login in, in the session with the given
-        /// identifier - checked with <see cref="SshSessionBoundTotp.Verify"/> against the secret the
+        /// Whether the given one-time password lets the given login in, in the connection with the given
+        /// exporter material - checked with <see cref="SshSessionBoundTotp.Verify"/> against the secret the
         /// kind keeps for the login. A login let in so is confined as one a key let in. Default: no.
         /// </summary>
         /// <remarks>
@@ -93,12 +93,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
         /// </remarks>
         /// <param name="Username">The login name, as the client sent it.</param>
         /// <param name="Totp">The one-time password as it was sent.</param>
-        /// <param name="SessionId">The session identifier it has to be bound to.</param>
+        /// <param name="Binding">The exporter material of the connection it has to be bound with (<see cref="SshSessionBoundTotp.BindingOf"/>).</param>
         /// <param name="Client">The address of the client, or null where it can not be told.</param>
         /// <param name="CancellationToken">An optional token to cancel this request.</param>
         ValueTask<Boolean>     AuthorizeSessionBoundTotpAsync(User_Id                Username,
                                                               String                 Totp,
-                                                              ReadOnlyMemory<Byte>   SessionId,
+                                                              ReadOnlyMemory<Byte>   Binding,
                                                               System.Net.IPAddress?  Client,
                                                               CancellationToken      CancellationToken = default)
 

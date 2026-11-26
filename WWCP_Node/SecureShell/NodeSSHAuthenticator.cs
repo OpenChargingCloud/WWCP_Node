@@ -270,17 +270,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
 
         #endregion
 
-        #region AuthorizeSessionBoundTotpAsync(Username, Totp, SessionId, Client, CancellationToken)
+        #region AuthorizeSessionBoundTotpAsync(Username, Totp, Binding, Client, CancellationToken)
 
         /// <summary>
-        /// Whether the given one-time password, bound to the session with the given identifier, lets
+        /// Whether the given one-time password, bound to the connection with the given exporter material, lets
         /// the given name in: a login of a kind that takes one, as the kind says. No account - an
         /// account signs in with its keys, or its password where the node says so - and no name that
         /// is both.
         /// </summary>
         public async ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id                Username,
                                                                        String                 Totp,
-                                                                       ReadOnlyMemory<Byte>   SessionId,
+                                                                       ReadOnlyMemory<Byte>   Binding,
                                                                        System.Net.IPAddress?  Client,
                                                                        CancellationToken      CancellationToken = default)
         {
@@ -297,7 +297,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.SecureShell
                 return false;
 
             // Braked by the node's sign-in brake, as at the station port.
-            return await Braked(Client, () => signIns.AuthorizeSessionBoundTotpAsync(Username, Totp, SessionId, Client, CancellationToken));
+            return await Braked(Client, () => signIns.AuthorizeSessionBoundTotpAsync(Username, Totp, Binding, Client, CancellationToken));
 
         }
 
