@@ -51,6 +51,11 @@ function node({ method, path, body }: Asked): unknown {
         // A node takes what it takes: no more than five retries.
         if (update.maxRetries !== undefined)
             update.maxRetries = Math.min(update.maxRetries, 5);
+        if (update.multicast !== undefined && held.multicast !== undefined)
+            held = { ...held, multicast: { ...held.multicast, ...update.multicast,
+                                           responder: { ...held.multicast.responder, ...(update.multicast.responder ?? {}),
+                                                        name: `${update.multicast.responder?.hostName ?? held.multicast.responder.hostName}.local` } } };
+
         held = { ...held, ...(update.enabled !== undefined ? { enabled: update.enabled } : {}),
                           ...(update.servers === null      ? { servers: startedWith(), serversFrom: 'start' as const } :
                               update.servers !== undefined ? { servers: update.servers as DNSConfiguration['servers'], serversFrom: 'file' as const } : {}),
@@ -340,6 +345,57 @@ describe('the DNS page', () => {
         await until(() => field(root, 'maxRetries').value === '4', 'the page did not reload what the node has');
 
         assert.equal(said.length, 1, 'what was typed was thrown away without a question');
+
+    });
+
+
+    it('offers the interfaces of the machine for Multicast DNS, keeps one it does not have, and saves what is ticked with the responder', async () => {
+
+        const root = await opened(configuration => {
+            configuration.multicast = {
+                enabled:     false,
+                interfaces:  [ 'eth9' ],
+                ipv4:        true,
+                ipv6:        true,
+                asking:      false,
+                answers:     [ { at: '2026-11-26T10:00:00Z', name: 'lc1.local.', addresses: [ '192.168.1.20' ], answered: true, timedOut: false } ],
+                responder:   { enabled: false, hostName: 'cs1', name: 'cs1.local', state: 'off', addresses: [], problem: null },
+                available:   [ { name: 'eth0', addresses: [ '192.168.1.10' ] }, { name: 'wlan0', addresses: [] } ]
+            };
+        });
+
+        const boxes = [ ...root.querySelectorAll<HTMLInputElement>('#multicast-form [name="mdnsInterface"]') ];
+
+        assert.deepEqual(boxes.map(box => [ box.value, box.checked ]), [ [ 'eth0', false ], [ 'wlan0', false ], [ 'eth9', true ] ],
+                         'the interfaces are not those of the machine and the file');
+        assert.match(root.querySelector('#multicast')?.textContent ?? '', /eth9\s+not present on this machine/, 'one the machine does not have is not said to be missing');
+        assert.match(root.querySelector('#multicast-answers')?.textContent ?? '', /lc1\.local\.\s+192\.168\.1\.20/, 'what was asked lately is not shown');
+
+        boxes[0]!.checked = true;
+        boxes[2]!.checked = false;
+
+        const form = root.querySelector<HTMLFormElement>('#multicast-form')!;
+        form.querySelector<HTMLInputElement>('[name="mdnsEnabled"]')!.checked   = true;
+        form.querySelector<HTMLInputElement>('[name="mdnsIPv6"]')!.checked      = false;
+        form.querySelector<HTMLInputElement>('[name="mdnsResponder"]')!.checked = true;
+        form.querySelector<HTMLInputElement>('[name="mdnsHostName"]')!.value    = 'lc1';
+
+        form.requestSubmit();
+
+        await until(() => /Saved/.test(root.querySelector('#multicast-note')?.textContent ?? ''), 'Multicast DNS was not saved');
+
+        assert.deepEqual(told, [ { multicast: { enabled: true, interfaces: [ 'eth0' ], ipv4: true, ipv6: false,
+                                                responder: { enabled: true, hostName: 'lc1' } } } ],
+                         'not what was ticked was saved');
+        assert.match(root.querySelector('#multicast-state')?.textContent ?? '', /lc1\.local/, 'the name answered for is not the one saved');
+
+    });
+
+    it('shows no card of Multicast DNS where the node says nothing of it', async () => {
+
+        const root = await opened();
+
+        assert.equal(root.querySelector('#multicast'), null);
 
     });
 

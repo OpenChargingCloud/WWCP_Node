@@ -955,8 +955,49 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("state",       responderState),
                        new JProperty("addresses",   new JArray(responderAddresses)),
                        new JProperty("problem",     responderProblem)
-                   ))
+                   )),
+                   new JProperty("available",   new JArray(MulticastInterfaces().Select(available => new JObject(
+                                                    new JProperty("name",       available.Name),
+                                                    new JProperty("addresses",  new JArray(available.Addresses))
+                                                ))))
                );
+
+        /// <summary>
+        /// The network interfaces of this machine Multicast DNS may use: those
+        /// that are up and can multicast, the loopback interface left out (Q5),
+        /// each with its addresses - for the checklist of the DNS page.
+        /// </summary>
+        public static IReadOnlyList<(String Name, String[] Addresses)> MulticastInterfaces()
+        {
+
+            var found = new List<(String, String[])>();
+
+            try
+            {
+                foreach (var networkInterface in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+
+                    if (networkInterface.OperationalStatus    != System.Net.NetworkInformation.OperationalStatus.Up        ||
+                        networkInterface.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback ||
+                        !networkInterface.SupportsMulticast)
+                        continue;
+
+                    found.Add((networkInterface.Name,
+                               [.. networkInterface.GetIPProperties().UnicastAddresses.
+                                                    Select(unicast => unicast.Address).
+                                                    Where (address => !address.IsIPv6LinkLocal).
+                                                    Select(address => address.ToString())]));
+
+                }
+            }
+            catch (System.Net.NetworkInformation.NetworkInformationException)
+            {
+                // A machine that does not say: nothing to offer.
+            }
+
+            return found;
+
+        }
 
         private JArray MulticastDNSAnswersJSON()
         {

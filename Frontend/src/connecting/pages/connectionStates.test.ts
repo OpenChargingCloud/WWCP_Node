@@ -195,3 +195,20 @@ describe('a connection removed since the start', () => {
     });
 
 });
+
+describe('a connection that waits for an admin', () => {
+
+    it('is awaiting confirmation, and not tried again until then', () => {
+
+        const line = stateLine({ url: 'ssh://cs001@lc1.local:2222', ocppVersion: 'OCPP2.1', autoConnect: true },
+                               { status: 'awaitingConfirmation', since: '2026-11-26T11:00:00Z', said: 'It waits.',
+                                 description: { en: 'LC' }, url: 'ssh://cs001@lc1.local:2222', ocppVersion: 'OCPP2.1' },
+                               '2026-11-26T11:05:00Z');
+
+        assert.equal(line?.chip, 'awaiting confirmation');
+        assert.equal(line?.tone, 'warn');
+        assert.match(line?.when ?? '', /not tried again until an admin confirms the key of its server/);
+
+    });
+
+});

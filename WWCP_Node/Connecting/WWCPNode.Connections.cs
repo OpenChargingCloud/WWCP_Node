@@ -199,6 +199,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public String ConnectionsResource { get; set; } = Web.NodeResources.Configuration;
 
+        /// <summary>
+        /// What the web interface says above every page to whoever may change the
+        /// connections, for each key of a server that waits for an admin
+        /// (mDNS-Concept.md, B.4): until it is confirmed, nothing goes over that
+        /// connection, and nobody may notice who is not told.
+        /// </summary>
+        public IReadOnlyList<String> AwaitingKeyNotices()
+
+            => Connections is null
+                   ? []
+                   : [.. Connections.Connections.
+                                     Where (entry => entry.KeyAwaiting is not null).
+                                     Select(entry => $"'{entry.Description.FirstText()}' ({entry.URL}) shows a key nobody confirmed yet: {entry.KeyAwaiting}. " +
+                                                      "Confirm it or turn it down on the Connections page; nothing goes over that connection until then.")];
+
         public IReadOnlyDictionary<String, ConnectionState> ConnectionStates
         {
             get

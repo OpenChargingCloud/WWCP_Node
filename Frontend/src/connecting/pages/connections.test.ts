@@ -34,6 +34,10 @@ let held: StationConnections;
 /** Where the stand-in says the connections stand, asked on their own. */
 let standing: Record<string, ConnectionState> = {};
 
+/** Which keys the page confirmed, and which connections' keys it turned down. */
+const confirmed: { id: string; key: string }[] = [];
+const rejected:  string[] = [];
+
 /** What the page sent the last time it saved a connection. */
 let lastSaved: ConnectionToSave | null = null;
 
@@ -113,6 +117,24 @@ function station({ method, path, body }: Asked): unknown {
         return held;
     }
 
+    if (path === '/configuration/connections/confirmKey') {
+        const { id, key } = body as { id: string; key: string };
+        confirmed.push({ id, key });
+        held = { ...held, connections: held.connections.map(one => one.id === id
+                                                                   ? { ...one, sshAwaitingHostKey: undefined, sshHostKey: key,
+                                                                       keyConfirmedBy: 'alice', keyConfirmedAt: '2026-11-26T12:00:00.000Z' }
+                                                                   : one) };
+        return held;
+    }
+    if (path === '/configuration/connections/rejectKey') {
+        const { id } = body as { id: string };
+        rejected.push(id);
+        held = { ...held, connections: held.connections.map(one => one.id === id
+                                                                   ? { ...one, keyRejected: one.sshAwaitingHostKey, keyRejectedBy: 'bob',
+                                                                       keyRejectedAt: '2026-11-26T12:00:00.000Z', sshAwaitingHostKey: undefined }
+                                                                   : one) };
+        return held;
+    }
     if (path === '/configuration/connections/remove') {
         const { id } = body as { id: string };
         held = { ...held, connections: held.connections.filter(one => one.id !== id) };
@@ -144,6 +166,17 @@ function aStationOnProbation(): StationConnections {
     return { ...station,
              connections: [ { ...station.connections[0]!, sshTrustOnFirstUse: 'HostKey', sshLearnedHostKey: 'SHA256:learnedOnce',
                               sshLearnedAt: '2026-11-10T10:00:00.000Z' }, station.connections[1]! ] };
+}
+
+/** A station whose connection over SSH to lc1.local was shown a host key that waits for an admin (trust on first use "Ask"). */
+function aStationAsking(): StationConnections {
+    const station = anSshStation();
+    const asking  = { ...station.connections[0]!, url: 'ssh://cs001@lc1.local:2222', sshTrustOnFirstUse: 'None' as const,
+                      sshTrustOnFirstUseInEffect: 'Ask' as const, sshAwaitingHostKey: 'SHA256:waitsForAnAdmin',
+                      sshAwaitingSince: '2026-11-26T11:00:00.000Z' };
+    return { ...station,
+             connections: [ asking, station.connections[1]! ],
+             states:      { ...station.states, c1: aState('awaitingConfirmation', asking) } };
 }
 
 /** A station whose first connection goes over SSH and pins no host key yet, nor trusts on first use. */
@@ -946,6 +979,58 @@ describe('the Connections page', () => {
         // A node that does not forward says neither.
         root = await opened();
         assert.equal(root.querySelector('[data-at], [data-held-back]'), null);
+
+    });
+
+
+    it('shows a host key that waits for an admin, and confirms it or turns it down', async () => {
+
+        confirmed.length = 0;
+        rejected.length  = 0;
+
+        const root = await opened(aStationAsking);
+
+        assert.equal(chipOf(root, 'c1'), 'awaiting confirmation');
+        assert.match(root.querySelector('[data-awaiting="c1"]')?.textContent ?? '', /SHA256:waitsForAnAdmin[\s\S]*not confirmed yet/,
+                     'the key that waits is not shown');
+
+        root.querySelector<HTMLButtonElement>('[data-confirm-key="c1"]')!.click();
+
+        await until(() => root.querySelector('[data-confirmed="c1"]') !== null, 'the key was not confirmed');
+
+        assert.deepEqual(confirmed, [ { id: 'c1', key: 'SHA256:waitsForAnAdmin' } ], 'not the key that was shown was confirmed');
+        assert.match(root.querySelector('[data-confirmed="c1"]')?.textContent ?? '', /by alice/);
+        assert.equal(root.querySelector('[data-awaiting="c1"]'), null, 'the key still waits once confirmed');
+
+        // Turned down, at another station.
+        const other = await opened(aStationAsking);
+        const ask   = globalThis.confirm;
+        globalThis.confirm = () => true;
+
+        try
+        {
+            other.querySelector<HTMLButtonElement>('[data-reject-key="c1"]')!.click();
+            await until(() => other.querySelector('[data-rejected="c1"]') !== null, 'the key was not turned down');
+        }
+        finally
+        {
+            globalThis.confirm = ask;
+        }
+
+        assert.deepEqual(rejected, [ 'c1' ]);
+        assert.match(other.querySelector('[data-rejected="c1"]')?.textContent ?? '', /SHA256:waitsForAnAdmin[\s\S]*by bob/);
+
+    });
+
+    it('offers to ask an admin as a way to trust on first use, over SSH and by key pin', async () => {
+
+        const root = await opened(anSshStation);
+
+        const sshOptions  = [ ...editOf(root, 'c1').querySelectorAll<HTMLOptionElement>('[name="sshTrustOnFirstUse"] option') ].map(option => option.value);
+        const keyOptions  = [ ...editOf(root, 'c2').querySelectorAll<HTMLOptionElement>('[name="trustOnFirstUse"] option') ].map(option => option.value);
+
+        assert.deepEqual(sshOptions, [ 'None', 'HostKey', 'Ask' ]);
+        assert.deepEqual(keyOptions, [ 'None', 'Key', 'Ask' ]);
 
     });
 

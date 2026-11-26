@@ -250,3 +250,30 @@ fieldset.display-names {
     }
 
 }
+
+// The interfaces Multicast DNS may use, each with its addresses beside its
+// name, and the host name it answers for with ".local" after the field.
+fieldset.interfaces {
+
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.35rem;
+    margin:          0;
+    padding:         0.75rem 0.9rem 0.9rem;
+    border:          1px solid $color-border;
+    border-radius:   $radius;
+
+}
+
+.input-with-suffix {
+
+    display:      flex;
+    align-items:  center;
+    gap:          0.25rem;
+
+    input {
+        flex:       1 1 auto;
+        min-width:  0;
+    }
+
+}

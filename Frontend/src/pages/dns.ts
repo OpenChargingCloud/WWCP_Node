@@ -1,4 +1,4 @@
-import { nodeAPI, type DNSConfiguration, type DNSQueryResult, type DNSServer, type DNSUpdate } from '../api/client';
+import { nodeAPI, type DNSConfiguration, type DNSQueryResult, type DNSServer, type DNSUpdate, type MulticastDNS } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
 import { must } from '../html';
@@ -199,6 +199,12 @@ export const dnsPage: Page = {
                         </form>
 
                     </section>
+
+                    ${configuration.multicast !== undefined ? html`
+                        <section class="card" id="multicast">
+                            ${multicastView(configuration.multicast)}
+                        </section>
+                    ` : nothing}
 
                     <section class="card">
 
@@ -579,13 +585,13 @@ export const dnsPage: Page = {
          * @param at    where to say how it went: under the settings, or under
          *              the name servers, for what was pressed there.
          */
-        async function save(update: DNSUpdate, form?: HTMLFormElement, at: 'form' | 'servers' = 'form'): Promise<void> {
+        async function save(update: DNSUpdate, form?: HTMLFormElement, at: 'form' | 'servers' | 'multicast' = 'form'): Promise<void> {
 
             const note = must<HTMLElement>(content, `#${at}-note`);
 
             // What a save before said is over, wherever it was said.
-            for (const said of [ '#form-note', '#form-error', '#servers-note', '#servers-error' ])
-                must<HTMLElement>(content, said).textContent = '';
+            for (const said of [ '#form-note', '#form-error', '#servers-note', '#servers-error', '#multicast-note', '#multicast-error' ])
+                content.querySelector<HTMLElement>(said)?.replaceChildren();
 
             try
             {
@@ -615,6 +621,137 @@ export const dnsPage: Page = {
                 // A switch the node did not take shows what the node has.
                 draw();
             }
+
+        }
+
+
+        /**
+         * Multicast DNS (mDNS-Concept.md, B.5): names under ".local" asked for
+         * on the interfaces ticked - none ticked is all of them -, this node's
+         * own name answered there, and what it is doing. Off unless switched on.
+         */
+        function multicastView(multicast: MulticastDNS): TemplateResult {
+
+            const available  = multicast.available ?? [];
+            const ticked     = new Set(multicast.interfaces);
+            // Named in the file and not on this machine: kept, and shown as such (Q4).
+            const missing    = multicast.interfaces.filter(name => !available.some(present => present.name === name));
+            const responder  = multicast.responder;
+
+            return html`
+
+                <h2><i class="fa-solid fa-tower-broadcast"></i> Multicast DNS</h2>
+
+                <p class="hint">
+                    Names under <code>.local</code> - <code>lc1.local</code> - asked for on the local network
+                    rather than of the name servers above, and this ${config.nodeName}'s own name answered there.
+                    Nobody vouches for who answers: a connection to such a host asks an admin to confirm the key
+                    its server shows.
+                </p>
+
+                <form id="multicast-form" class="form-stack" @submit=${onSaveMulticast}>
+
+                    <label class="checkbox">
+                        <input type="checkbox" name="mdnsEnabled" ?checked=${multicast.enabled} ?disabled=${!mayChange} />
+                        Ask for names under .local
+                    </label>
+
+                    <fieldset class="interfaces">
+                        <legend>Network interfaces</legend>
+                        ${available.map(present => html`
+                            <label class="checkbox">
+                                <input type="checkbox" name="mdnsInterface" value="${present.name}"
+                                       ?checked=${ticked.has(present.name)} ?disabled=${!mayChange} />
+                                ${present.name}
+                                <span class="hint">${present.addresses.join(', ') || 'no address'}</span>
+                            </label>
+                        `)}
+                        ${missing.map(name => html`
+                            <label class="checkbox">
+                                <input type="checkbox" name="mdnsInterface" value="${name}" checked ?disabled=${!mayChange} />
+                                ${name}
+                                <span class="hint">not present on this machine</span>
+                            </label>
+                        `)}
+                        <span class="hint">None ticked: every interface that is up and can multicast, the loopback interface left out.</span>
+                    </fieldset>
+
+                    <label class="checkbox">
+                        <input type="checkbox" name="mdnsIPv4" ?checked=${multicast.ipv4} ?disabled=${!mayChange} />
+                        IPv4 (224.0.0.251)
+                    </label>
+
+                    <label class="checkbox">
+                        <input type="checkbox" name="mdnsIPv6" ?checked=${multicast.ipv6} ?disabled=${!mayChange} />
+                        IPv6 (ff02::fb)
+                    </label>
+
+                    <label class="checkbox">
+                        <input type="checkbox" name="mdnsResponder" ?checked=${responder.enabled} ?disabled=${!mayChange} />
+                        Answer for this ${config.nodeName}'s own name
+                    </label>
+
+                    <label>Host name
+                        <span class="input-with-suffix">
+                            <input type="text" name="mdnsHostName" value="${responder.hostName}" maxlength="63"
+                                   pattern="[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?" ?disabled=${!mayChange} />
+                            <span>.local</span>
+                        </span>
+                    </label>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
+                        <span id="multicast-note"  class="form-notice" role="status"></span>
+                        <span id="multicast-error" class="form-error"  role="alert"></span>
+                    </div>
+
+                </form>
+
+                <div class="kv-list" id="multicast-state">
+                    <div class="kv"><span class="k">Asking</span>
+                        <span class="v">${multicast.enabled ? (multicast.asking ? 'yes' : 'at the first name under .local') : 'no'}</span></div>
+                    <div class="kv"><span class="k">${responder.name}</span>
+                        <span class="v">${responder.enabled
+                            ? `${responder.state}${responder.addresses.length > 0 ? ` - ${responder.addresses.join(', ')}` : ''}`
+                            : 'not answered for'}</span></div>
+                </div>
+
+                ${responder.problem ? html`<div class="notice" role="alert">${responder.problem}</div>` : nothing}
+
+                ${multicast.answers.length > 0 ? html`
+                    <h3>Lately asked</h3>
+                    <div class="kv-list" id="multicast-answers">
+                        ${multicast.answers.map(answer => html`
+                            <div class="kv">
+                                <span class="k">${answer.name}</span>
+                                <span class="v">${answer.answered ? answer.addresses.join(', ') : answer.timedOut ? 'nobody answered' : 'no address'}</span>
+                            </div>
+                        `)}
+                    </div>
+                ` : nothing}
+            `;
+
+        }
+
+        async function onSaveMulticast(event: SubmitEvent): Promise<void> {
+
+            event.preventDefault();
+
+            const form  = event.target as HTMLFormElement;
+            const data  = new FormData(form);
+
+            await save({
+                multicast: {
+                    enabled:     data.get('mdnsEnabled')   !== null,
+                    interfaces:  data.getAll('mdnsInterface').map(String),
+                    ipv4:        data.get('mdnsIPv4')      !== null,
+                    ipv6:        data.get('mdnsIPv6')      !== null,
+                    responder: {
+                        enabled:   data.get('mdnsResponder') !== null,
+                        hostName:  String(data.get('mdnsHostName') ?? '').trim()
+                    }
+                }
+            }, form, 'multicast');
 
         }
 
@@ -917,6 +1054,7 @@ export const dnsPage: Page = {
         // whichever order its keys came in.
         const release = unsaved.heldBy(
                             () => typedSinceDrawn(content.querySelector('#dns-form')) ||
+                                  typedSinceDrawn(content.querySelector('#multicast-form')) ||
                                   JSON.stringify(servers.map(entryOf)) !== JSON.stringify((current?.servers ?? []).map(entryOf))
                         );
 

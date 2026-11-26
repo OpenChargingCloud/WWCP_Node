@@ -93,7 +93,7 @@ export interface StationConnection {
     /** The host keys the server of an ssh:// connection may show, separated by commas; none where nothing is pinned. */
     sshHostKey?:         string;
     /** Whether an ssh:// connection that pins nothing learns the first host key shown, on probation. */
-    sshTrustOnFirstUse?: 'None' | 'HostKey';
+    sshTrustOnFirstUse?: 'None' | 'HostKey' | 'Ask';
     /** What a host key that matches no pin leads to. */
     sshOnPinMismatch?:   'Refuse' | 'Record' | 'Accept';
     /** How long a learned host key waits for a signed pin set, in seconds. */
@@ -103,6 +103,18 @@ export interface StationConnection {
     /** The host key learned on the first connection, while it is on probation. */
     sshLearnedHostKey?:  string;
     sshLearnedAt?:       string;
+    /** The host key its server showed, which waits for an admin to confirm it (trust on first use "Ask"). */
+    sshAwaitingHostKey?:  string;
+    sshAwaitingSince?:    string;
+    /** How it trusts on first use in effect, where that is not what it says: "Ask" for a host under .local. */
+    sshTrustOnFirstUseInEffect?:  'None' | 'HostKey' | 'Ask';
+    /** Who confirmed the key of its server that it asked about, and when. */
+    keyConfirmedBy?:     string;
+    keyConfirmedAt?:     string;
+    /** The key an admin turned down, by whom and when: the connection is not made until it is saved again. */
+    keyRejected?:        string;
+    keyRejectedBy?:      string;
+    keyRejectedAt?:      string;
     /**
      * Whether the server of a TLS connection is known by the key pin of its key
      * rather than by a CA: it has key pins, or learns one on first use. Only
@@ -118,12 +130,17 @@ export interface StationConnection {
     /** Whether raw public keys (RFC 7250) are offered; this station's TLS stack cannot offer them yet. */
     rawPublicKeys?:              'Off' | 'Prefer' | 'Require';
     /** Whether a wss:// connection that pins no key learns the key pin of the first one shown, on probation. */
-    trustOnFirstUse?:            'None' | 'Key';
+    trustOnFirstUse?:            'None' | 'Key' | 'Ask';
     /** How long a learned key pin waits for a signed pin set, in seconds. */
     serverKeyPinProbationTime?:  number;
     /** The key pin learned on the first connection, while it is on probation. */
     serverKeyPinLearned?:        string;
     serverKeyPinLearnedAt?:      string;
+    /** The key pin of the key its server showed, which waits for an admin to confirm it (trust on first use "Ask"). */
+    serverKeyPinAwaiting?:       string;
+    serverKeyPinAwaitingSince?:  string;
+    /** How it trusts on first use in effect, where that is not what it says: "Ask" for a host under .local. */
+    trustOnFirstUseInEffect?:    'None' | 'Key' | 'Ask';
     /**
      * What the server of a wss:// connection checked by its CA is held to
      * beside that, in the keys a time server, a name server and a meter are
@@ -245,7 +262,7 @@ export interface ConnectionToSave {
     identities?:         ConnectionIdentity[];
     /** The host keys typed, separated by commas: "" for none. */
     sshHostKey?:         string;
-    sshTrustOnFirstUse?: 'None' | 'HostKey';
+    sshTrustOnFirstUse?: 'None' | 'HostKey' | 'Ask';
     sshOnPinMismatch?:   'Refuse' | 'Record' | 'Accept';
     sshProbationTime?:   number;
     /**
@@ -259,7 +276,7 @@ export interface ConnectionToSave {
     /** The key pins the page showed when it was drawn, as for the host keys. */
     serverKeyPinsAsShown?:       string[];
     rawPublicKeys?:              'Off' | 'Prefer' | 'Require';
-    trustOnFirstUse?:            'None' | 'Key';
+    trustOnFirstUse?:            'None' | 'Key' | 'Ask';
     serverKeyPinProbationTime?:  number;
     /** What its server is to be held to; nothing in it for nothing. */
     pins?:                       PinKeys;
@@ -347,7 +364,7 @@ export interface ConnectionTest {
  * a back end that has more than one, connected to when the one connected to now cannot be
  * reached.
  */
-export type ConnectionStatus = 'connected' | 'lost' | 'trying' | 'refused' | 'notConnected' | 'failed' | 'standby' | 'waiting';
+export type ConnectionStatus = 'connected' | 'lost' | 'trying' | 'refused' | 'notConnected' | 'failed' | 'standby' | 'waiting' | 'awaitingConfirmation';
 
 /** What became of one connection this station made, and since when. */
 export interface ConnectionState {
@@ -488,6 +505,18 @@ export const connectionsAPI = {
 
         removePinSetSigner:  (publicKey: string) =>
                                  request<StationConnections>('POST', '/configuration/connections/pinSetSigners/remove', { publicKey }),
+
+        /**
+         * Confirm the key of a server that waits for an admin - or one learned
+         * on probation: pinned from now on. The key shown goes with it, so that
+         * another one waiting meanwhile is not confirmed unseen.
+         */
+        confirmKey:          (id: string, key: string) =>
+                                 request<StationConnections>('POST', '/configuration/connections/confirmKey', { id, key }),
+
+        /** Turn the key of a server that waits for an admin down: the connection is not made until it is saved again. */
+        rejectKey:           (id: string) =>
+                                 request<StationConnections>('POST', '/configuration/connections/rejectKey', { id }),
 
         /**
          * Where each connection this station made stands - asked again and

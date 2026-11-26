@@ -97,6 +97,8 @@ export function stateLine(entry:  Pick<StationConnection, 'url' | 'ocppVersion' 
             case 'notConnected':  return [ 'not connected',  'bad',  since ];
             case 'standby':     return [ 'in reserve',   '',     since ];
             case 'waiting':     return [ 'waiting',      '',     since ];
+            case 'awaitingConfirmation':
+                                return [ 'awaiting confirmation', 'warn', `${since}, and not tried again until an admin confirms the key of its server` ];
             default:            return [ 'failed',       'bad',  `${since}, and not tried again` ];
         }
     })();

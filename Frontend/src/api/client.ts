@@ -459,6 +459,8 @@ export interface DNSConfiguration {
      */
     serversFrom:  'file' | 'start';
     settings:   DNSSettings;
+    /** Names under ".local", asked for by Multicast DNS, and this node's own name answered there. */
+    multicast?: MulticastDNS;
     /** What was decided when the client was made, and is not on offer. */
     fixed:      Record<string, unknown>;
     limits: {
@@ -470,8 +472,58 @@ export interface DNSConfiguration {
     file:       string;
 }
 
+/** A network interface of the machine Multicast DNS may use. */
+export interface MulticastInterface {
+    name:       string;
+    addresses:  string[];
+}
+
+/** A name Multicast DNS answered - or did not - lately. */
+export interface MulticastAnswer {
+    at:         string;
+    name:       string;
+    addresses:  string[];
+    answered:   boolean;
+    timedOut:   boolean;
+}
+
+/** Multicast DNS as the node has it set (mDNS-Concept.md, B.1 to B.3 and B.5). */
+export interface MulticastDNS {
+    enabled:     boolean;
+    /** By name; none is every interface that is up and can multicast. */
+    interfaces:  string[];
+    ipv4:        boolean;
+    ipv6:        boolean;
+    /** Whether the client of Multicast DNS is made yet. */
+    asking:      boolean;
+    answers:     MulticastAnswer[];
+    responder: {
+        enabled:    boolean;
+        hostName:   string;
+        name:       string;
+        state:      string;
+        addresses:  string[];
+        problem:    string | null;
+    };
+    /** The interfaces of this machine that are up and can multicast. */
+    available?:  MulticastInterface[];
+}
+
+/** What a save of Multicast DNS may carry; everything is optional. */
+export interface MulticastDNSUpdate {
+    enabled?:     boolean;
+    interfaces?:  string[];
+    ipv4?:        boolean;
+    ipv6?:        boolean;
+    responder?: {
+        enabled?:   boolean;
+        hostName?:  string;
+    };
+}
+
 /** What a PUT to the DNS configuration may carry; everything is optional. */
 export interface DNSUpdate {
+    multicast?:            MulticastDNSUpdate;
     enabled?:              boolean;
     /** null: out of the file, and back to the servers the node was started with. */
     servers?:              DNSServerEntry[] | null;

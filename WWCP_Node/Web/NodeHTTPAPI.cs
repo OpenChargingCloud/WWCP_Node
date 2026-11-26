@@ -763,7 +763,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
 
             // Last, and only where there is something to say: an answer that
             // has said the same five things for years keeps saying them.
-            var notices = Node.NoticesFor(roles.Select(UserGroup_Id.TryParse).Cast<UserGroup_Id>());
+            var notices = Node.NoticesFor(roles.Select(UserGroup_Id.TryParse).Cast<UserGroup_Id>()).ToList();
+
+            // A key of a server that waits for an admin, to whoever may confirm
+            // it (mDNS-Concept.md, B.4): until then nothing goes over that
+            // connection, and nobody may notice who is not told.
+            if (Node.IsAllowed(User, [ Permission.Edit(Node.ConnectionsResource) ]))
+                notices.AddRange(Node.AwaitingKeyNotices());
 
             if (notices.Count > 0)
                 me.Add(new JProperty("notices", new JArray(notices)));

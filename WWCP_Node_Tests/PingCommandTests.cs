@@ -660,6 +660,66 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region TheCommandLineSaysHowMulticastDNSStandsAndAsksForALocalName()
+
+        /// <summary>
+        /// "mdns status" says how Multicast DNS is set and what was asked lately;
+        /// "mdns resolve lc1.local" asks for it, and a name that is no name of
+        /// Multicast DNS is sent to queryDNS.
+        /// </summary>
+        [Test]
+        public async Task TheCommandLineSaysHowMulticastDNSStandsAndAsksForALocalName()
+        {
+
+            using var cli = new NodeCLI(NodeWithTheTestsNameServer("""{ "enabled": true, "interfaces": [ "eth-test" ], "ipv6": false }"""));
+
+            await Answering("lc1.local.", "127.0.0.1");
+
+            var before   = await cli.Execute("mdns status");
+            var resolved = await cli.Execute("mdns resolve lc1.local");
+            var after    = await cli.Execute("mdns status");
+            var unicast  = await cli.Execute("mdns resolve host.example.test");
+
+            Assert.Multiple(() => {
+                Assert.That(cli.Commands.OfType<MulticastDNSCommand>().Count(), Is.EqualTo(1));
+                Assert.That(before,      Has.Some.EqualTo("asking:     on, from the first name under .local"));
+                Assert.That(before,      Has.Some.EqualTo("interfaces: eth-test, over IPv4"));
+                Assert.That(resolved,    Is.EqualTo(new[] { "lc1.local: 127.0.0.1" }));
+                Assert.That(after,       Has.Some.EqualTo("asking:     on"));
+                Assert.That(after,       Has.Some.EqualTo("asked:      lc1.local. -> 127.0.0.1"));
+                Assert.That(unicast[0],  Does.Contain("is no name of Multicast DNS"));
+            });
+
+        }
+
+        #endregion
+
+        #region TheInterfacesOnOfferLeaveTheLoopbackOut()
+
+        /// <summary>
+        /// The interfaces the DNS page offers: up, able to multicast, and never
+        /// the loopback interface (Q5).
+        /// </summary>
+        [Test]
+        public void TheInterfacesOnOfferLeaveTheLoopbackOut()
+        {
+
+            var loopbacks = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().
+                                Where (networkInterface => networkInterface.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback).
+                                Select(networkInterface => networkInterface.Name).
+                                ToHashSet();
+
+            var offered   = WWCPNode.MulticastInterfaces();
+
+            Assert.Multiple(() => {
+                Assert.That(offered.Select(available => available.Name), Has.None.Matches<String>(loopbacks.Contains));
+                Assert.That(offered.SelectMany(available => available.Addresses), Has.None.EqualTo("127.0.0.1").And.None.EqualTo("::1"));
+            });
+
+        }
+
+        #endregion
+
         #region TheMulticastObjectIsReadAndWritten()
 
         /// <summary>

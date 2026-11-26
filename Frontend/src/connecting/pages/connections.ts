@@ -450,6 +450,7 @@ export const connectionsPage: Page = {
                         <select name="sshTrustOnFirstUse" ?disabled=${!mayManage}>
                             <option value="None"    ?selected=${(entry?.sshTrustOnFirstUse ?? 'None') === 'None'}>Do not connect</option>
                             <option value="HostKey" ?selected=${entry?.sshTrustOnFirstUse === 'HostKey'}>Learn the first key, on probation</option>
+                            <option value="Ask"     ?selected=${entry?.sshTrustOnFirstUse === 'Ask'}>Ask an admin about the first key</option>
                         </select>
                         <span class="hint">
                             A learned key is on probation until a signed pin set confirms it; until then nothing but such a
@@ -495,6 +496,7 @@ export const connectionsPage: Page = {
                         <select name="trustOnFirstUse" ?disabled=${!mayManage}>
                             <option value="None" ?selected=${(entry?.trustOnFirstUse ?? 'None') === 'None'}>Check its certificate by its CA</option>
                             <option value="Key"  ?selected=${entry?.trustOnFirstUse === 'Key'}>Learn the first key, on probation</option>
+                            <option value="Ask"  ?selected=${entry?.trustOnFirstUse === 'Ask'}>Ask an admin about the first key</option>
                         </select>
                         <span class="hint">
                             A learned key pin is on probation until a signed pin set confirms it; until then nothing but such a
@@ -1043,9 +1045,14 @@ export const connectionsPage: Page = {
                                       ? html`<code class="wrap" data-host-key="${entry.id}">${entry.sshHostKey}</code>${(entry.sshHostKeysVersion ?? 0) > 0
                                             ? html` <span class="hint">from the signed pin set of version ${entry.sshHostKeysVersion}</span>`
                                             : nothing}`
+                                      : entry.sshAwaitingHostKey !== undefined
+                                            ? awaitingView(entry, entry.sshAwaitingHostKey, entry.sshAwaitingSince)
                                       : entry.sshLearnedHostKey !== undefined
                                             ? html`<code class="wrap" data-host-key="${entry.id}">${entry.sshLearnedHostKey}</code>
-                                                   <span class="hint">learned ${formatTimestamp(entry.sshLearnedAt ?? '')}, on probation</span>`
+                                                   <span class="hint">learned ${formatTimestamp(entry.sshLearnedAt ?? '')}, on probation</span>
+                                                   ${confirmButtons(entry, entry.sshLearnedHostKey, false)}`
+                                            : (entry.sshTrustOnFirstUseInEffect ?? entry.sshTrustOnFirstUse) === 'Ask'
+                                                  ? html`<span class="hint" data-host-key="${entry.id}">none pinned yet - the first one its server shows is put to an admin to confirm</span>`
                                             : entry.sshTrustOnFirstUse === 'HostKey'
                                                   ? html`<span class="hint" data-host-key="${entry.id}">none pinned yet - the first one its server shows is learned, on probation</span>`
                                                   : html`<span class="hint" data-host-key="${entry.id}">none pinned - not connected</span>`}</dd>
@@ -1063,6 +1070,15 @@ export const connectionsPage: Page = {
                         ${entry.judgement ? html`
                             <dt>Its certificate</dt>
                             <dd data-judgement="${entry.id}">${judgementView(entry.judgement)}</dd>
+                        ` : nothing}
+                        ${entry.keyConfirmedBy !== undefined ? html`
+                            <dt>Key confirmed</dt>
+                            <dd data-confirmed="${entry.id}">by ${entry.keyConfirmedBy}, ${formatTimestamp(entry.keyConfirmedAt ?? '')}</dd>
+                        ` : nothing}
+                        ${entry.keyRejected !== undefined ? html`
+                            <dt>Key turned down</dt>
+                            <dd data-rejected="${entry.id}"><code class="wrap">${entry.keyRejected}</code>
+                                <span class="hint">by ${entry.keyRejectedBy ?? 'an admin'}, ${formatTimestamp(entry.keyRejectedAt ?? '')}; not connected until it is saved again</span></dd>
                         ` : nothing}
                         ${stationsRow(entry, state)}
                         <dt>Written</dt> <dd>${formatTimestamp(entry.createdAt)}</dd>
@@ -1194,6 +1210,85 @@ export const connectionsPage: Page = {
             `;
         }
 
+        /**
+         * A key its server showed that waits for an admin (mDNS-Concept.md,
+         * B.4): the fingerprint or key pin to compare with the server's own,
+         * since when, and the two buttons - to whoever may change connections.
+         */
+        function awaitingView(entry: StationConnection, key: string, since: string | undefined): TemplateResult {
+
+            return html`
+                <div class="notice" data-awaiting="${entry.id}">
+                    <code class="wrap">${key}</code>
+                    <span class="hint">shown by its server ${formatTimestamp(since ?? '')} and not confirmed yet - nothing goes over this
+                        connection until an admin confirms it. Compare it with the key the server itself shows.</span>
+                    ${confirmButtons(entry, key, true)}
+                </div>
+            `;
+
+        }
+
+        function confirmButtons(entry: StationConnection, key: string, turnDown: boolean): TemplateResult | typeof nothing {
+
+            if (!mayManage)
+                return nothing;
+
+            return html`
+                <div class="form-actions">
+                    <button type="button" class="btn small primary" data-confirm-key="${entry.id}" @click=${() => void confirmKey(entry, key)}>Confirm</button>
+                    ${turnDown
+                          ? html`<button type="button" class="btn small danger" data-reject-key="${entry.id}" @click=${() => void rejectKey(entry)}>Turn down</button>`
+                          : nothing}
+                </div>
+            `;
+
+        }
+
+        async function confirmKey(entry: StationConnection, key: string): Promise<void> {
+
+            const error = must<HTMLElement>(content, `[data-error="${entry.id}"]`);
+            const note  = must<HTMLElement>(content, `[data-note="${entry.id}"]`);
+
+            error.textContent = '';
+
+            try
+            {
+                took(await whileSaving(content, note, () => api.connections.confirmKey(entry.id, key)));
+                if (!cancelled)
+                    draw();
+            }
+            catch (problem)
+            {
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
+            }
+
+        }
+
+        async function rejectKey(entry: StationConnection): Promise<void> {
+
+            if (!confirm('The key is forgotten, and this connection is not made until it is saved again. Go on?'))
+                return;
+
+            const error = must<HTMLElement>(content, `[data-error="${entry.id}"]`);
+            const note  = must<HTMLElement>(content, `[data-note="${entry.id}"]`);
+
+            error.textContent = '';
+
+            try
+            {
+                took(await whileSaving(content, note, () => api.connections.rejectKey(entry.id)));
+                if (!cancelled)
+                    draw();
+            }
+            catch (problem)
+            {
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
+            }
+
+        }
+
         function keyPinsView(entry: StationConnection): TemplateResult {
 
             const pins     = entry.serverKeyPins ?? [];
@@ -1207,9 +1302,17 @@ export const connectionsPage: Page = {
                               ? `by key pin, from the signed pin set of version ${version}`
                               : 'by key pin - no CA, no name, no validity period'}</span>`;
 
+            if (entry.serverKeyPinAwaiting !== undefined)
+                return awaitingView(entry, entry.serverKeyPinAwaiting, entry.serverKeyPinAwaitingSince);
+
             if (entry.serverKeyPinLearned !== undefined)
                 return html`<code class="wrap">${entry.serverKeyPinLearned}</code>
-                            <span class="hint">learned ${formatTimestamp(entry.serverKeyPinLearnedAt ?? '')}, on probation</span>`;
+                            <span class="hint">learned ${formatTimestamp(entry.serverKeyPinLearnedAt ?? '')}, on probation</span>
+                            ${confirmButtons(entry, entry.serverKeyPinLearned, false)}`;
+
+            if ((entry.trustOnFirstUseInEffect ?? entry.trustOnFirstUse) === 'Ask')
+                return html`<span class="hint">no key pinned yet - the key pin of the first key its server shows is put to an admin to confirm${
+                    entry.trustOnFirstUseInEffect === 'Ask' && entry.trustOnFirstUse !== 'Ask' ? ', as for every host under .local' : ''}</span>`;
 
             if (entry.trustOnFirstUse === 'Key')
                 return html`<span class="hint">no key pinned yet - the key pin of the first key its server shows is learned, on probation</span>`;
