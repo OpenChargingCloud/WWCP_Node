@@ -139,7 +139,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public async Task StopTheTimeServer()
         {
             if (server is not null)
-                await server.ShutdownAsync();
+                await server.DisposeAsync();
         }
 
         [SetUp]

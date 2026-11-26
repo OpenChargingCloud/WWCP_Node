@@ -291,7 +291,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         [OneTimeTearDown]
         public void StopTheTimeServer()
         {
-            server?.Shutdown();
+            server?.Dispose();
             ca.    Dispose();
             served.Dispose();
         }

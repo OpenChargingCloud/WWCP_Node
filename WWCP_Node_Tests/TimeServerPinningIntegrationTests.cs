@@ -124,7 +124,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         public void StopTheTimeServer()
         {
 
-            server?.Shutdown();
+            server?.Dispose();
 
             ca.     Dispose();
             served. Dispose();
