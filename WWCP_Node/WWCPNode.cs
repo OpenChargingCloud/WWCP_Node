@@ -3483,6 +3483,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             started = true;
 
+            // Its own name answered by Multicast DNS, where the "dns" section
+            // says so: probed for and announced in the background, and what
+            // goes wrong said, never thrown.
+            WatchTheAddresses();
+            _ = StartMulticastDNSResponderAsync();
+
             Log.Notice(WebInterface is not null
                            ? $"The web interface is listening on {WebInterfaceURL}"
                            : $"Listening on {WebInterfaceURL}, with no web interface to serve.",
@@ -3563,6 +3569,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 group.StopChecking();
 
             ListenerCertificates.StopChecking();
+
+            // Goodbye for its own name, where it answered for it: whoever
+            // cached it forgets it within a second (RFC 6762 section 10.1).
+            await LetGoOfMulticastDNSAsync();
 
             try
             {

@@ -21,6 +21,7 @@ using System.Net.Sockets;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
@@ -126,35 +127,69 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <summary>
     /// Names under ".local" asked for by Multicast DNS (RFC 6762) - off unless
     /// the "dns" section says "multicast": { "enabled": true }, on the network
-    /// interfaces it names (mDNS-Concept.md, B.1 and B.2).
+    /// interfaces it names - and the node's own name answered there, where
+    /// "multicast": { "responder": { "enabled": true } } says so
+    /// (mDNS-Concept.md, B.1 to B.3).
     /// </summary>
     /// <remarks>
-    /// The client and its sockets are made at the first name that needs them,
-    /// and not at the start: a node that never asks for a ".local" name never
-    /// binds port 5353, which the operating system's own responder may hold
-    /// as well. A change of the settings lets go of them; the next name makes
-    /// them anew with what is in effect then.
+    /// <para>
+    /// The client and the responder share one transport: one socket for each
+    /// address family on port 5353, as RFC 6762 has a host keep. It is made at
+    /// the first name that needs it, or when the node starts with its
+    /// responder on - not before: a node that neither asks for a ".local" name
+    /// nor answers for its own never binds port 5353, which the operating
+    /// system's own responder may hold as well. A change of the settings lets
+    /// go of all of it; the responder is started anew, the client at the next
+    /// name.
+    /// </para>
+    /// <para>
+    /// The responder publishes an A record for each IPv4 address and an AAAA
+    /// record for each IPv6 address of the chosen interfaces, the loopback
+    /// interface left out (Q5), under "&lt;hostName&gt;.local", and probes for
+    /// the name first. Where another host has it, that is said and shown, and
+    /// the node does not rename itself (Q3): a station was configured with the
+    /// name.
+    /// </para>
     /// </remarks>
     public partial class WWCPNode
     {
 
         #region Data
 
-        private readonly SemaphoreSlim         multicastDNSLock  = new (1, 1);
-        private          MulticastDNSClient?    multicastDNSClient;
-        private          IMulticastDNSTransport? multicastDNSTransport;
-        private          NodeNameResolver?       nameResolver;
+        private readonly SemaphoreSlim             multicastDNSLock  = new (1, 1);
+        private          MulticastDNSClient?        multicastDNSClient;
+        private          IMulticastDNSTransport?    multicastDNSTransport;
+        private          MulticastDNSResponder?     multicastDNSResponder;
+        private          MulticastDNSPublication?   multicastDNSPublication;
+        private          NodeNameResolver?          nameResolver;
+        private          Boolean                    watchingAddresses;
+
+        /// <summary>
+        /// How the responder is doing: "off", "starting", the state of its
+        /// publication ("Probing", "Announcing", "Published", "Conflict",
+        /// "Withdrawn"), "no address" or "failed".
+        /// </summary>
+        private          String                     responderState    = "off";
+        private          String?                    responderProblem;
+        private          String[]                   responderAddresses  = [];
 
         /// <summary>
         /// The last names Multicast DNS answered or did not, newest first, for
         /// the DNS page.
         /// </summary>
-        private readonly LinkedList<JObject>     multicastDNSAnswers  = new ();
+        private readonly LinkedList<JObject>        multicastDNSAnswers  = new ();
 
         /// <summary>
         /// How many of them are kept.
         /// </summary>
-        public const     Int32                   MaxMulticastDNSAnswersShown  = 10;
+        public const     Int32                      MaxMulticastDNSAnswersShown  = 10;
+
+        /// <summary>
+        /// The time to live of the address records the responder publishes:
+        /// RFC 6762 section 10 recommends 120 seconds for records with a host
+        /// name.
+        /// </summary>
+        public static readonly TimeSpan             MulticastDNSHostRecordTTL    = TimeSpan.FromSeconds(120);
 
         #endregion
 
@@ -176,21 +211,40 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Boolean                MulticastDNSEnabled       { get; private set; }
 
         /// <summary>
-        /// The network interfaces Multicast DNS asks on, by name; none is every
-        /// interface that is up and can multicast, the loopback interface left
-        /// out.
+        /// The network interfaces Multicast DNS asks and answers on, by name;
+        /// none is every interface that is up and can multicast, the loopback
+        /// interface left out.
         /// </summary>
         public IReadOnlyList<String>  MulticastDNSInterfaces    { get; private set; } = [];
 
         /// <summary>
-        /// Whether the IPv4 group 224.0.0.251 is asked.
+        /// Whether the IPv4 group 224.0.0.251 is used.
         /// </summary>
         public Boolean                MulticastDNSIPv4          { get; private set; } = true;
 
         /// <summary>
-        /// Whether the IPv6 group ff02::fb is asked.
+        /// Whether the IPv6 group ff02::fb is used.
         /// </summary>
         public Boolean                MulticastDNSIPv6          { get; private set; } = true;
+
+        /// <summary>
+        /// Whether this node answers for its own name, <see cref="MulticastDNSHostName"/>.local.
+        /// Off unless the "dns" section says otherwise.
+        /// </summary>
+        public Boolean                MulticastDNSResponderEnabled  { get; private set; }
+
+        /// <summary>
+        /// The name this node answers for, without ".local": the file's, or
+        /// else the machine's name made a valid DNS label.
+        /// </summary>
+        public String                 MulticastDNSHostName      { get; private set; } = MulticastDNSConfiguration.DefaultHostName();
+
+        /// <summary>
+        /// The name this node answers for, with ".local".
+        /// </summary>
+        public String                 MulticastDNSLocalName
+
+            => $"{MulticastDNSHostName}.local";
 
         /// <summary>
         /// What makes the transport of Multicast DNS from the options in
@@ -200,6 +254,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
         public Func<UDPMulticastDNSTransportOptions, IMulticastDNSTransport>  MulticastDNSTransportFactory  { get; set; }
 
             = options => new UDPMulticastDNSTransport(options);
+
+        /// <summary>
+        /// The options of the responder: Hermod's, which follow RFC 6762, unless
+        /// a test has it probe faster.
+        /// </summary>
+        public MulticastDNSResponderOptions?  MulticastDNSResponderOptions  { get; set; }
 
         #endregion
 
@@ -257,12 +317,68 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             }
 
+            if (Configuration.ResponderEnabled.HasValue && MulticastDNSResponderEnabled != Configuration.ResponderEnabled.Value)
+            {
+                MulticastDNSResponderEnabled = Configuration.ResponderEnabled.Value;
+                changed.Add($"multicast DNS responder {(MulticastDNSResponderEnabled ? "switched on" : "switched off")}");
+            }
+
+            if (Configuration.HostName is not null && !String.Equals(MulticastDNSHostName, Configuration.HostName, StringComparison.OrdinalIgnoreCase))
+            {
+                MulticastDNSHostName = Configuration.HostName;
+                changed.Add($"multicast DNS host name = {MulticastDNSLocalName}");
+            }
+
             // The sockets were made with what was in effect before: let go of
-            // them, and the next name makes them anew.
+            // them, start the responder anew where it is on, and the next name
+            // makes the client anew.
             if (changed.Count > 0)
-                _ = LetGoOfMulticastDNSAsync();
+                _ = RestartMulticastDNSAsync();
 
             return changed;
+
+        }
+
+        #endregion
+
+        #region (private) TransportLocked(CancellationToken)
+
+        /// <summary>
+        /// The transport both the client and the responder use, made and started
+        /// where there is none yet. Called with the lock held.
+        /// </summary>
+        private async Task<IMulticastDNSTransport> TransportLocked(CancellationToken CancellationToken)
+        {
+
+            if (multicastDNSTransport is not null)
+                return multicastDNSTransport;
+
+            var transport = MulticastDNSTransportFactory(new UDPMulticastDNSTransportOptions {
+                                                             EnableIPv4      = MulticastDNSIPv4,
+                                                             EnableIPv6      = MulticastDNSIPv6,
+                                                             InterfaceNames  = MulticastDNSInterfaces.Count > 0
+                                                                                   ? MulticastDNSInterfaces
+                                                                                   : null
+                                                         });
+
+            try
+            {
+                if (!transport.IsRunning)
+                    await transport.StartAsync(CancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await StopTransportAsync(transport).ConfigureAwait(false);
+                throw;
+            }
+
+            multicastDNSTransport = transport;
+
+            Log.Info($"Multicast DNS uses {(MulticastDNSInterfaces.Count > 0 ? String.Join(", ", MulticastDNSInterfaces) : "every interface that can multicast")}" +
+                     $" over {(MulticastDNSIPv4 && MulticastDNSIPv6 ? "IPv4 and IPv6" : MulticastDNSIPv4 ? "IPv4" : "IPv6")}.",
+                     "dns", "mdns");
+
+            return transport;
 
         }
 
@@ -285,15 +401,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 if (multicastDNSClient is not null)
                     return multicastDNSClient;
 
-                var transport = MulticastDNSTransportFactory(new UDPMulticastDNSTransportOptions {
-                                                                 EnableIPv4      = MulticastDNSIPv4,
-                                                                 EnableIPv6      = MulticastDNSIPv6,
-                                                                 InterfaceNames  = MulticastDNSInterfaces.Count > 0
-                                                                                       ? MulticastDNSInterfaces
-                                                                                       : null
-                                                             });
-
-                var client    = new MulticastDNSClient(transport, TimeProvider: TimeProvider);
+                var transport  = await TransportLocked(CancellationToken).ConfigureAwait(false);
+                var client     = new MulticastDNSClient(transport, TimeProvider: TimeProvider);
 
                 try
                 {
@@ -302,16 +411,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                 catch
                 {
                     await client.DisposeAsync().ConfigureAwait(false);
-                    await StopTransportAsync(transport).ConfigureAwait(false);
                     throw;
                 }
 
-                multicastDNSTransport  = transport;
-                multicastDNSClient     = client;
-
-                Log.Info($"Multicast DNS asks on {(MulticastDNSInterfaces.Count > 0 ? String.Join(", ", MulticastDNSInterfaces) : "every interface that can multicast")}" +
-                         $" over {(MulticastDNSIPv4 && MulticastDNSIPv6 ? "IPv4 and IPv6" : MulticastDNSIPv4 ? "IPv4" : "IPv6")}.",
-                         "dns", "mdns");
+                multicastDNSClient = client;
 
                 return client;
 
@@ -367,10 +470,170 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (private) StartMulticastDNSResponderAsync()
+
+        /// <summary>
+        /// Answer for this node's own name, where the responder is on and this
+        /// node runs: probe for it, then announce it. What goes wrong is said
+        /// and shown, and never thrown - the node runs without it.
+        /// </summary>
+        private async Task StartMulticastDNSResponderAsync()
+        {
+
+            if (!MulticastDNSResponderEnabled || !started)
+                return;
+
+            await multicastDNSLock.WaitAsync().ConfigureAwait(false);
+
+            try
+            {
+
+                if (multicastDNSResponder is not null || !MulticastDNSResponderEnabled)
+                    return;
+
+                responderState    = "starting";
+                responderProblem  = null;
+
+                var transport     = await TransportLocked(CancellationToken.None).ConfigureAwait(false);
+                var responder     = new MulticastDNSResponder(transport, MulticastDNSResponderOptions, TimeProvider);
+
+                responder.OnPublicationStateChanged += (timestamp, sender, publication, oldState, newState, cancellationToken) => {
+
+                    // Only of the responder in use: the goodbye of one let go
+                    // of comes after this node said "off".
+                    if (!ReferenceEquals(sender, multicastDNSResponder) && multicastDNSResponder is not null)
+                        return Task.CompletedTask;
+
+                    if (multicastDNSResponder is null && newState == MulticastDNSPublicationState.Withdrawn)
+                        return Task.CompletedTask;
+
+                    responderState = newState.ToString();
+
+                    if (newState == MulticastDNSPublicationState.Published)
+                        Log.Notice($"Multicast DNS answers for {MulticastDNSLocalName} with {String.Join(", ", responderAddresses)}.", "dns", "mdns");
+
+                    return Task.CompletedTask;
+
+                };
+
+                responder.OnNameConflict += (timestamp, sender, publication, ownRecord, conflictingRecord, source, cancellationToken) => {
+
+                    responderState    = nameof(MulticastDNSPublicationState.Conflict);
+                    responderProblem  = $"{source} answers for {MulticastDNSLocalName} as well ({conflictingRecord}); this {Kind.Name} does not " +
+                                         "rename itself - give it another host name, or the other host.";
+
+                    Log.Warning($"Multicast DNS: {responderProblem}", "dns", "mdns");
+
+                    return Task.CompletedTask;
+
+                };
+
+                await responder.StartAsync().ConfigureAwait(false);
+
+                multicastDNSResponder = responder;
+
+                var name          = DomainName.Parse($"{MulticastDNSLocalName}.");
+                var records       = new List<IDNSResourceRecord>();
+
+                foreach (var address in transport.LocalAddresses.Distinct())
+                {
+
+                    if (MulticastDNSIPv4 && address.TryGetValue(out IPv4Address ipv4))
+                        records.Add(new A   (name, DNSQueryClasses.IN, MulticastDNSHostRecordTTL, ipv4));
+
+                    else if (MulticastDNSIPv6 && address.TryGetValue(out IPv6Address ipv6))
+                        records.Add(new AAAA(name, DNSQueryClasses.IN, MulticastDNSHostRecordTTL, ipv6));
+
+                }
+
+                // What is published, and nothing else: not the addresses of a family
+                // that is switched off.
+                responderAddresses = [.. records.Select(record => record switch {
+                                                                      A    a    => a.   IPv4Address.ToString(),
+                                                                      AAAA aaaa => aaaa.IPv6Address.ToString(),
+                                                                      _         => record.ToString()
+                                                                  })];
+
+                if (records.Count == 0)
+                {
+                    responderState    = "no address";
+                    responderProblem  = $"None of the interfaces it answers on has an address to answer for {MulticastDNSLocalName} with.";
+                    Log.Warning($"Multicast DNS: {responderProblem}", "dns", "mdns");
+                    return;
+                }
+
+                multicastDNSPublication = await responder.PublishAsync(records).ConfigureAwait(false);
+                responderState          = multicastDNSPublication.State.ToString();
+
+            }
+            catch (Exception e)
+            {
+                responderState    = "failed";
+                responderProblem  = $"The responder for {MulticastDNSLocalName} could not be started: {e.Message}";
+                Log.Error($"Multicast DNS: {responderProblem}", "dns", "mdns");
+            }
+            finally
+            {
+                multicastDNSLock.Release();
+            }
+
+        }
+
+        #endregion
+
+        #region (private) RestartMulticastDNSAsync()
+
+        /// <summary>
+        /// Let go of everything of Multicast DNS, and start the responder anew
+        /// where it is on: after a change of the settings or of the addresses.
+        /// </summary>
+        private async Task RestartMulticastDNSAsync()
+        {
+
+            await LetGoOfMulticastDNSAsync().ConfigureAwait(false);
+            await StartMulticastDNSResponderAsync().ConfigureAwait(false);
+
+        }
+
+        #endregion
+
+        #region (private) WatchTheAddresses() / AddressesChanged(Sender, Arguments)
+
+        /// <summary>
+        /// Publish the addresses anew when those of this machine change: once,
+        /// when the node starts.
+        /// </summary>
+        private void WatchTheAddresses()
+        {
+
+            if (watchingAddresses)
+                return;
+
+            try
+            {
+                System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += AddressesChanged;
+                watchingAddresses = true;
+            }
+            catch (Exception e)
+            {
+                Log.Debug($"Multicast DNS: the addresses of this machine cannot be watched: {e.Message}", "dns", "mdns");
+            }
+
+        }
+
+        private void AddressesChanged(Object? Sender, EventArgs Arguments)
+        {
+            if (multicastDNSResponder is not null)
+                _ = RestartMulticastDNSAsync();
+        }
+
+        #endregion
+
         #region (private) LetGoOfMulticastDNSAsync()
 
         /// <summary>
-        /// Close the client of Multicast DNS and its sockets, where there are.
+        /// Say goodbye for this node's name, where it answered for it, and close
+        /// the client, the responder and their sockets.
         /// </summary>
         private async Task LetGoOfMulticastDNSAsync()
         {
@@ -380,11 +643,37 @@ namespace cloud.charging.open.protocols.WWCP.Node
             try
             {
 
-                var client     = multicastDNSClient;
-                var transport  = multicastDNSTransport;
+                var client       = multicastDNSClient;
+                var responder    = multicastDNSResponder;
+                var publication  = multicastDNSPublication;
+                var transport    = multicastDNSTransport;
 
-                multicastDNSClient     = null;
-                multicastDNSTransport  = null;
+                multicastDNSClient       = null;
+                multicastDNSResponder    = null;
+                multicastDNSPublication  = null;
+                multicastDNSTransport    = null;
+                responderState           = "off";
+                responderProblem         = null;
+                responderAddresses       = [];
+
+                if (responder is not null)
+                {
+
+                    // The goodbye of RFC 6762 section 10.1: whoever cached the
+                    // name forgets it within a second, rather than in two minutes.
+                    if (publication is not null)
+                        try
+                        {
+                            await responder.WithdrawAsync(publication).ConfigureAwait(false);
+                        }
+                        catch (Exception e)
+                        {
+                            Log.Debug($"Multicast DNS: no goodbye for {MulticastDNSLocalName}: {e.Message}", "dns", "mdns");
+                        }
+
+                    await responder.DisposeAsync().ConfigureAwait(false);
+
+                }
 
                 if (client is not null)
                     await client.DisposeAsync().ConfigureAwait(false);
@@ -658,7 +947,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
                    new JProperty("ipv4",        MulticastDNSIPv4),
                    new JProperty("ipv6",        MulticastDNSIPv6),
                    new JProperty("asking",      multicastDNSClient is not null),
-                   new JProperty("answers",     MulticastDNSAnswersJSON())
+                   new JProperty("answers",     MulticastDNSAnswersJSON()),
+                   new JProperty("responder",   new JObject(
+                       new JProperty("enabled",     MulticastDNSResponderEnabled),
+                       new JProperty("hostName",    MulticastDNSHostName),
+                       new JProperty("name",        MulticastDNSLocalName),
+                       new JProperty("state",       responderState),
+                       new JProperty("addresses",   new JArray(responderAddresses)),
+                       new JProperty("problem",     responderProblem)
+                   ))
                );
 
         private JArray MulticastDNSAnswersJSON()

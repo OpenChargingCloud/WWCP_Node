@@ -54,10 +54,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Interfaces">The network interfaces asked on, by name; an empty list is all of them.</param>
     /// <param name="IPv4">Whether the IPv4 group 224.0.0.251 is asked.</param>
     /// <param name="IPv6">Whether the IPv6 group ff02::fb is asked.</param>
-    public sealed record MulticastDNSConfiguration(Boolean?                Enabled     = null,
-                                                   IReadOnlyList<String>?  Interfaces  = null,
-                                                   Boolean?                IPv4        = null,
-                                                   Boolean?                IPv6        = null)
+    /// <param name="ResponderEnabled">Whether the node answers for its own name, "responder": { "enabled" } - separately from asking (Q1).</param>
+    /// <param name="HostName">The name it answers for, without ".local", "responder": { "hostName" }: one DNS label.</param>
+    public sealed record MulticastDNSConfiguration(Boolean?                Enabled           = null,
+                                                   IReadOnlyList<String>?  Interfaces        = null,
+                                                   Boolean?                IPv4              = null,
+                                                   Boolean?                IPv6              = null,
+                                                   Boolean?                ResponderEnabled  = null,
+                                                   String?                 HostName          = null)
     {
 
         #region Data
@@ -79,6 +83,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public const Int32   MaxInterfaceNameLength  = 128;
 
         private const String Path           = "dns.multicast";
+
+        private const String ResponderPath  = "dns.multicast.responder";
+
+        /// <summary>
+        /// The longest label of DNS (RFC 1035 section 2.3.4).
+        /// </summary>
+        public const Int32   MaxHostNameLength  = 63;
 
         #endregion
 
@@ -110,6 +121,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
+            #region The responder
+
+            Boolean? responderEnabled = null;
+            String?  hostName         = null;
+
+            if (json["responder"] is JToken responderToken && responderToken.Type != JTokenType.Null)
+            {
+
+                if (responderToken is not JObject responder)
+                {
+                    Error = $"'{ResponderPath}' must be an object.";
+                    return false;
+                }
+
+                if (!ConfigurationReader.TryReadBoolean(responder, "enabled",  ResponderPath, out responderEnabled, out Error) ||
+                    !ConfigurationReader.TryReadString (responder, "hostName", ResponderPath, 255, out var hostNameText, out Error))
+                {
+                    return false;
+                }
+
+                if (hostNameText is not null && !TryParseHostName(hostNameText, out hostName, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
             // Both said, and both false: a multicast DNS asked on no group at
             // all, which is "off" said in a way nobody would find again.
             if (ipv4 == false && ipv6 == false)
@@ -122,10 +160,74 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 enabled,
                                 interfaces?.Distinct(StringComparer.Ordinal).ToArray(),
                                 ipv4,
-                                ipv6
+                                ipv6,
+                                responderEnabled,
+                                hostName
                             );
 
             return true;
+
+        }
+
+        #endregion
+
+        #region (static) TryParseHostName(Text, out HostName, out Error)
+
+        /// <summary>
+        /// The name a node answers for, without ".local": one label of DNS -
+        /// letters, digits and hyphens, not beginning or ending with a hyphen,
+        /// at most 63 characters (RFC 1123 section 2.1).
+        /// </summary>
+        public static Boolean TryParseHostName(String                                Text,
+                                               [NotNullWhen(true)]  out String?      HostName,
+                                               [NotNullWhen(false)] out String?      Error)
+        {
+
+            HostName  = null;
+            Error     = null;
+
+            var text  = Text.Trim();
+
+            if (text.EndsWith(".local", StringComparison.OrdinalIgnoreCase) || text.EndsWith(".local.", StringComparison.OrdinalIgnoreCase))
+            {
+                Error = $"'{ResponderPath}.hostName' is the name without '.local': '{text[..text.IndexOf(".local", StringComparison.OrdinalIgnoreCase)]}'.";
+                return false;
+            }
+
+            if (text.Length == 0 || text.Length > MaxHostNameLength ||
+                text.StartsWith('-') || text.EndsWith('-') ||
+                !text.All(c => Char.IsAsciiLetterOrDigit(c) || c == '-'))
+            {
+                Error = $"'{ResponderPath}.hostName' must be one label of DNS: letters, digits and hyphens, not beginning or ending " +
+                        $"with a hyphen, at most {MaxHostNameLength} characters; '{text}' is not.";
+                return false;
+            }
+
+            HostName = text.ToLowerInvariant();
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) DefaultHostName()
+
+        /// <summary>
+        /// The name a node answers for where the file says none: the machine's
+        /// name, made one label of DNS - lower case, everything else than a
+        /// letter, a digit or a hyphen a hyphen.
+        /// </summary>
+        public static String DefaultHostName()
+        {
+
+            var made = new String([.. Environment.MachineName.ToLowerInvariant().
+                                                              Select(c => Char.IsAsciiLetterOrDigit(c) ? c : '-')]).
+                           Trim('-');
+
+            if (made.Length > MaxHostNameLength)
+                made = made[..MaxHostNameLength].TrimEnd('-');
+
+            return made.Length > 0 ? made : "node";
 
         }
 
@@ -146,6 +248,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Interfaces is not null) json.Add("interfaces",  new JArray(Interfaces));
             if (IPv4.HasValue)          json.Add("ipv4",        IPv4.Value);
             if (IPv6.HasValue)          json.Add("ipv6",        IPv6.Value);
+
+            if (ResponderEnabled.HasValue || HostName is not null)
+            {
+
+                var responder = new JObject();
+
+                if (ResponderEnabled.HasValue) responder.Add("enabled",   ResponderEnabled.Value);
+                if (HostName is not null)      responder.Add("hostName",  HostName);
+
+                json.Add("responder", responder);
+
+            }
 
             return json;
 
