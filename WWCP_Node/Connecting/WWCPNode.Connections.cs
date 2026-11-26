@@ -192,6 +192,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// is connected as it was until the station has taken the change - and,
         /// while it is tried again, when the next attempt is.
         /// </remarks>
+        /// <summary>
+        /// The resource a user needs a right to for the connections - the one the
+        /// web interface of the kind of node names them by, which sets it; the
+        /// configuration's where none does.
+        /// </summary>
+        public String ConnectionsResource { get; set; } = Web.NodeResources.Configuration;
+
         public IReadOnlyDictionary<String, ConnectionState> ConnectionStates
         {
             get
@@ -477,6 +484,16 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return;
                 }
 
+                // An admin turned the key of its server down: not made until
+                // somebody saves the connection again or confirms a key.
+                if (Connection.KeyRejected is String rejected)
+                {
+                    Fail(Connection, ConnectionStatus.Refused,
+                         $"{where} is not connected: {Connection.KeyRejectedBy ?? "an admin"} turned down the key {rejected} its server showed. " +
+                          "Save the connection again to have it asked anew.");
+                    return;
+                }
+
                 // A meter: read over Modbus, over a WebSocket or over SSH, and
                 // nothing of OCPP is asked of it.
                 if (Connection.Use == ConnectionUse.Modbus)
@@ -597,6 +614,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
                 if (keyPins is not null && client is not null)
                     FollowKeyPins(Connection, client, keyPins, connectedURL, response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols);
+
+                if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols && keyPins?.IsAwaiting == true)
+                {
+
+                    // Not tried again until an admin confirmed the key: the
+                    // confirmation connects it again.
+                    if (client is not null)
+                        await Disconnect(client, "Waiting for an admin to confirm the key pin.");
+
+                    Record(Connection, ConnectionStatus.AwaitingConfirmation,
+                           $"{where} waits for an admin to confirm the key pin {keyPins.Awaiting} of the key its server showed; nothing goes over the " +
+                            "connection until then.");
+
+                    return;
+
+                }
 
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
                 {
@@ -957,7 +990,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             if (!ForTest                                                   &&
                 Connection.SshHostKey         is null                      &&
                 Connection.SshLearnedHostKey  is null                      &&
-                Connection.SshTrustOnFirstUse == SshTrustOnFirstUse.None)
+                Connection.EffectiveSshTrustOnFirstUse == SshTrustOnFirstUse.None)
             {
                 Error = "it pins no host key and does not trust on first use, so nothing says which server to believe: pin its host key - " +
                         "the connection test shows it - or let it learn the first one, on probation";
@@ -1029,14 +1062,15 @@ namespace cloud.charging.open.protocols.WWCP.Node
             Trust  = new SshHostKeyTrust(
                          Connection.SshHostKeys,
                          Connection.SshLearnedHostKey,
-                         ForTest ? SshTrustOnFirstUse.HostKey : Connection.SshTrustOnFirstUse,
+                         ForTest ? SshTrustOnFirstUse.HostKey : Connection.EffectiveSshTrustOnFirstUse,
                          Connection.SshOnPinMismatch,
                          // A one-time password bound to its session is of no use to
                          // a server that is not the one meant; an unbound one is a
                          // password for as long as it is valid.
                          PasswordMayBeSent: password is not null || (totp is not null && !totpIsBound),
                          Connection.URL.Host.ToString(),
-                         Connection.URL.Port ?? IPPort.Parse(22)
+                         Connection.URL.Port ?? IPPort.Parse(22),
+                         Awaiting: ForTest ? null : Connection.SshAwaitingHostKey
                      );
 
             // The station's DNS client resolves the server's name, as it
@@ -1239,6 +1273,26 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             sshTrusts[Connection.Id] = trust;
 
+            // Trust on first use by asking: the host key shown is written down
+            // and waits for an admin; a security event where it is a new one.
+            trust.OnAwaiting += (shown, before, isNew) => {
+
+                if (!isNew)
+                    return;
+
+                if (!Connections.TryAwaitHostKey(Connection.Id, connectedURL, shown, out var notWritten) && notWritten is not null)
+                    Log.Warning($"{Where}: the host key {shown} its server showed could not be written down: {notWritten}.", "ocpp", "connections", "ssh", "security");
+
+                Log.Warning($"{Where}: its server showed the host key {shown}" +
+                            (before is not null ? $", in place of {before}, which waited before" : "") +
+                            ". It waits for an admin to confirm it on the Connections page; nothing goes over the connection until then.",
+                            "ocpp", "connections", "ssh", "security");
+
+                SshSecurityEvent(Connection, "CsmsHostKeyAwaitingConfirmation",
+                                 $"Host key {shown} of '{Connection.Id}' waits for an admin's confirmation" + (before is not null ? $", in place of {before}" : ""));
+
+            };
+
             trust.OnMismatchTolerated += why => {
                 Log.Warning($"{Where}: {why}.", "ocpp", "connections", "ssh", "security");
                 if (Connection.SshOnPinMismatch == SshOnPinMismatch.Record)
@@ -1271,6 +1325,22 @@ namespace cloud.charging.open.protocols.WWCP.Node
             }
 
             RememberClient(Connection, client);
+
+            if (!result.IsConnected && trust.IsAwaiting)
+            {
+
+                // Not tried again until an admin confirmed the key: the
+                // confirmation connects it again.
+                if (client is not null)
+                    await LetGo(client, "Waiting for an admin to confirm the host key.");
+
+                Record(Connection, ConnectionStatus.AwaitingConfirmation,
+                       $"{Where} waits for an admin to confirm the host key {trust.Awaiting} its server showed; nothing goes over the connection " +
+                        "until then.");
+
+                return;
+
+            }
 
             if (!result.IsConnected)
             {

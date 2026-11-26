@@ -96,6 +96,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         KeyTrustOnFirstUse     TrustOnFirstUse             { get; }
 
         /// <summary>
+        /// How it trusts on first use in effect: as it says, or "Ask" for a host
+        /// under ".local" that says nothing and pins nothing (mDNS-Concept.md, Q2).
+        /// </summary>
+        KeyTrustOnFirstUse     EffectiveTrustOnFirstUse    => TrustOnFirstUse;
+
+        /// <summary>
+        /// The key pin that waits for an admin to confirm it - or null.
+        /// </summary>
+        KeyPin?                ServerKeyPinAwaiting        => null;
+
+        /// <summary>
         /// The key pin learned on first use and on probation, as it was written down; null for none.
         /// </summary>
         KeyPin?                ServerKeyPinLearned         { get; }
@@ -197,6 +208,20 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// </summary>
         /// <param name="Id">The connection.</param>
         void ConnectAgain(String Id);
+
+        /// <summary>
+        /// Write down the key pin of the key the server of a connection that
+        /// trusts on first use by asking showed: it waits for an admin to
+        /// confirm it (mDNS-Concept.md, B.4). Whether it was written down.
+        /// </summary>
+        Boolean TryAwaitServerKeyPin(String       Id,
+                                     URL          URL,
+                                     KeyPin       Pin,
+                                     out String?  NotWritten)
+        {
+            NotWritten = null;
+            return false;
+        }
 
     }
 

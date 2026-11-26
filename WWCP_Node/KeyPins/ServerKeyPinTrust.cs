@@ -47,7 +47,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// The key pin of the first key shown is learned, on probation until a
         /// signed pin set confirms it.
         /// </summary>
-        Key
+        Key,
+
+        /// <summary>
+        /// The key pin of the first key shown is written down and not believed:
+        /// nothing goes over the connection until an admin confirmed it, or a
+        /// signed pin set pins it (mDNS-Concept.md, B.4). What a wss://
+        /// connection to a host under ".local" does where it says nothing (Q2).
+        /// </summary>
+        Ask
 
     }
 
@@ -98,6 +106,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         private readonly IPinnedTLSEndpoint          endpoint;
         private readonly Func<IPinnedTLSEndpoint?>   now;
         private          KeyPin?                  learned;
+        private          KeyPin?                  awaiting;
+        private          Boolean                  isAwaiting;
         private          KeyPinValidation?        last;
         private          Int32                    handshakes;
 
@@ -241,6 +251,39 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
         /// </summary>
         public event Action<KeyPin>?            OnLearned;
 
+        /// <summary>
+        /// A key was shown that waits for an admin to confirm it: its key pin,
+        /// the one that waited before where it is another one (Q7), and whether
+        /// it waits from now on rather than since an earlier handshake. At every
+        /// handshake that shows one.
+        /// </summary>
+        public event Action<KeyPin, KeyPin?, Boolean>?   OnAwaiting;
+
+        /// <summary>
+        /// The key pin that waits for an admin to confirm it - or null.
+        /// </summary>
+        public KeyPin?            Awaiting
+        {
+            get
+            {
+                lock (lockObject)
+                    return awaiting;
+            }
+        }
+
+        /// <summary>
+        /// Whether the key shown last was turned away because it waits for an
+        /// admin to confirm it, rather than because it is the wrong one.
+        /// </summary>
+        public Boolean            IsAwaiting
+        {
+            get
+            {
+                lock (lockObject)
+                    return isAwaiting;
+            }
+        }
+
         #endregion
 
         #region Constructor(s)
@@ -311,6 +354,54 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
                                              IWebSocketClient   Client,
                                              SslPolicyErrors    PolicyErrors)
         {
+
+            #region Trust on first use by asking: written down, never believed
+
+            var entry = now();
+
+            if (entry is null || entry.URL != endpoint.URL)
+                entry = endpoint;
+
+            if (entry.EffectiveTrustOnFirstUse == KeyTrustOnFirstUse.Ask && entry.ServerKeyPins.Count == 0)
+            {
+
+                KeyPinValidation? seen = null;
+
+                // Hermod's learning validator, for the key pin alone: what it
+                // would learn is what waits for an admin.
+                KeyPinValidator.ForServerCertificates<IWebSocketClient>(KeyPinPolicy.LearnOnFirstUse(entry.RawPublicKeys), validation => seen = validation)
+                               (Sender, Certificate, CertificateChain, Client, PolicyErrors);
+
+                if (seen?.Pin is KeyPin shown)
+                {
+
+                    KeyPin?  before;
+                    Boolean  isNew;
+                    var      reason = $"its server showed a key whose key pin is {shown}, which waits for an admin to confirm it - nothing goes over " +
+                                       "the connection until then";
+
+                    lock (lockObject)
+                    {
+                        before      = awaiting ?? entry.ServerKeyPinAwaiting;
+                        isNew       = before is null || !before.Equals(shown);
+                        awaiting    = shown;
+                        isAwaiting  = true;
+                        last        = new KeyPinValidation(KeyPinOutcome.Refused, shown, seen.CertificateType, reason);
+                        handshakes++;
+                    }
+
+                    OnAwaiting?.Invoke(shown, before is not null && !before.Equals(shown) ? before : null, isNew);
+
+                    return TLSValidationResult.Failed(reason);
+
+                }
+
+            }
+
+            lock (lockObject)
+                isAwaiting = false;
+
+            #endregion
 
             if (Policy() is not KeyPinPolicy policy)
             {
@@ -405,6 +496,9 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
 
             if (policy.State == KeyPinState.Learned)
                 return $"its server showed {shown}, which is not the one learned on its first connection ({policy.Pins[0]}), still on probation";
+
+            if (IsAwaiting)
+                return validation.Reason ?? $"its server showed {shown}, which waits for an admin to confirm it";
 
             if (policy.Pins.Count > 0 && !policy.Contains(pin))
                 return $"its server showed {shown}, which is none of those pinned ({KeyPinText.Of(policy.Pins)})";

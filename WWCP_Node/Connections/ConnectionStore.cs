@@ -76,7 +76,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
     /// a typo in a description without being shown - or having to retype - the
     /// password.
     /// </remarks>
-    public sealed class ConnectionStore : IPinnedTLSEndpoints
+    public sealed partial class ConnectionStore : IPinnedTLSEndpoints
     {
 
         #region IPinnedTLSEndpoints
@@ -2014,6 +2014,24 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 entry.Pins                       = pins;
 
+                // Saved again by somebody: a key turned down holds it off no
+                // longer, and what waited for an admin went with another server.
+                entry.KeyRejected    = null;
+                entry.KeyRejectedBy  = null;
+                entry.KeyRejectedAt  = null;
+
+                if (was.URL != url || hostKey is not null)
+                {
+                    entry.SshAwaitingHostKey  = null;
+                    entry.SshAwaitingSince    = null;
+                }
+
+                if (was.URL != url || keyPins.Count > 0)
+                {
+                    entry.ServerKeyPinAwaiting       = null;
+                    entry.ServerKeyPinAwaitingSince  = null;
+                }
+
                 // A peer of this one endpoint follows it: its version, its kind
                 // where that came from the connection's type, its description
                 // where that was the connection's.
@@ -3090,6 +3108,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                Was.OpenADRBinding      != Now.OpenADRBinding      ||
                Was.VEN                 != Now.VEN                 ||
                Was.AutoConnect         != Now.AutoConnect         ||
+               Was.KeyRejected         != Now.KeyRejected         ||
                Was.AuthenticationId    != Now.AuthenticationId    ||
                !Was.Identities.SequenceEqual(Now.Identities)      ||
                Was.HTTPVersion         != Now.HTTPVersion         ||

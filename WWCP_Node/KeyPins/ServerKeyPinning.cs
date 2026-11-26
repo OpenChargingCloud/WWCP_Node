@@ -194,6 +194,25 @@ namespace cloud.charging.open.protocols.WWCP.Node.KeyPins
                     ReportRefused(Endpoint, trust);
             };
 
+            // Trust on first use by asking: the key pin shown is written down and
+            // waits for an admin; a security event where it is a new one.
+            trust.OnAwaiting += (shown, before, isNew) => {
+
+                if (!isNew)
+                    return;
+
+                if (!Endpoints.TryAwaitServerKeyPin(id, Endpoint.URL, shown, out var notWritten) && notWritten is not null)
+                    warning($"'{Endpoint.Description}': the key pin {shown} of the key its server showed could not be written down: {notWritten}.");
+
+                securityEvent(Endpoint, "KeyPinAwaitingConfirmation",
+                              $"Key pin {shown} of endpoint '{id}' ({Endpoint.URL}) waits for an admin's confirmation" + (before is not null ? $", in place of {before}" : ""));
+
+                warning($"'{Endpoint.Description}': its server showed a key whose key pin is {shown}" +
+                        (before is not null ? $", in place of {before}, which waited before" : "") +
+                         ". It waits for an admin to confirm it on the Connections page; nothing goes over the connection until then.");
+
+            };
+
             trusts[id] = trust;
 
             return trust;

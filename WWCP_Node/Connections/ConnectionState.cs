@@ -85,7 +85,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// waited for, or nothing can come - switched off, or no server of
         /// this node for it to connect to.
         /// </summary>
-        Waiting
+        Waiting,
+
+        /// <summary>
+        /// A connection that trusts on first use by asking: its server showed a
+        /// key, which waits for an admin to confirm it, and nothing goes over
+        /// the connection until then (mDNS-Concept.md, B.4).
+        /// </summary>
+        AwaitingConfirmation
 
     }
 

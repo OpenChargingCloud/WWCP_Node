@@ -42,7 +42,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// The host key of the first handshake is learned, on probation until
         /// a signed pin set confirms it.
         /// </summary>
-        HostKey
+        HostKey,
+
+        /// <summary>
+        /// The host key of the first handshake is written down and not
+        /// believed: nothing goes over the connection until an admin confirmed
+        /// it, or a signed pin set pins it (mDNS-Concept.md, B.4). What a
+        /// connection to a host under ".local" does where it says nothing (Q2).
+        /// </summary>
+        Ask
 
     }
 
@@ -119,6 +127,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         private          Byte[]?         lastShown;
         private          Boolean         refused;
         private          Boolean         mismatched;
+        private          String?         awaiting;
+        private          Boolean         isAwaiting;
 
         #endregion
 
@@ -214,6 +224,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         }
 
         /// <summary>
+        /// The SHA-256 fingerprint of the host key that waits for an admin to
+        /// confirm it, where the connection trusts on first use by asking - or
+        /// null.
+        /// </summary>
+        public String?                Awaiting
+        {
+            get
+            {
+                lock (lockObject)
+                    return awaiting;
+            }
+        }
+
+        /// <summary>
+        /// Whether the host key shown last was turned away because it waits
+        /// for an admin to confirm it, rather than because it is the wrong one.
+        /// </summary>
+        public Boolean                IsAwaiting
+        {
+            get
+            {
+                lock (lockObject)
+                    return isAwaiting;
+            }
+        }
+
+        /// <summary>
         /// Whether the host key shown last was turned away.
         /// </summary>
         public Boolean                Refused
@@ -260,6 +297,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// </summary>
         public event Action<String>?  OnMismatchTolerated;
 
+        /// <summary>
+        /// A host key was shown that waits for an admin to confirm it: its
+        /// fingerprint, the one that waited before where it is another one
+        /// (Q7), and whether it waits from now on rather than since an earlier
+        /// handshake. At every handshake that shows one.
+        /// </summary>
+        public event Action<String, String?, Boolean>?  OnAwaiting;
+
         #endregion
 
         #region Constructor(s)
@@ -274,14 +319,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         /// <param name="PasswordMayBeSent">Whether a password may be sent to the server, so that a mismatch is always refused.</param>
         /// <param name="Host">The server's host name.</param>
         /// <param name="Port">The server's port.</param>
+        /// <param name="Awaiting">The fingerprint of a host key that waits for an admin to confirm it; null for none.</param>
         public SshHostKeyTrust(IReadOnlyList<String>  Pins,
                                String?                Learned,
                                SshTrustOnFirstUse     TrustOnFirstUse,
                                SshOnPinMismatch       OnPinMismatch,
                                Boolean                PasswordMayBeSent,
                                String                 Host,
-                               IPPort                 Port)
+                               IPPort                 Port,
+                               String?                Awaiting = null)
         {
+
+            this.awaiting         = Pins.Count == 0 ? Awaiting : null;
 
             this.Pins             = Pins;
             this.learned          = Pins.Count == 0 ? Learned : null;
@@ -309,14 +358,18 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         {
 
             Boolean  believed;
-            String?  learnedNow  = null;
-            String?  tolerated   = null;
+            String?  learnedNow     = null;
+            String?  tolerated      = null;
+            String?  awaitingNow    = null;
+            String?  awaitedBefore  = null;
+            var      awaitingIsNew  = false;
 
             lock (lockObject)
             {
 
                 lastShown   = HostKeyBlob;
                 mismatched  = false;
+                isAwaiting  = false;
 
                 if (policy is not null)
                 {
@@ -336,6 +389,23 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
                 else if (learned is not null)
                     believed = learned == SshFingerprint.Sha256(HostKeyBlob);
+
+                // Written down and not believed, whichever key it is: the one
+                // waiting, or another one, which takes its place (Q7).
+                else if (TrustOnFirstUse == SshTrustOnFirstUse.Ask)
+                {
+
+                    var shown   = SshFingerprint.Sha256(HostKeyBlob);
+
+                    awaitingIsNew  = awaiting != shown;
+                    awaitedBefore  = awaitingIsNew ? awaiting : null;
+                    awaiting       = shown;
+                    awaitingNow    = shown;
+
+                    isAwaiting  = true;
+                    believed    = false;
+
+                }
 
                 else if (TrustOnFirstUse == SshTrustOnFirstUse.HostKey)
                 {
@@ -357,7 +427,12 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             if (tolerated is not null)
                 OnMismatchTolerated?.Invoke(tolerated);
 
-            if (!believed)
+            if (awaitingNow is not null)
+                OnAwaiting?.Invoke(awaitingNow, awaitedBefore, awaitingIsNew);
+
+            // Waiting is not a refusal of the server: it is a question to an
+            // admin, and asked by OnAwaiting.
+            if (!believed && !IsAwaiting)
                 OnRefused?.Invoke(WhyRefused());
 
             return believed;
@@ -376,9 +451,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         {
             lock (lockObject)
             {
-                this.Pins     = Pins;
-                this.policy   = Pins.Count > 0 ? HostKeyPolicy.Pin([.. Pins]) : null;
-                this.learned  = null;
+                this.Pins      = Pins;
+                this.policy    = Pins.Count > 0 ? HostKeyPolicy.Pin([.. Pins]) : null;
+                this.learned   = null;
+                this.awaiting  = null;
             }
         }
 
@@ -426,6 +502,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 if (learned is not null)
                     return $"its server showed {shown}, which is not the one learned on its first connection ({learned}), " +
                             "still on probation";
+
+                if (TrustOnFirstUse == SshTrustOnFirstUse.Ask)
+                    return $"its server showed {shown}, which waits for an admin to confirm it - nothing goes over the connection until " +
+                            "then";
 
                 return $"its server showed {shown}, and nothing says which one to believe: no host key is pinned, " +
                         "and trust on first use is off";

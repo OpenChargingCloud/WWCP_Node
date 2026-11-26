@@ -711,6 +711,74 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public DateTimeOffset? SshLearnedAt         { get; internal set; }
 
         /// <summary>
+        /// The SHA-256 fingerprint of the host key shown to a connection that
+        /// trusts on first use by asking, while it waits for an admin to
+        /// confirm it - or null (mDNS-Concept.md, B.4).
+        /// </summary>
+        public String?         SshAwaitingHostKey   { get; internal set; }
+
+        /// <summary>
+        /// When <see cref="SshAwaitingHostKey"/> was shown.
+        /// </summary>
+        public DateTimeOffset? SshAwaitingSince     { get; internal set; }
+
+        /// <summary>
+        /// Who confirmed the host key or the key pin of this connection's server
+        /// that it was asked about, and when: the account (Q6) - or null where
+        /// nobody did.
+        /// </summary>
+        public String?         KeyConfirmedBy       { get; internal set; }
+
+        /// <summary>
+        /// When <see cref="KeyConfirmedBy"/> confirmed it.
+        /// </summary>
+        public DateTimeOffset? KeyConfirmedAt       { get; internal set; }
+
+        /// <summary>
+        /// The host key or key pin an admin turned down - or null: while it is
+        /// set, the connection is not made, until somebody saves it again or
+        /// confirms a key (mDNS-Concept.md, B.4).
+        /// </summary>
+        public String?         KeyRejected          { get; internal set; }
+
+        /// <summary>
+        /// Who turned <see cref="KeyRejected"/> down.
+        /// </summary>
+        public String?         KeyRejectedBy        { get; internal set; }
+
+        /// <summary>
+        /// When <see cref="KeyRejected"/> was turned down.
+        /// </summary>
+        public DateTimeOffset? KeyRejectedAt        { get; internal set; }
+
+        /// <summary>
+        /// The host key or key pin that waits for an admin to confirm it, as a
+        /// text - or null.
+        /// </summary>
+        public String?         KeyAwaiting
+
+            => SshAwaitingHostKey ?? ServerKeyPinAwaiting?.ToString();
+
+        /// <summary>
+        /// Whether this connection goes to a host under ".local": found by
+        /// Multicast DNS, which says nothing of who answered.
+        /// </summary>
+        public Boolean         IsLocalHost
+
+            => org.GraphDefined.Vanaheimr.Hermod.DNS.MulticastDNS.IsLocalName(URL.Host.ToString());
+
+        /// <summary>
+        /// How an ssh:// connection trusts on first use in effect: as it says,
+        /// or "Ask" where it goes to a host under ".local", pins no host key and
+        /// says nothing (mDNS-Concept.md, Q2).
+        /// </summary>
+        public SshTrustOnFirstUse  EffectiveSshTrustOnFirstUse
+
+            => SshTrustOnFirstUse == SshTrustOnFirstUse.None && SshHostKey is null && IsLocalHost
+                   ? SshTrustOnFirstUse.Ask
+                   : SshTrustOnFirstUse;
+
+        /// <summary>
         /// The key pins of the keys the server of a wss:// connection may show,
         /// at most <see cref="MaxServerKeyPins"/>; none where nothing is pinned.
         /// </summary>
@@ -772,6 +840,29 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public DateTimeOffset?        ServerKeyPinLearnedAt    { get; internal set; }
 
         /// <summary>
+        /// The key pin of the key shown to a wss:// connection that trusts on
+        /// first use by asking, while it waits for an admin to confirm it - or
+        /// null (mDNS-Concept.md, B.4).
+        /// </summary>
+        public KeyPin?                ServerKeyPinAwaiting     { get; internal set; }
+
+        /// <summary>
+        /// When <see cref="ServerKeyPinAwaiting"/> was shown.
+        /// </summary>
+        public DateTimeOffset?        ServerKeyPinAwaitingSince  { get; internal set; }
+
+        /// <summary>
+        /// How a wss:// connection trusts on first use in effect: as it says,
+        /// or "Ask" where it goes to a host under ".local", pins no key and says
+        /// nothing - such a host is never believed by a CA alone (Q2).
+        /// </summary>
+        public KeyTrustOnFirstUse     EffectiveTrustOnFirstUse
+
+            => TrustOnFirstUse == KeyTrustOnFirstUse.None && ServerKeyPins.Count == 0 && IsSecure && !Inbound && IsLocalHost
+                   ? KeyTrustOnFirstUse.Ask
+                   : TrustOnFirstUse;
+
+        /// <summary>
         /// How long a key pin learned on first use waits for a signed pin set
         /// that confirms it.
         /// </summary>
@@ -808,7 +899,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         public Boolean                IsKeyPinned
 
             => IsSecure && !Inbound &&
-               (ServerKeyPins.Count > 0 || TrustOnFirstUse == KeyTrustOnFirstUse.Key);
+               (ServerKeyPins.Count > 0 || EffectiveTrustOnFirstUse != KeyTrustOnFirstUse.None);
 
         /// <summary>
         /// What the server of a wss:// connection checked by its CA is held to
@@ -1815,7 +1906,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
         #region (static) TryParseTrustOnFirstUse(Text, out Value) / TryParseOnPinMismatch(Text, out Value)
 
         /// <summary>
-        /// "None" or "HostKey", in any case; nothing for "None".
+        /// "None", "HostKey" or "Ask", in any case; nothing for "None".
         /// </summary>
         public static Boolean TryParseTrustOnFirstUse(String? Text, out SshTrustOnFirstUse Value)
         {
@@ -1868,7 +1959,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             if (!TryParseTrustOnFirstUse(TrustText, out Trust))
             {
-                Error = $"'{TrustText}' says nothing of trust on first use: it is 'None' or 'HostKey'.";
+                Error = $"'{TrustText}' says nothing of trust on first use: it is 'None', 'HostKey' or 'Ask'.";
                 return false;
             }
 
@@ -2027,7 +2118,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                 !(Enum.TryParse(TrustText.Trim(), ignoreCase: true, out Trust) && Enum.IsDefined(Trust)))
             {
                 Trust  = KeyTrustOnFirstUse.None;
-                Error  = $"'{TrustText}' says nothing of trust on first use: it is 'None' or 'Key'.";
+                Error  = $"'{TrustText}' says nothing of trust on first use: it is 'None', 'Key' or 'Ask'.";
                 return false;
             }
 
@@ -2119,7 +2210,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
 
             Error = null;
 
-            if (Pins is not null && Pins.SaysAnything && (KeyPins.Count > 0 || Trust == KeyTrustOnFirstUse.Key))
+            if (Pins is not null && Pins.SaysAnything && (KeyPins.Count > 0 || Trust != KeyTrustOnFirstUse.None))
             {
                 Error = "A connection is checked by its CA or known by the key of its server, not both: one with key pins, or learning " +
                         "the key on first use, checks no chain, so a certificate, a root or a group of roots it is held to would never be asked. " +
@@ -2309,6 +2400,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                                          ? WrittenAt(JSON["serverKeyPinLearnedAt"])
                                          : null;
 
+            // What waits for an admin, only where nothing is pinned.
+            var keyPinAwaiting     = serverKeyPins.Count == 0 && KeyPin.TryParse(JSON.Value<String>("serverKeyPinAwaiting"), out var awaitingPin)
+                                         ? awaitingPin
+                                         : null;
+
             if (!ConnectionIdentity.TryParse(JSON["identities"], out var identities, out var wrongIdentities))
             {
                 Error = $"connection '{id}': {wrongIdentities}";
@@ -2362,6 +2458,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                         SshHostKeysVersion  = JSON.Value<UInt64?>("sshHostKeysVersion") ?? 0,
                         SshLearnedHostKey   = hostKey is null ? Named(JSON.Value<String>("sshLearnedHostKey")) : null,
                         SshLearnedAt        = hostKey is null ? learnedAt : null,
+                        SshAwaitingHostKey  = hostKey is null ? Named(JSON.Value<String>("sshAwaitingHostKey")) : null,
+                        SshAwaitingSince    = hostKey is null ? WrittenAt(JSON["sshAwaitingSince"]) : null,
+                        KeyConfirmedBy      = Named(JSON.Value<String>("keyConfirmedBy")),
+                        KeyConfirmedAt      = WrittenAt(JSON["keyConfirmedAt"]),
+                        KeyRejected         = Named(JSON.Value<String>("keyRejected")),
+                        KeyRejectedBy       = Named(JSON.Value<String>("keyRejectedBy")),
+                        KeyRejectedAt       = WrittenAt(JSON["keyRejectedAt"]),
                         ServerKeyPins              = serverKeyPins,
                         ServerKeyPinsVersion       = serverKeyPins.Count > 0 ? JSON.Value<UInt64?>("serverKeyPinsVersion") ?? 0 : 0,
                         ServerKeyPinsConfirmed     = serverKeyPins.Count > 0 && JSON.Value<String>("serverKeyPinState") == nameof(KeyPinState.Confirmed),
@@ -2370,6 +2473,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                         ServerKeyPinProbationTime  = keyPinProbationTime,
                         ServerKeyPinLearned        = keyPinLearned,
                         ServerKeyPinLearnedAt      = keyPinLearnedAt,
+                        ServerKeyPinAwaiting       = keyPinAwaiting,
+                        ServerKeyPinAwaitingSince  = keyPinAwaiting is not null ? WrittenAt(JSON["serverKeyPinAwaitingSince"]) : null,
                         Pins                       = pins,
                         PinsVersion                = pins is { Roots.Count: > 0 } ? JSON.Value<UInt64?>("pinsVersion") ?? 0 : 0,
                         HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
@@ -2436,6 +2541,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
             if (CertificateId    is not null)  json.Add(new JProperty("certificateId",     CertificateId));
             if (Identities.Count > 0)          json.Add(new JProperty("identities",        ConnectionIdentity.ToJSON(Identities)));
             if (SshHostKey       is not null)  json.Add(new JProperty("sshHostKey",        SshHostKey));
+            if (KeyConfirmedBy   is not null)  json.Add(new JProperty("keyConfirmedBy",    KeyConfirmedBy));
+            if (KeyConfirmedAt   is not null)  json.Add(new JProperty("keyConfirmedAt",    KeyConfirmedAt.Value.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
+            if (KeyRejected      is not null)  json.Add(new JProperty("keyRejected",       KeyRejected));
+            if (KeyRejectedBy    is not null)  json.Add(new JProperty("keyRejectedBy",     KeyRejectedBy));
+            if (KeyRejectedAt    is not null)  json.Add(new JProperty("keyRejectedAt",     KeyRejectedAt.Value.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
 
             if (IsSSH)
             {
@@ -2452,6 +2562,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     json.Add(new JProperty("sshLearnedHostKey",  SshLearnedHostKey));
                     json.Add(new JProperty("sshLearnedAt",       SshLearnedAt?.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
                 }
+
+                if (SshAwaitingHostKey is not null)
+                {
+                    json.Add(new JProperty("sshAwaitingHostKey",  SshAwaitingHostKey));
+                    json.Add(new JProperty("sshAwaitingSince",    SshAwaitingSince?.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
+                }
+
+                if (EffectiveSshTrustOnFirstUse != SshTrustOnFirstUse)
+                    json.Add(new JProperty("sshTrustOnFirstUseInEffect",  EffectiveSshTrustOnFirstUse.ToString()));
 
             }
 
@@ -2480,6 +2599,15 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                     json.Add(new JProperty("serverKeyPinLearned",    ServerKeyPinLearned.ToHex()));
                     json.Add(new JProperty("serverKeyPinLearnedAt",  ServerKeyPinLearnedAt?.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
                 }
+
+                if (ServerKeyPinAwaiting is not null)
+                {
+                    json.Add(new JProperty("serverKeyPinAwaiting",       ServerKeyPinAwaiting.ToHex()));
+                    json.Add(new JProperty("serverKeyPinAwaitingSince",  ServerKeyPinAwaitingSince?.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
+                }
+
+                if (EffectiveTrustOnFirstUse != TrustOnFirstUse)
+                    json.Add(new JProperty("trustOnFirstUseInEffect",    EffectiveTrustOnFirstUse.ToString()));
 
                 // What a connection checked by its CA is held to beside that,
                 // as the entry of a time server, a name server or a meter
@@ -2621,6 +2749,13 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    SshHostKeysVersion  = SshHostKeysVersion,
                    SshLearnedHostKey   = SshLearnedHostKey,
                    SshLearnedAt        = SshLearnedAt,
+                   SshAwaitingHostKey  = SshAwaitingHostKey,
+                   SshAwaitingSince    = SshAwaitingSince,
+                   KeyConfirmedBy      = KeyConfirmedBy,
+                   KeyConfirmedAt      = KeyConfirmedAt,
+                   KeyRejected         = KeyRejected,
+                   KeyRejectedBy       = KeyRejectedBy,
+                   KeyRejectedAt       = KeyRejectedAt,
                    ServerKeyPins              = ServerKeyPins,
                    ServerKeyPinsVersion       = ServerKeyPinsVersion,
                    ServerKeyPinsConfirmed     = ServerKeyPinsConfirmed,
@@ -2628,6 +2763,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Connections
                    TrustOnFirstUse            = TrustOnFirstUse,
                    ServerKeyPinLearned        = ServerKeyPinLearned,
                    ServerKeyPinLearnedAt      = ServerKeyPinLearnedAt,
+                   ServerKeyPinAwaiting       = ServerKeyPinAwaiting,
+                   ServerKeyPinAwaitingSince  = ServerKeyPinAwaitingSince,
                    ServerKeyPinProbationTime  = ServerKeyPinProbationTime,
                    Pins                       = Pins,
                    PinsVersion                = PinsVersion,

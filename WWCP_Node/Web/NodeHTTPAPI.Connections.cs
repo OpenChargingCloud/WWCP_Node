@@ -81,6 +81,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             AddHandler(HTTPPath.Root + "v1/configuration/connections/update",     PostUpdateConnection,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/remove",     PostRemoveConnection,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/test",       PostTestConnection,        HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/confirmKey", PostConfirmKey,            HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/rejectKey",  PostRejectKey,             HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners",         PostPinSetSigner,        HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners/remove",  PostRemovePinSetSigner,  HTTPMethod.POST);
 
@@ -448,6 +450,67 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
         /// The credentials it was using stay behind: they are frequently the
         /// ones whatever replaces it will use.
         /// </remarks>
+        /// <summary>
+        /// POST /api/v1/configuration/connections/confirmKey with { "id", "key" }:
+        /// confirm the host key or key pin that waits for an admin - or one
+        /// learned on first use and on probation (mDNS-Concept.md, B.4). It is
+        /// pinned from now on, with who confirmed it and when; the address the
+        /// confirmation came from goes into the security log (Q6). "key" is the
+        /// one that was shown, so that another one waiting meanwhile (Q7) is not
+        /// confirmed unseen.
+        /// </summary>
+        /// <remarks>
+        /// At the right to change the connections: it decides whom this node
+        /// believes.
+        /// </remarks>
+        protected Task<HTTPResponse> PostConfirmKey(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(connectionsResource!), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var id = json.Value<String>("id");
+
+            if (!Node.Connections.TryConfirmKey(id, $"{user.Id}", json.Value<String>("key"), out var confirmed, out var error))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, false));
+
+            Log.Notice($"'{user.Id}' confirmed the key {confirmed} of connection '{id}' from {Node.ClientAddressOf(Request)?.ToString() ?? Request.RemoteSocket.ToString()}.",
+                       "ocpp", "connections", "web", "security");
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections/rejectKey with { "id" }: turn
+        /// down the host key or key pin that waits for an admin. It is
+        /// forgotten, and the connection is not made until somebody saves it
+        /// again or confirms a key.
+        /// </summary>
+        protected Task<HTTPResponse> PostRejectKey(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(connectionsResource!), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var id = json.Value<String>("id");
+
+            if (!Node.Connections.TryRejectKey(id, $"{user.Id}", out var rejected, out var error))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, false));
+
+            Log.Notice($"'{user.Id}' turned down the key {rejected} of connection '{id}' from {Node.ClientAddressOf(Request)?.ToString() ?? Request.RemoteSocket.ToString()}.",
+                       "ocpp", "connections", "web", "security");
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON()));
+
+        }
+
         protected Task<HTTPResponse> PostRemoveConnection(HTTPRequest Request)
         {
 
