@@ -1750,6 +1750,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                   ? asking[0]
                                   : null);
 
+                // What the time server of the SSH logins says about this clock rests on it.
+                if (Group.IsLegal)
+                    RememberTheLegalUpstream(verdict, group.MaxDeviation);
+
                 // Written down, which is what the white paper asks for: the
                 // disagreement belongs in the metrological log book. That there
                 // is a time all the same means a majority of the servers agreed

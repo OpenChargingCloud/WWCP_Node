@@ -30,7 +30,7 @@ function aServer(Changes: Partial<SSHConfiguration> = {}): SSHConfiguration {
         sftpByDefault:  false,
         dns:            { enabled: false, served: false, subsystem: 'dns@open.charging.cloud', upstream: '9.9.9.9, 149.112.112.112' },
         nts:            { enabled: false, served: false, subsystem: 'ntske/1@open.charging.cloud', ntpPort: 123, ntpHost: null,
-                          masterKeys: 'ssh/nts_master_keys.json' },
+                          plainNTP: false, masterKeys: 'ssh/nts_master_keys.json', clock: null },
         namesAndTimeProblem: null,
         listenAddress:  '127.0.0.1',
         url:            'ssh://127.0.0.1:22347',
@@ -71,6 +71,7 @@ function node({ method, path, body }: Asked): unknown {
                  dns: { ...held.dns, enabled: update.dns?.enabled ?? held.dns.enabled, served: update.dns?.enabled ?? held.dns.served },
                  nts: { ...held.nts, enabled: update.nts?.enabled ?? held.nts.enabled, served: update.nts?.enabled ?? held.nts.served,
                         ntpPort: update.nts?.ntpPort ?? held.nts.ntpPort,
+                        plainNTP: update.nts?.plainNTP ?? held.nts.plainNTP,
                         ntpHost: update.nts?.ntpHost === undefined ? held.nts.ntpHost : update.nts.ntpHost.length > 0 ? update.nts.ntpHost : null } };
         return held;
     }
@@ -590,13 +591,20 @@ describe('what the form of names and time sends', () => {
     it('is both switches, the port - 123 where emptied - and the host, an emptied one sent empty', () => {
 
         assert.deepEqual(namesAndTimeUpdate(form({ dns: 'on', nts: 'on', ntpPort: '123', ntpHost: '' })),
-                         { dns: { enabled: true }, nts: { enabled: true, ntpPort: 123, ntpHost: '' } });
+                         { dns: { enabled: true }, nts: { enabled: true, ntpPort: 123, ntpHost: '', plainNTP: false } });
 
         assert.deepEqual(namesAndTimeUpdate(form({ ntpPort: '', ntpHost: '  ' })),
-                         { dns: { enabled: false }, nts: { enabled: false, ntpPort: 123, ntpHost: '' } });
+                         { dns: { enabled: false }, nts: { enabled: false, ntpPort: 123, ntpHost: '', plainNTP: false } });
 
         assert.deepEqual(namesAndTimeUpdate(form({ nts: 'on', ntpPort: '1123', ntpHost: ' lc.example.org ' })),
-                         { dns: { enabled: false }, nts: { enabled: true, ntpPort: 1123, ntpHost: 'lc.example.org' } });
+                         { dns: { enabled: false }, nts: { enabled: true, ntpPort: 1123, ntpHost: 'lc.example.org', plainNTP: false } });
+
+    });
+
+    it('is plain NTP where its box is ticked, and NTS alone where not', () => {
+
+        assert.equal((namesAndTimeUpdate(form({ nts: 'on', ntpPort: '123', plainNTP: 'on' })) as SSHUpdate).nts?.plainNTP, true);
+        assert.equal((namesAndTimeUpdate(form({ nts: 'on', ntpPort: '123' }))                   as SSHUpdate).nts?.plainNTP, false);
 
     });
 
@@ -634,7 +642,7 @@ describe('names and time for stations, on the SSH page', () => {
 
         const root = await opened({ dns: { enabled: true, served: true, subsystem: 'dns@open.charging.cloud', upstream: '9.9.9.9' },
                                     nts: { enabled: true, served: false, subsystem: 'ntske/1@open.charging.cloud', ntpPort: 1123, ntpHost: 'lc.example.org',
-                                           masterKeys: 'ssh/nts_master_keys.json' },
+                                           plainNTP: false, masterKeys: 'ssh/nts_master_keys.json', clock: null },
                                     configured: { enabled: true, port: 22347, dns: { enabled: true }, nts: { enabled: true, ntpPort: 1123, ntpHost: 'lc.example.org' } },
                                     namesAndTimeProblem: 'The time server of the SSH logins could not be given port 1123: something else is already listening on it.' });
 
@@ -658,7 +666,7 @@ describe('names and time for stations, on the SSH page', () => {
         send(root);
         await until(() => /^Saved/.test(root.querySelector('#names-and-time-note')?.textContent ?? ''), 'the save did not go through');
 
-        assert.deepEqual(puts().map(one => one.body), [ { dns: { enabled: true }, nts: { enabled: true, ntpPort: 123, ntpHost: '' } } ]);
+        assert.deepEqual(puts().map(one => one.body), [ { dns: { enabled: true }, nts: { enabled: true, ntpPort: 123, ntpHost: '', plainNTP: false } } ]);
         assert.match(root.querySelector('#dns-state')!.textContent!, /^served/);
         assert.match(root.querySelector('#nts-state')!.textContent!, /^served/);
 
@@ -701,7 +709,60 @@ describe('names and time for stations, on the SSH page', () => {
         assert.equal(box(root, 'nts').disabled,     true);
         assert.equal(box(root, 'ntpPort').disabled, true);
         assert.equal(box(root, 'ntpHost').disabled, true);
+        assert.equal(box(root, 'plainNTP').disabled, true);
         assert.ok(root.querySelector<HTMLButtonElement>('#names-and-time-form button[type="submit"]')!.disabled, 'the save is offered');
+
+    });
+
+    it('answers no plain NTP unless asked, and sends it where its box is ticked', async () => {
+
+        const root = await opened();
+
+        assert.equal(box(root, 'plainNTP').checked, false, 'plain NTP is offered where nothing says so');
+        assert.doesNotMatch(root.querySelector('#nts-state')!.textContent!, /plain NTP/);
+
+        box(root, 'nts').checked      = true;
+        box(root, 'plainNTP').checked = true;
+
+        send(root);
+        await until(() => /^Saved/.test(root.querySelector('#names-and-time-note')?.textContent ?? ''), 'the save did not go through');
+
+        assert.equal((puts()[0]!.body as SSHUpdate).nts?.plainNTP, true);
+        assert.match(root.querySelector('#nts-state')!.textContent!, /, and plain NTP$/);
+        assert.equal(box(root, 'plainNTP').checked, true);
+
+    });
+
+    it('says what its time server says about the clock: synchronised, from where', async () => {
+
+        const root = await opened({ nts: { enabled: true, served: true, subsystem: 'ntske/1@open.charging.cloud', ntpPort: 123, ntpHost: null,
+                                           plainNTP: false, masterKeys: 'ssh/nts_master_keys.json',
+                                           clock: { stratum: 2, reference: 'ptbtime1.ptb.de', synchronised: true, checked: true, why: null } } });
+
+        assert.match(root.querySelector('#nts-clock')!.textContent!, /synchronised\s+Stratum 2, from ptbtime1\.ptb\.de/);
+
+    });
+
+    it('says when no station takes its time, and why', async () => {
+
+        const clock = (why: string) => ({ nts: { enabled: true, served: true, subsystem: 'ntske/1@open.charging.cloud', ntpPort: 123, ntpHost: null,
+                                                 plainNTP: false, masterKeys: 'ssh/nts_master_keys.json',
+                                                 clock: { stratum: 16, reference: 'ptbtime1.ptb.de', synchronised: false, checked: true, why } } });
+
+        assert.match((await opened(clock('offBy'))).querySelector('#nts-clock')!.textContent!,        /not synchronised.*No station takes its time: .*further off/s);
+        assert.match((await opened(clock('stale'))).querySelector('#nts-clock')!.textContent!,        /not been checked for too long/);
+        assert.match((await opened(clock('neverChecked'))).querySelector('#nts-clock')!.textContent!, /not been checked yet/);
+
+    });
+
+    it('says that an unchecked clock is handed out as an uncalibrated local clock, and nothing where it is not served', async () => {
+
+        const root = await opened({ nts: { enabled: true, served: true, subsystem: 'ntske/1@open.charging.cloud', ntpPort: 123, ntpHost: null,
+                                           plainNTP: false, masterKeys: 'ssh/nts_master_keys.json',
+                                           clock: { stratum: 1, reference: 'LOCL', synchronised: true, checked: false, why: null } } });
+
+        assert.match(root.querySelector('#nts-clock')!.textContent!, /Stratum 1, LOCL: the clock is not checked/);
+        assert.equal((await opened()).querySelector('#nts-clock'), null);
 
     });
 

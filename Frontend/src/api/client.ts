@@ -270,6 +270,23 @@ export interface DNSSettings {
 }
 
 /** How the node resolves names. */
+/**
+ * What the time server of the SSH logins says about its clock (RFC 5905 § 7.3),
+ * from the check of this node's clock against its legal group.
+ */
+export interface SSHTimeServerClock {
+    /** The stratum it reports: one below the server the check rests on, 16 where it is not synchronised. */
+    stratum:       number;
+    /** The server the check rests on, "LOCL" where the clock is not checked, or null where none was found yet. */
+    reference:     string | null;
+    /** Whether a station takes its time from it. */
+    synchronised:  boolean;
+    /** Whether the clock is checked against NTS at all. */
+    checked:       boolean;
+    /** Why it is not synchronised: "neverChecked", "stale" or "offBy" - or null. */
+    why:           string | null;
+}
+
 /** The SSH server the command line is served over, as its page shows it. */
 export interface SSHConfiguration {
     /** Whether it runs, on which port, whether passwords open it, and whether it serves SFTP - as it is now. */
@@ -284,7 +301,9 @@ export interface SSHConfiguration {
     /** Names for the logins of the kind - its stations - over their SSH connection, passed on to this node's name servers. */
     dns:            { enabled: boolean; served: boolean; subsystem: string; upstream: string };
     /** Time for the logins of the kind: NTS-KE over their SSH connection, NTP with NTS on a UDP port of this node. */
-    nts:            { enabled: boolean; served: boolean; subsystem: string; ntpPort: number; ntpHost: string | null; masterKeys: string };
+    nts:            { enabled: boolean; served: boolean; subsystem: string; ntpPort: number; ntpHost: string | null; plainNTP: boolean; masterKeys: string;
+                      /** What its time server says about its clock while it runs, or null. */
+                      clock: SSHTimeServerClock | null };
     /** Why names or time are not served as the file says - a port that is taken, say - or null. */
     namesAndTimeProblem: string | null;
     listenAddress:  string;
@@ -296,7 +315,7 @@ export interface SSHConfiguration {
     /** What the file's "ssh" section says. */
     configured:     { enabled?: boolean; port?: number; passwords?: boolean; strictKex?: boolean; sftp?: boolean; accessRules?: SSHAccessRule[];
                       maxConnections?: Record<string, number>;
-                      dns?: { enabled?: boolean }; nts?: { enabled?: boolean; ntpPort?: number; ntpHost?: string } };
+                      dns?: { enabled?: boolean }; nts?: { enabled?: boolean; ntpPort?: number; ntpHost?: string; plainNTP?: boolean } };
     /** The SSH access rules in effect, the first that matches deciding. */
     accessRules:    SSHAccessRule[];
     /** What a switch on the command line said, which wins over the file: --no-ssh, --ssh-port. */
@@ -355,7 +374,7 @@ export interface SSHUpdate {
     /** Names for the logins of the kind over their SSH connection. */
     dns?:          { enabled?: boolean };
     /** Time for the logins of the kind; a host sent empty takes the host away. */
-    nts?:          { enabled?: boolean; ntpPort?: number; ntpHost?: string };
+    nts?:          { enabled?: boolean; ntpPort?: number; ntpHost?: string; plainNTP?: boolean };
     /** The access rules, replacing those there are: objects, or lines as the command line writes them. */
     accessRules?:  (SSHAccessRule | string)[];
 }

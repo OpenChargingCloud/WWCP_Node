@@ -1,4 +1,4 @@
-import { nodeAPI, type SSHAccessRule, type SSHConfiguration, type SSHUpdate } from '../api/client';
+import { nodeAPI, type SSHAccessRule, type SSHConfiguration, type SSHTimeServerClock, type SSHUpdate } from '../api/client';
 import { auth } from '../auth';
 import { config } from '../config';
 import { must } from '../html';
@@ -88,6 +88,7 @@ export function namesAndTimeUpdate(Form: FormData): SSHUpdate | string {
     const ntpPort   = typedPort.length > 0 ? Number(typedPort) : 123;
     const ntpHost   = String(Form.get('ntpHost') ?? '').trim();
     const nts       = Form.get('nts') !== null;
+    const plainNTP  = Form.get('plainNTP') !== null;
 
     if (!(Number.isInteger(ntpPort) && ntpPort >= 1 && ntpPort <= 65535))
         return 'A port is a whole number from 1 to 65535.';
@@ -97,7 +98,7 @@ export function namesAndTimeUpdate(Form: FormData): SSHUpdate | string {
 
     return {
         dns: { enabled: Form.get('dns') !== null },
-        nts: { enabled: nts, ntpPort, ntpHost }
+        nts: { enabled: nts, ntpPort, ntpHost, plainNTP }
     };
 
 }
@@ -281,6 +282,21 @@ export const sshPage: Page = {
         }
 
 
+        /** What the time server of the stations says about its clock, from the check of this node's clock. */
+        function timeServerClock(clock: SSHTimeServerClock): TemplateResult {
+
+            const why = clock.why === 'stale'  ? 'its clock has not been checked for too long'
+                      : clock.why === 'offBy'  ? 'its clock was found further off than the legal time allows'
+                      :                          'its clock has not been checked yet';
+
+            return !clock.checked
+                ? html`<p id="nts-clock" class="hint">Stratum 1, <code>LOCL</code>: the clock is not checked against NTS, and is handed out as an uncalibrated local clock.</p>`
+                : clock.synchronised
+                    ? html`<p id="nts-clock" class="hint"><span class="chip ok">synchronised</span> Stratum ${clock.stratum}, from <code>${clock.reference}</code>, as the check of the clock found it.</p>`
+                    : html`<p id="nts-clock" class="hint"><span class="chip warn">not synchronised</span> No station takes its time: ${why}.</p>`;
+
+        }
+
         /** Names and time for the stations over their SSH connection - and the form that switches them. */
         function namesAndTimeCard(ssh: SSHConfiguration): TemplateResult {
 
@@ -297,7 +313,8 @@ export const sshPage: Page = {
                     </p>
 
                     <p id="dns-state">${served(ssh.dns.served)} DNS, passed on to the name servers of this ${config.nodeName}: <code>${ssh.dns.upstream}</code></p>
-                    <p id="nts-state">${served(ssh.nts.served)} Time: NTS-KE over SSH, NTP with NTS on UDP port <code>${ssh.nts.ntpPort}</code>${ssh.nts.ntpHost !== null ? html` of <code>${ssh.nts.ntpHost}</code>` : nothing}</p>
+                    <p id="nts-state">${served(ssh.nts.served)} Time: NTS-KE over SSH, NTP with NTS on UDP port <code>${ssh.nts.ntpPort}</code>${ssh.nts.ntpHost !== null ? html` of <code>${ssh.nts.ntpHost}</code>` : nothing}${ssh.nts.plainNTP ? ', and plain NTP' : ''}</p>
+                    ${ssh.nts.clock === null ? nothing : timeServerClock(ssh.nts.clock)}
 
                     ${ssh.namesAndTimeProblem === null ? nothing : html`
                         <div class="error-box" id="names-and-time-problem">${ssh.namesAndTimeProblem}</div>
@@ -315,6 +332,12 @@ export const sshPage: Page = {
                             <input type="checkbox" name="nts" ?checked=${ssh.configured.nts?.enabled ?? ssh.nts.enabled} ?disabled=${!mayChange} />
                             Give the stations their time
                             <span class="hint">The time of the clock of this machine, from a time server of its own: its NTS keys over SSH alone, its master keys in <span class="path">${ssh.nts.masterKeys}</span>.</span>
+                        </label>
+
+                        <label class="checkbox">
+                            <input type="checkbox" name="plainNTP" ?checked=${ssh.configured.nts?.plainNTP ?? ssh.nts.plainNTP} ?disabled=${!mayChange} />
+                            Answer plain NTP as well
+                            <span class="hint">Without NTS, a time anybody on the network could have answered in its place. Off: NTS alone.</span>
                         </label>
 
                         <label>UDP port of NTP

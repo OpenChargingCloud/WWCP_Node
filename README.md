@@ -1321,17 +1321,41 @@ is taken - by a time server of the machine, say - or that the node may not
 bind (below 1024 on Linux without the right to) is said in the log, on the
 page and in the answer's `notice`; the node runs on without it.
 
+It answers NTS alone: a plain NTP request, without NTS, gets no answer at all
+- a time anybody on the network could have answered in its place is not one
+the node hands out unless asked to. `"plainNTP": true` answers it as well.
+
+What it says about its clock (RFC 5905 § 7.3) is what the check of the clock
+against the legal group found - the node does not set the clock, it checks it:
+
+- Found within `legalTimeToleranceSeconds` by a check no older than
+  `legalTimeMaxAgeSeconds`: one stratum below the server the check rests on -
+  of the servers that agree, the one of the lowest stratum, and of these the
+  closest to its reference - that server as the reference identifier (its
+  IPv4 address, or the first four octets of the MD5 of its IPv6 address), its
+  root delay with the round trip to it, its root dispersion with the offset
+  found and what the clock may have drifted since, and a leap second it
+  announces.
+- Never checked yet, checked too long ago, or found further off: not
+  synchronised - leap indicator 3, stratum 16 - and no station takes its time
+  from it, but keeps its own.
+- Not checked at all, NTS switched off: stratum 1 and `LOCL`, an uncalibrated
+  local clock, which is what it then is.
+
+The log says when it changes between these.
+
 Who has either is the station's login group's, as ever: the channel among its
 SSH channels, and the SSH access rules besides. No account is given either. A
 kind that serves one of the two subsystems itself - a name server, a time
 server - keeps its own, and the log says so.
 
 **Configuration > SSH server** shows both under *Names and time for
-stations*, with what is served, on which port of which host, and why not
-where something is not; `GET /api/v1/configuration/ssh` says it as `dns`,
-`nts` and `namesAndTimeProblem`, and `PUT` takes `"dns": { "enabled" }` and
-`"nts": { "enabled", "ntpPort", "ntpHost" }` - an `ntpHost` sent empty takes
-the host away - and makes them at once.
+stations*, with what is served, on which port of which host, what the time
+server says about its clock, and why not where something is not;
+`GET /api/v1/configuration/ssh` says it as `dns`, `nts` - with `plainNTP` and
+`clock` - and `namesAndTimeProblem`, and `PUT` takes `"dns": { "enabled" }`
+and `"nts": { "enabled", "ntpPort", "ntpHost", "plainNTP" }` - an `ntpHost`
+sent empty takes the host away - and makes them at once.
 
 
 ## Files over SFTP

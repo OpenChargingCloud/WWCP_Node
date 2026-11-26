@@ -492,6 +492,55 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
+        #region PlainNTP_IsAnsweredOnlyWhereTheFileSaysSo
+
+        /// <summary>
+        /// The time server answers NTS alone where the file says nothing: a plain NTP request gets
+        /// no answer. "plainNTP": true - saved, and in effect at once - and it is answered; false
+        /// again, and it is not.
+        /// </summary>
+        [Test]
+        [CancelAfter(60000)]
+        public async Task PlainNTP_IsAnsweredOnlyWhereTheFileSaysSo(CancellationToken CancellationToken)
+        {
+
+            var (node, ntpPort) = await Started(SSHSection: """, "nts": { "enabled": true, "ntpPort": {{ntpPort}}, "ntpHost": "127.0.0.1" }""");
+
+            var byDefault      = await AskPlainAsync(node, ntpPort);
+            var byDefaultJSON  = node.SSHConfigurationJSON()["nts"]!["plainNTP"]!.Value<Boolean>();
+            var ignored        = node.TimeServerOfSSHLogins!.Metrics.NTPPlainRequestsIgnored;
+
+            var on             = await node.TryUpdateSSHConfiguration(JObject.Parse("""{ "nts": { "plainNTP": true } }"""));
+
+            var answered       = await AskPlainAsync(node, ntpPort);
+            var onJSON         = node.SSHConfigurationJSON()["nts"]!["plainNTP"]!.Value<Boolean>();
+            var saved          = JObject.Parse(File.ReadAllText(ConfigPath))["ssh"]!["nts"]!;
+
+            var off            = await node.TryUpdateSSHConfiguration(JObject.Parse("""{ "nts": { "plainNTP": false } }"""));
+
+            var again          = await AskPlainAsync(node, ntpPort);
+
+            Assert.Multiple(() => {
+                Assert.That(byDefault,                                    Is.Null,     "plain NTP answered where the file says nothing");
+                Assert.That(byDefaultJSON,                                Is.False);
+                Assert.That(ignored,                                      Is.EqualTo(1), "the request left unanswered is not counted");
+                Assert.That(on.IsChanged,                                 Is.True,     on.Error);
+                Assert.That(answered,                                     Is.Not.Null, "plain NTP not answered where the file says so");
+                Assert.That(onJSON,                                       Is.True);
+                Assert.That(saved["plainNTP"]?.Value<Boolean>(),          Is.True,     "not saved");
+                Assert.That(saved["ntpPort"]?.Value<Int32>(),             Is.EqualTo((Int32) ntpPort.ToUInt16()), "the port was lost on the way");
+                Assert.That(off.IsChanged,                                Is.True,     off.Error);
+                Assert.That(again,                                        Is.Null,     "plain NTP still answered after it was switched off");
+                Assert.That(node.TimeServerOfSSHLogins!.PlainNTP,         Is.False);
+                Assert.That(Said("and no plain NTP"),                     Is.True,     "the log does not say it");
+                Assert.That(Said("and plain NTP"),                        Is.True,     "the log does not say it");
+            });
+
+        }
+
+        #endregion
+
+
         #region (private) Started(SSHSection, Logins = null, Prepare = null) / SignIn(...) / helpers
 
         private String ConfigPath
@@ -570,6 +619,33 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         {
             lock (said)
                 return said.Any(line => line.Contains(What, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// The answer of the time server to a plain NTP request - RFC 5905, version 4, mode 3 - or
+        /// null where none came within two seconds.
+        /// </summary>
+        private static async Task<Byte[]?> AskPlainAsync(WWCPNode Node, IPPort NTPPort)
+        {
+
+            var address          = ListenAddressOf(Node);
+            using var udpClient  = new UdpClient(address.AddressFamily);
+
+            var request          = new Byte[48];
+            request[0]           = 0x23;
+            Random.Shared.NextBytes(request.AsSpan(40, 8));
+
+            await udpClient.SendAsync(request, new IPEndPoint(address, NTPPort.ToUInt16()));
+
+            try
+            {
+                return (await udpClient.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(2))).Buffer;
+            }
+            catch (TimeoutException)
+            {
+                return null;
+            }
+
         }
 
         private static IPPort FindFreeUDPPort()

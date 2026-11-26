@@ -142,9 +142,11 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="Enabled">Whether it is served; no where absent.</param>
     /// <param name="NTPPort">The UDP port of NTP and NTS; 123 where absent.</param>
     /// <param name="NTPHost">The name or address the key exchange tells the stations to ask for the time at; none where absent, and the host they signed in at is asked.</param>
+    /// <param name="PlainNTP">Whether plain NTP, without NTS, is answered as well; no where absent.</param>
     public sealed record SSHTimeServiceConfiguration(Boolean?  Enabled   = null,
                                                      IPPort?   NTPPort   = null,
-                                                     String?   NTPHost   = null)
+                                                     String?   NTPHost   = null,
+                                                     Boolean?  PlainNTP  = null)
     {
 
         #region Data
@@ -179,6 +181,14 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public IPPort  NTPPortInEffect
             => NTPPort ?? DefaultNTPPort;
 
+        /// <summary>
+        /// Whether plain NTP, without NTS, is answered: no unless "plainNTP" says yes. A station
+        /// gets its keys over SSH, and a time anybody on the network could have answered in its
+        /// place is not one this node hands out unless asked to.
+        /// </summary>
+        public Boolean PlainNTPInEffect
+            => PlainNTP ?? false;
+
         #endregion
 
         #region (static) TryParse(JSON, out Configuration, out Error)
@@ -201,7 +211,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             if (!ConfigurationReader.TryReadBoolean(json, "enabled",  Path,                out var enabled,  out Error) ||
                 !ConfigurationReader.TryReadPort   (json, "ntpPort",  Path,                out var ntpPort,  out Error) ||
-                !ConfigurationReader.TryReadString (json, "ntpHost",  Path, MaxHostLength, out var ntpHost,  out Error))
+                !ConfigurationReader.TryReadString (json, "ntpHost",  Path, MaxHostLength, out var ntpHost,  out Error) ||
+                !ConfigurationReader.TryReadBoolean(json, "plainNTP", Path,                out var plainNTP, out Error))
                 return false;
 
             if (ntpHost is not null &&
@@ -212,7 +223,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                 return false;
             }
 
-            Configuration = new SSHTimeServiceConfiguration(enabled, ntpPort, ntpHost);
+            Configuration = new SSHTimeServiceConfiguration(enabled, ntpPort, ntpHost, plainNTP);
             return true;
 
         }
@@ -232,6 +243,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (Enabled is not null)  json.Add("enabled",  Enabled.Value);
             if (NTPPort is not null)  json.Add("ntpPort",  NTPPort.Value.ToUInt16());
             if (NTPHost is not null)  json.Add("ntpHost",  NTPHost);
+            if (PlainNTP is not null) json.Add("plainNTP", PlainNTP.Value);
 
             return json;
 
@@ -253,7 +265,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                    ? File
                    : new SSHTimeServiceConfiguration(Sent?.Enabled ?? File?.Enabled,
                                                      Sent?.NTPPort ?? File?.NTPPort,
-                                                     HostCleared ? null : Sent?.NTPHost ?? File?.NTPHost);
+                                                     HostCleared ? null : Sent?.NTPHost ?? File?.NTPHost,
+                                                     Sent?.PlainNTP ?? File?.PlainNTP);
 
         #endregion
 

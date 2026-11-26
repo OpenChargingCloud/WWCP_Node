@@ -52,7 +52,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <para>
     /// <b>Time.</b> A time server of this node's own: NTS key establishment over SSH, the
     /// subsystem "ntske/1@open.charging.cloud", and NTP with NTS on a UDP port of this node, 123
-    /// unless "ssh.nts.ntpPort" says another. Its time is the system clock of this machine. It
+    /// unless "ssh.nts.ntpPort" says another - and plain NTP only where "ssh.nts.plainNTP" says
+    /// so. Its time is the system clock of this machine, and what it says about that clock -
+    /// stratum, reference, whether it is synchronised at all - is what the check of the clock
+    /// against the legal group found, see <see cref="TimeServerClock"/>. It
     /// has no key exchange over TLS: the cookies come over SSH alone, under the key the login
     /// signed in with. Its master keys are kept beside the SSH host key, so that the cookies a
     /// station holds stay good across a restart.
@@ -84,6 +87,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
         private          NTSServer?                    loginTimeServer;
         private          SSHTimeServiceConfiguration?  loginTimeServerAs;
         private          String?                       loginNamesAndTimeProblem;
+        private          ITimer?                       loginTimeServerDescriber;
+        private          TimeServerClock?              loginTimeServerClock;
+        private volatile TimeServerUpstream?           legalTimeUpstream;
 
         #endregion
 
@@ -101,6 +107,21 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// </summary>
         public NTSServer?   TimeServerOfSSHLogins
             => loginTimeServer;
+
+        /// <summary>
+        /// What the time server of the SSH logins says about its clock now, or null where it
+        /// says what it says by default - the clock is not checked - or does not run.
+        /// </summary>
+        public TimeServerClock?     TimeServerOfSSHLoginsClock
+            => loginTimeServer is not null
+                   ? loginTimeServerClock
+                   : null;
+
+        /// <summary>
+        /// The server of the legal group the last good check of the clock rests on, or null.
+        /// </summary>
+        public TimeServerUpstream?  LegalTimeUpstream
+            => legalTimeUpstream;
 
         /// <summary>
         /// Why names or time are not served to the SSH logins as the file says, or null where they are.
@@ -214,8 +235,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // Another port or another host is another server: the one there is goes first.
             if (loginTimeServer is NTSServer running &&
                 (Wanted is null ||
-                 Wanted.NTPPortInEffect != loginTimeServerAs!.NTPPortInEffect ||
-                 Wanted.NTPHost         != loginTimeServerAs.NTPHost))
+                 Wanted.NTPPortInEffect  != loginTimeServerAs!.NTPPortInEffect ||
+                 Wanted.NTPHost          != loginTimeServerAs.NTPHost          ||
+                 Wanted.PlainNTPInEffect != loginTimeServerAs.PlainNTPInEffect))
             {
 
                 await StopTheTimeServerOfSSHLogins(running);
@@ -249,7 +271,8 @@ namespace cloud.charging.open.protocols.WWCP.Node
                              ListenIPAddress:     listenAddress,
                              MasterKeysFilePath:  NTSMasterKeysPath,
                              TimeProvider:        TimeProvider,
-                             NTSKEOverTLS:        false
+                             NTSKEOverTLS:        false,
+                             PlainNTP:            Wanted.PlainNTPInEffect
                          );
 
             try
@@ -290,9 +313,19 @@ namespace cloud.charging.open.protocols.WWCP.Node
             loginTimeServerAs  = Wanted;
 
             Log.Notice($"The SSH logins of this {Kind.Name} get their time from it: NTS-KE over their SSH connection ({NTSKE_SSH.SubsystemName}), " +
-                       $"NTP with NTS on UDP port {port}{(Wanted.NTPHost is String told ? $" of {told}" : "")}, the time of this machine's clock. " +
+                       $"NTP with NTS on UDP port {port}{(Wanted.NTPHost is String told ? $" of {told}" : "")}" +
+                       $"{(Wanted.PlainNTPInEffect ? ", and plain NTP" : ", and no plain NTP")}, the time of this machine's clock. " +
                        $"A login group gives it with the channel {NTSKE_SSH.SubsystemName}.",
                        "ssh", "nts");
+
+            loginTimeServerClock      = null;
+            DescribeTheTimeServerOfSSHLogins();
+
+            // Whatever no check says: that the last one grows old.
+            loginTimeServerDescriber  = TimeProvider.CreateTimer(_ => DescribeTheTimeServerOfSSHLogins(),
+                                                                 null,
+                                                                 TimeServerDescribedEvery,
+                                                                 TimeServerDescribedEvery);
 
             return null;
 
@@ -307,6 +340,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
             loginTimeServer    = null;
             loginTimeServerAs  = null;
+
+            loginTimeServerDescriber?.Dispose();
+            loginTimeServerDescriber  = null;
+            loginTimeServerClock      = null;
 
             StopServingNTSKEOverSSH();
 
@@ -349,6 +386,111 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
+        #region (private) DescribeTheTimeServerOfSSHLogins()
+
+        /// <summary>
+        /// How often the time server of the SSH logins is described anew without a check: the
+        /// last check grows old, and its clock may drift since.
+        /// </summary>
+        public static readonly TimeSpan TimeServerDescribedEvery = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// Tell the time server of the SSH logins what its clock is worth now - see
+        /// <see cref="TimeServerClock"/> - and write down when that changes between synchronised
+        /// and not.
+        /// </summary>
+        private void DescribeTheTimeServerOfSSHLogins()
+        {
+
+            if (loginTimeServer is not NTSServer server)
+                return;
+
+            try
+            {
+
+                var clock   = TimeServerClock.Of(NTSEnabled,
+                                                 legalTimeUpstream,
+                                                 LegalTime.LastCheck,
+                                                 LegalTime.LastCheckOffset,
+                                                 LegalTimeTolerance,
+                                                 LegalTimeMaxAge,
+                                                 TimeProvider.GetUtcNow(),
+                                                 server.ClockResolution);
+
+                var before  = loginTimeServerClock;
+
+                if (clock is null)
+                    server.Redescribe();
+
+                else
+                {
+
+                    server.Redescribe(clock.Stratum,
+                                      clock.Reference,
+                                      clock.RootDelay,
+                                      clock.RootDispersion,
+                                      clock.LeapIndicator);
+
+                    if (clock.IsSynchronised && LegalTime.LastCheck is DateTimeOffset checkedAt)
+                        server.ClockLastSynchronized = checkedAt;
+
+                }
+
+                loginTimeServerClock = clock;
+
+                if (ReferenceEquals(before, clock) ||
+                    (before?.IsSynchronised ?? true) == (clock?.IsSynchronised ?? true) &&
+                    before?.Why                      == clock?.Why                      &&
+                    before?.Upstream?.Hostname       == clock?.Upstream?.Hostname)
+                {
+                    return;
+                }
+
+                if (clock is null)
+                    Log.Notice($"The time server of the SSH logins hands out the clock of this {Kind.Name} as an uncalibrated local clock (stratum 1, LOCL): it is not checked against NTS.",
+                               "ssh", "nts", "clock");
+
+                else if (clock.IsSynchronised)
+                    Log.Notice($"The time server of the SSH logins hands out the clock of this {Kind.Name} at stratum {clock.Stratum}, from {clock.Upstream!.Hostname}, as the check of its clock found it.",
+                               "ssh", "nts", "clock");
+
+                else
+                    Log.Warning($"The time server of the SSH logins says that the clock of this {Kind.Name} is not synchronised, and no station takes its time: " +
+                                clock.Why switch {
+                                    "stale"  => $"its last check is older than {LegalTimeMaxAge.TotalSeconds:F0} s.",
+                                    "offBy"  => $"its last check found it {SignedSeconds(LegalTime.LastCheckOffset ?? TimeSpan.Zero)} off, more than {LegalTimeTolerance.TotalSeconds:0.###} s.",
+                                    _        => "it has not been checked yet."
+                                },
+                                "ssh", "nts", "clock");
+
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"The time server of the SSH logins could not be described anew: {e.Message}", "ssh", "nts", "clock");
+            }
+
+        }
+
+        #endregion
+
+        #region (private) RememberTheLegalUpstream(Verdict, MaxDeviation)
+
+        /// <summary>
+        /// A check of the legal group produced a time: the server it rests on is what the time
+        /// server of the SSH logins names as its reference from now on.
+        /// </summary>
+        private void RememberTheLegalUpstream(org.GraphDefined.Vanaheimr.Norn.TimeSync.TimeSyncVerdict  Verdict,
+                                              TimeSpan                                                MaxDeviation)
+        {
+
+            legalTimeUpstream = TimeServerUpstream.Of(Verdict, MaxDeviation);
+
+            DescribeTheTimeServerOfSSHLogins();
+
+        }
+
+        #endregion
+
         #region (private) SSHNamesAndTimeJSON()
 
         /// <summary>
@@ -359,6 +501,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         {
 
             var timeServer = loginTimeServer;
+            var clock      = TimeServerOfSSHLoginsClock;
             var nts        = sshFile?.NTS;
 
             return (
@@ -374,7 +517,17 @@ namespace cloud.charging.open.protocols.WWCP.Node
                            new JProperty("subsystem",   NTSKE_SSH.SubsystemName),
                            new JProperty("ntpPort",     (timeServer?.UDPPort ?? nts?.NTPPortInEffect ?? SSHTimeServiceConfiguration.DefaultNTPPort).ToUInt16()),
                            new JProperty("ntpHost",     nts?.NTPHost),
-                           new JProperty("masterKeys",  NTSMasterKeysPath)
+                           new JProperty("plainNTP",    timeServer?.PlainNTP ?? nts?.PlainNTPInEffect ?? false),
+                           new JProperty("masterKeys",  NTSMasterKeysPath),
+                           new JProperty("clock",       timeServer is null
+                                                            ? null
+                                                            : new JObject(
+                                                                  new JProperty("stratum",       timeServer.Stratum),
+                                                                  new JProperty("reference",     clock?.Upstream?.Hostname ?? (clock is null ? "LOCL" : null)),
+                                                                  new JProperty("synchronised",  clock?.IsSynchronised ?? true),
+                                                                  new JProperty("checked",       clock is not null),
+                                                                  new JProperty("why",           clock?.Why)
+                                                              ))
                        )
                    );
 
