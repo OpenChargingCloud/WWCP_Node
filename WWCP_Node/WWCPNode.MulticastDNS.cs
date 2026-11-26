@@ -562,6 +562,9 @@ namespace cloud.charging.open.protocols.WWCP.Node
                     return;
                 }
 
+                // The services it announces, at that name (B.6).
+                records.AddRange(ServiceRecordsAt(name));
+
                 multicastDNSPublication = await responder.PublishAsync(records).ConfigureAwait(false);
                 responderState          = multicastDNSPublication.State.ToString();
 
@@ -954,7 +957,13 @@ namespace cloud.charging.open.protocols.WWCP.Node
                        new JProperty("name",        MulticastDNSLocalName),
                        new JProperty("state",       responderState),
                        new JProperty("addresses",   new JArray(responderAddresses)),
-                       new JProperty("problem",     responderProblem)
+                       new JProperty("problem",     responderProblem),
+                       new JProperty("services",    new JArray(AnnouncedServices.Select(service => new JObject(
+                                                          new JProperty("serviceType",  service.ServiceType),
+                                                          new JProperty("instance",     service.Instance),
+                                                          new JProperty("port",         service.Port.ToUInt16()),
+                                                          new JProperty("text",         new JArray(service.Text))
+                                                      ))))
                    )),
                    new JProperty("available",   new JArray(MulticastInterfaces().Select(available => new JObject(
                                                     new JProperty("name",       available.Name),

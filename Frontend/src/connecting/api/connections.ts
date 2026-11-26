@@ -364,6 +364,24 @@ export interface ConnectionTest {
  * a back end that has more than one, connected to when the one connected to now cannot be
  * reached.
  */
+/** A back end a host on the link announces by DNS-SD (mDNS-Concept.md, B.6). */
+export interface FoundService {
+    serviceType:  string;
+    instance:     string;
+    host:         string | null;
+    port:         number | null;
+    text:         string[];
+    addresses:    string[];
+    /** The URL a connection to it is made with, where it says enough. */
+    url:          string | null;
+}
+
+/** What a search of the link found, and whether Multicast DNS is on at all. */
+export interface FoundServices {
+    multicast:  boolean;
+    services:   FoundService[];
+}
+
 export type ConnectionStatus = 'connected' | 'lost' | 'trying' | 'refused' | 'notConnected' | 'failed' | 'standby' | 'waiting' | 'awaitingConfirmation';
 
 /** What became of one connection this station made, and since when. */
@@ -513,6 +531,10 @@ export const connectionsAPI = {
          */
         confirmKey:          (id: string, key: string) =>
                                  request<StationConnections>('POST', '/configuration/connections/confirmKey', { id, key }),
+
+        /** The back ends the hosts on the link announce by DNS-SD; slow on purpose - it listens for three seconds. */
+        discover:            () =>
+                                 request<FoundServices>('POST', '/configuration/connections/discover', {}),
 
         /** Turn the key of a server that waits for an admin down: the connection is not made until it is saved again. */
         rejectKey:           (id: string) =>

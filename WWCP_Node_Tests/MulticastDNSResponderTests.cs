@@ -385,6 +385,59 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region AServiceIsAnnouncedAndFound()
+
+        /// <summary>
+        /// DNS-SD (mDNS-Concept.md, B.6): a service announced by a node that
+        /// answers for its name is found by another node - its host, its port,
+        /// its TXT strings and the URL a connection is made with -; withdrawn,
+        /// it is not found any more; and a node with Multicast DNS off finds
+        /// nothing, and asks nothing.
+        /// </summary>
+        [Test]
+        public async Task AServiceIsAnnouncedAndFound()
+        {
+
+            var lc       = Node("lc", "10.0.0.2", """{ "responder": { "enabled": true, "hostName": "lc1" } }""");
+            var station  = Node("cs", "10.0.0.3", """{ "enabled": true }""");
+            var off      = Node("off", "10.0.0.4", """{ "enabled": false }""");
+
+            lc.AnnounceService(new MulticastDNSService("_ocpp._tcp", "lc1", IPPort.Parse(8443), [ "tls=1", "path=/", "id=lc1" ]));
+
+            await lc.Start();
+            Assert.That(await ResponderState(lc, "Published"), Is.EqualTo("Published"));
+
+            var found    = await station.DiscoverAsync("_ocpp._tcp", TimeSpan.FromSeconds(2));
+            var nothing  = await off.    DiscoverAsync("_ocpp._tcp", TimeSpan.FromMilliseconds(500));
+
+            Assert.Multiple(() => {
+                Assert.That(found,                         Has.Count.EqualTo(1));
+                Assert.That(found[0].Instance,             Is.EqualTo("lc1"));
+                Assert.That(found[0].Host,                 Is.EqualTo("lc1.local."));
+                Assert.That(found[0].Port,                 Is.EqualTo(8443));
+                Assert.That(found[0]["tls"],               Is.EqualTo("1"));
+                Assert.That(found[0].URL,                  Is.EqualTo("wss://lc1.local:8443/"));
+                Assert.That(nothing,                       Is.Empty);
+                Assert.That(transportOptions,              Has.Count.EqualTo(2), "The node with Multicast DNS off made a transport.");
+            });
+
+            Assert.That(lc.WithdrawService("_ocpp._tcp", "lc1"), Is.True);
+
+            // Published anew without it: its goodbye said, and the name announced again.
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < until &&
+                   ((lc.DNSConfigurationJSON()["multicast"]?["responder"]?["services"] as JArray)?.Count > 0 ||
+                    lc.DNSConfigurationJSON()["multicast"]?["responder"]?["state"]?.Value<String>() != "Published"))
+                await Task.Delay(20);
+
+            var gone = await station.DiscoverAsync("_ocpp._tcp", TimeSpan.FromSeconds(2));
+
+            Assert.That(gone, Is.Empty, "A service withdrawn was still found.");
+
+        }
+
+        #endregion
+
         #region OverRealUDP()
 
         /// <summary>

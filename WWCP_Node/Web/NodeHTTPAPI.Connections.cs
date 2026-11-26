@@ -83,6 +83,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
             AddHandler(HTTPPath.Root + "v1/configuration/connections/test",       PostTestConnection,        HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/confirmKey", PostConfirmKey,            HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/rejectKey",  PostRejectKey,             HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/discover",   PostDiscover,              HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners",         PostPinSetSigner,        HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners/remove",  PostRemovePinSetSigner,  HTTPMethod.POST);
 
@@ -508,6 +509,44 @@ namespace cloud.charging.open.protocols.WWCP.Node.Web
                        "ocpp", "connections", "web", "security");
 
             return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections/discover: the back ends the
+        /// hosts on the link announce by DNS-SD - "_ocpp._tcp" and
+        /// "_ocpp-ssh._tcp" (mDNS-Concept.md, B.6 and Q8) -, listened for for
+        /// three seconds, each with the URL a connection to it is made with.
+        /// Nothing where Multicast DNS is switched off, and said so.
+        /// </summary>
+        /// <remarks>
+        /// At the right to run the connection test: it sends to the link. What
+        /// it finds is offered, never connected to: a connection made of it asks
+        /// an admin to confirm the key of its server.
+        /// </remarks>
+        protected async Task<HTTPResponse> PostDiscover(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Run(connectionsResource!), true, out var user, out var refused))
+                return refused;
+
+            if (!Node.MulticastDNSEnabled)
+                return JSONResponse(Request, HTTPStatusCode.OK, new JObject(
+                                                                    new JProperty("multicast",  false),
+                                                                    new JProperty("services",   new JArray())
+                                                                ));
+
+            Log.Info($"'{user.Id}' asked this node which back ends the link announces.", "ocpp", "connections", "mdns", "web");
+
+            var overWebSockets  = Node.DiscoverAsync("_ocpp._tcp",     CancellationToken: Request.CancellationToken);
+            var overSSH         = Node.DiscoverAsync("_ocpp-ssh._tcp", CancellationToken: Request.CancellationToken);
+
+            await Task.WhenAll(overWebSockets, overSSH);
+
+            return JSONResponse(Request, HTTPStatusCode.OK, new JObject(
+                                                                new JProperty("multicast",  true),
+                                                                new JProperty("services",   new JArray(overWebSockets.Result.Concat(overSSH.Result).Select(found => found.ToJSON())))
+                                                            ));
 
         }
 

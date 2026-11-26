@@ -1,4 +1,4 @@
-import { connectionsAPI as api, type ConnectionIdentity, type ConnectionState, type ConnectionTest, type ConnectionTestAsks, type ConnectionToSave, type LoginToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type SignatureFormatsOfAConnection, type ConnectionPeer, type StationConnection, type StationConnections, inEnglish, textOf } from '../api/connections';
+import { connectionsAPI as api, type ConnectionIdentity, type ConnectionState, type ConnectionTest, type ConnectionTestAsks, type ConnectionToSave, type LoginToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type SignatureFormatsOfAConnection, type ConnectionPeer, type FoundService, type FoundServices, type StationConnection, type StationConnections, inEnglish, textOf } from '../api/connections';
 import { auth } from '../auth';
 import { credentialsPanel } from './authentication';
 import { connectionsResource, farEnd, loginServer, nodeNoun, nodeNounInFull, nodeTraits } from '../settings';
@@ -138,6 +138,11 @@ export const connectionsPage: Page = {
         // host and show it a credential, which is more than reading a page and
         // less than changing what the station does.
         const mayTest   = auth.can(connectionsResource(), 'run');
+
+        /** What a search of the link found last, and whether one is going on. */
+        let found: FoundServices | null = null;
+        let searching = false;
+        let foundError: string | null = null;
 
         /**
          * The connections there are, first: what somebody comes to look at.
@@ -324,6 +329,10 @@ export const connectionsPage: Page = {
 
             if (adding !== null)
                 render(adding, html`
+
+                    <section class="card" id="found">
+                        ${foundView()}
+                    </section>
 
                     <section class="card">
 
@@ -1286,6 +1295,101 @@ export const connectionsPage: Page = {
                 if (!cancelled)
                     error.textContent = errorMessage(problem);
             }
+
+        }
+
+        /**
+         * The back ends the hosts on the link announce by DNS-SD
+         * (mDNS-Concept.md, B.6): asked for at a button, each offered as the
+         * URL of a new connection - which asks an admin to confirm the key of
+         * its server before anything goes over it.
+         */
+        function foundView(): TemplateResult {
+
+            return html`
+                <h2><i class="fa-solid fa-tower-broadcast"></i> Found in this network</h2>
+                <p class="hint">
+                    Back ends that announce themselves on the local network by Multicast DNS. Nobody vouches for who
+                    answers: a connection made of one asks an admin to confirm the key its server shows.
+                </p>
+                <div class="form-actions">
+                    <button type="button" class="btn small" id="discover" ?disabled=${!mayTest || searching} @click=${() => void discover()}>
+                        <i class="fa-solid fa-magnifying-glass"></i> ${searching ? 'Listening ...' : 'Look in this network'}
+                    </button>
+                    <span id="found-error" class="form-error" role="alert">${foundError ?? ''}</span>
+                </div>
+                ${found === null ? nothing
+                  : !found.multicast ? html`<p class="hint" id="found-none">Multicast DNS is switched off on this ${nodeNoun()}: switch it on on the DNS page to look.</p>`
+                  : found.services.length === 0 ? html`<p class="hint" id="found-none">Nothing answered.</p>`
+                  : html`
+                      <div class="kv-list" id="found-list">
+                          ${found.services.map(service => html`
+                              <div class="kv">
+                                  <span class="k">${service.instance} <span class="hint">${service.serviceType}</span></span>
+                                  <span class="v"><code>${service.url ?? service.host ?? '?'}</code>
+                                      ${service.url !== null && mayManage
+                                            ? html`<button type="button" class="btn small" data-use="${service.instance}" @click=${() => use(service)}>Use</button>`
+                                            : nothing}</span>
+                              </div>
+                          `)}
+                      </div>
+                  `}
+            `;
+
+        }
+
+        async function discover(): Promise<void> {
+
+            searching   = true;
+            foundError  = null;
+            drawFound();
+
+            try
+            {
+                found = await api.connections.discover();
+            }
+            catch (problem)
+            {
+                foundError = errorMessage(problem);
+            }
+            finally
+            {
+                searching = false;
+                if (!cancelled)
+                    drawFound();
+            }
+
+        }
+
+        function drawFound(): void {
+            // On the tab of a new connection, which is no part of the list.
+            const card = (adding ?? content).querySelector<HTMLElement>('#found');
+            if (card !== null)
+                render(card, foundView());
+        }
+
+        /** A found back end as the URL - and, where none is typed, the description - of the new connection. */
+        function use(service: FoundService): void {
+
+            const form = (adding ?? content).querySelector<HTMLFormElement>('#add-form');
+
+            if (form === null || service.url === null)
+                return;
+
+            const url          = form.querySelector<HTMLInputElement>('[name="url"]');
+            const description  = form.querySelector<HTMLInputElement>('[name="description"]');
+
+            if (url !== null) {
+                url.value = service.url;
+                url.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
+            if (description !== null && description.value.trim() === '') {
+                description.value = service.instance;
+                description.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
+            url?.focus();
 
         }
 

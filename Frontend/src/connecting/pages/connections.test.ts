@@ -126,6 +126,9 @@ function station({ method, path, body }: Asked): unknown {
                                                                    : one) };
         return held;
     }
+    if (path === '/configuration/connections/discover')
+        return { multicast: true, services: [ { serviceType: '_ocpp._tcp', instance: 'lc1', host: 'lc1.local.', port: 8443, text: [ 'tls=1', 'path=/' ],
+                                                addresses: [ '192.168.1.20' ], url: 'wss://lc1.local:8443/' } ] };
     if (path === '/configuration/connections/rejectKey') {
         const { id } = body as { id: string };
         rejected.push(id);
@@ -1031,6 +1034,24 @@ describe('the Connections page', () => {
 
         assert.deepEqual(sshOptions, [ 'None', 'HostKey', 'Ask' ]);
         assert.deepEqual(keyOptions, [ 'None', 'Key', 'Ask' ]);
+
+    });
+
+
+    it('looks in this network for back ends, and takes one found as the URL of a new connection', async () => {
+
+        const root = await opened();
+
+        root.querySelector<HTMLButtonElement>('#discover')!.click();
+
+        await until(() => root.querySelector('#found-list') !== null, 'nothing found was shown');
+
+        assert.match(root.querySelector('#found-list')?.textContent ?? '', /lc1[\s\S]*_ocpp\._tcp[\s\S]*wss:\/\/lc1\.local:8443\//);
+
+        root.querySelector<HTMLButtonElement>('[data-use="lc1"]')!.click();
+
+        assert.equal(field(root, '#add-form', 'url').value,          'wss://lc1.local:8443/');
+        assert.equal(field(root, '#add-form', 'description').value,  'lc1');
 
     });
 
