@@ -463,9 +463,12 @@ signing slows down nothing measured, and it costs no cookie. Every signed
 response goes into the metrological log: the server, the key it names,
 whether the signature is that key's - checked against the public keys its key
 exchange fetched - and the response itself in Base64. A signature that isn't
-the key's is a critical security entry. A server is asked where any entry for
-it asks; a change lets go of the key exchange. Each server's answer in a sync
-says `signed`.
+the key's is a critical security entry. A server asked for one counts toward
+the quorum and in the median only where its signature checked: one that sent
+no signed response, or one signed by a key that isn't its own or that its key
+exchange didn't name, is not trusted, however well its answer authenticated.
+A server is asked where any entry for it asks; a change lets go of the key
+exchange. Each server's answer in a sync says `signed`.
 
 `"ssh": { … }` has the server's key exchange go over SSH instead of TLS - the
 subsystem `ntske/1@open.charging.cloud` of the white paper "NTS Key

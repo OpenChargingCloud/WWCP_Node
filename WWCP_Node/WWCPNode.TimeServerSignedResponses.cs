@@ -118,12 +118,14 @@ namespace cloud.charging.open.protocols.WWCP.Node
 
         #endregion
 
-        #region (private) WriteDownSignedResponses(Results)
+        #region (protected) WriteDownSignedResponses(Results)
 
         /// <summary>
-        /// Write every signed response of a round into the metrological log.
+        /// Write every signed response of a round into the metrological log - of
+        /// the node's own check of its time servers, and of whatever else a kind of
+        /// node measures them for: an NTS server following upstream servers.
         /// </summary>
-        private void WriteDownSignedResponses(IEnumerable<NTSMeasurementResult> Results)
+        protected void WriteDownSignedResponses(IEnumerable<NTSMeasurementResult> Results)
         {
 
             foreach (var result in Results)
