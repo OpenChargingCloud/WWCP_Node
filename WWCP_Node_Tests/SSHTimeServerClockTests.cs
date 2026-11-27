@@ -211,6 +211,56 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
         #endregion
 
+        #region ACheckGrownOld_IsSaidAtTheNextDescription
+
+        /// <summary>
+        /// No check says that the last one grows old: the timer of the time server says it.
+        /// Checked and found right, then the node's clock an hour and a minute on, past the
+        /// maximum age of a check: once the timer of every 30 seconds has run, the time server
+        /// says it is not synchronised, as "stale", and the log says so.
+        /// </summary>
+        [Test]
+        [CancelAfter(120000)]
+        public async Task ACheckGrownOld_IsSaidAtTheNextDescription(CancellationToken CancellationToken)
+        {
+
+            var nodeClock       = new Ticking();
+            var (node, ntpPort) = await Started(Clock: nodeClock);
+
+            await Check(node);
+
+            var right           = await AskPlainAsync(ntpPort);
+
+            nodeClock.By        = node.LegalTimeMaxAge + TimeSpan.FromMinutes(1);
+
+            var describers      = nodeClock.Every(WWCPNode.TimeServerDescribedEvery);
+
+            foreach (var describer in describers)
+                describer.Callback(describer.State);
+
+            var stale           = await AskPlainAsync(ntpPort);
+            var staleJSON       = node.SSHConfigurationJSON()["nts"]!["clock"]!;
+
+            Assert.Multiple(() => {
+
+                Assert.That(WWCPNode.TimeServerDescribedEvery,             Is.EqualTo(TimeSpan.FromSeconds(30)));
+                Assert.That(describers,                                    Is.Not.Empty, "no timer of every 30 seconds");
+
+                Assert.That(LeapIndicatorOf(right),                        Is.EqualTo(0));
+                Assert.That(right[1],                                      Is.EqualTo(3));
+
+                Assert.That(LeapIndicatorOf(stale),                        Is.EqualTo(3),   "a check older than its maximum age is handed out as synchronised");
+                Assert.That(stale[1],                                      Is.EqualTo(16));
+                Assert.That(staleJSON["synchronised"]?.Value<Boolean>(),   Is.False);
+                Assert.That(staleJSON["why"]?.Value<String>(),             Is.EqualTo("stale"));
+                Assert.That(Said("its last check is older than"),          Is.True, "the log does not say it");
+
+            });
+
+        }
+
+        #endregion
+
         #region AClockNotChecked_IsAnUncalibratedLocalClock
 
         /// <summary>
@@ -238,9 +288,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
         #endregion
 
 
-        #region (private) Started(LegalEnabled = true)
+        #region (private) Started(LegalEnabled = true, Clock = null)
 
-        private async Task<(WWCPNode Node, IPPort NTPPort)> Started(Boolean LegalEnabled = true)
+        private async Task<(WWCPNode Node, IPPort NTPPort)> Started(Boolean        LegalEnabled  = true,
+                                                                   TimeProvider?  Clock         = null)
         {
 
             var ntpPort        = FindFreeUDPPort();
@@ -271,7 +322,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
                                         CertificatesPath:  Path.Combine(directory, "certificates"),
                                         DNSClient:         dns,
                                         LogToConsole:      false,
-                                        BridgeDebugLog:    false);
+                                        BridgeDebugLog:    false,
+                                        TimeProvider:      Clock);
 
                 Assert.That(made.Certificates.Import(System.Text.Encoding.ASCII.GetBytes(ca.ExportCertificatePem()),
                                                      CertificateKind.TLSRoot, null, "SSH Time Server Clock Test CA", out _, out var error),
@@ -406,6 +458,46 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
 
             public override DateTimeOffset GetUtcNow()
                 => TimeProvider.System.GetUtcNow() + By;
+
+        }
+
+        #endregion
+
+        #region (private) Ticking
+
+        /// <summary>
+        /// The node's clock, set ahead by as much as a test says, whose timers run as the system
+        /// ones do and are remembered, so that a test can run one when it wants, not 30 seconds
+        /// later.
+        /// </summary>
+        private sealed class Ticking : TimeProvider
+        {
+
+            private readonly List<(TimerCallback Callback, Object? State, TimeSpan Period)> timers = [];
+
+            public TimeSpan By { get; set; }
+
+            public override DateTimeOffset GetUtcNow()
+                => TimeProvider.System.GetUtcNow() + By;
+
+            public override ITimer CreateTimer(TimerCallback  Callback,
+                                               Object?        State,
+                                               TimeSpan       DueTime,
+                                               TimeSpan       Period)
+            {
+                lock (timers)
+                    timers.Add((Callback, State, Period));
+                return base.CreateTimer(Callback, State, DueTime, Period);
+            }
+
+            /// <summary>
+            /// The timers made to run every so often.
+            /// </summary>
+            public IReadOnlyList<(TimerCallback Callback, Object? State, TimeSpan Period)> Every(TimeSpan Period)
+            {
+                lock (timers)
+                    return [.. timers.Where(timer => timer.Period == Period)];
+            }
 
         }
 
