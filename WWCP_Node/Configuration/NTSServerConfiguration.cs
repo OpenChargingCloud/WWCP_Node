@@ -52,6 +52,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <param name="NTSKEHostname">The key exchange server its keys and cookies come from, where it is another than the server itself, or null.</param>
     /// <param name="SignedResponses">Whether it is asked for a digitally signed response after every measurement, which goes into the metrological log.</param>
     /// <param name="SSH">How its key exchange goes over SSH instead of TLS, or null for NTS-KE over TLS - see <see cref="NTSServerSSH"/>.</param>
+    /// <param name="Versions">The versions of NTP it is asked in, the preferred one first - 5 and 4 - or null for <see cref="DefaultVersions"/>; see <see cref="TryParseVersions"/>.</param>
     public sealed record NTSServerConfiguration(DomainName       Hostname,
                                                 Byte             Priority           = 0,
                                                 IPPort?          NTSKEPort          = null,
@@ -66,10 +67,17 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                                 Double?          DelayVarAsymmetry  = null,
                                                 DomainName?      NTSKEHostname      = null,
                                                 Boolean          SignedResponses    = false,
-                                                NTSServerSSH?    SSH                = null)
+                                                NTSServerSSH?    SSH                = null,
+                                                IReadOnlyList<Byte>? Versions       = null)
     {
 
         #region Data
+
+        /// <summary>
+        /// The versions of NTP a server is asked in where its entry names none:
+        /// NTPv4 alone, as the Secure Time Synchronization white paper has it.
+        /// </summary>
+        public static readonly IReadOnlyList<Byte> DefaultVersions = [ 4 ];
 
         /// <summary>
         /// The longest a server's id may be: what OCPP allows for the instance
@@ -170,8 +178,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             => Pins?.OnMismatch ?? PinMismatch.Refuse;
 
         /// <summary>
-        /// Whether its key exchange goes over SSH: NTSv4SSH in the OCPP Device
-        /// Model, NTSv4 otherwise.
+        /// Whether its key exchange goes over SSH: NTSSSH in the OCPP Device
+        /// Model, NTS otherwise.
         /// </summary>
         public Boolean      IsOverSSH
             => SSH is not null;
@@ -202,7 +210,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                     DelayAsymmetry:         DelayAsymmetry,
                     DelayVarAsymmetry:      DelayVarAsymmetry,
                     NTSKEHost:              NTSKEHostname,
-                    SignedResponses:        SignedResponses);
+                    SignedResponses:        SignedResponses,
+                    NTPVersions:            Versions ?? DefaultVersions);
 
         #endregion
 
@@ -328,6 +337,103 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
             Algorithm = default;
             return false;
+
+        }
+
+        #endregion
+
+        #region (static) VersionNameOf(Version) / VersionsText(Versions) / TryParseVersions(JSON, Path, SignedResponses, out Versions, out Error)
+
+        /// <summary>
+        /// A version of NTP as the file, the page and OCPP name it: "v5", "v4".
+        /// </summary>
+        public static String VersionNameOf(Byte Version)
+
+            => $"v{Version}";
+
+        /// <summary>
+        /// The versions a server is asked in, as a sentence says them: "NTPv5 and
+        /// NTPv4", "NTPv4 alone".
+        /// </summary>
+        public static String VersionsText(IReadOnlyList<Byte> Versions)
+
+            => Versions.Count == 1
+                   ? $"NTPv{Versions[0]} alone"
+                   : String.Join(" and ", Versions.Select(version => $"NTPv{version}"));
+
+        /// <summary>
+        /// Read the "versions" of a server's entry: the versions of NTP it is
+        /// asked in, the preferred one first, as "v5" and "v4" - or null where the
+        /// entry names none, for <see cref="DefaultVersions"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Each once, and at least one. NTPv4 alone, as the default is, reads as
+        /// none, so that it is written back as nothing.
+        /// </para>
+        /// <para>
+        /// Not NTPv5 for a server asked for signed responses: the signed second
+        /// response is an extension of NTPv4, and a server asked in NTPv5 would
+        /// either sign nothing or have to be asked in NTPv4 behind the entry's
+        /// back.
+        /// </para>
+        /// </remarks>
+        public static Boolean TryParseVersions(JObject                                JSON,
+                                               String                                 Path,
+                                               Boolean                                SignedResponses,
+                                               out IReadOnlyList<Byte>?               Versions,
+                                               [NotNullWhen(false)] out String?       Error)
+        {
+
+            Versions = null;
+
+            if (!ConfigurationReader.TryReadStrings(JSON, "versions", Path, 2, 2, out var names, out Error))
+                return false;
+
+            if (names is null)
+                return true;
+
+            var versions = new List<Byte>();
+
+            foreach (var name in names)
+            {
+
+                Byte? version = name.ToLowerInvariant() switch {
+                                    "v5" => 5,
+                                    "v4" => 4,
+                                    _    => null
+                                };
+
+                if (version is not Byte known)
+                {
+                    Error = $"'{Path}.versions': '{name}' is not a version of NTP this node asks in, which are v5 and v4.";
+                    return false;
+                }
+
+                if (versions.Contains(known))
+                {
+                    Error = $"'{Path}.versions' names {name} twice.";
+                    return false;
+                }
+
+                versions.Add(known);
+
+            }
+
+            if (versions.Count == 0)
+            {
+                Error = $"'{Path}.versions' names no version: leave it out for v4 alone.";
+                return false;
+            }
+
+            if (SignedResponses && versions.Contains(5))
+            {
+                Error = $"'{Path}': a server asked for signed responses is asked in v4 alone, as a signed response is an extension of NTPv4.";
+                return false;
+            }
+
+            Versions = versions.SequenceEqual(DefaultVersions) ? null : versions;
+            return true;
 
         }
 
@@ -514,6 +620,10 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (!ConfigurationReader.TryReadBoolean(json, "signedResponses", where, out var signedResponses, out Error))
                 return false;
 
+            // The versions of NTP it is asked in, the preferred one first.
+            if (!TryParseVersions(json, $"{Section}.servers[{Index}]", signedResponses ?? false, out var versions, out Error))
+                return false;
+
             // The key exchange server its keys and cookies come from, where it
             // is another than the server itself.
             if (!ConfigurationReader.TryReadString(json, "ntsKEHostname", $"{Section}.servers[{Index}]", 253, out var ntsKEHostname, out Error))
@@ -594,7 +704,8 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
                                 // no other one.
                                 keyExchange is not null && !keyExchange.Equals(domainName) ? keyExchange : null,
                                 signedResponses ?? false,
-                                ssh
+                                ssh,
+                                versions
                             );
 
             return true;
@@ -615,7 +726,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
         public JToken ToJSON()
         {
 
-            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && NTSKEHostname is null && !SignedResponses && Pins?.SaysAnything != true && SSH is null)
+            if (Id is null && Priority == 0 && NTSKEPort is null && NTPPort is null && Enabled && AEAD is null && !SetsRefresh(this) && !SetsCorrection(this) && NTSKEHostname is null && !SignedResponses && Pins?.SaysAnything != true && SSH is null && Versions is null)
                 return Hostname.ToString();
 
             var json = new JObject();
@@ -635,6 +746,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
             if (DelayVarAsymmetry.HasValue) json.Add("delayVarAsymmetry", DelayVarAsymmetry.Value);
             if (NTSKEHostname is not null)  json.Add("ntsKEHostname",     NTSKEHostname.ToString());
             if (SignedResponses)            json.Add("signedResponses",   true);
+            if (Versions is not null)       json.Add("versions",          new JArray(Versions.Select(VersionNameOf)));
 
             Pins?.WriteInto(json);
 
@@ -678,7 +790,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
 
         public override String ToString()
 
-            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(SetsCorrection(this) ? $" - offsets corrected {CorrectionText(DelayAsymmetry, DelayVarAsymmetry)}" : "")}{(NTSKEHostname is not null ? $" - keys from {NTSKEHostname.Trimmed}" : "")}{(SignedResponses ? " - signed responses" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
+            => $"{Hostname}{(Priority != 0 ? $" (priority {Priority})" : "")}{(Enabled ? "" : " - switched off")}{(AEAD is { } aead ? $" - offered {AEADNameOf(aead)} alone" : "")}{(SetsRefresh(this) ? $" - key exchange again after {RefreshText(RefreshOf(this))}" : "")}{(SetsCorrection(this) ? $" - offsets corrected {CorrectionText(DelayAsymmetry, DelayVarAsymmetry)}" : "")}{(NTSKEHostname is not null ? $" - keys from {NTSKEHostname.Trimmed}" : "")}{(SignedResponses ? " - signed responses" : "")}{(Versions is { } versions ? $" - asked in {VersionsText(versions)}" : "")}{(Pins?.SaysAnything == true ? $" - held to {Pins}" : "")}";
 
         #endregion
 

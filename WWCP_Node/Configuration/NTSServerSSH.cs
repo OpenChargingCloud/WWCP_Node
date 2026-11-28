@@ -75,7 +75,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Configuration
     /// <para>
     /// "ssh" in the entry of a server: { "port", "user", "hostKeyPins",
     /// "hostCAs", "onMismatch" }, every one of them optional - or {
-    /// "connection": "shared" } alone. Its mode is NTSv4SSH in the OCPP
+    /// "connection": "shared" } alone. Its mode is NTSSSH in the OCPP
     /// Device Model (section 7 of the white paper).
     /// </para>
     /// <para>

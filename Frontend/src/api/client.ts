@@ -1032,7 +1032,12 @@ export interface NTSServerEntry extends PinKeys {
     /** Whether it is asked for a signed response after every measurement, which goes into the metrological log. */
     signedResponses?:   boolean;
     /**
-     * Its key exchange over SSH instead of TLS - NTSv4SSH of the OCPP Device
+     * The versions of NTP it is asked in, the preferred one first: "v5", "v4".
+     * Left out, NTPv4 alone.
+     */
+    versions?:          string[];
+    /**
+     * Its key exchange over SSH instead of TLS - NTSSSH of the OCPP Device
      * Model - and the host key it is held to. Left out, over TLS.
      */
     ssh?:               NTSServerSSH;
@@ -1145,6 +1150,10 @@ export interface NTSTimeSource {
     ntsKEHostname?:     string | null;
     /** Whether its own entry asks for signed responses. */
     signedResponses?:   boolean;
+    /** The versions of NTP its own entry asks it in, or null for NTPv4 alone: what the page sends back with it. */
+    versions?:          string[] | null;
+    /** The version of NTP it is asked in after its last key exchange, "v5" or "v4", or null before one. */
+    ntpVersion?:        string | null;
     /** How its own entry has its key exchange go over SSH, or null where it goes over TLS: what the page sends back with it. */
     ssh?:               NTSServerSSH | null;
     /** The SHA-256 fingerprint of the SSH host key it showed last. */

@@ -921,6 +921,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             PutCorrections();
             PutKeyExchangeHosts();
             PutSignedResponses();
+            PutNTPVersions();
             PutSSH();
 
             // Last, and that is the whole precedence rule: what this
@@ -2460,6 +2461,12 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           new JProperty("ntsKEHostname",  Group.Settings?.Servers?.ElementAtOrDefault(index)?.NTSKEHostname?.ToString()),
                                           // Whether its own entry asks for signed responses.
                                           new JProperty("signedResponses", Group.Settings?.Servers?.ElementAtOrDefault(index)?.SignedResponses ?? false),
+                                          // The versions of NTP its own entry asks it in,
+                                          // or null for NTPv4 alone - what the page sends
+                                          // back; what it is asked in now is ntpVersion.
+                                          new JProperty("versions",       Group.Settings?.Servers?.ElementAtOrDefault(index)?.Versions is { } versions
+                                                                              ? new JArray(versions.Select(NTSServerConfiguration.VersionNameOf))
+                                                                              : null),
                                           // How its own entry has its key exchange go
                                           // over SSH, or null for TLS; and the host key
                                           // the server showed last, and what it came to.
@@ -2470,6 +2477,11 @@ namespace cloud.charging.open.protocols.WWCP.Node
                                           new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
                                           new JProperty("nextExchange",   held?.RefreshAt?.ToString("o")),
                                           new JProperty("aeadAlgorithm",  held?.NTSKEResponse?.AEADAlgorithm.ToString()),
+                                          // The version of NTP it is asked in after its
+                                          // last key exchange: the first of its versions
+                                          // the server agreed to, "v5" or "v4" - or null
+                                          // before a key exchange.
+                                          new JProperty("ntpVersion",     held?.NTSKEResponse is not null ? NTSServerConfiguration.VersionNameOf(held.NTPVersion) : null),
                                           new JProperty("rootCA",         RootCAJSON(held?.NTSKEResponse?.TLSInfo)),
                                           // The certificate the last key exchange
                                           // showed, which is what a pin is written
@@ -3018,6 +3030,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             var wasKeyExchanges   = KeyExchangeHosts();
             var wasOverSSH        = TimeServersOverSSH();
             var wasSigned         = SignedResponseServers();
+            var wasVersions       = NTPVersionsOfServers();
             var wasAuthority      = Group.Authority;
             var wasTolerance      = Group.Tolerance;
             var wasMaxAge         = Group.MaxAge;
@@ -3138,6 +3151,10 @@ namespace cloud.charging.open.protocols.WWCP.Node
             // WWCPNode.TimeServerSignedResponses.cs.
             changed.AddRange(SignedResponseChanges(wasSigned));
 
+            // And which versions of NTP it is asked in - see
+            // WWCPNode.TimeServerVersions.cs.
+            changed.AddRange(NTPVersionChanges(wasVersions));
+
             if (wasQuorum != Group.Sources.MinServers)
                 changed.Add($"quorum = {Group.Sources.MinServers}");
 
@@ -3201,6 +3218,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
             PutCorrections();
             PutKeyExchangeHosts();
             PutSignedResponses();
+            PutNTPVersions();
             PutSSH();
 
             if (Configuration.Enabled.HasValue && Group.Enabled != Configuration.Enabled.Value)

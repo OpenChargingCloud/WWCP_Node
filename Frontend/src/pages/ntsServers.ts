@@ -165,6 +165,9 @@ function sameName(one: string, other: string): boolean {
  * key exchange is made again, where its entry sets that, by the same rule,
  * and how its offsets are corrected.
  *
+ * And the versions of NTP its entry asks it in: left out, the next save of
+ * any server would have it asked in NTPv4 alone again.
+ *
  * And its key exchange over SSH, with the host key it is held to: left out,
  * the next save of any server would have it make its key exchange over TLS,
  * at a port nobody listens on.
@@ -185,6 +188,7 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
     if (source.delayVarAsymmetry != null)  entry.delayVarAsymmetry = source.delayVarAsymmetry;
     if (source.ntsKEHostname)              entry.ntsKEHostname     = readable(source.ntsKEHostname);
     if (source.signedResponses)            entry.signedResponses   = true;
+    if (source.versions?.length)           entry.versions          = [ ...source.versions ];
     if (source.ssh)                        entry.ssh               = { ...source.ssh };
 
     return withPins(entry, draftOf(source.heldTo));

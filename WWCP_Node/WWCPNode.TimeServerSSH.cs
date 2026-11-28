@@ -71,7 +71,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
     /// <summary>
     /// Time servers whose key exchange goes over SSH - the subsystem
     /// "ntske/1@open.charging.cloud" of the white paper "NTS Key Establishment
-    /// over SSH" - instead of TLS: NTSv4SSH in the OCPP Device Model.
+    /// over SSH" - instead of TLS: NTSSSH in the OCPP Device Model.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -134,7 +134,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
         /// <remarks>
         /// SSHClientPublicKey of section 7 of the white paper "NTS Key
         /// Establishment over SSH": a CSMS reads it before it switches a server
-        /// to NTSv4SSH, and enters it at that server.
+        /// to NTSSSH, and enters it at that server.
         /// </remarks>
         public String? NTSKEClientPublicKey
 

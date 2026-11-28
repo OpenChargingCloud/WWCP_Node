@@ -828,7 +828,7 @@ export const ntsPage: Page = {
                     <div class="who">
                         <span class="name">${readable(source.hostname)}</span>
                         <span class="muted small">
-                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.ntsKEHostname ? `, keys from ${readable(source.ntsKEHostname)}` : ''}${source.signedResponses ? ', signed responses' : ''}${source.ssh ? html`, key exchange over SSH: <code class="ssh-url">${sshText(source.ssh, source.hostname)}</code>` : nothing}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
+                            priority ${source.priority}${ports}${source.aead ? `, offered ${source.aead} alone` : ''}${refreshSet(source) ? `, key exchange again after ${refreshText(source, current?.limits ?? {})}` : ''}${correctionText(source) !== null ? `, offsets corrected ${correctionText(source)}` : ''}${source.ntsKEHostname ? `, keys from ${readable(source.ntsKEHostname)}` : ''}${source.signedResponses ? ', signed responses' : ''}${source.versions?.length ? `, asked in ${source.versions.map(version => `NTP${version}`).join(' and ')}` : ''}${source.ntpVersion === 'v5' ? ', now in NTPv5' : ''}${source.ssh ? html`, key exchange over SSH: <code class="ssh-url">${sshText(source.ssh, source.hostname)}</code>` : nothing}${source.enabled ? nothing : html`, <strong>switched off</strong>`}
                         </span>
                     </div>
 

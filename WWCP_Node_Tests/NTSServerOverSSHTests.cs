@@ -43,7 +43,7 @@ namespace cloud.charging.open.protocols.WWCP.Node.Tests
     /// "ssh" in the entry of a time server: its key exchange over SSH - the
     /// subsystem "ntske/1@open.charging.cloud" of the white paper "NTS Key
     /// Establishment over SSH" - instead of TLS, the server held to its host
-    /// key: NTSv4SSH of the OCPP Device Model.
+    /// key: NTSSSH of the OCPP Device Model.
     /// </summary>
     [TestFixture]
     public class NTSServerSSHConfigurationTests

@@ -436,3 +436,15 @@ describe('a name that is already taken', () => {
     });
 
 });
+
+
+describe('a time server asked in NTPv5', () => {
+
+    it('is kept with its versions, or the next save asks it in NTPv4 alone again', () => {
+
+        assert.deepEqual(entryOf(shown('a.example.', { versions: [ 'v5', 'v4' ] }), usual), { hostname: 'a.example', versions: [ 'v5', 'v4' ] });
+        assert.deepEqual(entryOf(shown('a.example.', { versions: null }),           usual), { hostname: 'a.example' });
+
+    });
+
+});

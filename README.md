@@ -470,9 +470,23 @@ exchange didn't name, is not trusted, however well its answer authenticated.
 A server is asked where any entry for it asks; a change lets go of the key
 exchange. Each server's answer in a sync says `signed`.
 
+`"versions": [ "v5", "v4" ]` names the versions of NTP the server is asked in,
+the preferred one first - the white paper's Versions. The key exchange offers
+them as its next protocols in that order, NTPv5 of draft-ietf-ntp-ntpv5-10 as
+`0x8001`, and the server is then checked in the first one it agreed to: in
+NTPv5 under NTS where that is NTPv5, with the cookies of the same key exchange.
+Left out, NTPv4 alone, as before; `[ "v5" ]` alone makes a server that does
+not speak NTPv5 fail its key exchange. A server asked for signed responses is
+asked in `v4` alone, as a signed response is an extension of NTPv4, and an
+entry asking it in `v5` is refused. By the server's name across every group,
+the first entry that names versions deciding; a change gets the server a new
+key exchange at its next check. Each server in the answer shows what its own
+entry names as `versions`, and the version it is checked in after its last key
+exchange as `ntpVersion`.
+
 `"ssh": { … }` has the server's key exchange go over SSH instead of TLS - the
 subsystem `ntske/1@open.charging.cloud` of the white paper "NTS Key
-Establishment over SSH", NTSv4SSH of the OCPP Device Model - for a time server
+Establishment over SSH", NTSSSH of the OCPP Device Model - for a time server
 on a network without a PKI of its own:
 
 ```json
