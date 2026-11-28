@@ -492,6 +492,7 @@ namespace cloud.charging.open.protocols.WWCP.Node
                               ShellHandler         = ServeShellAsync,
                               SftpSessions         = SftpSessionFor,
                               Subsystems           = SubsystemFor,
+                              Destinations         = SSHDestinationFor,
                               AuditSink            = new DelegateAuditSink(Audited),
                               RequireStrictKex     = StrictKex,
                               ShutdownGracePeriod  = TimeSpan.FromSeconds(3),
